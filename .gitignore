@@ -1,0 +1,10 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# macOS
+.DS_Store
+
+# Generated code-graph cache (should never be committed)
+docs/.code-graph/
+**/.code-graph/

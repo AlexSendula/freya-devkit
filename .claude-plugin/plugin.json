@@ -1,0 +1,20 @@
+{
+  "name": "freya-devkit",
+  "version": "0.1.0",
+  "description": "An integrated AI-assisted development toolkit: dependency graphs, documentation, feature specs, security scanning/resolution, and a post-implementation wrap-up workflow that keeps them all in sync.",
+  "author": {
+    "name": "Alex",
+    "email": "dev+github@alexsendula.com"
+  },
+  "license": "MIT",
+  "keywords": [
+    "skills",
+    "code-graph",
+    "dependencies",
+    "documentation",
+    "specs",
+    "security",
+    "workflow",
+    "wrap-up"
+  ]
+}

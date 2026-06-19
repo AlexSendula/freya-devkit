@@ -1,0 +1,17 @@
+{
+  "name": "freya-devkit",
+  "owner": {
+    "name": "Alex",
+    "email": "dev+github@alexsendula.com"
+  },
+  "description": "Freya devkit marketplace — the freya-devkit AI-assisted development plugin.",
+  "plugins": [
+    {
+      "name": "freya-devkit",
+      "source": ".",
+      "description": "Dependency graphs, docs, specs, security scan/resolve, and a wrap-up workflow that keeps them in sync.",
+      "category": "development",
+      "tags": ["dependencies", "documentation", "specs", "security", "workflow"]
+    }
+  ]
+}

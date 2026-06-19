@@ -1,0 +1,54 @@
+{
+  "skill_name": "docs-manager",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Initialize documentation for my Next.js project with PostgreSQL database",
+      "expected_output": "Creates docs/ directory with ARCHITECTURE.md, DATABASE.md, API.md, DEPLOYMENT.md, DEVELOPER.md, STYLE_GUIDE.md, INFRASTRUCTURE.md, SECURITY.md, and README.md index",
+      "expectations": [
+        "Creates docs/ directory",
+        "Creates ARCHITECTURE.md with system overview",
+        "Creates DATABASE.md with schema documentation template",
+        "Creates API.md with endpoint documentation",
+        "Creates DEVELOPER.md with setup instructions",
+        "Creates docs/README.md as index"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Update the API documentation after I added new user endpoints",
+      "expected_output": "Updates docs/API.md with new user endpoints, request/response formats, and examples",
+      "expectations": [
+        "Reads existing API.md if present",
+        "Scans codebase for new endpoints",
+        "Updates API.md with new endpoint documentation",
+        "Includes request/response examples",
+        "Maintains consistent formatting"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Review my project documentation for completeness",
+      "expected_output": "Provides a review of existing docs, identifies gaps, inconsistencies, and outdated information",
+      "expectations": [
+        "Scans existing documentation",
+        "Identifies missing documentation files",
+        "Checks for outdated information",
+        "Provides actionable recommendations",
+        "Lists specific files that need updates"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "I finished implementing the authentication feature, sync the docs",
+      "expected_output": "Updates relevant documentation files to reflect authentication changes - SECURITY.md, API.md, ARCHITECTURE.md",
+      "expectations": [
+        "Identifies affected documentation",
+        "Updates SECURITY.md with auth details",
+        "Updates API.md with auth endpoints",
+        "Updates ARCHITECTURE.md if auth changed system design",
+        "Provides summary of changes made"
+      ]
+    }
+  ]
+}

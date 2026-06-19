@@ -1,0 +1,23 @@
+{
+  "skill_name": "spec-manager",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Initialize the specs structure in my project at /Users/main/Documents/projects/my-saas-app",
+      "expected_output": "Creates /docs/specs/ directory structure with category subdirectories (auth/, api/, data/, features/, infra/, integration/, ui/) and README.md index",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Create a spec for the passkey authentication feature. Users should be able to register and login using passkeys only - no passwords. This is for security reasons - we want to eliminate phishing attacks.",
+      "expected_output": "Creates a spec file with proper frontmatter (id, title, category: auth, tags including authentication/security), What section describing passkey-only auth, Why section explaining phishing prevention, and Intentional Design Decisions documenting no-password-fallback decision",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "I have a project at /Users/main/Documents/projects/api-gateway. Can you scan the codebase and generate specs for all the features? I want to understand what intentional design decisions exist.",
+      "expected_output": "Scans codebase using coordinator + parallel discovery agents, generates specs with certainty scores for different areas (auth, api, data, features, infra), identifies intentional design decisions, and presents low-certainty specs for user clarification",
+      "files": []
+    }
+  ]
+}
