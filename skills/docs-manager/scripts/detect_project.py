@@ -219,6 +219,92 @@ def detect_infrastructure(project_dir: str) -> dict:
     return results
 
 
+def detect_test_runners(project_dir: str) -> dict:
+    """Detect available test runners/frameworks — stateless, on demand.
+
+    Returns {"runners": [...], "evidence": [...]}. An **empty** runners list is
+    a valid, explicit answer (the project has no detectable test tooling) — the
+    Behavior Layer treats "none" as a loud result, not a missing one. No state
+    is persisted; callers re-run detection whenever they need it.
+    """
+    runners = set()
+    evidence = []
+
+    # --- Node / JS: package.json dependencies ---
+    pkg_path = os.path.join(project_dir, "package.json")
+    if os.path.exists(pkg_path):
+        try:
+            with open(pkg_path, "r") as f:
+                pkg = json.load(f)
+            deps = {**pkg.get("dependencies", {}), **pkg.get("devDependencies", {})}
+            dep_map = {
+                "jest": "jest",
+                "vitest": "vitest",
+                "mocha": "mocha",
+                "jasmine": "jasmine",
+                "cypress": "cypress",
+                "@playwright/test": "playwright",
+                "playwright": "playwright",
+                "@cucumber/cucumber": "cucumber",
+                "cucumber": "cucumber",
+                "jest-cucumber": "cucumber",
+            }
+            for dep, runner in dep_map.items():
+                if dep in deps:
+                    runners.add(runner)
+                    evidence.append(f"package.json:{dep}")
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # --- JS config files (a runner configured without an explicit dep entry) ---
+    config_globs = {
+        "jest": ["jest.config.*"],
+        "vitest": ["vitest.config.*"],
+        "playwright": ["playwright.config.*"],
+        "cypress": ["cypress.config.*", "cypress.json"],
+        "mocha": [".mocharc*"],
+    }
+    for runner, patterns in config_globs.items():
+        for pat in patterns:
+            if glob_search(project_dir, pat):
+                runners.add(runner)
+                evidence.append(f"config:{pat}")
+                break
+
+    # --- Python ---
+    py_text = ""
+    for fname in ("requirements.txt", "pyproject.toml", "setup.cfg", "tox.ini"):
+        fpath = os.path.join(project_dir, fname)
+        if os.path.exists(fpath):
+            try:
+                with open(fpath, "r") as f:
+                    py_text += f.read().lower()
+            except OSError:
+                pass
+    if "pytest-bdd" in py_text:
+        runners.add("pytest-bdd")
+        evidence.append("python:pytest-bdd")
+    if "pytest" in py_text or os.path.exists(os.path.join(project_dir, "pytest.ini")):
+        runners.add("pytest")
+        evidence.append("python:pytest")
+    if "behave" in py_text:
+        runners.add("behave")
+        evidence.append("python:behave")
+    # unittest is stdlib (no dependency entry); infer from test-file naming only
+    # when no richer Python runner was found, to avoid noise.
+    if "pytest" not in runners and "pytest-bdd" not in runners:
+        if glob_search(project_dir, "**/test_*.py") or glob_search(project_dir, "**/*_test.py"):
+            runners.add("unittest")
+            evidence.append("glob:test_*.py")
+
+    # --- Gherkin feature files (adapter-agnostic BDD signal) ---
+    if glob_search(project_dir, "**/*.feature"):
+        runners.add("gherkin")
+        evidence.append("glob:*.feature")
+
+    return {"runners": sorted(runners), "evidence": sorted(set(evidence))}
+
+
 def detect_existing_docs(project_dir: str) -> dict:
     """Detect existing documentation."""
     results = {"docs_dir": None, "files": []}
@@ -275,7 +361,8 @@ def analyze_project(project_dir: str = ".") -> dict:
         "database": {},
         "infrastructure": {},
         "existing_docs": {},
-        "needed_docs": []
+        "needed_docs": [],
+        "test_runners": {}
     }
 
     # Run detections
@@ -285,6 +372,7 @@ def analyze_project(project_dir: str = ".") -> dict:
     results["infrastructure"] = detect_infrastructure(project_dir)
     results["existing_docs"] = detect_existing_docs(project_dir)
     results["needed_docs"] = get_needed_docs(results)
+    results["test_runners"] = detect_test_runners(project_dir)
 
     return results
 

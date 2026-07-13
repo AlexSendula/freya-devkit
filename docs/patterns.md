@@ -58,10 +58,10 @@ Commit 1 (code):
   - tests/auth.test.ts
 
 Commit 2 (artifacts):
-  - docs/project/API.md
-  - docs/specs/auth/SPEC-001.md
-  - docs/security-reports/.../2024-03-27.md
-  - docs/.code-graph/graph.json
+  - knowledge-base/reference/API.md
+  - knowledge-base/specs/auth/SPEC-001.md
+  - knowledge-base/security/.../2024-03-27.md
+  - knowledge-base/.graph/graph.json
 ```
 
 **Benefits**:
@@ -70,6 +70,8 @@ Commit 2 (artifacts):
 - No tracking file hacks needed
 
 **Used by**: wrap-up
+
+**Behavior-aware refinement**: a behavior's commit class follows its **lifecycle `state`, not its file location**. A `.feature` scaffold lives under the code tree, but until it is `accepted` and authored (its `TODO(scaffold)` marker gone) it is *intent under review* → it rides the **artifacts** commit (commit 2). Once `accepted`, its test joins the **code** commit (commit 1). `wrap-up` stages accordingly — a `proposed` scaffold is a draft proposal, not a verified guarantee.
 
 **When to use**: When generating artifacts that reference or describe code changes.
 
@@ -96,9 +98,9 @@ Commit 2 (artifacts):
 
 **Tracking files**:
 ```
-docs/specs/.spec-last-update
-docs/security-reports/.security-last-scan
-docs/.code-graph/graph.json (has commit field)
+knowledge-base/specs/.spec-last-update
+knowledge-base/security/.security-last-scan
+knowledge-base/.graph/graph.json (has commit field)
 ```
 
 ## Pattern: Certainty Scoring
@@ -266,3 +268,21 @@ Worker 4: API & Network Security
 **Used by**: docs-manager, codebase-security-scan
 
 **When to use**: When work can be partitioned by domain expertise.
+
+## Pattern: Resolution Logs (resolve-to-proceed governance)
+
+**Problem**: Some governance checks are model *judgment*, not deterministic *facts*. They shouldn't hard-block on confidence alone, but "ignore and push" must not be a silent escape hatch — and the same finding shouldn't re-prompt every run once a human has resolved it.
+
+**Solution**: Append-only JSONL **resolution logs**. Each governance gate triages a finding against prior resolutions and records a verdict, so a resolved finding stays resolved until its inputs change.
+
+```
+knowledge-base/principle-resolutions.jsonl      ← G2 (principles.py)
+knowledge-base/contradiction-resolutions.jsonl  ← G3 (contradictions.py)
+knowledge-base/drift-resolutions.jsonl          ← P4b (drift.py)
+```
+
+One shared core (`resolution_log.py`) provides `append` / `load` / `active`, keyed by a caller-supplied tuple; verdicts include *refuted*, *amended*, *superseded*. A straight code fix is **not** logged — git already records it.
+
+**Used by**: spec-manager governance gates (G2/G3/P4b), driven from wrap-up Phase 3.5
+
+**When to use**: For checks that need human judgment to clear, where you want an auditable, non-repeating record instead of a hard block.

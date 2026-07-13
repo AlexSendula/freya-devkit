@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Architecture — freya-devkit</title>
+  <meta name="description" content="How the ten freya-devkit skills connect: the five tiers, code-graph as the keystone, the shared knowledge-base/ artifact tree, and graceful degradation.">
+  <link rel="stylesheet" href="assets/styles.css">
+  <script src="assets/site.js"></script>
+</head>
+<body>
+  <div id="site-header"></div>
+
+  <div class="doc">
+    <aside class="toc" id="toc"></aside>
+    <div class="doc-body">
+      <span class="eyebrow" style="color:var(--accent-strong);font-weight:650;font-size:.8rem;letter-spacing:.06em;text-transform:uppercase;">Architecture</span>
+      <h1>How the skills fit together</h1>
+      <p class="lead">The skills form a <strong>tiered graph</strong>. One foundation skill derives a
+      dependency graph from your code; everything above it reasons about blast radius. For the most
+      part they don't call each other's code — they cooperate by reading and writing one shared
+      <code>knowledge-base/</code> folder. (The behavior-layer skills are the exception: they reuse
+      <code>spec-manager</code>'s parser in-process and run <code>code-graph</code> as a subprocess.)</p>
+
+      <section>
+        <h2>The five tiers</h2>
+        <p>Each tier depends only on the ones below it. Dependencies are <em>optional</em>: a
+        higher-tier skill uses a lower one when it's installed and degrades gracefully when it isn't.
+        Click any skill to see what it reads and writes.</p>
+
+        <div class="tiers">
+          <div class="tier-lane">
+            <div class="lane-label">1 · Foundation</div>
+            <div class="lane-skills">
+              <button class="tier-node key" data-skill="code-graph">code-graph</button>
+            </div>
+          </div>
+          <div class="tier-lane">
+            <div class="lane-label">2 · Knowledge</div>
+            <div class="lane-skills">
+              <button class="tier-node" data-skill="docs-manager">docs-manager</button>
+              <button class="tier-node" data-skill="spec-manager">spec-manager</button>
+              <button class="tier-node" data-skill="behavior-graph">behavior-graph</button>
+              <button class="tier-node" data-skill="behavior-runner">behavior-runner</button>
+            </div>
+          </div>
+          <div class="tier-lane">
+            <div class="lane-label">3 · Analysis</div>
+            <div class="lane-skills">
+              <button class="tier-node" data-skill="codebase-security-scan">codebase-security-scan</button>
+              <button class="tier-node" data-skill="dependency-vulnerability-check">dependency-vulnerability-check</button>
+            </div>
+          </div>
+          <div class="tier-lane">
+            <div class="lane-label">4 · Orchestration</div>
+            <div class="lane-skills">
+              <button class="tier-node" data-skill="wrap-up">wrap-up</button>
+              <button class="tier-node" data-skill="status">status</button>
+            </div>
+          </div>
+          <div class="tier-lane">
+            <div class="lane-label">5 · Resolution</div>
+            <div class="lane-skills">
+              <button class="tier-node" data-skill="codebase-security-resolver">codebase-security-resolver</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel" id="arch-panel" style="margin-top:4px;">
+          <h4 style="margin:0 0 4px;">Pick a skill above</h4>
+          <p class="placeholder">Its tier, what it reads, what it writes, and how it degrades will appear here.</p>
+        </div>
+
+        <p class="small faint">Tiers 1–5 come from the original design; the behavior-layer skills
+        (<code>behavior-graph</code>, <code>behavior-runner</code>, <code>status</code>) slot into the
+        Knowledge and Orchestration tiers.</p>
+      </section>
+
+      <section>
+        <h2>code-graph, the keystone</h2>
+        <p><code>code-graph</code> is the foundation everything else queries. It parses import/export
+        relationships (via regex, not a full parser) for <strong>TypeScript/JS, Python, and Go</strong>,
+        and builds a <strong>reverse-dependency graph</strong>: for every file, who depends on it. That
+        reverse map is what turns "the file I changed" into "everything my change affects":</p>
+
+        <div class="callout callout--info">
+          <span class="callout-label">Blast radius</span>
+          <p style="font-family:var(--mono);font-size:.95rem;">impact(file) = file + direct_dependents(file) + transitive_dependents(file)</p>
+          <p>Computed with a cycle-safe walk over the reverse edges. Consumers ask for the impact set,
+          then process everything in it — not just the literally-changed files.</p>
+        </div>
+
+        <p>Every import is tagged one of three ways, and the distinction is load-bearing:</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Tag</th><th>Meaning</th></tr></thead>
+            <tbody>
+              <tr><td><code>internal</code> (no prefix)</td><td>Real project wiring — an import that resolved to a file in your project.</td></tr>
+              <tr><td><code>external:&lt;pkg&gt;</code></td><td>A third-party package (recorded as a leaf, never traversed).</td></tr>
+              <tr><td><code>unresolved:&lt;import&gt;</code></td><td>Looked internal but couldn't be mapped to a real file — <em>surfaced, not silently dropped</em>.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>An edge is <strong>internal only when it carries neither prefix</strong>. That predicate is
+        reused elsewhere — for example, <code>spec-manager</code>'s onboarding counts internal edges (not
+        raw file count) to tell a real codebase from a bare scaffold.</p>
+        <p class="small muted">Output lives at <code>knowledge-base/.graph/graph.json</code> +
+        <code>classifications.json</code>. See the <a href="skills.html#code-graph">code-graph skill</a>
+        for the full schema and limits (dynamic imports, monorepos, regex parsing).</p>
+      </section>
+
+      <section>
+        <h2>Composition: artifacts, not calls</h2>
+        <p>The graph and report artifacts are the primary composition surface: most skills cooperate by
+        leaving structured files on disk that the next skill reads — which is what keeps them
+        independently installable and gracefully degradable. (The behavior-layer skills go further and
+        reuse peer code directly — <code>behavior-graph</code> and <code>behavior-runner</code> import
+        <code>spec-manager</code>'s frontmatter parser and run their peers as subprocesses.)</p>
+        <figure class="diagram">
+          <div style="font-family:var(--mono);font-size:.82rem;line-height:2;text-align:left;display:inline-block;">
+<span style="color:var(--accent-strong)">code-graph</span> ──<span class="muted">graph.json</span>──▶ docs-manager, spec-manager, security-scan, behavior-*
+<span style="color:var(--violet)">spec-manager</span> ──<span class="muted">specs/</span>──▶ behavior-graph, security-scan (intentional), status
+<span style="color:var(--teal)">behavior-runner</span> ──<span class="muted">fingerprints (stdout)</span>──▶ behavior-graph
+<span style="color:var(--teal)">behavior-graph</span> ──<span class="muted">behavior.json</span>──▶ status, security-scan (--covering)
+<span style="color:var(--red)">security-scan</span> ──<span class="muted">findings.json / report</span>──▶ status, security-resolver
+<span style="color:var(--amber)">status</span> ──<span class="muted">reads all</span>──▶ BACKLOG.md
+<span style="color:var(--violet)">wrap-up</span> ──<span class="muted">orchestrates</span>──▶ all of the above, two commits</div>
+          <figcaption>Most arrows are files on disk; the exception is <code>behavior-runner</code>, which
+          writes no file and streams its fingerprints to <code>behavior-graph</code> over stdout. Remove
+          any one skill and the readers of its output fall back to a simpler path.</figcaption>
+        </figure>
+      </section>
+
+      <section>
+        <h2>The <code>knowledge-base/</code> tree</h2>
+        <p>Every durable artifact lives under one project-local, version-controlled root. This is the
+        shared substrate — it travels with your branch and diffs in code review.</p>
+
+        <div class="legend">
+          <span><i style="background:var(--accent-strong)"></i> code-graph</span>
+          <span><i style="background:var(--teal)"></i> docs / behavior</span>
+          <span><i style="background:var(--violet)"></i> spec-manager</span>
+          <span><i style="background:var(--red)"></i> security-scan</span>
+          <span><i style="background:var(--amber)"></i> status</span>
+        </div>
+
+        <div class="tree">
+          <div class="row"><span class="path dir">knowledge-base/</span></div>
+          <div class="row"><span class="path">├── README.md</span><span class="own o-docs">docs-manager · index</span></div>
+          <div class="row"><span class="path">├── principles.md</span><span class="own o-spec">spec-manager · constitution</span></div>
+          <div class="row"><span class="path">├── BACKLOG.md</span><span class="own o-status">status · generated</span></div>
+          <div class="row"><span class="path dir">├── reference/</span><span class="own o-docs">docs-manager · ARCHITECTURE.md, API.md …</span></div>
+          <div class="row"><span class="path dir">├── specs/</span><span class="own o-spec">spec-manager · per-feature intent</span></div>
+          <div class="row"><span class="path">│&nbsp;&nbsp; ├── auth/ api/ data/ features/ infra/ integration/ ui/</span></div>
+          <div class="row"><span class="path">│&nbsp;&nbsp; └── .spec-last-update</span><span class="gi">tracking</span></div>
+          <div class="row"><span class="path dir">├── decisions/</span><span class="own o-spec">spec-manager · ADRs</span></div>
+          <div class="row"><span class="path dir">├── intents/</span><span class="own o-spec">spec-manager · INTENT-NNN + .intent-last-verified</span></div>
+          <div class="row"><span class="path dir">├── security/</span><span class="own o-sec">codebase-security-scan</span></div>
+          <div class="row"><span class="path">│&nbsp;&nbsp; ├── codebase-security/YYYY-MM-DD.md</span><span class="gi">prose report</span></div>
+          <div class="row"><span class="path">│&nbsp;&nbsp; ├── codebase-security/findings.json</span><span class="gi">machine index</span></div>
+          <div class="row"><span class="path">│&nbsp;&nbsp; └── .security-last-scan</span><span class="gi">tracking</span></div>
+          <div class="row"><span class="path">├── principle-resolutions.jsonl</span><span class="own o-spec">spec-manager · principle log</span></div>
+          <div class="row"><span class="path">├── contradiction-resolutions.jsonl</span><span class="own o-spec">spec-manager · contradiction log</span></div>
+          <div class="row"><span class="path">├── drift-resolutions.jsonl</span><span class="own o-spec">spec-manager · drift log</span></div>
+          <div class="row"><span class="path dir">└── .graph/</span><span class="own o-code">code-graph · git-ignored cache</span></div>
+          <div class="row"><span class="path">&nbsp;&nbsp;&nbsp; ├── graph.json + classifications.json</span></div>
+          <div class="row"><span class="path">&nbsp;&nbsp;&nbsp; └── behavior.json</span><span class="own o-code" style="color:var(--teal)">behavior-graph</span></div>
+        </div>
+
+        <div class="callout callout--warn">
+          <span class="callout-label">Committed vs regenerable</span>
+          <p>Prose and machine indexes (<code>specs/</code>, <code>reference/</code>,
+          <code>findings.json</code>, <code>BACKLOG.md</code>, the resolution logs) are meant to be
+          <strong>committed</strong>. The <code>.graph/</code> cache is <strong>regenerable</strong>:
+          both graph tools (<code>code-graph</code> and <code>behavior-graph</code>) auto-write a
+          <code>.gitignore</code> containing <code>*</code> into it, so by default the whole graph
+          directory is git-ignored — even though some prose calls the graph "version-controlled."
+          Treat <code>.graph/</code> as a local cache; rebuilding is cheap.</p>
+        </div>
+      </section>
+
+      <section>
+        <h2>Graceful degradation</h2>
+        <p>The contract every impact-aware skill honors: use <code>code-graph</code> if it's available,
+        otherwise fall back to a plain <code>git diff</code> of the directly-changed files — and say so.</p>
+        <div class="grid-2">
+          <div class="card good" style="border-top:3px solid var(--green)">
+            <h4 style="margin-top:0;">code-graph available</h4>
+            <pre class="code" style="font-size:.8rem;"><code>impact = code-graph impact &lt;changed&gt;
+<span class="tok-c"># process the full blast radius:</span>
+<span class="tok-c"># changed files + their dependents</span></code></pre>
+          </div>
+          <div class="card" style="border-top:3px solid var(--amber)">
+            <h4 style="margin-top:0;">code-graph absent (fallback)</h4>
+            <pre class="code" style="font-size:.8rem;"><code>files = git diff &lt;last&gt;..HEAD
+<span class="tok-c"># process directly-changed files only,</span>
+<span class="tok-c"># warn: "reduced coverage"</span></code></pre>
+          </div>
+        </div>
+        <p class="muted">This is why the skills "work standalone but work better together." No skill
+        hard-requires another; missing dependencies narrow coverage rather than breaking the run.</p>
+      </section>
+
+      <section>
+        <h2>Incremental updates &amp; tracking</h2>
+        <p>Full scans are expensive; most changes are localized. So each skill records the last commit
+        it processed in a tracking dotfile and, next time, only reprocesses <code>git diff
+        &lt;last&gt;..HEAD</code> (expanded by blast radius).</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Tracking file</th><th>Owner</th><th>Remembers</th></tr></thead>
+            <tbody>
+              <tr><td><code>graph.json</code> → <code>commit</code></td><td>code-graph</td><td>Commit the graph was built from</td></tr>
+              <tr><td><code>specs/.spec-last-update</code></td><td>spec-manager</td><td>Last commit scanned for specs</td></tr>
+              <tr><td><code>security/.security-last-scan</code></td><td>security-scan</td><td>Last commit scanned for findings</td></tr>
+              <tr><td><code>intents/.intent-last-verified</code></td><td>spec-manager</td><td>Declared-intent baseline</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout callout--danger">
+          <span class="callout-label">Never-synced guard</span>
+          <p>Incremental <code>update</code> assumes a prior sync. On a project with <em>no</em> tracking
+          files, <code>wrap-up</code> must not let <code>update</code> silently trigger a full-codebase
+          generation — it reports the project is unsynced and defers to an explicit first-time
+          <code>scan</code> / <code>build</code>. Running <code>spec-manager bootstrap</code> first is
+          what makes the first <code>wrap-up</code> behave.</p>
+        </div>
+      </section>
+
+      <section>
+        <h2>Where the behavior layer sits</h2>
+        <p>The behavior layer adds a <strong>second graph on top of the first</strong>.
+        <code>behavior.json</code> is a sibling of <code>graph.json</code> under <code>.graph/</code>. It
+        projects your specs' behavior records and links them through tests down to the code they
+        exercise — a <code>SPEC → BEHAVIOR → TEST → CODE</code> chain — then answers blast-radius
+        questions in <em>both</em> directions:</p>
+        <div class="flow">
+          <div class="node intent">SPEC</div><span class="arrow">→</span>
+          <div class="node beh">BEHAVIOR</div><span class="arrow">→</span>
+          <div class="node test">TEST</div><span class="arrow">→</span>
+          <div class="node code">CODE</div>
+        </div>
+        <p><code>behavior-graph</code> stays a pure graph layer: it <em>queries</em> code-graph for
+        impact and <code>behavior-runner</code> for coverage; code-graph never learns about behaviors.
+        The full mechanics live on the <a href="behavior-layer.html">Behavior Layer</a> and
+        <a href="governance.html">Governance</a> pages.</p>
+      </section>
+
+      <div class="next-prev">
+        <a class="np-card" href="index.html"><div class="np-dir">← Back</div><div class="np-title">Overview</div></a>
+        <a class="np-card" href="skills.html" style="text-align:right;"><div class="np-dir">Next →</div><div class="np-title">The Skills</div></a>
+      </div>
+    </div>
+  </div>
+
+  <div id="site-footer"></div>
+
+  <script>
+  (function () {
+    var DATA = {
+      "code-graph": { tier: "1 · Foundation", reads: "Your source (TS/JS, Python, Go) + git", writes: "graph.json, classifications.json", degrades: "It is the foundation — nothing below it.", note: "The keystone. impact(file) = file + direct + transitive dependents." },
+      "docs-manager": { tier: "2 · Knowledge", reads: "Code + code-graph impact + your answers", writes: "knowledge-base/README.md + reference/*.md", degrades: "code-graph absent → git diff of changed files only." },
+      "spec-manager": { tier: "2 · Knowledge", reads: "Code + code-graph + reference/ docs", writes: "specs/, principles.md, decisions/, intents/, resolution logs", degrades: "code-graph absent → git diff; no graph → shape 'unknown'." },
+      "behavior-graph": { tier: "2 · Knowledge", reads: "graph.json + spec frontmatter + behavior-runner fingerprints", writes: "knowledge-base/.graph/behavior.json", degrades: "No graph → --surface/--gaps return an explanatory note." },
+      "behavior-runner": { tier: "2 · Knowledge", reads: "specs + vitest V8 coverage + graph.json closure", writes: "Nothing — prints fingerprint JSON to stdout", degrades: "Unimplemented level → coverage 'unknown' + a reason." },
+      "codebase-security-scan": { tier: "3 · Analysis", reads: "reference/ docs + specs + accepted behaviors + code-graph", writes: "security/codebase-security/YYYY-MM-DD.md + findings.json", degrades: "code-graph absent → changed files only; no specs → warns findings may include intentional design." },
+      "dependency-vulnerability-check": { tier: "3 · Analysis", reads: "Lockfiles + npm/yarn/pnpm audit + WebSearch", writes: "security/dependency-vulnerabilities/YYYY-MM-DD.md", degrades: "Non-Node project → it declines. (Not run by wrap-up.)" },
+      "wrap-up": { tier: "4 · Orchestration", reads: "Working tree + tracking files", writes: "Two commits: code, then all knowledge-base/ artifacts", degrades: "Any missing skill → it warns and skips that step." },
+      "status": { tier: "4 · Orchestration", reads: "specs + behavior.json + findings.json + verify_links", writes: "knowledge-base/BACKLOG.md (only with --write-backlog)", degrades: "Every source degrades to a note independently; never blocks." },
+      "codebase-security-resolver": { tier: "5 · Resolution", reads: "The security report + code-graph blast radius", writes: "A code-fix commit + report/spec status updates", degrades: "Routes stale findings to a terminal state instead of a broken fix." }
+    };
+    var panel = document.getElementById("arch-panel");
+    var nodes = document.querySelectorAll(".tier-node[data-skill]");
+    function show(skill) {
+      var d = DATA[skill]; if (!d) return;
+      nodes.forEach(function (n) { n.classList.toggle("active", n.getAttribute("data-skill") === skill); });
+      panel.innerHTML =
+        '<h4 style="margin:0 0 8px;font-family:var(--mono);text-transform:none;letter-spacing:0;color:var(--text);font-size:1rem;">' + skill + '</h4>' +
+        (d.note ? '<p class="muted" style="margin-top:0;">' + d.note + '</p>' : '') +
+        '<dl class="dl">' +
+          '<div><dt>Tier</dt><dd>' + d.tier + '</dd></div>' +
+          '<div><dt>Reads</dt><dd>' + d.reads + '</dd></div>' +
+          '<div><dt>Writes</dt><dd>' + d.writes + '</dd></div>' +
+          '<div><dt>Degrades</dt><dd>' + d.degrades + '</dd></div>' +
+        '</dl>';
+    }
+    nodes.forEach(function (n) {
+      n.addEventListener("click", function () { show(n.getAttribute("data-skill")); });
+    });
+  })();
+  </script>
+</body>
+</html>

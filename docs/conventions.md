@@ -77,9 +77,9 @@ Display usage information including:
 
 Skills that support incremental updates should:
 
-1. **Track state** in a dotfile:
+1. **Track state** in a dotfile under the skill's `knowledge-base/` output directory:
    ```
-   docs/.my-skill-last-update
+   knowledge-base/<skill-output-dir>/.my-skill-last-update
    ```
 
 2. **Read state** at start:
@@ -155,7 +155,7 @@ Skills that might flag intentional design should:
 
 For each finding:
 1. Identify affected feature/component
-2. Check `/docs/specs/` for matching spec
+2. Check `/knowledge-base/specs/` for matching spec
 3. Look for `intentional_decisions` or `security_implications`
 4. If match found → mark as INTENTIONAL DESIGN
 ```
@@ -166,7 +166,7 @@ For each finding:
 | Field | Value |
 |-------|-------|
 | **Status** | Intentional Design |
-| **Spec Reference** | `docs/specs/features/post-management.md` |
+| **Spec Reference** | `knowledge-base/specs/features/post-management.md` |
 ```
 
 ## Artifact Location Convention
@@ -174,13 +174,18 @@ For each finding:
 Generated artifacts follow this structure:
 
 ```
-docs/
-├── project/           ← Project documentation (docs-manager)
+knowledge-base/
+├── README.md          ← Documentation index (docs-manager)
+├── principles.md      ← Project constitution (spec-manager)
+├── BACKLOG.md         ← Outstanding-work backlog, generated (status)
+├── reference/         ← Project documentation (docs-manager)
 ├── specs/             ← Feature specifications (spec-manager)
-├── security-reports/  ← Security findings (security-scan)
+├── decisions/         ← Cross-cutting ADRs (spec-manager)
+├── intents/           ← Declared-intent records INTENT-NNN (spec-manager)
+├── security/          ← Security findings (security-scan)
 │   └── <scanner-name>/
 │       └── YYYY-MM-DD.md
-└── .code-graph/       ← Dependency data (code-graph)
+└── .graph/            ← Dependency data (code-graph) + behavior.json (behavior-graph)
 ```
 
 New skills should place output in appropriate subdirectories.
@@ -190,14 +195,14 @@ New skills should place output in appropriate subdirectories.
 Dated reports:
 
 ```markdown
-- Location: docs/<type>/<YYYY-MM-DD>.md
+- Location: knowledge-base/<type>/<YYYY-MM-DD>.md
 - Overwrites existing: Yes (same date = same file)
 - History: Use git to see previous versions
 ```
 
 Example:
 ```
-docs/security-reports/codebase-security/2024-03-27.md
+knowledge-base/security/codebase-security/2024-03-27.md
 ```
 
 ## Tracking File Convention
@@ -279,7 +284,7 @@ When creating a skill for this ecosystem:
 3. **Follow patterns** - Coordinator+workers? Incremental updates?
 4. **Document integration** - Add INTEGRATION section to frontmatter
 5. **Provide fallbacks** - What happens if dependencies are missing?
-6. **Place artifacts correctly** - Follow the docs/ structure
+6. **Place artifacts correctly** - Follow the knowledge-base/ structure
 
 ## Integration Checklist
 
@@ -288,7 +293,7 @@ Before considering a skill complete for this ecosystem:
 - [ ] Frontmatter includes TRIGGER phrases
 - [ ] INTEGRATION section documents dependencies
 - [ ] Fallback behavior described if dependencies missing
-- [ ] Artifacts placed in appropriate docs/ subdirectory
+- [ ] Artifacts placed in appropriate knowledge-base/ subdirectory
 - [ ] Tracking file convention followed (if incremental)
 - [ ] Help command included
 - [ ] Cross-references to related skills where appropriate

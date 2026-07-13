@@ -2,7 +2,7 @@
 """
 Spec Search Utility
 
-Fast local search for feature specifications in /docs/specs/
+Fast local search for feature specifications in /knowledge-base/specs/
 
 Usage:
     python search_specs.py --query "authentication"
@@ -29,6 +29,12 @@ from dataclasses import dataclass, field, asdict
 from pathlib import Path
 from typing import Optional
 
+# Import the sibling scoped frontmatter parser. Adding the script's own
+# directory to sys.path keeps the import working regardless of the caller's cwd
+# (the skill is invoked via an absolute ${CLAUDE_PLUGIN_ROOT} path).
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from frontmatter import parse_frontmatter  # noqa: E402
+
 
 @dataclass
 class Spec:
@@ -43,63 +49,9 @@ class Spec:
     updated: str
     related_code: list = field(default_factory=list)
     intentional_decisions: list = field(default_factory=list)
+    behaviors: list = field(default_factory=list)
     file_path: str = ""
     content_preview: str = ""
-
-
-def parse_frontmatter(content: str) -> tuple[dict, str]:
-    """Parse YAML frontmatter from markdown content."""
-    if not content.startswith("---"):
-        return {}, content
-
-    # Find the closing ---
-    end_match = re.search(r'\n---\s*\n', content[3:])
-    if not end_match:
-        return {}, content
-
-    frontmatter_str = content[3:end_match.start() + 3]
-    body = content[end_match.end() + 3:]
-
-    # Parse YAML-like frontmatter
-    frontmatter = {}
-    current_key = None
-    current_list = []
-
-    for line in frontmatter_str.split('\n'):
-        line = line.rstrip()
-
-        if not line or line.startswith('#'):
-            continue
-
-        # Check for list items
-        if line.startswith('  - '):
-            if current_key:
-                current_list.append(line[4:].strip().strip('"').strip("'"))
-            continue
-
-        # Check for key: value
-        if ':' in line:
-            # Save previous list if exists
-            if current_key and current_list:
-                frontmatter[current_key] = current_list
-                current_list = []
-
-            key, _, value = line.partition(':')
-            key = key.strip()
-            value = value.strip().strip('"').strip("'")
-
-            if value:
-                frontmatter[key] = value
-                current_key = None
-            else:
-                current_key = key
-                current_list = []
-
-    # Save final list
-    if current_key and current_list:
-        frontmatter[current_key] = current_list
-
-    return frontmatter, body
 
 
 def parse_spec_file(file_path: str) -> Optional[Spec]:
@@ -127,6 +79,7 @@ def parse_spec_file(file_path: str) -> Optional[Spec]:
             updated=frontmatter.get('updated', ''),
             related_code=frontmatter.get('related_code', []) if isinstance(frontmatter.get('related_code'), list) else [],
             intentional_decisions=frontmatter.get('intentional_decisions', []) if isinstance(frontmatter.get('intentional_decisions'), list) else [],
+            behaviors=frontmatter.get('behaviors', []) if isinstance(frontmatter.get('behaviors'), list) else [],
             file_path=file_path,
             content_preview=preview
         )
@@ -136,25 +89,28 @@ def parse_spec_file(file_path: str) -> Optional[Spec]:
 
 
 def find_specs_dir(start_path: str = None) -> str:
-    """Find the docs/specs directory, starting from current dir or given path."""
+    """Find the knowledge-base/specs directory, starting from current dir or given path."""
     if start_path:
         search_path = Path(start_path)
     else:
         search_path = Path.cwd()
 
-    # Check if we're already in or near a docs/specs directory
+    # Prefer the knowledge-base layout; fall back to the legacy docs/specs
+    # location so a not-yet-migrated project stays readable.
     possible_paths = [
-        search_path / "docs" / "specs",
+        search_path / "knowledge-base" / "specs",
         search_path / "specs",
-        search_path.parent / "docs" / "specs",
+        search_path.parent / "knowledge-base" / "specs",
+        search_path / "docs" / "specs",            # legacy fallback
+        search_path.parent / "docs" / "specs",     # legacy fallback
     ]
 
     for path in possible_paths:
         if path.exists() and path.is_dir():
             return str(path.resolve())
 
-    # Default to docs/specs relative to current directory
-    return str((search_path / "docs" / "specs").resolve())
+    # Default to knowledge-base/specs relative to current directory
+    return str((search_path / "knowledge-base" / "specs").resolve())
 
 
 def load_all_specs(specs_dir: str) -> list[Spec]:
@@ -319,7 +275,7 @@ Examples:
                         help="Output format (default: table)")
 
     # Directory override
-    parser.add_argument("--dir", "-d", help="Specs directory path (default: docs/specs)")
+    parser.add_argument("--dir", "-d", help="Specs directory path (default: knowledge-base/specs)")
 
     args = parser.parse_args()
 

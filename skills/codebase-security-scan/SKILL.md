@@ -2,9 +2,9 @@
 name: codebase-security-scan
 description: |
   Performs comprehensive security audit of entire codebase using parallel subagents.
-  First reads project documentation from /docs/project for context, then scans code
+  First reads project documentation from /knowledge-base/reference for context, then scans code
   for vulnerabilities across multiple security categories. Generates detailed reports
-  in /docs/security-reports/codebase-security/ with findings, severity ratings, and
+  in /knowledge-base/security/codebase-security/ with findings, severity ratings, and
   remediation recommendations.
 
   TRIGGER when: user asks to "scan codebase for security", "security audit", "code security check",
@@ -29,13 +29,13 @@ This skill performs a comprehensive security audit of your entire codebase using
 
 ## Overview
 
-1. **Context Gathering**: Read project docs from `/docs/project` to understand architecture, auth, data flows
-2. **Spec Loading**: Read specs from `/docs/specs/` to understand intentional design decisions
+1. **Context Gathering**: Read project docs from `/knowledge-base/reference` to understand architecture, auth, data flows
+2. **Spec Loading**: Read specs from `/knowledge-base/specs/` to understand intentional design decisions
 3. **Parallel Scanning**: Spawn specialized agents for different security categories
 4. **Validation Phase**: Verify findings against online sources AND specs to eliminate false positives
 5. **Aggregation**: Combine validated findings into a comprehensive security report
 6. **Re-evaluation**: Compare against previous reports to track finding lifecycle (RESOLVED, PERSISTENT, REGRESSED)
-7. **Report Generation**: Save to `/docs/security-reports/codebase-security/YYYY-MM-DD.md`
+7. **Report Generation**: Save to `/knowledge-base/security/codebase-security/YYYY-MM-DD.md`
 
 ## Commands
 
@@ -56,7 +56,7 @@ All non-`audit` modes (`scan`, `update`) include lightweight standard adversaria
 
 ### Step 1: Gather Project Context
 
-First, read documentation from `/docs/project` to understand:
+First, read documentation from `/knowledge-base/reference` to understand:
 - Application architecture and components
 - Authentication and authorization mechanisms
 - Data flows and sensitive data handling
@@ -75,10 +75,10 @@ If no docs exist, note this and proceed with codebase scanning.
 
 ### Step 2: Load Project Specs
 
-**CRITICAL for accurate security assessment.** Read specifications from `/docs/specs/` to understand intentional design decisions that might appear as security issues.
+**CRITICAL for accurate security assessment.** Read specifications from `/knowledge-base/specs/` to understand intentional design decisions that might appear as security issues.
 
 Look for:
-- Feature specs in `/docs/specs/features/`
+- Feature specs in `/knowledge-base/specs/features/`
 - Security-relevant decisions (auth patterns, access control, data exposure)
 - Any spec with `security_implications` or `intentional` markers
 
@@ -94,6 +94,16 @@ security_implications: "No role-based access control needed for post operations"
 ```
 
 If no specs exist, note this and proceed (but warn that findings may include intentional design decisions).
+
+**Also cross-reference accepted behaviors (verified evidence).** Beyond declarative
+specs, an `accepted`, test-backed behavior whose intent explains a finding is the
+**strongest** "intentional" evidence — a verified guarantee, not a prose claim. When
+validating findings (in `scan`/`update` as well as `check-specs`), apply the
+behavior cross-reference exactly as in **`check-specs` Phase 3**: run
+`behavior-graph --covering <finding-file>`, judge whether an accepted behavior
+explains the finding, and on a match mark it intentional with `behavior_ref` +
+"verified by passing test". Only `accepted` behaviors downgrade a finding;
+`proposed`/`confirmed` add at most an advisory note and the finding stays open.
 
 ### Step 3: Spawn Parallel Security Agents
 
@@ -162,7 +172,7 @@ Git-aware incremental security scan using code-graph impact analysis.
 **Workflow:**
 
 **Phase 1: Change Detection**
-1. Read `.security-last-scan` from `docs/security-reports/` for last commit hash
+1. Read `.security-last-scan` from `knowledge-base/security/` for last commit hash
 2. If missing: fall back to full scan (`scan` command)
 3. Run `git diff <last-commit>..HEAD --name-only` to get changed files
 4. If no changes: report "no security-relevant changes detected" and exit
@@ -191,7 +201,7 @@ For each finding:
    - 10+ files affected: High priority
 
 **Phase 5: Re-evaluate Previous Findings**
-1. Find the most recent report in `/docs/security-reports/codebase-security/`
+1. Find the most recent report in `/knowledge-base/security/codebase-security/`
 2. Extract all findings with their locations and statuses
 3. For each previous finding:
    - Check if the vulnerable code still exists at the reported location
@@ -201,7 +211,7 @@ For each finding:
 4. Include re-evaluation results in the new report
 
 **Phase 6: Generate Incremental Report**
-1. Create report at `/docs/security-reports/codebase-security/YYYY-MM-DD.md`
+1. Create report at `/knowledge-base/security/codebase-security/YYYY-MM-DD.md`
 2. **Overwrite existing report** - always use the same filename (no -2, -3 suffixes)
 3. Include all findings:
    - Unresolved findings (CONFIRMED, PERSISTENT, REGRESSED, etc.)
@@ -213,7 +223,7 @@ For each finding:
    - Previous findings re-evaluation results
 
 **Phase 7: Update Tracking**
-Write to `docs/security-reports/.security-last-scan`:
+Write to `knowledge-base/security/.security-last-scan`:
 ```yaml
 # Security Scan Last Update
 commit: <current-hash>
@@ -279,7 +289,7 @@ Cross-reference security findings against project specifications to identify int
 - After creating/updating specs to re-evaluate existing findings
 
 **Arguments:**
-- `report` (optional): Path to existing security report. If omitted, uses the most recent report in `/docs/security-reports/codebase-security/`
+- `report` (optional): Path to existing security report. If omitted, uses the most recent report in `/knowledge-base/security/codebase-security/`
 
 **Workflow:**
 
@@ -289,7 +299,7 @@ Cross-reference security findings against project specifications to identify int
 3. Note any findings already marked as INTENTIONAL DESIGN
 
 **Phase 2: Load Specs**
-1. Read all specs from `/docs/specs/features/`
+1. Read all specs from `/knowledge-base/specs/features/`
 2. Index specs by:
    - Affected endpoints/routes
    - Security-relevant keywords (auth, access, role, permission, delete, admin)
@@ -297,14 +307,35 @@ Cross-reference security findings against project specifications to identify int
    - Decision rationale
 
 **Phase 3: Cross-Reference Each Finding**
-For each finding:
+For each finding, check two evidence sources — declarative specs and verified behaviors:
+
+*Declarative specs (existing):*
 1. Identify the feature/component involved
 2. Search specs for matching feature/component
-3. Check if spec explicitly allows the "vulnerable" behavior
-4. If match found:
+3. Check if a spec explicitly allows the "vulnerable" behavior
+4. If a spec match is found:
    - Update status to **INTENTIONAL DESIGN**
-   - Add spec reference
-   - Include rationale from spec
+   - Add the spec reference (`spec_ref`) and include the rationale from the spec
+
+*Accepted behaviors (verified guarantee — the stronger evidence):*
+5. Run the behavior graph to find the `accepted` behaviors that exercise the
+   finding's file:
+   ```bash
+   python "${CLAUDE_PLUGIN_ROOT}/skills/behavior-graph/scripts/behavior_graph.py" \
+     --covering <finding-file> --project .
+   ```
+6. For each returned behavior, read its intent (its spec's Behavior entry /
+   rationale) and judge: **does this behavior's verified intent explain this
+   finding?** (the same relevance judgment as for specs)
+7. If an accepted behavior explains the finding:
+   - Update status to **INTENTIONAL DESIGN** and record `behavior_ref: BEH-NNN`
+   - Note *"verified by passing test BEH-NNN (SPEC-MMM)"* — this is the **strongest**
+     evidence and stands even when no declarative spec covers the finding (verified >
+     a prose claim). A finding may carry both `spec_ref` and `behavior_ref`.
+8. **Only `accepted` behaviors downgrade a finding.** `--covering` returns only
+   accepted behaviors; if a `proposed`/`confirmed` behavior is known to be relevant,
+   add only an advisory note ("intended per BEH-NNN, but test owed — not yet
+   verified") and **leave the finding open**.
 
 **Phase 4: Update Original Report In Place**
 Enhance the existing security report directly (no new file created):
@@ -376,7 +407,7 @@ Enhance the existing security report directly (no new file created):
 ```
 Spec Validation Complete
 
-Report: docs/security-reports/codebase-security/2024-01-15.md
+Report: knowledge-base/security/codebase-security/2024-01-15.md
 Specs analyzed: 12
 Findings reviewed: 8
 
@@ -397,7 +428,7 @@ The original report has been updated in place with:
 /freya-devkit:codebase-security-scan check-specs
 
 # Validate specific report
-/freya-devkit:codebase-security-scan check-specs docs/security-reports/codebase-security/2024-01-15.md
+/freya-devkit:codebase-security-scan check-specs knowledge-base/security/codebase-security/2024-01-15.md
 ```
 
 ### `/freya-devkit:codebase-security-scan audit` (Deep Audit)
@@ -427,10 +458,10 @@ Run the existing "Re-evaluate Previous Findings" logic (Step 5) against the most
 1. Assign `SEC-###` IDs in the existing format (continue numbering from the prior report).
 2. Map each finding's `disposition` to an existing Status: `confirmed`→CONFIRMED, `mitigated`→MITIGATED, `intentional-design`→INTENTIONAL DESIGN, `needs-review`→NEEDS REVIEW.
 3. Render the additive **Verification** row from `verification` (`Upheld {upheld}/{total} · {lenses}`).
-4. Write `/docs/security-reports/codebase-security/YYYY-MM-DD.md` using the SAME report template (overwrite, no suffixes).
+4. Write `/knowledge-base/security/codebase-security/YYYY-MM-DD.md` using the SAME report template (overwrite, no suffixes).
 
 **Phase 4: Update tracking (MAIN LOOP)**
-Write `docs/security-reports/.security-last-scan` with the current commit hash and `scan_type: audit` (same shape as `update`).
+Write `knowledge-base/security/.security-last-scan` with the current commit hash and `scan_type: audit` (same shape as `update`).
 
 **When to use:**
 - Before a release or major milestone
@@ -462,7 +493,7 @@ For each potential finding, use WebSearch to validate:
    - Check for environment-specific behavior differences
 
 4. **Is this intentional design? (Spec Cross-Reference)**
-   - Check `/docs/specs/` for related specifications
+   - Check `/knowledge-base/specs/` for related specifications
    - Search for specs mentioning the affected feature/endpoint/component
    - Look for `security_implications` or intentional design notes
    - If spec explicitly allows this behavior → mark as **INTENTIONAL DESIGN**
@@ -496,7 +527,7 @@ Action: Mark as FALSE POSITIVE after verifying config
 **Example 4: Intentional Design (Spec Cross-Reference)**
 ```
 Initial Finding: "Missing role check on DELETE /posts - any authenticated user can delete any post"
-Validation: Check specs in /docs/specs/features/post-management.md
+Validation: Check specs in /knowledge-base/specs/features/post-management.md
 Spec Content:
   decision: "Any authenticated user can perform CRUD on posts"
   rationale: "Collaborative tool with equal access for all users"
@@ -540,7 +571,7 @@ For each surviving finding, run **2-3 independent refutation passes**, each prom
 
 1. **Exploitability / reachability** - "Construct a concrete path from an untrusted entry point to this code with attacker-controlled input. If you cannot reach it, the finding is refuted."
 2. **Compensating controls** - "Find any existing validation, sanitization, auth gate, framework default, or upstream guard that already neutralizes this. If one exists, refute (or downgrade to MITIGATED)."
-3. **Intentional / spec'd** - "Check `/docs/specs/` and surrounding code comments for evidence this behavior is deliberate. If spec'd, this is INTENTIONAL DESIGN, not a vulnerability." (Reuses the spec cross-reference as a refutation lens.)
+3. **Intentional / spec'd** - "Check `/knowledge-base/specs/` and surrounding code comments for evidence this behavior is deliberate. If spec'd, this is INTENTIONAL DESIGN, not a vulnerability." (Reuses the spec cross-reference as a refutation lens.)
 
 Each pass returns **REFUTED** (with a reason) or **UPHELD**. Run the passes in parallel across findings.
 
@@ -578,7 +609,7 @@ Wait for all agents to complete. Collect and organize findings by:
 **Critical for tracking vulnerability lifecycle.** Before generating the new report:
 
 1. **Find Previous Reports**
-   - Look in `/docs/security-reports/codebase-security/` for the most recent report
+   - Look in `/knowledge-base/security/codebase-security/` for the most recent report
    - If no previous report exists, skip this step
 
 2. **Extract Previous Findings**
@@ -609,7 +640,7 @@ Wait for all agents to complete. Collect and organize findings by:
 
 ### Step 6: Generate Security Report
 
-Create the report at `/docs/security-reports/codebase-security/YYYY-MM-DD.md`:
+Create the report at `/knowledge-base/security/codebase-security/YYYY-MM-DD.md`:
 
 ```markdown
 # Codebase Security Report
@@ -695,13 +726,13 @@ When a finding is determined to be intentional design per specs:
 | **Category** | Auth |
 | **Status** | Intentional Design |
 | **Location** | `src/api/routes/posts.ts:45` |
-| **Spec Reference** | `docs/specs/features/post-management.md` |
+| **Spec Reference** | `knowledge-base/specs/features/post-management.md` |
 
 **Description:**
 Initially flagged as: "Missing role check on DELETE /posts/:id - any authenticated user can delete any post"
 
 **Spec Validation:**
-Cross-referenced with `docs/specs/features/post-management.md`:
+Cross-referenced with `knowledge-base/specs/features/post-management.md`:
 ```
 decision: "Any authenticated user can perform CRUD on posts"
 rationale: "This is a collaborative tool where all users have equal access"
@@ -860,6 +891,18 @@ No code changes needed. Consider documenting this design decision in API documen
 *Report generated by codebase-security-scan skill*
 ```
 
+#### Also emit `findings.json` (structured index)
+
+Whenever you write or update the prose report, also write a machine-readable
+index at `knowledge-base/security/codebase-security/findings.json` following
+`references/findings-schema.md`. It mirrors the report's findings exactly —
+one entry per finding with `id`, `title`, `severity`, `status`
+(`open`/`resolved`/`intentional`), `file`, optional `line`, `spec_ref`
+when a declarative spec marks the finding intentional, and `behavior_ref` when an
+`accepted` behavior verifiably explains it (the stronger evidence). This lets `/freya-devkit:status`
+and the backlog surface open findings without parsing prose. Overwrite it on
+each report write (no dated suffixes — it always reflects the latest report).
+
 ## Important Notes
 
 ### For Each Agent
@@ -964,7 +1007,7 @@ This skill uses `/freya-devkit:code-graph` for:
 
 ## Spec-Manager Integration
 
-When specifications exist in `/docs/specs/`, security scanning is enhanced:
+When specifications exist in `/knowledge-base/specs/`, security scanning is enhanced:
 
 ### False Positive Reduction
 Cross-reference findings against intentional design decisions:
@@ -988,7 +1031,7 @@ When validating findings, search specs for:
 
 ### Example Spec Match
 ```yaml
-# /docs/specs/features/post-management.md
+# /knowledge-base/specs/features/post-management.md
 decision: "Any authenticated user can CRUD posts"
 rationale: "Collaborative tool with equal access"
 security_implications: "No RBAC needed for posts"
@@ -996,14 +1039,14 @@ security_implications: "No RBAC needed for posts"
 
 If finding: "Missing role check on post deletion"
 → Mark as **INTENTIONAL DESIGN**
-→ Reference: `docs/specs/features/post-management.md`
+→ Reference: `knowledge-base/specs/features/post-management.md`
 
 ## Report File Management
 
 ### Naming Convention
 - All reports use `YYYY-MM-DD.md` format
 - **Overwrites existing report** - always same filename, no -2, -3 suffixes
-- Location: `/docs/security-reports/codebase-security/`
+- Location: `/knowledge-base/security/codebase-security/`
 - Git provides history if you need to see previous versions
 
 ### Command Behavior
@@ -1033,7 +1076,7 @@ Each report accumulates sections as commands are run:
 
 The `.security-last-scan` file tracks incremental scan state:
 
-**Location:** `docs/security-reports/.security-last-scan`
+**Location:** `knowledge-base/security/.security-last-scan`
 
 ```yaml
 # Security Scan Last Update

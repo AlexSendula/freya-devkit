@@ -1,7 +1,7 @@
 {
   "name": "freya-devkit",
   "version": "0.1.0",
-  "description": "An integrated AI-assisted development toolkit: dependency graphs, documentation, feature specs, security scanning/resolution, and a post-implementation wrap-up workflow that keeps them all in sync.",
+  "description": "An integrated AI-assisted development toolkit: dependency graphs, documentation, feature specs, a behavior layer (intended behavior + a behavior graph), security scanning/resolution, project status, and a post-implementation wrap-up workflow that keeps them all in sync.",
   "author": {
     "name": "Alex",
     "email": "dev+github@alexsendula.com"
@@ -13,7 +13,9 @@
     "dependencies",
     "documentation",
     "specs",
+    "behavior",
     "security",
+    "status",
     "workflow",
     "wrap-up"
   ]

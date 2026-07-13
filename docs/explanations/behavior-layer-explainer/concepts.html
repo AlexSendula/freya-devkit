@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>How It Works — The Behavior Layer</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script src="assets/site.js"></script>
+</head>
+<body>
+  <div id="site-header"></div>
+
+  <div class="doc">
+    <aside class="toc" id="toc"></aside>
+    <main class="doc-body">
+      <h1>How It Works</h1>
+      <p class="lead">The building blocks — the behavior record, its lifecycle, the adapter model, the behavior graph, coverage fingerprints, and the two blast-radius directions. Examples use the dogfooding testbed's passkey-auth spec, <code>SPEC-001</code>, throughout: <code>BEH-001</code> (login — still <code>proposed</code>), <code>BEH-002</code> (unit), and <code>BEH-003</code> (integration).</p>
+
+      <section>
+        <h2 id="cast">What changed in the toolkit</h2>
+        <p>If you know the original <code>main</code>, your first question is "what's new?" Two skills are brand-new, three you know grew, and one deliberately learned nothing at all.</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Skill</th><th>vs main</th><th>Role in the layer</th></tr></thead>
+            <tbody>
+              <tr><td><code>behavior-runner</code></td><td><span class="badge badge--accepted">new</span></td><td>runs accepted behaviors via their adapter and captures <code>TEST → CODE</code> coverage; <em>prints</em> fingerprints as JSON — it never writes the graph. The heavy, tooling-coupled part.</td></tr>
+              <tr><td><code>behavior-graph</code></td><td><span class="badge badge--accepted">new</span></td><td>owns <code>behavior.json</code>: projects specs, orchestrates the runner, merges fingerprints by trust, and serves Direction A/B.</td></tr>
+              <tr><td><code>status</code></td><td><span class="badge badge--accepted">new</span></td><td>the read-only counterpart of wrap-up: the census + the git-tracked <code>BACKLOG.md</code>.</td></tr>
+              <tr><td><code>spec-manager</code></td><td><span class="badge badge--confirmed">extended</span></td><td>specs gain <code>behaviors:</code> records; it owns <code>principles.md</code>, <code>decisions/</code> (ADRs), <code>intents/</code>, and every deterministic gate (<code>verify_links</code>, <code>verify_intent</code>, <code>adr</code>, plus the governance helpers).</td></tr>
+              <tr><td><code>wrap-up</code></td><td><span class="badge badge--confirmed">extended</span></td><td>orchestrates the graded Phase 3.5 pipeline and the two-commit, state-aware staging.</td></tr>
+              <tr><td><code>code-graph</code></td><td><span class="badge badge--quarantined">fixed, not taught</span></td><td>the substrate. It got the path-alias / cwd / unresolved-signal fix — but stays completely <strong>unaware of behaviors</strong>.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout callout--why">
+          <span class="callout-label">Why two new skills, not one</span>
+          <p>They change for different reasons. <code>behavior-runner</code> is the messy part — it boots runners and captures runtime coverage. <code>behavior-graph</code> is pure and unit-testable without ever running a test. And <code>code-graph</code> stays behavior-blind on purpose, so the code substrate remains swappable without touching the behavior layer.</p>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="record">The behavior record</h2>
+        <p>A behavior lives inside a spec's frontmatter, under a <code>behaviors:</code> list. It's a stable, id'd record — not a test file, but a <em>pointer</em> to one. This is exactly what <code>frontmatter.py</code> validates.</p>
+        <div class="code-block">
+          <div class="code-head"><span class="dot"></span> knowledge-base/specs/auth/SPEC-001-passkey-login.md</div>
+<pre class="code"><code><span class="tok-k">behaviors:</span>
+  - <span class="tok-k">behavior_id:</span> <span class="tok-n">BEH-003</span>          <span class="tok-c"># stable across renames</span>
+    <span class="tok-k">title:</span> Unknown email does not reveal whether a user exists
+    <span class="tok-k">state:</span> <span class="tok-s">accepted</span>          <span class="tok-c"># proposed | confirmed | accepted | quarantined | deprecated</span>
+    <span class="tok-k">adapter:</span> <span class="tok-s">cucumber</span>        <span class="tok-c"># required only when state == accepted</span>
+    <span class="tok-k">level:</span> <span class="tok-s">integration</span>
+    <span class="tok-k">locator:</span> features/auth/passkey-login.feature#unknown-email-does-not-reveal-whether-a-user-exists</code></pre>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Field</th><th>Required?</th><th>Rule</th></tr></thead>
+            <tbody>
+              <tr><td><code>behavior_id</code></td><td>always</td><td>matches <code>BEH-NNN</code>; unique within its spec here (cross-spec reuse is caught by <code>verify_links</code>); stable across renames</td></tr>
+              <tr><td><code>title</code></td><td>always</td><td>non-empty string</td></tr>
+              <tr><td><code>state</code></td><td>always</td><td>one of the five lifecycle states</td></tr>
+              <tr><td><code>adapter</code></td><td>only when <code>accepted</code></td><td>one of the known adapters — but any typo fails loud in <em>any</em> state</td></tr>
+              <tr><td><code>locator</code></td><td>only when <code>accepted</code> &amp; adapter ≠ <code>manual</code></td><td>points at the verifying test</td></tr>
+              <tr><td><code>level</code></td><td>optional</td><td><code>unit | component | integration | e2e</code> — the runner's dispatch key</td></tr>
+              <tr><td><code>entry</code></td><td>optional</td><td>the route/handler an integration behavior's test drives</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout callout--why">
+          <span class="callout-label">Why adapter &amp; locator are conditional</span>
+          <p>Only <code>accepted</code> asserts a real, linked, passing test — so it's the only state that <em>requires</em> the link. Pre-test states (<code>proposed</code>, <code>confirmed</code>) may omit them — the test is still owed. But if either field is present in any state, it's still validated, so a typo can't silently route a behavior to the wrong runner.</p>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="lifecycle">The lifecycle — click a state</h2>
+        <p>A behavior moves <code>proposed → confirmed → accepted</code>, with <code>quarantined</code>/<code>deprecated</code> off to the side. The single most important distinction: <strong>only <code>accepted</code> gates wrap-up and gets executed.</strong> <code>confirmed</code> means a human agreed the intent is real but the test isn't written yet — advisory, never run.</p>
+
+        <div class="explorer">
+          <div class="stage">
+            <div class="toggle-row" id="lc-states"></div>
+            <div class="hint">Click a state to see what it means for the machine.</div>
+          </div>
+          <div class="panel" id="lc-panel">
+            <p class="placeholder">Select a lifecycle state.</p>
+          </div>
+        </div>
+        <div class="callout callout--warn">
+          <span class="callout-label">Inference can only mint proposed</span>
+          <p><code>scan</code>/<code>bootstrap</code> produce a review queue of <code>proposed</code> records inside spec frontmatter — never <code>accepted</code>, and never files written into the code tree. A human accepting a candidate is the only thing that promotes it and lets a scaffold or link land as code. Why so strict: intent cannot be reliably inferred from code — auto-generating authoritative-looking tests from the implementation would reintroduce the exact "tests mirror code" problem the layer exists to fix.</p>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="adapters">Adapters — link, don't re-author</h2>
+        <p>An <strong>adapter</strong> links a behavior to whatever verifies it. The layer detects a project's tooling instead of hardcoding a stack, and it never forces you to re-author tests you already have.</p>
+        <div class="stepper" id="adapter-tabs">
+          <div class="stepper-track">
+            <button class="step-tab active" data-tab="gherkin"><span class="n">1</span>Gherkin scaffold</button>
+            <button class="step-tab" data-tab="native"><span class="n">2</span>Native link</button>
+            <button class="step-tab" data-tab="manual"><span class="n">3</span>Manual</button>
+          </div>
+          <div class="step-panel active" data-panel="gherkin">
+            <h3 style="margin-top:0">Author a tagged scaffold (the default for new, user-visible behavior)</h3>
+            <p>spec-manager writes a skeleton <code>.feature</code> — the required tags plus a <code>TODO(scaffold)</code> marker, but <strong>no real steps</strong> (authoring those is human forward-design work). The <code>@SPEC</code>/<code>@BEH</code> tags <em>are</em> the reverse link.</p>
+            <div class="code-block">
+              <div class="code-head"><span class="dot"></span> features/auth/passkey-login.feature</div>
+<pre class="code"><code><span class="tok-p">@SPEC-001</span>
+<span class="tok-k">Feature:</span> Passkey Login
+  <span class="tok-c"># Intent and rationale live in knowledge-base/specs/auth/SPEC-001-passkey-login.md</span>
+
+  <span class="tok-p">@BEH-001</span>
+  <span class="tok-k">Scenario:</span> Successful passkey login
+    <span class="tok-c"># TODO(scaffold): replace with real steps. Step definitions are not generated.</span>
+    <span class="tok-k">Given</span> &lt;initial state&gt;
+    <span class="tok-k">When</span> &lt;action&gt;
+    <span class="tok-k">Then</span> &lt;expected outcome&gt;</code></pre>
+            </div>
+            <p class="muted">On the testbed this is exactly <code>BEH-001</code> — a <code>proposed</code> scaffold still awaiting real steps. The <code>TODO(scaffold)</code> marker is load-bearing: an <code>accepted</code> behavior that still carries it is a deterministic error (a lie the gate catches).</p>
+          </div>
+          <div class="step-panel" data-panel="native">
+            <h3 style="margin-top:0">Point a locator at a test that already exists</h3>
+            <p><strong>No file is written, nothing is rewritten.</strong> You set <code>adapter</code> to the runner and <code>locator</code> to <code>path/to/test#case</code> (or <code>path::node</code> for pytest). The locator <em>is</em> the link — no reverse tag required. This keeps adoption cheap for projects that already have tests.</p>
+            <div class="code-block">
+              <div class="code-head"><span class="dot"></span> BEH-002 — linked to an existing vitest test</div>
+<pre class="code"><code><span class="tok-k">adapter:</span> <span class="tok-s">vitest</span>
+<span class="tok-k">locator:</span> lib/webauthn.test.ts::rejects an expired challenge</code></pre>
+            </div>
+          </div>
+          <div class="step-panel" data-panel="manual">
+            <h3 style="margin-top:0">Human-verified, no runner</h3>
+            <p>The <code>manual</code> adapter is for behavior that genuinely can't be automated. It carries intent and is skipped by locator resolution — the honest ceiling of what tests can reach, recorded rather than pretended away.</p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="graph">The behavior graph — a sibling, not a schema bump</h2>
+        <p>The graph is <code>behavior.json</code>, generated next to code-graph's <code>graph.json</code> in the git-ignored <code>knowledge-base/.graph/</code>. It's kept <em>separate</em> on purpose: code-graph stays completely unaware of behaviors, so the code substrate can be swapped later without touching the behavior schema.</p>
+        <p>The one genuinely new edge is <code>TEST → CODE</code> — and it's <strong>never asserted as certain</strong>. Every edge carries a provenance, in a strict trust order:</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>source</th><th>means</th><th>confidence</th><th>captured by</th></tr></thead>
+            <tbody>
+              <tr><td><code>explicit</code></td><td>hand-declared anchor <span class="pill">reserved</span></td><td>—</td><td>not implemented — a future lever</td></tr>
+              <tr><td><code>observed</code></td><td>the test <em>actually executed</em> this file</td><td><strong>0.8</strong></td><td>vitest V8 coverage (unit)</td></tr>
+              <tr><td><code>static</code></td><td>the file is in the entry's import closure</td><td><strong>0.5</strong></td><td>code-graph transitive deps (integration)</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p><strong>Trust order: <code>explicit &gt; observed &gt; static</code>.</strong> Static is lower trust because it over-approximates — it lists everything the entry <em>could</em> reach, not what a test <em>did</em> reach. Each edge also carries a <code>freshness</code> commit, so a fingerprint captured before a change to its files can be flagged <em>stale</em>.</p>
+      </section>
+
+      <section>
+        <h2 id="explore">Explore both directions</h2>
+        <p>Here's the real testbed graph. <code>SPEC-001</code> owns three behaviors; two are <code>accepted</code> and fingerprinted (<code>BEH-002</code> observed, <code>BEH-003</code> static), one stays <code>proposed</code> (a valid passkey login needs a signed assertion — deferred to E2E). Click a <strong>code file</strong> to run <strong>Direction A</strong> (what behaviors did I touch?), or a <strong>behavior</strong> to run <strong>Direction B</strong> (what code implements it?).</p>
+
+        <div class="explorer">
+          <div class="stage">
+            <div class="bgraph" id="bgraph"></div>
+            <div class="hint">Blue = intent/behavior · green = accepted test · grey = code. Click any node.</div>
+          </div>
+          <div class="panel" id="bgraph-panel">
+            <p class="placeholder">Click a node to trace it.</p>
+          </div>
+        </div>
+        <div class="callout callout--success">
+          <span class="callout-label">Measured on the testbed</span>
+          <p>Editing <code>lib/webauthn.ts</code> flags exactly the two behaviors that depend on it; editing an unrelated lib flags none; editing the route flags only <code>BEH-003</code>. <strong>False-positive rate: 0</strong> on the representative set — the gate is <em>selective</em>, not flag-everything. (Illustrative on a small set — 2 behaviors, 3 changes — not a benchmark.)</p>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="fingerprints">Coverage fingerprints — observed vs static</h2>
+        <p>A fingerprint is the set of files a behavior's test exercises. There are two producers, and the difference matters.</p>
+        <div class="toggle-row" id="fp-toggle">
+          <button class="chip-btn active" data-fp="observed">Observed (unit)</button>
+          <button class="chip-btn" data-fp="static">Static (integration)</button>
+        </div>
+        <div class="panel" id="fp-panel"></div>
+        <div class="callout callout--why">
+          <span class="callout-label">Over-approximation is the safe direction</span>
+          <p>When the layer can't <em>observe</em> exactly which code a test runs (integration on a bundled app), it falls back to the whole transitive import closure of the entry file. Flagging too much is fine — the failure mode you must never have is silently <em>missing</em> touched code. A false "might be affected" just runs an extra test; a false "not affected" misses a regression.</p>
+        </div>
+
+        <h3 id="merge">Merge by trust</h3>
+        <p>When the graph is rebuilt, a new run never downgrades good data:</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>incoming run</th><th>result</th></tr></thead>
+            <tbody>
+              <tr><td><code>observed</code></td><td>take it (highest trust)</td></tr>
+              <tr><td><code>static</code></td><td>take it — <em>unless</em> the prior edge was <code>observed</code> (don't downgrade)</td></tr>
+              <tr><td><code>unknown</code> + <code>test-failed</code></td><td><strong>invalidate</strong> — the test is red</td></tr>
+              <tr><td><code>unknown</code> + any other reason</td><td><strong>preserve</strong> the prior fingerprint</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>The key insight: a transient "couldn't capture" must not erase a good prior edge. Only a genuine red test invalidates.</p>
+      </section>
+
+      <section>
+        <h2 id="unknown">Coverage-unknown, never silent</h2>
+        <p>Governance leans on this graph, so it must <strong>report when it can't resolve an edge</strong> rather than return a small blast radius that looks complete. If a behavior can't be fingerprinted, it is <code>coverage: "unknown"</code> with an <em>empty</em> exercises list — never faked — and it carries a <code>reason</code> so a consumer knows <em>why</em>:</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>reason</th><th>meaning</th></tr></thead>
+            <tbody>
+              <tr><td><code>level-deferred</code></td><td>an adapter/level not implemented yet (e.g. e2e)</td></tr>
+              <tr><td><code>test-failed</code></td><td>the test process exited non-zero (red)</td></tr>
+              <tr><td><code>no-coverage</code></td><td>the test passed but produced no coverage file</td></tr>
+              <tr><td><code>no-entry</code></td><td>an integration behavior declares no <code>entry</code></td></tr>
+              <tr><td><code>entry-missing</code></td><td>the declared <code>entry</code> file doesn't exist</td></tr>
+              <tr><td><code>no-graph</code></td><td>no built code-graph cache</td></tr>
+              <tr><td><code>not-run</code></td><td>projected, but the runner emitted nothing for it</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="substrate">The substrate underneath: code-graph</h2>
+        <p>Every blast-radius answer is a <em>projection over a code dependency graph</em>. If that graph is wrong, every governance decision built on it is wrong in the most dangerous way — a small, confident, <em>empty</em> answer that looks complete. So the vision demands a <strong>capability contract</strong> the substrate must meet before governance can trust it.</p>
+        <div class="callout callout--danger">
+          <span class="callout-label">The bug dogfooding caught — that a green suite never would</span>
+          <p>On the first real path-alias project, the graph built cleanly: <strong>229 files, 1052 import edges — and 0 internal edges.</strong> Every internal import used the <code>@/</code> alias, and the resolver dropped non-relative imports as "external." Asking for a route's dependencies returned <code>[]</code> despite three real imports. Worse than incomplete: it returned an <em>empty blast radius as if complete</em>. A git check proved the bug was <strong>original since v0.1.0</strong> — dogfooding just exposed it.</p>
+        </div>
+        <p>The fix taught the resolver to read <code>tsconfig</code> path aliases, anchored resolution to the project (not the process cwd), and — the heart of the contract — tagged every edge <code>internal</code>, <code>external:&lt;pkg&gt;</code>, or <code>unresolved:&lt;imp&gt;</code> so "no dependencies" is distinguishable from "couldn't resolve." The rebuild went from <strong>0 internal edges to 607</strong>.</p>
+        <p class="result-line">before: 0 internal / 1052 external   →   after: 607 internal / 488 external / 0 unresolved</p>
+      </section>
+
+      <section>
+        <h2 id="one-behavior">The life of one behavior</h2>
+        <p>Everything above, stitched into one continuous thread — <code>BEH-003</code> from birth to standing guarantee.</p>
+        <div class="stepper" id="lb-stepper">
+          <div class="stepper-track">
+            <button class="step-tab active" data-i="0"><span class="n">1</span>Born proposed</button>
+            <button class="step-tab" data-i="1"><span class="n">2</span>Confirmed on hit</button>
+            <button class="step-tab" data-i="2"><span class="n">3</span>Accepted</button>
+            <button class="step-tab" data-i="3"><span class="n">4</span>Standing guard</button>
+            <button class="step-tab" data-i="4"><span class="n">5</span>Governed change</button>
+            <button class="step-tab" data-i="5"><span class="n">6</span>Off-ramps</button>
+          </div>
+          <div class="step-panel active" data-panel="0"></div>
+          <div class="step-panel" data-panel="1"></div>
+          <div class="step-panel" data-panel="2"></div>
+          <div class="step-panel" data-panel="3"></div>
+          <div class="step-panel" data-panel="4"></div>
+          <div class="step-panel" data-panel="5"></div>
+          <div class="stepper-nav">
+            <button class="btn btn-ghost" id="lb-prev">← Prev</button>
+            <button class="btn btn-primary" id="lb-next">Next →</button>
+          </div>
+        </div>
+        <p class="muted">The whole loop composes inside wrap-up — step through <a href="journey.html#pipeline">the pipeline explorer</a> to see where each stage runs.</p>
+      </section>
+
+      <div class="next-prev">
+        <a class="np-card" href="index.html"><div class="np-dir">← Back</div><div class="np-title">The Story</div></a>
+        <a class="np-card" href="governance.html" style="text-align:right"><div class="np-dir">Next →</div><div class="np-title">Governance</div></a>
+      </div>
+    </main>
+  </div>
+
+  <div id="site-footer"></div>
+  <script>
+  /* ---------- Lifecycle explorer ---------- */
+  (function () {
+    var STATES = [
+      { id: "proposed", cls: "badge--proposed", test: "no", radius: "no fingerprint — but validate-on-hit still lists it when a change touches its declared entry", gates: "no", run: "no",
+        stage: "artifacts commit", desc: "A candidate — often inferred by a scan. Intent is not yet confirmed by a human. It lives only as a record in the spec and is not projected into behavior.json — though wrap-up's validate-on-hit (--surface) still surfaces it as a candidate to confirm when a change touches its declared entry." },
+      { id: "confirmed", cls: "badge--confirmed", test: "owed", radius: "yes — static, advisory", gates: "no", run: "no",
+        stage: "artifacts commit", desc: "A human confirmed the intent is real, but the test is still owed. It gets a static fingerprint (if it declares an entry) so it appears in blast radius — but it is never executed, so it can never be test-failed. That is what makes it structurally non-gating." },
+      { id: "accepted", cls: "badge--accepted", test: "yes — passing", radius: "yes — observed/static", gates: "YES", run: "yes",
+        stage: "code commit", desc: "Confirmed intent that a real, passing, linked test verifies. This is the only authoritative state: only accepted behaviors are run at wrap-up, and only an accepted behavior's failure can block." },
+      { id: "quarantined", cls: "badge--quarantined", test: "failing (infra)", radius: "no", gates: "no", run: "no",
+        stage: "—", desc: "The test is failing for infrastructure reasons (flaky / fixture / env). Temporarily removed from the authoritative set until repaired — so a known-flaky test can't block everyone." },
+      { id: "deprecated", cls: "badge--deprecated", test: "—", radius: "no", gates: "no", run: "no",
+        stage: "—", desc: "The behavior was intentionally retired. Kept for history; no longer authoritative." }
+    ];
+    var host = document.getElementById("lc-states");
+    var panel = document.getElementById("lc-panel");
+    if (!host) return;
+    STATES.forEach(function (s) {
+      var b = document.createElement("button");
+      b.className = "chip-btn";
+      b.innerHTML = '<span class="badge ' + s.cls + '">' + s.id + '</span>';
+      b.addEventListener("click", function () {
+        host.querySelectorAll(".chip-btn").forEach(function (x) { x.classList.remove("active"); });
+        b.classList.add("active");
+        var gate = s.gates === "YES"
+          ? '<span class="badge badge--block">gates wrap-up</span>'
+          : '<span class="pill">advisory · never gates</span>';
+        panel.innerHTML =
+          '<h4>' + s.id + '</h4>' +
+          '<p>' + s.desc + '</p>' +
+          '<dl class="dl">' +
+            '<div><dt>Has a test?</dt><dd>' + s.test + '</dd></div>' +
+            '<div><dt>In blast radius?</dt><dd>' + s.radius + '</dd></div>' +
+            '<div><dt>Executed?</dt><dd>' + s.run + '</dd></div>' +
+            '<div><dt>Gates wrap-up?</dt><dd>' + gate + '</dd></div>' +
+            '<div><dt>Staged where?</dt><dd>' + s.stage + '</dd></div>' +
+          '</dl>';
+      });
+      host.appendChild(b);
+    });
+    host.querySelectorAll(".chip-btn")[2].click(); // default to "accepted"
+  })();
+
+  /* ---------- Adapter tabs ---------- */
+  (function () {
+    var root = document.getElementById("adapter-tabs");
+    if (!root) return;
+    root.querySelectorAll(".step-tab").forEach(function (tab) {
+      tab.addEventListener("click", function () {
+        root.querySelectorAll(".step-tab").forEach(function (t) { t.classList.remove("active"); });
+        root.querySelectorAll(".step-panel").forEach(function (p) { p.classList.remove("active"); });
+        tab.classList.add("active");
+        root.querySelector('[data-panel="' + tab.dataset.tab + '"]').classList.add("active");
+      });
+    });
+  })();
+
+  /* ---------- Behavior graph + blast-radius explorer ---------- */
+  (function () {
+    var host = document.getElementById("bgraph");
+    var panel = document.getElementById("bgraph-panel");
+    if (!host) return;
+
+    var behaviors = [
+      { id: "BEH-001", title: "Successful passkey login", state: "proposed", cov: "—",
+        y: 60, exercises: [], note: "Stays proposed — a valid login needs a signed WebAuthn assertion, unforgeable below the browser/E2E layer. Deferred." },
+      { id: "BEH-002", title: "Expired challenge is rejected", state: "accepted", cov: "observed",
+        y: 165, exercises: ["webauthn"], note: "A vitest unit test on the challenge-validation function, run in-process with the DB boundary (prisma) mocked. Observed coverage = 1 file, precise." },
+      { id: "BEH-003", title: "Unknown email → no user enumeration", state: "accepted", cov: "static",
+        y: 270, exercises: ["route", "prisma", "webauthn"], note: "A cucumber scenario driving POST over real HTTP against a running app. Static fingerprint = the entry's import closure (3 files) — broader, the safe direction." }
+    ];
+    var files = [
+      { id: "route", label: "…/authenticate/start/route.ts", y: 55 },
+      { id: "webauthn", label: "lib/webauthn.ts", y: 130 },
+      { id: "prisma", label: "lib/prisma.ts", y: 205 },
+      { id: "audit", label: "lib/audit.ts", y: 280 }
+    ];
+    var fileById = {}; files.forEach(function (f) { fileById[f.id] = f; });
+    var behById = {}; behaviors.forEach(function (b) { behById[b.id] = b; });
+
+    var BX = 30, BW = 190, FX = 470, FW = 220, H = 34;
+    var sel = null; // {kind:'A'|'B', id}
+
+    function affectedBy(fileId) {
+      return behaviors.filter(function (b) { return b.exercises.indexOf(fileId) !== -1; }).map(function (b) { return b.id; });
+    }
+
+    function render() {
+      var edges = "", nodes = "";
+      // edges
+      behaviors.forEach(function (b) {
+        b.exercises.forEach(function (fid) {
+          var f = fileById[fid];
+          var lit = false;
+          if (sel) {
+            if (sel.kind === "B" && sel.id === b.id) lit = true;
+            if (sel.kind === "A" && sel.id === fid && b.exercises.indexOf(fid) !== -1) lit = true;
+          }
+          edges += '<line x1="' + (BX + BW) + '" y1="' + (b.y + H / 2) + '" x2="' + FX + '" y2="' + (f.y + H / 2) +
+            '" style="stroke:' + (lit ? "var(--accent)" : "var(--border-strong)") + ';stroke-width:' + (lit ? 2.5 : 1.2) + '"/>';
+        });
+      });
+      // behavior nodes
+      behaviors.forEach(function (b) {
+        var affected = sel && sel.kind === "A" && affectedBy(sel.id).indexOf(b.id) !== -1;
+        var picked = sel && sel.kind === "B" && sel.id === b.id;
+        var fill = b.state === "proposed" ? "var(--bg-inset)" : "var(--teal-weak)";
+        var stroke = b.state === "proposed" ? "var(--border-strong)" : "var(--teal)";
+        if (affected || picked) { stroke = "var(--accent)"; fill = "var(--accent-weak)"; }
+        nodes += '<g class="hit" data-kind="B" data-id="' + b.id + '" tabindex="0" role="button" aria-label="' + b.id + ': ' + b.title + '">' +
+          '<rect x="' + BX + '" y="' + b.y + '" width="' + BW + '" height="' + H + '" rx="8" style="fill:' + fill + ';stroke:' + stroke + ';stroke-width:' + (affected || picked ? 2.4 : 1.4) + '"/>' +
+          '<text x="' + (BX + 10) + '" y="' + (b.y + 15) + '" style="font-size:11px;font-weight:700;fill:var(--text)">' + b.id + '</text>' +
+          '<text x="' + (BX + 10) + '" y="' + (b.y + 27) + '" style="font-size:9.5px;fill:var(--text-muted)">' + (b.state === "proposed" ? "proposed" : b.cov) + '</text>' +
+          '</g>';
+      });
+      // file nodes
+      files.forEach(function (f) {
+        var inFp = sel && sel.kind === "B" && behById[sel.id] && behById[sel.id].exercises.indexOf(f.id) !== -1;
+        var picked = sel && sel.kind === "A" && sel.id === f.id;
+        var stroke = (inFp || picked) ? "var(--accent)" : "var(--border-strong)";
+        var fill = (inFp || picked) ? "var(--accent-weak)" : "var(--surface)";
+        nodes += '<g class="hit" data-kind="A" data-id="' + f.id + '" tabindex="0" role="button" aria-label="file ' + f.label + '">' +
+          '<rect x="' + FX + '" y="' + f.y + '" width="' + FW + '" height="' + H + '" rx="8" style="fill:' + fill + ';stroke:' + stroke + ';stroke-width:' + (inFp || picked ? 2.4 : 1.4) + '"/>' +
+          '<text x="' + (FX + 10) + '" y="' + (f.y + 21) + '" style="font-size:11px;font-family:var(--mono);fill:var(--text)">' + f.label + '</text>' +
+          '</g>';
+      });
+      var svg = '<svg viewBox="0 0 720 330" role="img" aria-label="behavior graph">' +
+        '<text x="' + BX + '" y="24" style="font-size:10px;font-weight:700;fill:var(--text-faint)">BEHAVIORS (SPEC-001)</text>' +
+        '<text x="' + FX + '" y="24" style="font-size:10px;font-weight:700;fill:var(--text-faint)">CODE</text>' +
+        edges + nodes + '</svg>';
+      host.innerHTML = svg;
+      host.querySelectorAll(".hit").forEach(function (g) {
+        g.addEventListener("click", function () { pick(g.dataset.kind, g.dataset.id); });
+        g.addEventListener("keydown", function (e) {
+          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); pick(g.dataset.kind, g.dataset.id); }
+        });
+      });
+    }
+
+    function pick(kind, id) {
+      sel = { kind: kind, id: id };
+      if (kind === "A") {
+        var f = fileById[id];
+        var aff = affectedBy(id);
+        var res = aff.length ? "[ " + aff.join(", ") + " ]" : "[ ]  — no behavior affected";
+        panel.innerHTML =
+          '<h4>Direction A · code → behavior</h4>' +
+          '<p>You changed <code>' + f.label + '</code>. Which accepted behaviors exercise it?</p>' +
+          '<p class="result-line">affected = ' + res + '</p>' +
+          '<p class="muted" style="margin-top:12px">' +
+          (aff.length ? "At wrap-up these are re-run — and only these — so a regression surfaces immediately."
+                      : "Selectivity in action: an unrelated file flags nothing. This is the false-positive rate staying at 0.") +
+          '</p>';
+      } else {
+        var b = behById[id];
+        var exs = b.exercises.map(function (e) { return fileById[e].label; });
+        panel.innerHTML =
+          '<h4>Direction B · behavior → code</h4>' +
+          '<p><strong>' + b.id + '</strong> — ' + b.title + '</p>' +
+          '<dl class="dl">' +
+            '<div><dt>State</dt><dd>' + b.state + '</dd></div>' +
+            '<div><dt>Coverage</dt><dd>' + b.cov + '</dd></div>' +
+            '<div><dt>Exercises</dt><dd>' + (exs.length ? exs.map(function (e) { return "<code>" + e + "</code>"; }).join("<br>") : "—") + '</dd></div>' +
+          '</dl>' +
+          '<p class="muted" style="margin-top:12px">' + b.note + '</p>';
+      }
+      render();
+      var focusEl = host.querySelector('[data-id="' + id + '"]');
+      if (focusEl) focusEl.focus();
+    }
+
+    render();
+  })();
+
+  /* ---------- Fingerprint toggle ---------- */
+  (function () {
+    var FP = {
+      observed: {
+        h: "Observed — the precise one",
+        body: "Run the behavior's linked unit test under vitest, in-process, and read the V8 coverage report. Keep every file with at least one executed statement (drop node_modules and the test file itself). The result is exactly the files the test <em>actually ran</em>.",
+        rows: [["example", "BEH-002 (expired challenge)"], ["breadth", "1 file — lib/webauthn.ts"], ["confidence", "0.8"], ["captured by", "vitest V8 coverage"]]
+      },
+      static: {
+        h: "Static — the safe over-approximation",
+        body: "For integration behaviors on a bundled app, real observed coverage isn't reliably captured (a known, deferred, framework-specific problem — <a href='journey.html#proof-green'>the false-green story</a>). So the behavior declares an <code>entry</code>, and code-graph expands its transitive import closure. It over-approximates on purpose — the safe direction.",
+        rows: [["example", "BEH-003 (no user enumeration)"], ["breadth", "3 files — route + prisma + webauthn"], ["confidence", "0.5"], ["captured by", "code-graph import closure"]]
+      }
+    };
+    var toggle = document.getElementById("fp-toggle");
+    var panel = document.getElementById("fp-panel");
+    if (!toggle) return;
+    function show(k) {
+      var d = FP[k];
+      panel.innerHTML = '<h4>' + d.h + '</h4><p>' + d.body + '</p><dl class="dl">' +
+        d.rows.map(function (r) { return '<div><dt>' + r[0] + '</dt><dd>' + r[1] + '</dd></div>'; }).join("") + '</dl>';
+    }
+    toggle.querySelectorAll(".chip-btn").forEach(function (b) {
+      b.addEventListener("click", function () {
+        toggle.querySelectorAll(".chip-btn").forEach(function (x) { x.classList.remove("active"); });
+        b.classList.add("active"); show(b.dataset.fp);
+      });
+    });
+    show("observed");
+  })();
+
+  /* ---------- Life-of-one-behavior stepper ---------- */
+  (function () {
+    var STEPS = [
+      { title: "Inference mints a candidate",
+        html: '<p>A <code>bootstrap</code> of the existing codebase infers <strong>BEH-003</strong> — "unknown email does not reveal whether a user exists" — and writes it as a <span class="badge badge--proposed">proposed</span> record in <code>SPEC-001</code>\'s frontmatter. No file enters the code tree; nothing is trusted; nothing needs review yet. Certainty just prioritizes the pile.</p>' },
+      { title: "A change touches its code — confirm on hit",
+        html: '<p>Weeks later a change touches the authenticate route. Wrap-up\'s validate-on-hit lists BEH-003 as one of the two or three candidates <em>this change</em> touched. You re-read the intent against the current code and confirm it: <span class="badge badge--proposed">proposed</span> → <span class="badge badge--confirmed">confirmed</span>. The intent is now real — a test is owed. With its declared <code>entry</code>, it already appears in blast radius (static, advisory), but it is never executed and can never block.</p>' },
+      { title: "The test lands — accepted",
+        html: '<p>You author the cucumber scenario driving <code>POST /api/auth/passkey/authenticate/start</code> over real HTTP against a running instance. Tags round-trip (<code>@SPEC-001</code>/<code>@BEH-003</code>), the scaffold marker is gone, the test passes: <span class="badge badge--confirmed">confirmed</span> → <span class="badge badge--accepted">accepted</span>. The <code>.feature</code> now rides the <strong>code commit</strong>, and the behavior carries a static fingerprint of 3 files.</p>' },
+      { title: "Standing guard",
+        html: '<p>Months later someone edits <code>lib/webauthn.ts</code>. Direction A flags BEH-003; wrap-up re-runs it — and <em>only</em> the affected behaviors. If it goes red, wrap-up blocks until the failure is classified: <strong>regression</strong> (fix the code), <strong>intended change</strong> (declare it), or <strong>test-infra failure</strong> (quarantine). It cannot fail silently or unclassified.</p>' },
+      { title: "The guarantee changes — on the record",
+        html: '<p>The threat model changes, so code <em>and</em> test are edited together — the suite stays green, but the G1 gate blocks: an accepted test changed with no record. One command mints <code>INTENT-001</code> naming BEH-003, with an approver and a rationale, and wrap-up passes. The silently-redefined guarantee became a visible, deliberate, auditable one. <a href="governance.html#g1-demo">Watch this gate fire step-by-step →</a></p>' },
+      { title: "Off-ramps, never silence",
+        html: '<p>A flaky fixture starts failing the test for infra reasons? <span class="badge badge--quarantined">quarantined</span> — out of the authoritative set until repaired, so it can\'t block everyone. The feature is retired? <span class="badge badge--deprecated">deprecated</span>. Both preserve history; neither is a silent deletion.</p>' }
+    ];
+    var root = document.getElementById("lb-stepper");
+    if (!root) return;
+    var tabs = root.querySelectorAll(".step-tab");
+    var panels = root.querySelectorAll(".step-panel");
+    var prev = document.getElementById("lb-prev");
+    var next = document.getElementById("lb-next");
+    var cur = 0;
+    panels.forEach(function (p, i) { p.innerHTML = '<h3 style="margin-top:0">' + STEPS[i].title + '</h3>' + STEPS[i].html; });
+    function go(i) {
+      cur = Math.max(0, Math.min(STEPS.length - 1, i));
+      tabs.forEach(function (t, j) { t.classList.toggle("active", j === cur); t.classList.toggle("done", j < cur); });
+      panels.forEach(function (p, j) { p.classList.toggle("active", j === cur); });
+      prev.disabled = cur === 0; next.disabled = cur === STEPS.length - 1;
+    }
+    tabs.forEach(function (t) { t.addEventListener("click", function () { go(+t.dataset.i); }); });
+    prev.addEventListener("click", function () { go(cur - 1); });
+    next.addEventListener("click", function () { go(cur + 1); });
+    go(0);
+  })();
+  </script>
+</body>
+</html>

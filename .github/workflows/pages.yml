@@ -1,0 +1,41 @@
+name: Deploy explainer sites to GitHub Pages
+
+# Publishes docs/explanations/ (the whole-plugin, behavior-layer, and governance
+# explainers, plus the landing page) to GitHub Pages. Static files only — no build.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/explanations/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Allow one concurrent deployment; don't cancel an in-progress run.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+      - name: Upload explainer sites
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/explanations
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

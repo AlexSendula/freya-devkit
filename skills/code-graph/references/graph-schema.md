@@ -5,12 +5,12 @@ This document describes the structure of the dependency graph stored in `graph.j
 ## File Location
 
 ```
-docs/.code-graph/graph.json
+knowledge-base/.graph/graph.json
 ```
 
-The graph is stored inside the project under `docs/` so it stays version-controlled and in sync with branch changes.
+The graph is stored inside the project under `knowledge-base/` so it stays version-controlled and in sync with branch changes.
 
-**Gitignore:** Add `docs/.code-graph/` to `.gitignore` if you prefer not to commit the generated graph.
+**Gitignore:** Add `knowledge-base/.graph/` to `.gitignore` if you prefer not to commit the generated graph.
 
 ## Schema
 
@@ -217,6 +217,15 @@ Project-absolute imports (with path alias) are resolved when possible:
 import { auth } from '@/lib/auth';
 // Resolved to: src/lib/auth.ts
 ```
+
+### Unresolved Imports
+
+A relative/aliased import that the resolver could not map to a real file is
+stored with an `unresolved:` prefix (rather than silently dropped), e.g.
+`unresolved:./missing`. So an entry in `imports` is **internal** (real
+project wiring) only when it carries neither the `external:` nor the
+`unresolved:` prefix — this is the predicate consumers use to count internal
+edges (e.g. `spec-manager bootstrap`'s shape detector).
 
 ## Graph Operations
 

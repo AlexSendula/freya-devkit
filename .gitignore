@@ -8,3 +8,6 @@ __pycache__/
 # Generated code-graph cache (should never be committed)
 docs/.code-graph/
 **/.code-graph/
+
+# Plugin runtime marker (created when this repo is symlinked as a local-dev plugin install)
+.in_use/

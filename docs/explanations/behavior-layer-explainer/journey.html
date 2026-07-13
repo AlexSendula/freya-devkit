@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>The Journey &amp; The Proof — The Behavior Layer</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script src="assets/site.js"></script>
+</head>
+<body>
+  <div id="site-header"></div>
+
+  <div class="doc">
+    <aside class="toc" id="toc"></aside>
+    <main class="doc-body">
+      <h1>The Journey &amp; The Proof</h1>
+      <p class="lead">One guiding rule shaped every sequencing choice: <strong>mechanism-first, dogfood-as-you-go</strong>. The central behavior loop was validated by running the branch code against a real project as it was built — rather than building horizontal infrastructure or governance ahead of evidence.</p>
+
+      <div class="card-grid" style="margin:24px 0">
+        <div class="stat card"><div class="num">135</div><div class="lbl">commits on the branch</div></div>
+        <div class="stat card"><div class="num">0</div><div class="lbl">false positives · 2 behaviors, 3 changes</div></div>
+        <div class="stat card"><div class="num">0→607</div><div class="lbl">internal graph edges after the fix</div></div>
+        <div class="stat card"><div class="num">~383</div><div class="lbl">candidates from a full-repo scan</div></div>
+      </div>
+
+      <section>
+        <h2 id="sequencing">Why the order looks the way it does</h2>
+        <div class="callout callout--why">
+          <span class="callout-label">Phase 0 was deliberately dropped</span>
+          <p>A separate, staged "vertical proof" in isolation was considered and dropped. Instead, that validation was folded into Phase 1's <em>first real use</em> on the testbed — a conscious risk trade: some early schema, lifecycle, and adapter choices were made provisionally and corrected in contact with reality. (The "F"-numbered friction findings are that correction record.)</p>
+        </div>
+        <div class="callout callout--why">
+          <span class="callout-label">Adoption preempted governance</span>
+          <p>The vision earmarked Phase 3 for governance — but "<strong>you cannot govern intent you have not captured</strong>." So an adoption track came first, built on one idea: <em>decouple inference from validation</em>. Inference is cheap and done up front (a bootstrap infers hundreds of untrusted candidates); validation is the scarce resource, spent lazily — you only confirm the two or three a change actually touches, in context, at wrap-up.</p>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="timeline">The phase timeline</h2>
+        <div class="timeline">
+          <div class="tl-item done">
+            <div class="tl-phase">Phase 1</div>
+            <h3>Traceability MVP</h3>
+            <p>Formalize spec↔behavior identity and the lifecycle; support Gherkin plus one native adapter; deterministic integrity checks; run accepted behaviors at wrap-up and <strong>block only deterministic failures</strong>. This is where the <code>Behavior</code> entity, the two adapters, and <code>verify_links</code> are born.</p>
+          </div>
+          <div class="tl-item done">
+            <div class="tl-phase">Phase 2</div>
+            <h3>Impact indexing</h3>
+            <p>The two new skills (<code>behavior-runner</code>, <code>behavior-graph</code>) and <code>behavior.json</code> appear. Observed (vitest) + static (code-graph closure) fingerprints, provenance + freshness, and both blast-radius directions. Then the evidence gate: <strong>measure</strong> false-positives and runtime before governance may trust the graph.</p>
+          </div>
+          <div class="tl-item done">
+            <div class="tl-phase">Adoption · SP1–SP5</div>
+            <h3>Getting onto a real codebase</h3>
+            <p>The <code>confirmed</code> state (intent agreed, test owed); greenfield/brownfield bootstrap; validate-on-hit (surface the 2–3 behaviors a change touched); status &amp; a git-tracked <code>BACKLOG.md</code>; and a security↔behavior cross-reference (an accepted behavior is verified evidence that can downgrade a finding).</p>
+          </div>
+          <div class="tl-item done">
+            <div class="tl-phase">Phase 3 · G1–G3</div>
+            <h3>Governance</h3>
+            <p>Declared-intent records (G1), principle enforcement (G2), and contradiction checks (G3) — the deterministic-facts-block, model-findings-resolve-to-proceed core.</p>
+          </div>
+          <div class="tl-item done">
+            <div class="tl-phase">Phase 4 · P4a/P4b</div>
+            <h3>Expansion: ADRs &amp; drift</h3>
+            <p>ADR support with an ADR-aware, <em>always-global</em> G3 (a research-backed reversal of an earlier category-scoping sketch, to avoid the silent-miss failure mode), and declarative-drift — a blast-radius-scoped, code-anchored guard for untestable intent.</p>
+          </div>
+          <div class="tl-item done">
+            <div class="tl-phase">Refactor</div>
+            <h3 id="refactor">The shared resolution-log</h3>
+            <p>Once G2, G3, and P4b each carried a near-verbatim copy of the append-only log logic, the third copy tipped the balance. Two copies had been a <em>deliberate, spec-approved</em> choice — not churning shipped code was worth more than DRY. At three, the logic was extracted into <code>resolution_log.py</code> and the three modules rewritten to delegate. Behavior preservation wasn't argued — it was <strong>mechanically guaranteed</strong>: the three existing test suites had to pass with their files byte-unchanged (11 + 16 + 19), and they did.</p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="pipeline">Where it all runs: the wrap-up pipeline</h2>
+        <p>At wrap-up, everything composes into one graded pipeline (Phase 3.5). Deterministic facts settle first and block; model judgment runs only after, and resolves-to-proceed. Click a step.</p>
+        <div class="explorer">
+          <div class="stage">
+            <div id="pipe-steps"></div>
+          </div>
+          <div class="panel" id="pipe-panel"><p class="placeholder">Select a step.</p></div>
+        </div>
+        <div class="callout callout--info">
+          <span class="callout-label">The two-commit pattern</span>
+          <p>wrap-up splits every run into <strong>commit 1 (code)</strong> and <strong>commit 2 (artifacts)</strong> — so the security scan has a stable commit to reference and git history stays clean. The subtle rule: a <code>.feature</code> scaffold is staged by its lifecycle <em>state</em>, not its location — a <code>proposed</code>/<code>TODO</code> scaffold rides the artifacts commit even though it sits in the code tree, and joins the code commit only once it's <code>accepted</code> and its marker is gone.</p>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="proof">What dogfooding proved</h2>
+        <p>The testbed was a real, production-shaped <strong>Next.js 16 / React 19 / TypeScript</strong> app with <strong>307 files and zero tests</strong> — deliberately exercising the "no runner" and greenfield-adoption paths. The first natural spec was passkey auth (<code>SPEC-001</code>).</p>
+
+        <h3 id="proof-lie">The lie a green suite can't catch</h3>
+        <div class="callout callout--success">
+          <span class="callout-label">The load-bearing moment</span>
+          <p>Flipping <code>BEH-001</code> to <code>accepted</code> while its "test" was still a <code>TODO</code> scaffold produced <strong>exactly one error, exit 1, scoped to BEH-001</strong> — its sibling proposed scaffolds in the same file were correctly untouched. The suite is green (nothing runs); the layer says exit 1. That's a lie about a guarantee that a green test suite is structurally incapable of catching.</p>
+        </div>
+
+        <h3 id="proof-bug">The latent bug it exposed</h3>
+        <p>The testbed used the <code>@/</code> path alias pervasively — a direct stress test of the code substrate. It exposed that impact analysis had been returning an <strong>empty-but-complete-looking blast radius for every path-alias project</strong> (a git diff showed the resolver had been unchanged since v0.1.0 — only a 2-line path rename — so the bug was original, not introduced). Fixing it — alias resolution, cwd-independence, and an honest <code>unresolved:</code> signal — took the graph from <strong>0 to 607 internal edges</strong>. This is precisely why "coverage-unknown, never silent" is a non-negotiable.</p>
+
+        <h3 id="proof-green">The false green that reshaped the design</h3>
+        <p>The original plan for integration behaviors was to import the framework route handler <em>in-process</em> and call it directly. On an ordinary CommonJS-default project, Node's <code>require(esm)</code> rules forbid it — and flipping the app to <code>"type": "module"</code> made the test <em>pass</em>, which is exactly the trap: a <strong>false green</strong>, bought by demanding every adopter restructure their app. The resolution became a principle: a behavior test drives the app over its <strong>real interface (HTTP) against a running instance</strong> — never by importing internals.</p>
+        <p>Observed coverage of that running app then captured only framework internals — <strong>zero app code</strong> (bundling plus a separate render worker). Rather than ship a framework-specific coverage dance, observed integration coverage was deferred (the parked per-framework V8+CDP adapter) and the <strong>static import-closure became the honest baseline</strong> — over-approximating, in the safe direction.</p>
+
+        <h3 id="proof-selective">Selective and fast</h3>
+        <p>Editing <code>lib/webauthn.ts</code> flags exactly the two behaviors that depend on it; an unrelated lib flags none; the route flags only <code>BEH-003</code>. Incremental <code>--check</code> on a change touching no exercised code is <strong>0.07 s</strong> (zero re-runs) versus a full build at ~1.4–2.4 s.</p>
+        <div class="callout callout--warn">
+          <span class="callout-label">Read the numbers honestly</span>
+          <p>The FP=0 / 0.07 s figures come from a <strong>small set — 2 behaviors, 3 changes</strong>. They validate the <em>mechanism</em>, not trustworthiness-at-scale. That's exactly why fingerprint-driven governance stays <em>advisory</em>; only a real <code>test-failed</code> of an accepted behavior blocks.</p>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="scale">The "flood" question, answered</h2>
+        <p>Does inferring behaviors for a whole codebase drown the engineer? A full brownfield scan (a coordinator + 7 parallel agents over ~224 files) produced <strong>~383 candidate behaviors</strong> — <em>a flood if reviewed eagerly, fine because nothing is</em>. Each feature area was individually manageable (35–63), the executable-vs-declarative split (~88/12) was sensible, and the one-time cost was ~260k tokens / ~65 s.</p>
+        <div class="callout callout--info">
+          <span class="callout-label">Why this works</span>
+          <p>The scan is a manageable backlog, not a flood, because <strong>review is lazy</strong>: validate-on-hit surfaces only the handful a change touches, and worklists grind the cold tail one at a time. That makes the adoption track load-bearing, not optional — it's the only thing that makes a ~380-candidate corpus tractable.</p>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="adoption">How it gets onto a real codebase</h2>
+        <p>The adoption track (SP1–SP5) is a four-step arc, all built on the same idea: inference is cheap, validation is the scarce resource — so spend it lazily, in the flow of work.</p>
+        <ol>
+          <li><strong>Day one — bootstrap.</strong> A deterministic detector classifies the project by <em>internal import edges</em> — real feature wiring, not file count (a boilerplate-heavy scaffold looks greenfield despite its many files). The evidence is always shown and the recommendation is overridable. Brownfield → a scan mints <code>proposed</code> candidates as records only; greenfield → skip inference and author behaviors forward as you build.</li>
+          <li><strong>In the flow — validate-on-hit.</strong> Each wrap-up surfaces just the proposed/confirmed behaviors <em>this change</em> touched, re-inferred against the current code — confirm, edit-then-confirm, or skip. Touched code with no covering behavior gets a "capture one?" prompt. Advisory, bounded, skippable.</li>
+          <li><strong>The cold tail — status &amp; the backlog.</strong> A generated, git-tracked <code>BACKLOG.md</code> ("do not edit — run status to refresh") shows the census: behaviors to confirm, tests owed, coverage gaps, open findings — it diffs in PRs, so the team sees outstanding work without running anything. Two worklists (<code>review intent</code>, <code>review tests</code>) grind the never-touched tail one item at a time.</li>
+          <li><strong>The payoff — security cross-reference.</strong> Once a behavior is <code>accepted</code>, its passing test is the strongest possible "intentional" evidence a security scan can cite — a <em>verified guarantee</em>, not a prose claim.</li>
+        </ol>
+        <div class="callout callout--success">
+          <span class="callout-label">The payoff, concretely</span>
+          <p>A scan flags "endpoint doesn't verify the user exists" (SEC-001). <code>BEH-003</code>'s passing test proves the uniform response is the intended anti-enumeration guarantee, so the finding is downgraded to <code>intentional</code> with <code>behavior_ref: BEH-003</code> — <strong>annotated, never deleted</strong>. SEC-002, which no accepted behavior covers, stays open. Only <code>accepted</code> qualifies; a <code>confirmed</code> behavior at most adds an advisory note — the finding stays open until a test verifies it.</p>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="parked">What's deliberately parked</h2>
+        <p>Deferral here is a quality decision, not neglect — the recurring note is "do it properly, as its own effort." Each parked item records <em>what</em>, <em>why deferred</em>, and <em>how to pick it up</em>.</p>
+
+        <h3>Remaining Phase-4 leaves</h3>
+        <div class="card-grid cols-2">
+          <div class="card">
+            <h3>P4c — more adapters <span class="pill">deprioritized</span></h3>
+            <p>Only the <strong>vitest</strong> unit runner is actually implemented; jest/pytest/playwright/… are allow-listed but stubbed. Deprioritized because it doesn't serve the current stack. If wanted: <code>jest</code> is near-free (same coverage format); <code>pytest</code> adds Python. Observed e2e is <em>not</em> P4c — it needs the deferred V8+CDP adapter.</p>
+          </div>
+          <div class="card">
+            <h3>P4d — calibrated enforcement <span class="pill">evidence-gated</span></h3>
+            <p>Promoting a model finding to a hard gate — but only <em>after</em> its false-positive rate is measured on a real project and shown acceptable. That evidence doesn't exist yet, so it waits by design.</p>
+          </div>
+        </div>
+
+        <h3>Deferred capabilities (each its own effort)</h3>
+        <ul>
+          <li><strong>Per-framework observed-coverage adapter (V8 + CDP)</strong> — "the big one." Real observed integration/e2e coverage by launching the app under <code>--inspect</code> and collecting V8 coverage over the Chrome DevTools Protocol, then remapping bundled output to source. Framework-specific; static-via-code-graph is the shipped baseline meanwhile.</li>
+          <li><strong>Graphify substrate fallback</strong> — the homegrown resolver was fixed, so "don't adopt a dependency we don't need yet." Revisit if it keeps accruing edge cases (known gaps: <code>extends</code> chains, per-edge confidence, monorepos).</li>
+          <li><strong>Full E2E for the happy-path login (BEH-001)</strong> — needs a signed WebAuthn assertion (Playwright + virtual authenticator). Stays <code>proposed</code> until then.</li>
+          <li><strong>Vendor-substrate ownership boundary</strong> — "the strongest unaddressed adoption case": you own a thin layer over a large vendor codebase you must not touch. Needs a first-class ownership boundary so a naive scan of a vendor checkout doesn't turn ~383 candidates into tens of thousands.</li>
+        </ul>
+
+        <h3 id="phase5">Phase 5 — the new frontier (work-laptop enablement)</h3>
+        <p>The layer is functionally complete for the greenfield/TypeScript case. The next frontier is using it on a polyglot enterprise stack from VS Code + GitHub Copilot — two independent tracks:</p>
+        <div class="card-grid cols-2">
+          <div class="card">
+            <h3>Track A — multi-agent portability</h3>
+            <p>The deterministic scripts are <em>already</em> portable stdlib-Python CLIs; only the orchestration layer is Claude-specific. Make scripts self-locating, add per-agent instruction files + an installer, and consolidate on <code>AGENTS.md</code> and/or MCP. Self-contained, medium effort.</p>
+          </div>
+          <div class="card">
+            <h3>Track B — polyglot code-graph</h3>
+            <p>code-graph is a homegrown TS/JS import resolver — blind to Java, Docker, Helm, and config-as-code. Real languages need a real parser, and config-as-code needs a second "resource graph" of reference/deploy edges. The true blocker, and the largest effort.</p>
+          </div>
+        </div>
+        <div class="callout callout--danger">
+          <span class="callout-label">The pivotal fork — decide first</span>
+          <p>The plugin's north star is <strong>"stdlib-only Python, zero-install."</strong> Java / tree-sitter / graphify break that. The fork: <em>keep zero-install</em> (homegrown per-language resolvers — limited, brittle) <em>vs adopt a dependency</em> (real multi-language, gives up zero-install). It's the one open decision that gates the largest remaining effort.</p>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="status">The honest status</h2>
+        <ol>
+          <li><strong>The original vision is essentially delivered.</strong> Phases 1–4 are shipped, the ADR machinery is in, and the substrate capability contract is largely satisfied (graphify still in reserve). What remains are deliberately parked leaves and the new Phase-5 frontier.</li>
+          <li><strong>The branch is unmerged by a standing decision.</strong> All the work is local on <code>feat/behavior-layer</code>; the operational parking items (revert the dev symlink, publish the real release) are explicitly "do before any release." The layer is functionally complete for the greenfield/TypeScript case, but hasn't been cut into a release.</li>
+        </ol>
+      </section>
+
+      <div class="next-prev">
+        <a class="np-card" href="governance.html"><div class="np-dir">← Back</div><div class="np-title">Governance</div></a>
+        <a class="np-card" href="reference.html" style="text-align:right"><div class="np-dir">Next →</div><div class="np-title">Reference</div></a>
+      </div>
+    </main>
+  </div>
+
+  <div id="site-footer"></div>
+  <script>
+  /* ---------- wrap-up Phase 3.5 pipeline ---------- */
+  (function () {
+    var STEPS = [
+      { n: "1", id: "link integrity + adr verify", gate: "block",
+        d: "verify_links.py and adr.py verify. Non-zero exit blocks on an unresolved locator, missing reverse tag, accepted-but-scaffold, duplicate id, orphan tag, or a dangling ADR supersede link. Cheap and certain." },
+      { n: "2", id: "declared-intent gate (G1)", gate: "block",
+        d: "verify_intent.py. Blocks when an accepted behavior's test was modified/deleted without a new INTENT-NNN record naming it. With no baseline marker yet, it skips (fail-open)." },
+      { n: "3", id: "build graph + run affected (--check)", gate: "block",
+        d: "Build behavior.json, then the Direction-A regression check: re-run ONLY the accepted behaviors whose exercised code the change touched — not the whole suite. A real test-failed of an affected accepted behavior blocks until classified." },
+      { n: "4", id: "validate-on-hit (--surface)", gate: "advisory",
+        d: "Read-only, never changes the exit code. Surfaces the affected proposed/confirmed behaviors to confirm, plus recall gaps (touched code no behavior covers). Bounded to the touched subset and fully skippable." },
+      { n: "5", id: "principle checkpoint (G2)", gate: "resolve",
+        d: "Load principles.md (also the soft-injection point), judge the diff against each principle, triage against prior resolutions, and resolve every finding (fix / refute / amend). Wrap-up won't complete while one is open." },
+      { n: "6", id: "contradiction check (G3)", gate: "resolve",
+        d: "For each changed spec and ADR, judge intent-vs-intent against principles, same-category peers, and all active ADRs. Authority: principle > ADR > spec. Resolve to proceed." },
+      { n: "7", id: "declarative-drift (P4b)", gate: "resolve",
+        d: "For each declared decision whose related_code intersects the blast radius, judge whether the changed code contradicts it. Blast-radius-scoped, code-anchored. Resolve to proceed." }
+    ];
+    var host = document.getElementById("pipe-steps");
+    var panel = document.getElementById("pipe-panel");
+    if (!host) return;
+    function badge(g) {
+      if (g === "block") return '<span class="badge badge--block">hard-block</span>';
+      if (g === "advisory") return '<span class="badge badge--advisory">advisory</span>';
+      return '<span class="badge badge--confirmed">resolve-to-proceed</span>';
+    }
+    STEPS.forEach(function (s, i) {
+      var row = document.createElement("button");
+      row.className = "chip-btn";
+      row.style.cssText = "display:flex;width:100%;text-align:left;align-items:center;gap:10px;margin:6px 0;justify-content:flex-start";
+      row.innerHTML = '<span class="step-tab" style="pointer-events:none;padding:0;flex:none;min-width:0"><span class="n">' + s.n + '</span></span>' +
+        '<span style="flex:1">' + s.id + '</span>' + badge(s.gate);
+      row.addEventListener("click", function () {
+        host.querySelectorAll(".chip-btn").forEach(function (x) { x.classList.remove("active"); });
+        row.classList.add("active");
+        panel.innerHTML = '<h4>Step ' + s.n + ' &nbsp;' + badge(s.gate) + '</h4><p><strong>' + s.id + '</strong></p><p class="muted">' + s.d + '</p>';
+      });
+      host.appendChild(row);
+    });
+    host.querySelector(".chip-btn").click();
+  })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,258 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>The Behavior Layer — freya-devkit</title>
+  <meta name="description" content="freya-devkit's behavior layer makes intended behavior a first-class, executable, blast-radius-aware artifact — with a lifecycle, adapters, a behavior graph, and coverage fingerprints.">
+  <link rel="stylesheet" href="assets/styles.css">
+  <script src="assets/site.js"></script>
+</head>
+<body>
+  <div id="site-header"></div>
+
+  <div class="doc">
+    <aside class="toc" id="toc"></aside>
+    <div class="doc-body">
+      <span class="eyebrow" style="color:var(--accent-strong);font-weight:650;font-size:.8rem;letter-spacing:.06em;text-transform:uppercase;">The Behavior Layer</span>
+      <h1>Intended behavior, made first-class</h1>
+      <p class="lead">The newest capability. Ordinary tests mirror what the code <em>does</em>; behavior
+      can drift while a green, high-coverage suite stays green. The behavior layer fixes that by making
+      <strong>intended behavior a first-class, executable, blast-radius-aware, governed artifact</strong>.</p>
+
+      <div class="callout callout--info">
+        <span class="callout-label">The one idea</span>
+        <p>A <code>BEH-NNN</code> record captures an intended behavior, carries a lifecycle, and is linked
+        through a real test down to the code it exercises. Now you can ask "what intended behavior does
+        this change touch?" and "is this behavior still verified?" — questions a plain test suite can't
+        answer.</p>
+      </div>
+
+      <section>
+        <h2>Four kinds of intent</h2>
+        <p>Not all intent is a testable behavior. The toolkit distinguishes four kinds, in a clear
+        authority order:</p>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Kind</th><th>What it is</th><th>Where it lives</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Executable behavior</strong></td><td>An observable behavior a test can verify.</td><td>a <code>BEH-NNN</code> record in a spec</td></tr>
+            <tr><td><strong>Declarative decision</strong></td><td>A feature-local choice with no test (e.g. "no password fallback").</td><td>a spec's <em>Intentional Design Decisions</em></td></tr>
+            <tr><td><strong>ADR</strong></td><td>A cross-cutting architecture decision.</td><td><code>decisions/ADR-NNN.md</code></td></tr>
+            <tr><td><strong>Principle</strong></td><td>A project-wide rule — the constitution.</td><td><code>principles.md</code></td></tr>
+          </tbody>
+        </table></div>
+        <p class="muted">Authority for conflicts runs <strong>principle &gt; ADR &gt; spec</strong>. How
+        each is enforced is the subject of the <a href="governance.html">Governance</a> page.</p>
+      </section>
+
+      <section>
+        <h2>The SPEC → BEHAVIOR → TEST → CODE chain</h2>
+        <p>A behavior links four things. That chain is what lets impact flow in both directions.</p>
+        <figure class="diagram">
+          <div class="flow">
+            <div class="node intent">SPEC-001<span class="sub">the feature</span></div>
+            <span class="arrow">→</span>
+            <div class="node beh">BEH-003<span class="sub">intended behavior</span></div>
+            <span class="arrow">→</span>
+            <div class="node test">a test<span class="sub">verifies it</span></div>
+            <span class="arrow">→</span>
+            <div class="node code">code<span class="sub">it exercises</span></div>
+          </div>
+          <figcaption><code>behavior-graph</code> projects the SPEC/BEHAVIOR half from your spec
+          frontmatter and merges in the TEST→CODE half from real coverage.</figcaption>
+        </figure>
+      </section>
+
+      <section>
+        <h2>The lifecycle</h2>
+        <p>Trust in a behavior is not a number — it's the lifecycle <strong>state</strong>. Click a state
+        to see what it means and whether it gates.</p>
+        <div class="toggle-row" id="lc-tabs">
+          <button class="chip-btn active" data-state="proposed">proposed</button>
+          <button class="chip-btn" data-state="confirmed">confirmed</button>
+          <button class="chip-btn" data-state="accepted">accepted</button>
+          <button class="chip-btn" data-state="quarantined">quarantined</button>
+          <button class="chip-btn" data-state="deprecated">deprecated</button>
+        </div>
+        <div class="panel" id="lc-panel"></div>
+        <p class="small muted">Forward path: <code>proposed → confirmed → accepted</code>.
+        <code>quarantined</code> and <code>deprecated</code> are side states. Only
+        <strong>accepted</strong> is executed and can block a change.</p>
+      </section>
+
+      <section>
+        <h2>Adapters: linking a behavior to a test</h2>
+        <p>A behavior becomes verifiable through an <strong>adapter</strong>. There are two ways, and the
+        toolkit <em>never</em> writes real test steps — that's human forward-design work.</p>
+        <div class="seg" id="adapter-seg">
+          <button class="active" data-adapter="gherkin">Gherkin scaffold</button>
+          <button data-adapter="native">Native link</button>
+        </div>
+        <div id="adapter-body"></div>
+      </section>
+
+      <section>
+        <h2>The behavior graph &amp; its two directions</h2>
+        <p><code>behavior-graph</code> owns <code>behavior.json</code> — a generated projection sibling to
+        <code>graph.json</code>. Because it links behaviors to the code they exercise, it answers blast
+        radius <em>both ways</em>.</p>
+        <div class="seg" id="dir-seg">
+          <button class="active" data-dir="a">Direction A — code → behaviors</button>
+          <button data-dir="b">Direction B — behavior → code</button>
+        </div>
+        <div class="panel" id="dir-panel"></div>
+      </section>
+
+      <section>
+        <h2>Coverage fingerprints</h2>
+        <p>When a behavior is run, the runner records which code the test actually executed — a
+        <em>fingerprint</em>. Coverage is one of three honest values, and "unknown" always carries a
+        reason (it's never faked):</p>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Coverage</th><th>Confidence</th><th>Source</th></tr></thead>
+          <tbody>
+            <tr><td><span class="badge badge--accepted">observed</span></td><td>0.8</td><td>Real runtime V8/istanbul coverage — the test ran and we watched (vitest unit).</td></tr>
+            <tr><td><span class="badge badge--confirmed">static</span></td><td>0.5</td><td>code-graph's transitive closure of a declared <code>entry</code> — analysis, no execution (integration).</td></tr>
+            <tr><td><span class="badge badge--proposed">unknown</span></td><td>—</td><td>No usable coverage — carries a reason, never attributed to code falsely.</td></tr>
+          </tbody>
+        </table></div>
+        <h3>Why coverage is "unknown"</h3>
+        <div class="table-wrap"><table>
+          <thead><tr><th>reason</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td><code>level-deferred</code></td><td>Adapter/level not yet implemented (only vitest unit is).</td></tr>
+            <tr><td><code>test-failed</code></td><td>The test process exited non-zero — this one invalidates prior coverage.</td></tr>
+            <tr><td><code>no-coverage</code></td><td>Passed but produced no coverage file.</td></tr>
+            <tr><td><code>no-entry</code></td><td>Integration behavior has no <code>entry</code> declared.</td></tr>
+            <tr><td><code>entry-missing</code></td><td>The declared <code>entry</code> file doesn't exist.</td></tr>
+            <tr><td><code>no-graph</code></td><td>No code-graph cache — run <code>code-graph build</code>.</td></tr>
+            <tr><td><code>not-run</code></td><td>The graph-side default for a projected behavior the runner didn't fingerprint this build.</td></tr>
+          </tbody>
+        </table></div>
+        <div class="callout callout--why">
+          <span class="callout-label">Merge by trust</span>
+          <p>Rebuilding never falsely loses coverage. <code>observed &gt; static</code>: a static run won't
+          overwrite a prior observed edge. A <code>test-failed</code> unknown <strong>invalidates</strong>
+          the fingerprint (the test is red); any <em>other</em> unknown <strong>preserves</strong> whatever
+          was there before.</p>
+        </div>
+      </section>
+
+      <section>
+        <h2>Go deeper</h2>
+        <p>This page and <a href="governance.html">Governance</a> cover the mechanics. For the full
+        narrative — the original problem, the design journey, the wrap-up pipeline in motion, and the
+        dogfooding evidence — there's a dedicated five-page explainer for just this feature:</p>
+        <div class="card-grid cols-2">
+          <a class="card" href="../behavior-layer-explainer/index.html">
+            <h3>The Behavior Layer explainer →</h3>
+            <p class="muted">The Story, How It Works (interactive graph + lifecycle explorer), Governance,
+            the Journey &amp; the Proof, and a Reference.</p>
+          </a>
+          <a class="card" href="governance.html">
+            <h3>Governance →</h3>
+            <p class="muted">How captured intent is enforced: block-on-facts vs resolve-to-proceed, G1–G3,
+            ADRs, drift, and the wrap-up Phase 3.5 pipeline.</p>
+          </a>
+        </div>
+      </section>
+
+      <div class="next-prev">
+        <a class="np-card" href="patterns.html"><div class="np-dir">← Back</div><div class="np-title">Patterns &amp; Conventions</div></a>
+        <a class="np-card" href="governance.html" style="text-align:right;"><div class="np-dir">Next →</div><div class="np-title">Governance</div></a>
+      </div>
+    </div>
+  </div>
+
+  <div id="site-footer"></div>
+
+  <script>
+  (function () {
+    /* ---- lifecycle explorer ---- */
+    var LC = {
+      proposed:    { badge: "proposed",    run: "Never run", gate: "Never gates", text: "Drafted or inferred intent. Lives only in your specs — it is <strong>not</strong> projected into behavior.json, not in the blast radius, and never executed. This is where an inferred candidate starts." },
+      confirmed:   { badge: "confirmed",   run: "Never run", gate: "Never gates", text: "A human confirmed the intent is real — but a test is still <em>owed</em>. It is projected into behavior.json (advisory) and appears in blast radius; if it declares an <code>entry</code> it gets a static fingerprint. Because it is never executed, it can never be <code>test-failed</code>." },
+      accepted:    { badge: "accepted",    run: "Run by wrap-up", gate: "Gates on failure", text: "Confirmed intent that a <strong>real, linked, passing test</strong> verifies. This is the only authoritative state. wrap-up re-runs the affected accepted behaviors; a failure hard-blocks until you fix the code, record an intended change, or quarantine it." },
+      quarantined: { badge: "quarantined", run: "Not run", gate: "Doesn't gate", text: "Temporarily set aside — e.g. a flaky or test-infra failure you don't want blocking wrap-up while you investigate. Not executed, doesn't gate, but stays visible." },
+      deprecated:  { badge: "deprecated",  run: "Not run", gate: "Doesn't gate", text: "Retired intent, kept for history. Not executed and doesn't gate — the behavior no longer applies but the record isn't deleted." }
+    };
+    var lcPanel = document.getElementById("lc-panel");
+    var lcTabs = document.querySelectorAll("#lc-tabs .chip-btn");
+    function showLC(state) {
+      var d = LC[state];
+      lcTabs.forEach(function (b) { b.classList.toggle("active", b.getAttribute("data-state") === state); });
+      lcPanel.innerHTML =
+        '<div style="display:flex;gap:10px;align-items:center;margin-bottom:8px;flex-wrap:wrap;">' +
+          '<span class="badge badge--' + state + '">' + d.badge + '</span>' +
+          '<span class="pill">' + d.run + '</span>' +
+          '<span class="pill">' + d.gate + '</span>' +
+        '</div><p style="margin:0;">' + d.text + '</p>';
+    }
+    lcTabs.forEach(function (b) { b.addEventListener("click", function () { showLC(b.getAttribute("data-state")); }); });
+    showLC("proposed");
+
+    /* ---- adapter tabs ---- */
+    var ADAPTERS = {
+      gherkin:
+        '<p>The default for a <em>new</em> behavior (<code>cucumber</code> / <code>behave</code> / ' +
+        '<code>pytest-bdd</code>). spec-manager writes a <strong>skeleton <code>.feature</code></strong> ' +
+        'into your code tree with the reverse-link tags and a <code>TODO(scaffold)</code> marker — but ' +
+        '<strong>no real steps and no step definitions</strong>. Authoring those is your work.</p>' +
+        '<div class="code-block"><div class="code-head">features/auth/passkey-login.feature</div>' +
+        '<pre class="code"><code><span class="tok-k">@SPEC-012</span>\n<span class="tok-k">Feature</span>: Passkey Login\n' +
+        '  <span class="tok-c"># Intent and rationale live in knowledge-base/specs/auth/SPEC-012-passkey-login.md</span>\n\n' +
+        '  <span class="tok-k">@BEH-007</span>\n  <span class="tok-k">Scenario</span>: Successful passkey login\n' +
+        '    <span class="tok-c"># TODO(scaffold): replace with real steps. Step definitions are not generated.</span>\n' +
+        '    <span class="tok-k">Given</span> &lt;initial state&gt;\n    <span class="tok-k">When</span> &lt;action&gt;\n' +
+        '    <span class="tok-k">Then</span> &lt;expected outcome&gt;</code></pre></div>' +
+        '<p class="small muted">The behavior\'s <code>locator</code> becomes ' +
+        '<code>features/auth/passkey-login.feature#successful-passkey-login</code>. A behavior that ' +
+        'reaches <code>accepted</code> while still carrying <code>TODO(scaffold)</code> is a verify-time error.</p>',
+      native:
+        '<p>When a behavior is already covered by a real test (<code>jest</code>, <code>playwright</code>, ' +
+        '<code>pytest</code>, <code>vitest</code>, …), just <strong>link it by locator</strong>. No file ' +
+        'is written and nothing is rewritten — this keeps adoption cheap for projects that already have tests.</p>' +
+        '<div class="code-block"><div class="code-head">spec frontmatter</div>' +
+        '<pre class="code"><code><span class="tok-k">behaviors</span>:\n' +
+        '  - <span class="tok-k">behavior_id</span>: BEH-003\n' +
+        '    <span class="tok-k">title</span>: rejects an expired challenge\n' +
+        '    <span class="tok-k">state</span>: accepted\n' +
+        '    <span class="tok-k">level</span>: unit\n' +
+        '    <span class="tok-k">adapter</span>: vitest\n' +
+        '    <span class="tok-k">locator</span>: <span class="tok-s">lib/example.test.ts::rejects an expired challenge</span></code></pre></div>' +
+        '<p class="small muted">Locator forms: <code>path#scenario-slug</code> (Gherkin) or ' +
+        '<code>path::node</code> (pytest-style).</p>'
+    };
+    var adapterBody = document.getElementById("adapter-body");
+    var adapterBtns = document.querySelectorAll("#adapter-seg button");
+    function showAdapter(a) {
+      adapterBtns.forEach(function (b) { b.classList.toggle("active", b.getAttribute("data-adapter") === a); });
+      adapterBody.innerHTML = ADAPTERS[a];
+    }
+    adapterBtns.forEach(function (b) { b.addEventListener("click", function () { showAdapter(b.getAttribute("data-adapter")); }); });
+    showAdapter("gherkin");
+
+    /* ---- direction toggle ---- */
+    var DIR = {
+      a: '<h4 style="margin:0 0 6px;">Direction A — code → behaviors <span class="pill">regression</span></h4>' +
+         '<p>Start from changed files; find every accepted or confirmed behavior whose exercised code the ' +
+         'change reaches (transitively, via code-graph impact). This is what <code>wrap-up</code> re-runs to ' +
+         'catch regressions.</p>' +
+         '<pre class="code"><code>behavior_graph.py --affected lib/example.ts --project .</code></pre>',
+      b: '<h4 style="margin:0 0 6px;">Direction B — behavior → code <span class="pill">planning</span></h4>' +
+         '<p>Start from a behavior; list the code it exercises. Useful when planning a change: "if I touch ' +
+         'this behavior, what code is in play?"</p>' +
+         '<pre class="code"><code>behavior_graph.py --implements BEH-003 --project .</code></pre>'
+    };
+    var dirPanel = document.getElementById("dir-panel");
+    var dirBtns = document.querySelectorAll("#dir-seg button");
+    function showDir(d) {
+      dirBtns.forEach(function (b) { b.classList.toggle("active", b.getAttribute("data-dir") === d); });
+      dirPanel.innerHTML = DIR[d];
+    }
+    dirBtns.forEach(function (b) { b.addEventListener("click", function () { showDir(b.getAttribute("data-dir")); }); });
+    showDir("a");
+  })();
+  </script>
+</body>
+</html>

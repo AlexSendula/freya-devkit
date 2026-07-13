@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reference — The Behavior Layer</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script src="assets/site.js"></script>
+</head>
+<body>
+  <div id="site-header"></div>
+
+  <div class="doc">
+    <aside class="toc" id="toc"></aside>
+    <main class="doc-body">
+      <h1>Reference</h1>
+      <p class="lead">A lookup surface — accurate to the shipped code on <code>feat/behavior-layer</code>. Flags differ per script (they weren't uniformly designed); the tables below show the real ones.</p>
+
+      <section>
+        <h2 id="layout">The <code>knowledge-base/</code> layout</h2>
+        <p>Authority flows top-to-bottom. Everything here is git-<strong>tracked</strong> except the <code>.graph/</code> cache, which is generated and self-ignored.</p>
+        <div class="code-block">
+          <div class="code-head"><span class="dot"></span> project layout</div>
+<pre class="code"><code>knowledge-base/
+  principles.md                     <span class="tok-c"># tracked · the constitution (highest authority)</span>
+  decisions/       ADR-NNN-*.md      <span class="tok-c"># tracked · cross-cutting ADRs + README</span>
+  specs/&lt;category&gt;/ SPEC-NNN-*.md    <span class="tok-c"># tracked · intent + decisions + behavior links</span>
+  intents/         INTENT-NNN.md     <span class="tok-c"># tracked · declared-intent records</span>
+                   .intent-last-verified   <span class="tok-c"># tracked · G1 baseline marker</span>
+  reference/                         <span class="tok-c"># tracked · reverse-synced (mirrors code)</span>
+  security/codebase-security/
+                   findings.json     <span class="tok-c"># tracked · structured security findings index</span>
+  principle-resolutions.jsonl        <span class="tok-c"># tracked · append-only (G2)</span>
+  contradiction-resolutions.jsonl    <span class="tok-c"># tracked · append-only (G3)</span>
+  drift-resolutions.jsonl            <span class="tok-c"># tracked · append-only (P4b)</span>
+  BACKLOG.md                         <span class="tok-c"># tracked · GENERATED — do not edit</span>
+  .graph/  graph.json  behavior.json <span class="tok-c"># GIT-IGNORED · regenerable cache</span>
+
+features/&lt;category&gt;/*.feature         <span class="tok-c"># CODE tree · behavior tests — accepted tests + proposed/TODO scaffolds</span>
+  steps/                             <span class="tok-c"># CODE tree · step definitions (glue)</span></code></pre>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="scripts">Scripts map — which skill owns what</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Skill</th><th>Scripts</th></tr></thead>
+            <tbody>
+              <tr><td><code>code-graph</code></td><td><code>graph_ops.py</code></td></tr>
+              <tr><td><code>spec-manager</code></td><td><code>frontmatter.py</code> · <code>search_specs.py</code> · <code>adapters.py</code> · <code>verify_links.py</code> · <code>verify_intent.py</code> · <code>intent.py</code> · <code>adr.py</code> · <code>principles.py</code> · <code>contradictions.py</code> · <code>drift.py</code> · <code>resolution_log.py</code> · <code>project_shape.py</code></td></tr>
+              <tr><td><code>behavior-runner</code></td><td><code>run_behaviors.py</code></td></tr>
+              <tr><td><code>behavior-graph</code></td><td><code>behavior_graph.py</code></td></tr>
+              <tr><td><code>status</code></td><td><code>collect_status.py</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="muted">All scripts are stdlib-only Python and are invoked via <code>python "${CLAUDE_PLUGIN_ROOT}/skills/&lt;skill&gt;/scripts/&lt;script&gt;.py"</code>.</p>
+      </section>
+
+      <section>
+        <h2 id="commands">Command reference</h2>
+        <p>Filter by any word — script, flag, or purpose.</p>
+        <input id="cmd-filter" type="search" placeholder="filter commands…  e.g. --base, drift, verify" autocomplete="off"
+          style="width:100%;padding:11px 14px;border:1px solid var(--border-strong);border-radius:10px;background:var(--surface);color:var(--text);font:inherit;font-size:.95rem;margin-bottom:6px">
+
+        <div class="table-wrap cmd-group">
+          <table>
+            <thead><tr><th>behavior-graph · <code>behavior_graph.py</code></th><th>purpose</th></tr></thead>
+            <tbody>
+              <tr><td><code>--build --project .</code></td><td>build/refresh <code>behavior.json</code> (project · run · merge · write)</td></tr>
+              <tr><td><code>--affected &lt;file&gt; --project .</code></td><td>Direction A: behaviors affected by a changed file</td></tr>
+              <tr><td><code>--implements BEH-003 --project .</code></td><td>Direction B: code a behavior exercises</td></tr>
+              <tr><td><code>--check --base &lt;commit&gt; --project .</code></td><td>incremental Direction-A regression gate <span class="pill">needs --base</span></td></tr>
+              <tr><td><code>--surface --base &lt;commit&gt; --project .</code></td><td>validate-on-hit: affected proposed/confirmed + recall gaps <span class="pill">needs --base</span></td></tr>
+              <tr><td><code>--gaps --project .</code></td><td>whole-repo uncovered-code audit</td></tr>
+              <tr><td><code>--covering &lt;file&gt; --project .</code></td><td>accepted behaviors exercising a file (security cross-ref)</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="table-wrap cmd-group">
+          <table>
+            <thead><tr><th>behavior-runner · <code>run_behaviors.py</code></th><th>purpose</th></tr></thead>
+            <tbody>
+              <tr><td><code>--project . --level unit --emit-fingerprints</code></td><td>run behaviors, print fingerprints as JSON (never writes the graph)</td></tr>
+              <tr><td><code>--project . --level unit --list</code></td><td>list the behaviors that would run</td></tr>
+              <tr><td><code>--emit-fingerprints --only BEH-002</code></td><td>run a single behavior (the incremental path)</td></tr>
+              <tr><td><code>--states accepted confirmed --emit-fingerprints</code></td><td>opt confirmed behaviors in (default is accepted only)</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="table-wrap cmd-group">
+          <table>
+            <thead><tr><th>spec-manager (deterministic gates)</th><th>purpose</th></tr></thead>
+            <tbody>
+              <tr><td><code>verify_links.py --dir knowledge-base/specs --format json</code></td><td>Tier-1 link integrity <span class="pill">--dir / --format, not --project</span></td></tr>
+              <tr><td><code>verify_intent.py --project . --format json</code></td><td>G1 declared-intent gate — read JSON on non-zero exit</td></tr>
+              <tr><td><code>verify_intent.py --project . --advance</code></td><td>advance the <code>.intent-last-verified</code> baseline (wrap-up Phase 5)</td></tr>
+              <tr><td><code>adr.py verify --project .</code></td><td>ADR integrity (duplicate id, dangling supersede, bad status)</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="table-wrap cmd-group">
+          <table>
+            <thead><tr><th>spec-manager (authoring)</th><th>purpose</th></tr></thead>
+            <tbody>
+              <tr><td><code>adapters.py gherkin-scaffold --spec-id SPEC-012 --title "…" --spec-path … --behavior BEH-007:Title</code></td><td>render a tagged <code>.feature</code> scaffold to stdout (<code>--behavior</code> repeatable)</td></tr>
+              <tr><td><code>intent.py new --behavior BEH-003 --approver … --rationale …</code></td><td>allocate the next <code>INTENT-NNN</code> record (<code>--behavior</code> repeatable)</td></tr>
+              <tr><td><code>adr.py new --title "…" [--status accepted] [--supersedes ADR-NNN] [--tag t]</code></td><td>allocate the next <code>ADR-NNN</code> (starts <code>accepted</code>)</td></tr>
+              <tr><td><code>adr.py list --format table|json --project .</code></td><td>regenerate the decisions index</td></tr>
+              <tr><td><code>project_shape.py --project . --format json</code></td><td>greenfield/brownfield detector (internal-edge signal)</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="table-wrap cmd-group">
+          <table>
+            <thead><tr><th>governance resolution logs (G2 / G3 / P4b)</th><th>purpose</th></tr></thead>
+            <tbody>
+              <tr><td><code>principles.py list --project . --format text|json</code></td><td>print numbered principles (also the soft-injection input)</td></tr>
+              <tr><td><code>principles.py resolve --principle N --verdict refuted --reason … --paths f1 f2</code></td><td>append a G2 resolution</td></tr>
+              <tr><td><code>principles.py prior --paths f1 f2 [--principle N]</code></td><td>active prior resolutions per <code>(principle, path)</code></td></tr>
+              <tr><td><code>contradictions.py context --project . --spec SPEC-005</code></td><td>a changed spec's comparison set (principles + peers + all active ADRs)</td></tr>
+              <tr><td><code>contradictions.py adr-context --project . --adr ADR-001</code></td><td>a changed ADR's comparison set (principles + peer ADRs)</td></tr>
+              <tr><td><code>contradictions.py resolve --spec X --against principle:2|SPEC-NNN|ADR-NNN --verdict … --reason …</code></td><td>append a G3 resolution</td></tr>
+              <tr><td><code>drift.py context --base &lt;commit&gt; --project .</code></td><td>blast-radius-scoped drift targets <span class="pill">needs --base</span></td></tr>
+              <tr><td><code>drift.py resolve --item SPEC-NNN --verdict … --reason … --paths …</code></td><td>append a P4b resolution</td></tr>
+              <tr><td><code>drift.py gaps --project .</code></td><td>declared items with no <code>related_code</code> (on-demand only)</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="table-wrap cmd-group">
+          <table>
+            <thead><tr><th>code-graph &amp; status</th><th>purpose</th></tr></thead>
+            <tbody>
+              <tr><td><code>graph_ops.py --impact &lt;file…&gt; --dir &lt;project&gt; --format json</code></td><td>blast radius — reads <code>all_affected</code> <span class="pill">--dir, not --project</span></td></tr>
+              <tr><td><code>graph_ops.py --dependencies &lt;file&gt; --dir &lt;project&gt; --format json</code></td><td>transitive import closure of a file</td></tr>
+              <tr><td><code>graph_ops.py --build [--non-interactive]</code></td><td>build the graph (auto non-interactive when stdin isn't a TTY)</td></tr>
+              <tr><td><code>collect_status.py --project . --format text --write-backlog</code></td><td>aggregate every bucket &amp; regenerate <code>BACKLOG.md</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="hint" id="cmd-empty" hidden>No commands match that filter.</p>
+      </section>
+
+      <section>
+        <h2 id="lifecycle-cheat">Lifecycle cheat-sheet</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>State</th><th>Test?</th><th>Fingerprinted?</th><th>Executed?</th><th>Gates?</th><th>Staged</th></tr></thead>
+            <tbody>
+              <tr><td><span class="badge badge--proposed">proposed</span></td><td>no</td><td>no (not even in <code>behavior.json</code>)</td><td>no</td><td>no</td><td>artifacts</td></tr>
+              <tr><td><span class="badge badge--confirmed">confirmed</span></td><td>owed</td><td>static (if <code>entry</code>) — advisory</td><td>no</td><td>no</td><td>artifacts</td></tr>
+              <tr><td><span class="badge badge--accepted">accepted</span></td><td>yes, passing</td><td>observed / static</td><td>yes</td><td><strong>yes</strong></td><td>code</td></tr>
+              <tr><td><span class="badge badge--quarantined">quarantined</span></td><td>failing (infra)</td><td>no</td><td>no</td><td>no</td><td>—</td></tr>
+              <tr><td><span class="badge badge--deprecated">deprecated</span></td><td>—</td><td>no</td><td>no</td><td>no</td><td>—</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="g1-triggers">G1 trigger rules</h2>
+        <p>When does editing a test require an <code>INTENT-NNN</code> record? Keyed off the git status of accepted behaviors' <em>locators</em>, using the behavior's state at HEAD:</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Locator change</th><th>Behavior <code>accepted</code> at HEAD?</th><th>Record required?</th></tr></thead>
+            <tbody>
+              <tr><td>Modified</td><td>yes</td><td><strong>yes</strong> — "regardless of what" the edit is; no cosmetic exemption</td></tr>
+              <tr><td>Deleted</td><td>yes</td><td><strong>yes</strong> — removing a live guarantee is an intent change</td></tr>
+              <tr><td>Added (brand-new behavior)</td><td>yes</td><td>no — the normal accept flow, not a change to an existing guarantee</td></tr>
+              <tr><td>Pure rename (no content change)</td><td>yes</td><td>no — moving a file isn't changing the guarantee; a rename <em>with</em> edits counts as modified</td></tr>
+              <tr><td>any change</td><td>no (<code>proposed</code>/<code>confirmed</code>/<code>quarantined</code>/<code>deprecated</code>)</td><td>no — only accepted guarantees are governed</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout callout--info">
+          <span class="callout-label">Escape valves &amp; the honest blind spot</span>
+          <p>Quarantining or deprecating the behavior <em>in the same change</em> as its test edit exits the gate (not accepted at HEAD ⇒ no record needed). And G1 is path-based: edits to a shared test <em>helper</em> that isn't the locator aren't caught — an accepted limitation; a future refinement could widen detection to the test's import closure. With no baseline marker yet (fresh repo), the gate skips rather than false-blocks.</p>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="reasons">Coverage-unknown reasons</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>reason</th><th>what it means for you</th></tr></thead>
+            <tbody>
+              <tr><td><code>level-deferred</code></td><td>the behavior's level/adapter isn't implemented yet (e.g. e2e) — not a failure</td></tr>
+              <tr><td><code>test-failed</code></td><td>the test ran and was red — this is the only reason that <em>invalidates</em> a prior edge</td></tr>
+              <tr><td><code>no-coverage</code></td><td>the test passed but produced no coverage file (reporter misconfigured)</td></tr>
+              <tr><td><code>no-entry</code></td><td>an integration or <code>confirmed</code> behavior declares no <code>entry</code></td></tr>
+              <tr><td><code>entry-missing</code></td><td>the declared <code>entry</code> file doesn't exist on disk</td></tr>
+              <tr><td><code>no-graph</code></td><td>no built code-graph cache — run <code>code-graph build</code></td></tr>
+              <tr><td><code>not-run</code></td><td>projected into the graph, but the runner emitted nothing for it</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="glossary">Glossary</h2>
+        <dl class="glossary">
+          <dt>Behavior</dt><dd>an intended, observable fact about the system: a stable record (<code>BEH-NNN</code>) with a lifecycle, linked via an adapter to the test that verifies it. Not tied to any one test format.</dd>
+          <dt>Adapter / locator</dt><dd>how a behavior points at its verification (Gherkin scenario, native test, or <code>manual</code>) and where that test lives.</dd>
+          <dt>Lifecycle</dt><dd><code>proposed → confirmed → accepted</code>, with <code>quarantined</code>/<code>deprecated</code> off to the side. Only <em>accepted, non-quarantined</em> behavior is authoritative.</dd>
+          <dt>Coverage fingerprint</dt><dd>the set of files a single test executes — the provenance-bearing <code>TEST → CODE</code> edge, never asserted as precise.</dd>
+          <dt>Provenance / trust order</dt><dd>the trust order is <code>explicit</code> (hand-declared — reserved as a future lever, not emitted today) <code>&gt; observed &gt; static</code>; every shipped edge carries <code>observed</code> or <code>static</code>, plus a confidence and a freshness commit. Higher trust wins on merge.</dd>
+          <dt>Coverage-unknown</dt><dd>an edge the graph knows it should resolve but couldn't — surfaced with a reason, never dropped. Distinguishes "no deps" from "couldn't resolve."</dd>
+          <dt>Direction A / B</dt><dd>A = code change → affected behaviors (regression). B = a behavior → the code that implements it (planning).</dd>
+          <dt>Generated projection</dt><dd>a derived, read-only view of a single source of truth (allowed). Distinct from a hand-maintained duplicate (forbidden).</dd>
+          <dt>Declared-intent record</dt><dd>a durable, machine-checkable artifact (<code>INTENT-NNN</code>: behaviors touched, rationale, approver) — the only legitimate reason to change an accepted behavior's test.</dd>
+          <dt>Principle / ADR</dt><dd><code>principles.md</code> = the project constitution (highest authority); an ADR (<code>ADR-NNN</code>) = a cross-cutting architecture decision. Authority: principle &gt; ADR &gt; spec.</dd>
+          <dt>Resolve-to-proceed</dt><dd>a model finding must be resolved (fix / refute / amend / reconcile) before wrap-up completes — "ignore and push" is not a resolution.</dd>
+          <dt>Behavioral blast-radius</dt><dd>the set of intended behaviors affected by a change.</dd>
+        </dl>
+      </section>
+
+      <div class="next-prev">
+        <a class="np-card" href="journey.html"><div class="np-dir">← Back</div><div class="np-title">The Journey</div></a>
+        <a class="np-card" href="index.html" style="text-align:right"><div class="np-dir">Home →</div><div class="np-title">The Story</div></a>
+      </div>
+    </main>
+  </div>
+
+  <div id="site-footer"></div>
+  <script>
+  /* ---------- Command filter ---------- */
+  (function () {
+    var input = document.getElementById("cmd-filter");
+    var empty = document.getElementById("cmd-empty");
+    if (!input) return;
+    var groups = Array.prototype.slice.call(document.querySelectorAll(".cmd-group"));
+    input.addEventListener("input", function () {
+      var q = input.value.trim().toLowerCase();
+      var anyVisible = false;
+      groups.forEach(function (g) {
+        var head = g.querySelector("thead").textContent.toLowerCase();
+        var groupMatch = !q || head.indexOf(q) !== -1;
+        var rows = g.querySelectorAll("tbody tr");
+        var groupHas = false;
+        rows.forEach(function (r) {
+          var match = groupMatch || r.textContent.toLowerCase().indexOf(q) !== -1;
+          r.hidden = !match;
+          if (match) groupHas = true;
+        });
+        g.hidden = !groupHas;
+        if (groupHas) anyVisible = true;
+      });
+      empty.hidden = anyVisible;
+    });
+  })();
+  </script>
+</body>
+</html>

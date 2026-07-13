@@ -1,0 +1,451 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>The Skills — freya-devkit</title>
+  <meta name="description" content="All ten freya-devkit skills in depth: purpose, key commands, what each reads and writes, how they compose, and their honest limits.">
+  <link rel="stylesheet" href="assets/styles.css">
+  <script src="assets/site.js"></script>
+</head>
+<body>
+  <div id="site-header"></div>
+
+  <div class="doc">
+    <aside class="toc" id="toc"></aside>
+    <div class="doc-body">
+      <span class="eyebrow" style="color:var(--accent-strong);font-weight:650;font-size:.8rem;letter-spacing:.06em;text-transform:uppercase;">The Skills</span>
+      <h1>All ten, in depth</h1>
+      <p class="lead">Each skill does one thing and composes through the shared
+      <code>knowledge-base/</code>. Expand any card for its purpose, key commands, what it reads and
+      writes, and its honest limits. Full CLI flags live on the <a href="reference.html">Reference</a>
+      page.</p>
+
+      <input class="filter-input" id="skill-filter" type="text" placeholder="Filter skills… (e.g. security, behavior, graph)" aria-label="Filter skills">
+      <div class="callout callout--info" style="margin-top:14px;">
+        <span class="callout-label">Script-backed vs prose-driven</span>
+        <p>Some skills ship a real, stdlib-only <strong>Python engine</strong> that does deterministic
+        work (<code>code-graph</code>, <code>spec-manager</code>, <code>behavior-graph</code>,
+        <code>behavior-runner</code>, <code>status</code>; <code>docs-manager</code> has one detection
+        helper). Others are <strong>prose-driven</strong> — the skill is instructions the agent follows,
+        with no binary (<code>codebase-security-scan</code> aside from its audit workflow,
+        <code>codebase-security-resolver</code>, <code>dependency-vulnerability-check</code>,
+        <code>wrap-up</code>). The badge on each card tells you which.</p>
+      </div>
+
+      <!-- ============================ TIER 1 ============================ -->
+      <section>
+        <h2>1 · Foundation</h2>
+
+        <details class="skill" id="code-graph" open data-name="code-graph dependency graph blast radius impact keystone foundation">
+          <summary>
+            <span class="s-name">code-graph</span>
+            <span class="tier-badge tier-1">Foundation</span>
+            <span class="badge badge--script">Python engine</span>
+            <span class="s-purpose">The dependency graph + blast radius every other skill queries.</span>
+          </summary>
+          <div class="s-body">
+            <p>Builds a <strong>reverse-dependency graph</strong> by parsing import/export relationships
+            (regex, not a full parser) for TypeScript/JS, Python, and Go. It answers "what depends on
+            this?" so consumers can process a change's whole blast radius, not just the file that
+            changed.</p>
+            <h4>Key commands</h4>
+            <pre class="code"><code>/freya-devkit:code-graph build          <span class="tok-c"># full scan → graph.json</span>
+/freya-devkit:code-graph update         <span class="tok-c"># incremental via git diff</span>
+/freya-devkit:code-graph impact &lt;file&gt;   <span class="tok-c"># blast radius (accepts many files)</span>
+/freya-devkit:code-graph query &lt;file&gt;    <span class="tok-c"># dependencies + usages</span>
+/freya-devkit:code-graph dependents &lt;file&gt;
+/freya-devkit:code-graph dependencies &lt;file&gt;</code></pre>
+            <h4>Reads / writes</h4>
+            <p>Reads your source + git. Writes <code>knowledge-base/.graph/graph.json</code> and
+            <code>classifications.json</code> — a regenerable, git-ignored cache. On <code>build</code> it
+            classifies directories (rules → AI → user); non-interactively, uncertain directories default
+            to <strong>source</strong> so real code is never silently dropped.</p>
+            <h4>Composes with</h4>
+            <p>Everything. <code>docs-manager</code>, <code>spec-manager</code>, the security scan, and
+            <code>behavior-graph</code> query it for impact; each degrades to a plain <code>git diff</code>
+            when it's absent.</p>
+            <h4>Good to know</h4>
+            <ul>
+              <li>Regex, not AST — dynamic <code>import(variable)</code> may be missed; comments/strings can mismatch.</li>
+              <li>External packages are recorded as <code>external:</code> leaves, not traversed.</li>
+              <li>Go / absolute-Python intra-project imports often fall through to <code>external:</code>; internal-edge resolution is strongest for TS/JS relative + aliased imports.</li>
+              <li>Monorepos want one graph per subproject; <code>tsconfig</code> <code>extends</code> is not followed.</li>
+            </ul>
+          </div>
+        </details>
+      </section>
+
+      <!-- ============================ TIER 2 ============================ -->
+      <section>
+        <h2>2 · Knowledge</h2>
+
+        <details class="skill" id="docs-manager" data-name="docs-manager documentation readme reference architecture api coordinator workers">
+          <summary>
+            <span class="s-name">docs-manager</span>
+            <span class="tier-badge tier-2">Knowledge</span>
+            <span class="badge badge--prose">Prose + 1 helper</span>
+            <span class="s-purpose">Standardized project docs, impact-aware, in knowledge-base/reference/.</span>
+          </summary>
+          <div class="s-body">
+            <p>Creates and maintains a standard documentation set with a <strong>coordinator + parallel
+            workers</strong> architecture: one coordinator detects the stack and gathers business
+            context, then one worker per doc type (ARCHITECTURE, API, DATABASE, DEPLOYMENT, …) runs in
+            parallel. Undetectable details become <code>[TODO:]</code> placeholders resolved later in
+            batched questions.</p>
+            <h4>Key commands</h4>
+            <pre class="code"><code>/freya-devkit:docs-manager init            <span class="tok-c"># create the doc set</span>
+/freya-devkit:docs-manager update          <span class="tok-c"># impact-aware refresh</span>
+/freya-devkit:docs-manager update api      <span class="tok-c"># one doc</span>
+/freya-devkit:docs-manager review | sync | resolve | upgrade-diagrams</code></pre>
+            <h4>Reads / writes</h4>
+            <p>Reads code + <code>code-graph impact</code>. <strong>Owns</strong>
+            <code>knowledge-base/README.md</code> (the index) and <code>reference/*.md</code>. Its only
+            real code is <code>detect_project.py</code> (stack + test-runner detection).</p>
+            <h4>Composes with</h4>
+            <p><code>code-graph</code> (impact-aware <code>update</code>, degrades to git diff);
+            <code>wrap-up</code> runs it as a step. Its <code>reference/</code> docs give the security
+            scan architectural context.</p>
+            <h4>Good to know</h4>
+            <ul>
+              <li>Almost entirely prose-driven — doc quality depends on the model following the instructions.</li>
+              <li>Certainty scoring is <em>not</em> a docs-manager feature — that's <code>spec-manager</code>. Its analog is <code>[TODO:]</code> markers and a ✅/⚠️/❌ review.</li>
+              <li>Some templates/evals still reference an older <code>docs/</code> layout; <code>knowledge-base/</code> is authoritative.</li>
+            </ul>
+          </div>
+        </details>
+
+        <details class="skill" id="spec-manager" data-name="spec-manager specs specifications intentional design decisions principles adr intent behavior lifecycle governance certainty">
+          <summary>
+            <span class="s-name">spec-manager</span>
+            <span class="tier-badge tier-2">Knowledge</span>
+            <span class="badge badge--script">Python engine</span>
+            <span class="s-purpose">Specs, intentional-design decisions, the behavior lifecycle, and governance.</span>
+          </summary>
+          <div class="s-body">
+            <p>The intent owner. It captures <strong>what a feature does and why it was designed that
+            way</strong>, with special emphasis on <em>intentional design decisions that might look like
+            bugs</em>. It owns four things in the knowledge base and hosts the behavior lifecycle plus the
+            deterministic halves of governance.</p>
+            <div class="callout callout--why">
+              <span class="callout-label">The false-positive filter</span>
+              <p>A spec's <em>Intentional Design Decisions</em> section is what a security scan reads to
+              tell a real vulnerability from an on-purpose choice ("No password fallback — a scanner
+              flagging missing password auth should be ignored").</p>
+            </div>
+            <h4>Key commands</h4>
+            <pre class="code"><code>/freya-devkit:spec-manager bootstrap       <span class="tok-c"># one-time onboarding (see Get Started)</span>
+/freya-devkit:spec-manager create &lt;name&gt;   <span class="tok-c"># author intent forward (certainty 100)</span>
+/freya-devkit:spec-manager scan            <span class="tok-c"># infer proposed candidates (brownfield)</span>
+/freya-devkit:spec-manager update          <span class="tok-c"># git-aware incremental sync</span>
+/freya-devkit:spec-manager verify          <span class="tok-c"># deterministic integrity checks</span>
+/freya-devkit:spec-manager intent new &lt;BEH&gt;  ·  adr create|list|verify</code></pre>
+            <h4>Reads / writes</h4>
+            <p>Reads <code>code-graph</code> impact + <code>reference/</code> docs. Writes
+            <code>specs/</code> (by category), <code>principles.md</code> (the constitution),
+            <code>decisions/</code> (ADRs), <code>intents/</code> (INTENT-NNN), and the three
+            <code>*-resolutions.jsonl</code> governance logs.</p>
+            <h4>Composes with</h4>
+            <p>The security scan reads its intentional decisions; <code>behavior-graph</code> and
+            <code>behavior-runner</code> parse its behavior records; <code>wrap-up</code> runs its
+            governance scripts; <code>status</code> reads its frontmatter for the backlog census.</p>
+            <h4>Good to know</h4>
+            <ul>
+              <li><code>scan</code> only ever produces <strong>proposed</strong> candidates — never <code>accepted</code>, never files in the code tree. Acceptance is a human act.</li>
+              <li>Authority order for contradictions: <strong>principle &gt; ADR &gt; spec</strong>.</li>
+              <li><code>certainty</code> (0–100) gates review of <em>inferred</em> specs; executable-behavior trust is the lifecycle <em>state</em>, not the number. See the <a href="behavior-layer.html">Behavior Layer</a>.</li>
+            </ul>
+          </div>
+        </details>
+
+        <details class="skill" id="behavior-graph" data-name="behavior-graph behavior.json direction blast radius affected implements covering gaps surface projection">
+          <summary>
+            <span class="s-name">behavior-graph</span>
+            <span class="tier-badge tier-2">Knowledge</span>
+            <span class="badge badge--script">Python engine</span>
+            <span class="s-purpose">Owns behavior.json; answers both blast-radius directions.</span>
+          </summary>
+          <div class="s-body">
+            <p>The graph layer of the behavior layer. It projects your specs' behavior records and merges
+            in coverage from <code>behavior-runner</code> to build <code>behavior.json</code> — the
+            <code>BEHAVIOR → TEST → CODE</code> projection — then answers impact questions both ways.</p>
+            <h4>Key commands</h4>
+            <pre class="code"><code>python "$CLAUDE_PLUGIN_ROOT/skills/behavior-graph/scripts/behavior_graph.py" \
+  --build --project .                    <span class="tok-c"># refresh behavior.json</span>
+  --affected &lt;file...&gt;                    <span class="tok-c"># Direction A: code → behaviors</span>
+  --implements &lt;BEH-NNN&gt;                  <span class="tok-c"># Direction B: behavior → code</span>
+  --check --base &lt;commit&gt;                 <span class="tok-c"># regression gate (wrap-up)</span>
+  --surface --base &lt;commit&gt;  ·  --gaps  ·  --covering &lt;file&gt;</code></pre>
+            <h4>Reads / writes</h4>
+            <p>Reads <code>graph.json</code> + spec frontmatter + runner fingerprints. Writes
+            <code>knowledge-base/.graph/behavior.json</code> (git-ignored). Merges by trust:
+            <code>observed &gt; static</code>; a red test invalidates, any other unknown preserves prior
+            coverage.</p>
+            <h4>Composes with</h4>
+            <p>Queries <code>code-graph</code> (impact) and <code>behavior-runner</code> (coverage) —
+            code-graph never learns about behaviors. Consumed by <code>wrap-up</code> (<code>--check</code>
+            / <code>--surface</code>), <code>status</code> (<code>--gaps</code>), and the security scan
+            (<code>--covering</code>).</p>
+            <h4>Good to know</h4>
+            <ul>
+              <li>Only <code>accepted</code> + <code>confirmed</code> behaviors are projected; <code>proposed</code> lives only in specs. (See the <a href="behavior-layer.html">Behavior Layer</a> for the lifecycle.)</li>
+              <li>Only <code>accepted</code> behaviors can gate a regression check.</li>
+              <li>Queries reflect the last <code>--build</code> snapshot — re-build after spec/code changes. (Its SKILL.md documents 3 modes; the script implements 7.)</li>
+            </ul>
+          </div>
+        </details>
+
+        <details class="skill" id="behavior-runner" data-name="behavior-runner coverage fingerprint observed static vitest producer emit fingerprints exercises">
+          <summary>
+            <span class="s-name">behavior-runner</span>
+            <span class="tier-badge tier-2">Knowledge</span>
+            <span class="badge badge--script">Python engine</span>
+            <span class="s-purpose">Runs accepted behaviors; emits observed coverage fingerprints.</span>
+          </summary>
+          <div class="s-body">
+            <p>A <strong>producer only</strong>: it runs accepted, non-quarantined behaviors through their
+            adapter and prints <code>TEST → CODE</code> coverage fingerprints as JSON. It never writes
+            <code>behavior.json</code> — that's <code>behavior-graph</code>'s job.</p>
+            <h4>Key commands</h4>
+            <pre class="code"><code>python "$CLAUDE_PLUGIN_ROOT/skills/behavior-runner/scripts/run_behaviors.py" \
+  --project . --level unit --emit-fingerprints
+  --states accepted confirmed            <span class="tok-c"># default: accepted only</span>
+  --list                                 <span class="tok-c"># list matching behaviors, don't run</span></code></pre>
+            <h4>Coverage model</h4>
+            <div class="table-wrap"><table>
+              <thead><tr><th>Value</th><th>Confidence</th><th>How</th></tr></thead>
+              <tbody>
+                <tr><td><code>observed</code></td><td>0.8</td><td>Runtime V8/istanbul coverage (vitest unit)</td></tr>
+                <tr><td><code>static</code></td><td>0.5</td><td>code-graph closure of a declared <code>entry</code> (integration)</td></tr>
+                <tr><td><code>unknown</code></td><td>—</td><td>No usable coverage — usually carries a <em>reason</em>, never faked</td></tr>
+              </tbody>
+            </table></div>
+            <h4>Good to know</h4>
+            <ul>
+              <li>Only the <strong>vitest unit</strong> path is implemented; jest/other adapters return <code>unknown · level-deferred</code>. Integration coverage is static-only; e2e is a later plan.</li>
+              <li>The vitest invocation is hardcoded to <code>pnpm</code>.</li>
+              <li><code>confirmed</code> behaviors are never executed (test owed) — so they can never be <code>test-failed</code> and never gate. (See the <a href="behavior-layer.html">Behavior Layer</a> for the lifecycle.)</li>
+            </ul>
+          </div>
+        </details>
+      </section>
+
+      <!-- ============================ TIER 3 ============================ -->
+      <section>
+        <h2>3 · Analysis</h2>
+
+        <details class="skill" id="codebase-security-scan" data-name="codebase-security-scan security audit findings vulnerability adversarial verification finders audit workflow">
+          <summary>
+            <span class="s-name">codebase-security-scan</span>
+            <span class="tier-badge tier-3">Analysis</span>
+            <span class="badge badge--prose">Prose + audit workflow</span>
+            <span class="s-purpose">Six parallel finders + adversarial verification; specs cut false positives.</span>
+          </summary>
+          <div class="s-body">
+            <p>Application-code security auditing. Six specialized agents scan in parallel (Auth/Authz;
+            Injection; Secrets; API/Network; Config/Deps; File/Resource), findings are validated online
+            and <strong>adversarially refuted</strong> to kill false positives, and each finding's
+            lifecycle is tracked across scans.</p>
+            <h4>Key commands</h4>
+            <pre class="code"><code>/freya-devkit:codebase-security-scan scan       <span class="tok-c"># full</span>
+/freya-devkit:codebase-security-scan update     <span class="tok-c"># incremental (used by wrap-up)</span>
+/freya-devkit:codebase-security-scan audit      <span class="tok-c"># exhaustive, Workflow-powered, on-demand</span>
+/freya-devkit:codebase-security-scan check-specs · impact &lt;file&gt;</code></pre>
+            <h4>Reads / writes</h4>
+            <p>Reads <code>reference/</code> docs + <code>specs/</code> + accepted behaviors +
+            <code>code-graph</code>. Writes a dated prose report
+            (<code>security/codebase-security/YYYY-MM-DD.md</code>), a machine-readable
+            <code>findings.json</code>, and <code>.security-last-scan</code>.</p>
+            <h4>Good to know</h4>
+            <ul>
+              <li><strong>Only <code>accepted</code> behaviors downgrade a finding</strong> — a verified guarantee beats a prose spec; proposed/confirmed add only an advisory note.</li>
+              <li>Standard verification runs 2–3 refutation lenses per finding; only a <em>unanimous</em> refute drops one. A split stays <em>needs review</em>.</li>
+              <li><code>audit</code> is deliberately <strong>not</strong> wired into <code>wrap-up</code> — it's a background multi-agent Workflow for pre-release.</li>
+            </ul>
+          </div>
+        </details>
+
+        <details class="skill" id="dependency-vulnerability-check" data-name="dependency-vulnerability-check supply chain cve npm yarn pnpm audit dependencies">
+          <summary>
+            <span class="s-name">dependency-vulnerability-check</span>
+            <span class="tier-badge tier-3">Analysis</span>
+            <span class="badge badge--prose">Prose-driven</span>
+            <span class="s-purpose">Supply-chain CVE audit for Node projects.</span>
+          </summary>
+          <div class="s-body">
+            <p>The supply-chain half of security (its sibling scan covers <em>your</em> code). It detects
+            the package manager from the lock file, runs <code>&lt;pm&gt; audit --json</code>, then enriches
+            and validates each finding with web searches to strip false positives and note applicability.</p>
+            <h4>Key commands</h4>
+            <pre class="code"><code>/freya-devkit:dependency-vulnerability-check
+<span class="tok-c"># schedule it:</span>
+/loop 1w /freya-devkit:dependency-vulnerability-check</code></pre>
+            <h4>Reads / writes</h4>
+            <p>Reads lock files + <code>package.json</code> + WebSearch. Writes dated reports to
+            <code>knowledge-base/security/dependency-vulnerabilities/YYYY-MM-DD.md</code> (preserved per
+            date, not overwritten).</p>
+            <h4>Good to know</h4>
+            <ul>
+              <li><strong>Node / npm ecosystem only</strong> (npm, yarn, pnpm) — no pip, cargo, go modules.</li>
+              <li>Reports, doesn't fix — it suggests <code>npm audit fix</code> and updates.</li>
+              <li>Complementary to the code scan, but <strong>not</strong> invoked by <code>wrap-up</code>.</li>
+            </ul>
+          </div>
+        </details>
+      </section>
+
+      <!-- ============================ TIER 4 ============================ -->
+      <section>
+        <h2>4 · Orchestration</h2>
+
+        <details class="skill" id="wrap-up" data-name="wrap-up orchestrator two-commit pipeline post-implementation finish commit everything governance phase 3.5">
+          <summary>
+            <span class="s-name">wrap-up</span>
+            <span class="tier-badge tier-4">Orchestration</span>
+            <span class="badge badge--prose">Prose orchestrator</span>
+            <span class="s-purpose">Runs the whole team in order under a two-commit pattern.</span>
+          </summary>
+          <div class="s-body">
+            <p>The post-implementation orchestrator. After you implement a feature, it runs each skill in
+            dependency order and lands a clean <strong>two commits</strong>: your code, then all generated
+            artifacts.</p>
+            <h4>The pipeline</h4>
+            <pre class="code"><code>0.  commit code (if uncommitted)
+1.  code-graph update
+2.  docs-manager update
+3.  spec-manager update
+3.5 behavior integrity + governance gates   <span class="tok-c"># see Governance</span>
+4.  codebase-security-scan update            <span class="tok-c"># never audit</span>
+5.  commit artifacts (+ refresh BACKLOG.md)</code></pre>
+            <h4>Key commands</h4>
+            <pre class="code"><code>/freya-devkit:wrap-up
+/freya-devkit:wrap-up "feat: add passkey login"
+/freya-devkit:wrap-up --no-security --no-docs   <span class="tok-c"># skip steps</span></code></pre>
+            <h4>Good to know</h4>
+            <ul>
+              <li>A behavior scaffold's commit class follows its <strong>lifecycle state, not its file location</strong> — a proposed <code>.feature</code> scaffold (a placeholder test with no real steps yet) rides the <em>artifacts</em> commit; an accepted test rides the <em>code</em> commit.</li>
+              <li>Phase 3.5 is where deterministic checks hard-block and model judgment resolves-to-proceed. "Ignore and push is not a resolution." See <a href="governance.html">Governance</a>.</li>
+              <li>It warns and skips any missing skill rather than failing.</li>
+            </ul>
+          </div>
+        </details>
+
+        <details class="skill" id="status" data-name="status backlog read-only census worklist intent tests owed gaps findings check counterpart">
+          <summary>
+            <span class="s-name">status</span>
+            <span class="tier-badge tier-4">Orchestration</span>
+            <span class="badge badge--script">Python engine</span>
+            <span class="s-purpose">Read-only backlog: what intent, tests, and findings are outstanding.</span>
+          </summary>
+          <div class="s-body">
+            <p>The read-only <strong>check-counterpart of <code>wrap-up</code></strong>. Where wrap-up does
+            and syncs, <code>status</code> only reports — it aggregates outstanding behavior, coverage, and
+            security work into one summary and, on request, regenerates the git-tracked
+            <code>BACKLOG.md</code>.</p>
+            <h4>Key commands</h4>
+            <pre class="code"><code>python "$CLAUDE_PLUGIN_ROOT/skills/status/scripts/collect_status.py" \
+  --project . --format text --write-backlog
+<span class="tok-c"># agent-driven worklists:</span>
+status review intent   <span class="tok-c"># proposed → confirm, one at a time</span>
+status review tests    <span class="tok-c"># confirmed → link/write a test → accept</span>
+status gaps            <span class="tok-c"># whole-repo uncovered code</span></code></pre>
+            <h4>Reads / writes</h4>
+            <p>Reads <code>specs/</code> frontmatter, <code>behavior.json</code>, <code>findings.json</code>,
+            and <code>verify_links</code>. Writes only <code>knowledge-base/BACKLOG.md</code>. Every source
+            degrades to a note independently — the command never blocks or crashes.</p>
+            <h4>Good to know</h4>
+            <ul>
+              <li>This drains the "cold tail" — behaviors no work ever touches, so wrap-up's <a href="governance.html">validate-on-hit</a> never surfaces them.</li>
+              <li>The intent worklist is sorted <strong>lowest-certainty first</strong>, so the least-certain proposals surface for confirmation first.</li>
+              <li>It never auto-authors a test — that's the engineer's work.</li>
+            </ul>
+          </div>
+        </details>
+      </section>
+
+      <!-- ============================ TIER 5 ============================ -->
+      <section>
+        <h2>5 · Resolution</h2>
+
+        <details class="skill" id="codebase-security-resolver" data-name="codebase-security-resolver fix findings interactive metadata cleanup terminal state dead code delete">
+          <summary>
+            <span class="s-name">codebase-security-resolver</span>
+            <span class="tier-badge tier-5">Resolution</span>
+            <span class="badge badge--prose">Prose-driven</span>
+            <span class="s-purpose">Interactive fixer; routes every finding to a terminal state.</span>
+          </summary>
+          <div class="s-body">
+            <p>The actor half of the security loop. It reads an existing report and drives an interactive
+            workflow — list → select → validate → confirm → plan → implement → commit code → hand off to
+            <code>wrap-up</code>. Its signature feature is <strong>metadata cleanup</strong>: every
+            <em>skipped</em> finding still gets routed to a terminal state, so skipping is never a no-op.</p>
+            <h4>Key commands</h4>
+            <pre class="code"><code>/freya-devkit:codebase-security-resolver            <span class="tok-c"># interactive</span>
+/freya-devkit:codebase-security-resolver fix SEC-001 SEC-003
+/freya-devkit:codebase-security-resolver fix --critical   <span class="tok-c"># --high, --medium are cumulative</span>
+/freya-devkit:codebase-security-resolver fix --dry-run</code></pre>
+            <h4>Terminal states for a skipped finding</h4>
+            <div class="table-wrap"><table>
+              <thead><tr><th>Category</th><th>Becomes</th></tr></thead>
+              <tbody>
+                <tr><td>Already resolved</td><td>report → RESOLVED</td></tr>
+                <tr><td>Intentional design</td><td>spec entry added + report → INTENTIONAL</td></tr>
+                <tr><td>Outdated (removed code)</td><td>report → OBSOLETE / removed</td></tr>
+                <tr><td>Misclassified (not security)</td><td>report → INFO (downgraded)</td></tr>
+              </tbody>
+            </table></div>
+            <h4>Good to know</h4>
+            <ul>
+              <li>Uses <code>code-graph</code> for blast radius; if a finding's file has <strong>0 dependents</strong> it recommends <em>deleting</em> the dead code over fixing it.</li>
+              <li>Commits code first (<code>fix(security): …</code>), then hands off to <code>wrap-up</code> for the artifacts commit — the two-commit pattern.</li>
+              <li>Prose-only: the tables and ✅/⚠️ lines are templates the agent reproduces, not program output.</li>
+            </ul>
+          </div>
+        </details>
+      </section>
+
+      <p class="filter-empty hide" id="skill-empty">No skills match that filter.</p>
+
+      <div class="next-prev">
+        <a class="np-card" href="architecture.html"><div class="np-dir">← Back</div><div class="np-title">Architecture</div></a>
+        <a class="np-card" href="patterns.html" style="text-align:right;"><div class="np-dir">Next →</div><div class="np-title">Patterns &amp; Conventions</div></a>
+      </div>
+    </div>
+  </div>
+
+  <div id="site-footer"></div>
+
+  <script>
+  (function () {
+    var input = document.getElementById("skill-filter");
+    var cards = Array.prototype.slice.call(document.querySelectorAll(".skill"));
+    var empty = document.getElementById("skill-empty");
+    function apply() {
+      var q = (input.value || "").trim().toLowerCase();
+      var shown = 0;
+      cards.forEach(function (c) {
+        var hay = (c.getAttribute("data-name") + " " + c.textContent).toLowerCase();
+        var match = !q || hay.indexOf(q) !== -1;
+        c.classList.toggle("hide", !match);
+        if (match) shown++;
+      });
+      empty.classList.toggle("hide", shown !== 0);
+    }
+    input.addEventListener("input", apply);
+
+    // open + scroll to a skill when arriving via #hash (e.g. from the Overview roster)
+    function openHash() {
+      var id = location.hash.replace("#", "");
+      if (!id) return;
+      var el = document.getElementById(id);
+      if (el && el.classList.contains("skill")) {
+        el.open = true;
+        el.scrollIntoView({ block: "start" });
+      }
+    }
+    window.addEventListener("hashchange", openHash);
+    openHash();
+  })();
+  </script>
+</body>
+</html>

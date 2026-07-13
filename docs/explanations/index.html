@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>freya-devkit — explainers</title>
+<meta name="description" content="Visual explainers for the freya-devkit plugin: the whole toolkit, the behavior layer, and governance. No install, no build — open any one and read.">
+<style>
+  :root { --bg:#0e1116; --panel:#161b22; --border:#2a323d; --ink:#e6edf3; --muted:#9aa7b4; --accent:#6ea8fe; --radius:14px; }
+  @media (prefers-color-scheme: light) {
+    :root { --bg:#f6f8fa; --panel:#ffffff; --border:#d0d7de; --ink:#1f2328; --muted:#57606a; --accent:#0969da; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; line-height:1.6; -webkit-font-smoothing:antialiased; }
+  .wrap { max-width:820px; margin:0 auto; padding:72px 24px 96px; }
+  h1 { font-size:2.1rem; margin:0 0 6px; letter-spacing:-.02em; }
+  h1 span { color:var(--accent); }
+  .lead { color:var(--muted); font-size:1.05rem; margin:0 0 40px; max-width:60ch; }
+  .cards { display:grid; gap:16px; }
+  a.card { display:block; text-decoration:none; color:inherit; background:var(--panel); border:1px solid var(--border); border-radius:var(--radius); padding:22px 24px; transition:border-color .15s ease, transform .15s ease; }
+  a.card:hover { border-color:var(--accent); transform:translateY(-2px); }
+  a.card h2 { margin:0 0 6px; font-size:1.15rem; }
+  a.card h2 .arrow { color:var(--accent); }
+  a.card p { margin:0; color:var(--muted); font-size:.95rem; }
+  footer { margin-top:48px; padding-top:20px; border-top:1px solid var(--border); color:var(--muted); font-size:.85rem; }
+  footer a { color:var(--accent); text-decoration:none; }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>freya<span>-devkit</span></h1>
+    <p class="lead">Visual explainers for the freya-devkit plugin — an integrated, AI-assisted development toolkit for Claude Code. No install, no build; open any one and read.</p>
+    <div class="cards">
+      <a class="card" href="plugin/index.html">
+        <h2>The whole plugin <span class="arrow">&rarr;</span></h2>
+        <p>The all-encompassing tour: philosophy, the five-tier architecture, all ten skills, patterns, the behavior layer, governance, and how to adopt it on a fresh or existing project. Start here.</p>
+      </a>
+      <a class="card" href="behavior-layer-explainer/index.html">
+        <h2>The Behavior Layer <span class="arrow">&rarr;</span></h2>
+        <p>A five-page deep dive on intended behavior as a first-class, executable, blast-radius-aware artifact — the story, how it works, governance, the journey, and the proof.</p>
+      </a>
+      <a class="card" href="governance-explainer/index.html">
+        <h2>Governance <span class="arrow">&rarr;</span></h2>
+        <p>How captured intent is enforced: block-on-facts vs resolve-to-proceed, the what-guards-what matrix, and the wrap-up checkpoints.</p>
+      </a>
+    </div>
+    <footer>
+      Source: <a href="https://github.com/AlexSendula/freya-devkit">github.com/AlexSendula/freya-devkit</a>
+    </footer>
+  </div>
+</body>
+</html>

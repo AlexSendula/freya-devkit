@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Patterns &amp; Conventions — freya-devkit</title>
+  <meta name="description" content="The reusable patterns that recur across freya-devkit skills — coordinator+workers, two-commit, incremental, certainty scoring — plus the integration conventions that let independently-authored skills compose.">
+  <link rel="stylesheet" href="assets/styles.css">
+  <script src="assets/site.js"></script>
+</head>
+<body>
+  <div id="site-header"></div>
+
+  <div class="doc">
+    <aside class="toc" id="toc"></aside>
+    <div class="doc-body">
+      <span class="eyebrow" style="color:var(--accent-strong);font-weight:650;font-size:.8rem;letter-spacing:.06em;text-transform:uppercase;">Patterns &amp; Conventions</span>
+      <h1>The connective tissue</h1>
+      <p class="lead">A handful of patterns recur across the skills, and a few conventions let
+      independently-authored skills compose without hard coupling. Both are <strong>guidelines, not
+      requirements</strong> — used where they fit.</p>
+
+      <div class="callout callout--why">
+        <span class="callout-label">Conventions, not requirements</span>
+        <p>There's no framework enforcing any of this. A skill that ignores a pattern still works; the
+        patterns exist so that skills <em>fit together</em> naturally. "The goal is coherence and
+        collaboration, not rigid compliance."</p>
+      </div>
+
+      <section>
+        <h2>Coordinator + parallel workers</h2>
+        <p><strong>Problem:</strong> processing a large codebase sequentially is slow.
+        <strong>Solution:</strong> one coordinator analyzes structure and plans the work, then spawns
+        specialized workers that run in parallel, and their results are aggregated.</p>
+        <figure class="diagram">
+          <div class="flow">
+            <div class="node intent">Coordinator<span class="sub">plans by area</span></div>
+            <span class="arrow">→</span>
+            <div class="node beh">Worker · auth</div>
+            <div class="node beh">Worker · api</div>
+            <div class="node beh">Worker · data</div>
+            <span class="arrow">→</span>
+            <div class="node test">Aggregate</div>
+          </div>
+          <figcaption>Used by <code>docs-manager</code> (one worker per doc type),
+          <code>spec-manager scan</code>, and <code>codebase-security-scan</code> (one per vulnerability
+          category).</figcaption>
+        </figure>
+      </section>
+
+      <section>
+        <h2>Two-commit separation</h2>
+        <p><strong>Problem:</strong> generated artifacts reference code commits; if artifacts share the
+        commit they describe, the reference is unstable. <strong>Solution:</strong> code changes land in
+        one commit, generated artifacts in a second.</p>
+        <div class="grid-2">
+          <div class="card" style="border-top:3px solid var(--accent)">
+            <h4 style="margin-top:0;">Commit 1 — code</h4>
+            <pre class="code" style="font-size:.8rem;"><code>src/lib/auth.ts
+src/api/routes.ts
+tests/auth.test.ts</code></pre>
+          </div>
+          <div class="card" style="border-top:3px solid var(--teal)">
+            <h4 style="margin-top:0;">Commit 2 — artifacts</h4>
+            <pre class="code" style="font-size:.8rem;"><code>knowledge-base/reference/API.md
+knowledge-base/specs/auth/SPEC-001.md
+knowledge-base/security/.../2026-07-12.md</code></pre>
+          </div>
+        </div>
+        <p class="muted">Cleaner history, a stable commit for the security scan to reference, and no
+        tracking-file hacks. Used by <code>wrap-up</code> and <code>codebase-security-resolver</code>.
+        The behavior layer refines it: a scaffold's commit follows its <em>lifecycle state</em>, not its
+        location.</p>
+      </section>
+
+      <section>
+        <h2>Incremental updates</h2>
+        <p><strong>Problem:</strong> full scans are expensive and most changes are localized.
+        <strong>Solution:</strong> remember the last processed commit and only reprocess what changed —
+        expanded by blast radius.</p>
+        <ol class="cmd-steps">
+          <li>Read the tracking file → <code>last_commit</code></li>
+          <li><code>git diff last_commit..HEAD --name-only</code> → changed files</li>
+          <li>If <code>code-graph</code> available: <code>impact &lt;changed&gt;</code> → blast radius; else the changed files</li>
+          <li>Process only that set</li>
+          <li>Write the tracking file with the current commit</li>
+        </ol>
+        <p class="muted">Used by the <code>update</code> mode of <code>code-graph</code>,
+        <code>docs-manager</code>, <code>spec-manager</code>, and <code>codebase-security-scan</code>.</p>
+      </section>
+
+      <section>
+        <h2>Certainty scoring</h2>
+        <p><strong>Problem:</strong> AI-generated content isn't always correct, and humans need to know
+        how much to trust it. <strong>Solution:</strong> inferred specs carry a <strong>0–100</strong>
+        certainty score in four bands.</p>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Score</th><th>Confidence</th><th>Action</th></tr></thead>
+          <tbody>
+            <tr><td>90–100</td><td>High</td><td>Accept / trust it</td></tr>
+            <tr><td>70–89</td><td>Good</td><td>Brief review</td></tr>
+            <tr><td>50–69</td><td>Medium</td><td>Ask the user to confirm</td></tr>
+            <tr><td>0–49</td><td>Low</td><td>Detailed review</td></tr>
+          </tbody>
+        </table></div>
+        <p>Certainty <em>rises</em> with code comments, matching docs, clear patterns, and tests; it
+        <em>falls</em> with no comments, ambiguity, and missing tests. User-authored specs are set to
+        <strong>100</strong>.</p>
+        <div class="callout callout--info">
+          <span class="callout-label">Certainty is not the trust signal for behavior</span>
+          <p>Used only by <code>spec-manager</code>. After the behavior layer, certainty gates review of
+          <em>inferred, declarative</em> specs; trust in an <em>executable behavior</em> is carried by
+          its lifecycle <strong>state</strong> (<code>proposed → confirmed → accepted</code>), not the
+          number. It's a heuristic, not a formula.</p>
+        </div>
+      </section>
+
+      <section>
+        <h2>More patterns</h2>
+        <div class="card-grid">
+          <div class="card">
+            <h3>Intentional-design tracking</h3>
+            <p class="muted">Specs record on-purpose decisions (and a "security scan note") so scanners
+            reclassify them as <em>intentional design</em> rather than bugs. Stored by
+            <code>spec-manager</code>, read by the security scan.</p>
+          </div>
+          <div class="card">
+            <h3>Fallback without dependencies</h3>
+            <p class="muted">Check whether an optional teammate (usually <code>code-graph</code>) is
+            available; if not, degrade to a plain <code>git diff</code> and warn about reduced coverage.
+            Used by every impact-aware skill.</p>
+          </div>
+          <div class="card">
+            <h3>Phase-based execution</h3>
+            <p class="muted">Break a multi-step workflow into named, reported phases ("Change
+            Detection", "Impact Analysis", …) so progress is visible. Used by most multi-step skills.</p>
+          </div>
+          <div class="card">
+            <h3>Git-aware state</h3>
+            <p class="muted">Store the last-processed commit in a dotfile so "what changed" is just a
+            <code>git diff</code> away. Backs incremental updates across the toolkit.</p>
+          </div>
+          <div class="card">
+            <h3>Validation against specs</h3>
+            <p class="muted">Before finalizing, cross-reference findings against specs — if the "vulnerable"
+            behavior is explicitly allowed, mark it intentional. Used by the security scan's
+            <code>check-specs</code>.</p>
+          </div>
+          <div class="card">
+            <h3>Worker specialization</h3>
+            <p class="muted">Spawn domain-specialized agents rather than generic ones — one per doc type,
+            one per security category. Sharper than a single do-everything pass.</p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>Integration conventions</h2>
+        <p>How a skill declares its place in the ecosystem so others (and the AI) understand the
+        relationships:</p>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Convention</th><th>What it means</th></tr></thead>
+          <tbody>
+            <tr><td>Frontmatter declarations</td><td><code>TRIGGER</code> phrases, an <code>INTEGRATION</code> line ("uses X when available"), and a <code>Used by</code> line let agents understand relationships.</td></tr>
+            <tr><td>scan vs update</td><td><code>scan</code>/<code>build</code>/<code>init</code> = full, first-time or complete refresh. <code>update</code> = git-aware incremental (the day-to-day default).</td></tr>
+            <tr><td>Namespaced cross-references</td><td>Skills call each other as <code>/freya-devkit:&lt;skill&gt;</code> — the bare <code>/&lt;skill&gt;</code> form only resolves for loose <code>~/.claude/skills/</code> installs.</td></tr>
+            <tr><td>Artifact locations</td><td>Output goes to the right <code>knowledge-base/</code> subdirectory for its type — docs to <code>reference/</code>, specs to <code>specs/</code>, findings to <code>security/</code>.</td></tr>
+            <tr><td>Dated-report idempotency</td><td>Reports are written to <code>&lt;type&gt;/YYYY-MM-DD.md</code>; same date = same file (git provides history).</td></tr>
+            <tr><td>Tracking files</td><td><code>.&lt;skill&gt;-last-&lt;action&gt;</code> with a <code>commit</code> + <code>timestamp</code>, next to the skill's primary output.</td></tr>
+            <tr><td>Bundled script paths</td><td>Scripts are referenced via <code>${CLAUDE_PLUGIN_ROOT}</code> and always quoted (install paths can contain spaces).</td></tr>
+          </tbody>
+        </table></div>
+      </section>
+
+      <section>
+        <h2>Where the docs lag the code</h2>
+        <p>The toolkit is on an active feature branch, so some prose trails the implementation. This
+        explainer follows the <strong>shipped code</strong> as ground truth. The honest gaps worth
+        knowing:</p>
+        <div class="callout callout--warn">
+          <span class="callout-label">Prose vs. implementation</span>
+          <ul style="margin:0;">
+            <li><strong>"Seven skills"</strong> — the README tagline predates the behavior layer; <strong>ten</strong> skills ship.</li>
+            <li><strong>Artifact root</strong> — a few templates/evals still write to the old <code>docs/</code> layout; <code>knowledge-base/</code> is authoritative (there's a documented migration).</li>
+            <li><strong><code>.graph/</code> version control</strong> — some prose calls the graph "version-controlled," but the code auto-ignores the whole cache dir. It's a regenerable local cache by default.</li>
+            <li><strong>Certainty wording</strong> — the action column differs between two docs ("Trust it" vs "Accept automatically"); same bands, different phrasing.</li>
+            <li><strong><code>behavior-graph</code> CLI</strong> — its SKILL.md documents 3 modes; the script implements 7 (the rest are used by wrap-up, status, and the security scan).</li>
+            <li><strong>Portability</strong> — several steps (≈13 in <code>spec-manager</code>, 2 in <code>wrap-up</code>) hardcode an absolute install path instead of <code>${CLAUDE_PLUGIN_ROOT}</code>; the portable form is canonical (a known parking-lot item).</li>
+          </ul>
+        </div>
+      </section>
+
+      <div class="next-prev">
+        <a class="np-card" href="skills.html"><div class="np-dir">← Back</div><div class="np-title">The Skills</div></a>
+        <a class="np-card" href="behavior-layer.html" style="text-align:right;"><div class="np-dir">Next →</div><div class="np-title">The Behavior Layer</div></a>
+      </div>
+    </div>
+  </div>
+
+  <div id="site-footer"></div>
+</body>
+</html>

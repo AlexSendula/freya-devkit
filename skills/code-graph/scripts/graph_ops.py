@@ -126,11 +126,24 @@ class CodeGraph:
 
     def __init__(self, project_dir: Optional[str] = None):
         self.project_dir = Path(project_dir or os.getcwd()).resolve()
-        self.graph_dir = self.project_dir / 'docs' / '.code-graph'
+        self.graph_dir = self.project_dir / 'knowledge-base' / '.graph'
         self.graph_path = self.graph_dir / 'graph.json'
         self.classifications_path = self.graph_dir / 'classifications.json'
         self.graph: Dict[str, Any] = {}
         self.classifications: Dict[str, Any] = {}
+        self._alias_cache: Optional[List] = None
+        self._alias_base: Path = self.project_dir
+
+    def _ensure_graph_dir(self) -> None:
+        """Create the graph cache dir and a self-ignoring `.gitignore` (F8).
+
+        The cache is fully regenerable, so it ignores its own contents — adopting
+        projects never need to touch their root `.gitignore`.
+        """
+        self.graph_dir.mkdir(parents=True, exist_ok=True)
+        gi = self.graph_dir / '.gitignore'
+        if not gi.exists():
+            gi.write_text('# Generated code-graph cache — do not commit\n*\n', encoding='utf-8')
 
     def _get_git_commit(self) -> Optional[str]:
         """Get current git commit hash."""
@@ -185,24 +198,96 @@ class CodeGraph:
                     return category
         return 'unknown'
 
-    def _resolve_import_path(self, import_path: str, from_file: str) -> Optional[str]:
-        """Resolve an import path to a project-relative file path."""
-        # External package
-        if not import_path.startswith('.') and not import_path.startswith('/'):
-            # Check if it might be a local package
-            parts = import_path.split('/')
-            if len(parts) > 1:
-                # Could be a scoped package or monorepo package
-                potential_local = self.project_dir / 'node_modules' / import_path
-                if potential_local.exists():
-                    return None  # It's external
-            return None  # External package
+    # -------------------------------------------------------------------------
+    # Import resolution: relative (cwd-independent) + tsconfig/jsconfig aliases
+    # -------------------------------------------------------------------------
 
-        # Relative import
-        from_dir = Path(from_file).parent
-        resolved = (from_dir / import_path).resolve()
+    @staticmethod
+    def _strip_jsonc(text: str) -> str:
+        """JSONC -> JSON: drop `//` and `/* */` comments and trailing commas.
 
-        # Try to find the actual file
+        String-aware: comment markers inside string literals are preserved, so values
+        like the `@/*` alias or a `**/*.ts` glob (which contain `/*` and `*/`) are not
+        mistaken for comments. Stdlib-only, scoped to tsconfig/jsconfig.
+        """
+        out = []
+        i, n = 0, len(text)
+        in_str = False
+        quote = ''
+        while i < n:
+            c = text[i]
+            if in_str:
+                out.append(c)
+                if c == '\\' and i + 1 < n:        # keep escaped char verbatim
+                    out.append(text[i + 1])
+                    i += 2
+                    continue
+                if c == quote:
+                    in_str = False
+                i += 1
+                continue
+            if c in ('"', "'"):
+                in_str = True
+                quote = c
+                out.append(c)
+                i += 1
+                continue
+            if c == '/' and i + 1 < n and text[i + 1] == '/':
+                i += 2
+                while i < n and text[i] != '\n':
+                    i += 1
+                continue
+            if c == '/' and i + 1 < n and text[i + 1] == '*':
+                i += 2
+                while i + 1 < n and not (text[i] == '*' and text[i + 1] == '/'):
+                    i += 1
+                i += 2
+                continue
+            out.append(c)
+            i += 1
+        # Trailing commas: safe now that comments are gone (strings preserved above).
+        return re.sub(r',(\s*[}\]])', r'\1', ''.join(out))
+
+    def _load_path_aliases(self) -> List:
+        """Load `(pattern, [targets])` path aliases from tsconfig/jsconfig (cached).
+
+        Sets `self._alias_base` to the resolved `baseUrl`. One config only; `extends`
+        is intentionally not followed (out of scope — see substrate-fix plan).
+        """
+        if self._alias_cache is not None:
+            return self._alias_cache
+        aliases: List = []
+        base_url = '.'
+        for name in ('tsconfig.json', 'jsconfig.json'):
+            cfg = self.project_dir / name
+            if not cfg.exists():
+                continue
+            try:
+                data = json.loads(self._strip_jsonc(cfg.read_text(encoding='utf-8')))
+            except Exception:
+                data = None
+            if isinstance(data, dict):
+                co = data.get('compilerOptions', {}) or {}
+                base_url = co.get('baseUrl', '.') or '.'
+                for pattern, targets in (co.get('paths', {}) or {}).items():
+                    if isinstance(targets, list):
+                        aliases.append((pattern, targets))
+            break
+        self._alias_base = (self.project_dir / base_url).resolve()
+        self._alias_cache = aliases
+        return aliases
+
+    def _matches_alias(self, import_path: str) -> bool:
+        for pattern, _ in self._load_path_aliases():
+            if '*' in pattern:
+                if import_path.startswith(pattern.split('*', 1)[0]):
+                    return True
+            elif import_path == pattern:
+                return True
+        return False
+
+    def _resolve_fs(self, resolved: Path) -> Optional[str]:
+        """Resolve a base path to a real project-relative source file (suffixes/index)."""
         candidates = [
             resolved,
             resolved.with_suffix('.ts'),
@@ -216,16 +301,58 @@ class CodeGraph:
             resolved / 'index.jsx',
             resolved / '__init__.py',
         ]
-
         for candidate in candidates:
             try:
                 rel = candidate.relative_to(self.project_dir)
-                if candidate.exists():
-                    return str(rel)
             except ValueError:
                 continue
-
+            if candidate.exists():
+                return str(rel)
         return None
+
+    def _resolve_alias(self, import_path: str) -> Optional[str]:
+        """Resolve a bare specifier via tsconfig/jsconfig `paths`, or None."""
+        for pattern, targets in self._load_path_aliases():
+            if '*' in pattern:
+                prefix = pattern.split('*', 1)[0]
+                if not import_path.startswith(prefix):
+                    continue
+                tail = import_path[len(prefix):]
+                for tgt in targets:
+                    hit = self._resolve_fs(self._alias_base / tgt.replace('*', tail))
+                    if hit:
+                        return hit
+            elif import_path == pattern:
+                for tgt in targets:
+                    hit = self._resolve_fs(self._alias_base / tgt)
+                    if hit:
+                        return hit
+        return None
+
+    def _resolve_import_path(self, import_path: str, from_file: str) -> Optional[str]:
+        """Resolve an import to a project-relative file path, or None.
+
+        Relative/absolute imports are anchored to `project_dir` (cwd-independent, F9);
+        bare specifiers are matched against tsconfig/jsconfig path aliases (F7) before
+        falling through to external.
+        """
+        if import_path.startswith('.') or import_path.startswith('/'):
+            from_dir = (self.project_dir / from_file).parent
+            return self._resolve_fs((from_dir / import_path).resolve())
+        return self._resolve_alias(import_path)
+
+    def _classify_import(self, import_path: str, from_file: str) -> str:
+        """Tag an import: internal rel-path, `external:<pkg>`, or `unresolved:<imp>`.
+
+        `unresolved:` makes a failed relative/alias resolution visible instead of
+        silently dropping it (vision §6, "coverage-unknown, never silent").
+        """
+        resolved = self._resolve_import_path(import_path, from_file)
+        if resolved:
+            return resolved
+        if import_path.startswith('.') or import_path.startswith('/') or self._matches_alias(import_path):
+            return f'unresolved:{import_path}'
+        return f'external:{import_path}'
 
     def _parse_imports(self, content: str, language: str) -> List[str]:
         """Extract import paths from file content."""
@@ -321,7 +448,7 @@ class CodeGraph:
                 # Documentation builds
                 '_site', '.docusaurus',
                 # Other common exclusions
-                '.github', '.gitlab', 'scripts', 'docs', 'examples',
+                '.github', '.gitlab', 'scripts', 'docs', 'knowledge-base', 'examples',
             },
             # File patterns that are ALWAYS excluded
             'always_exclude_files': {
@@ -494,7 +621,7 @@ class CodeGraph:
 
     def _save_classifications(self, classifications: Dict[str, Any]) -> None:
         """Save classifications to file."""
-        self.graph_dir.mkdir(parents=True, exist_ok=True)
+        self._ensure_graph_dir()
         classifications['version'] = 1
         classifications['classified_at'] = datetime.now(timezone.utc).isoformat()
         with open(self.classifications_path, 'w') as f:
@@ -626,12 +753,15 @@ Respond with ONLY a JSON object, no markdown formatting:
                 # Non-interactive mode, default to exclude
                 return 'exclude'
 
-    def _classify_directories(self, use_ai: bool = True, ai_response: Optional[str] = None) -> Dict[str, Any]:
+    def _classify_directories(self, use_ai: bool = True, ai_response: Optional[str] = None,
+                              non_interactive: bool = False) -> Dict[str, Any]:
         """Main classification flow: rules → AI → user confirmation.
 
         Args:
             use_ai: Whether to use AI for unknown directories
             ai_response: Pre-fetched AI response (from skill invocation)
+            non_interactive: Never prompt on stdin; default uncertain dirs to source
+                (err toward completeness — never silently drop real source). F6.
 
         Returns:
             Classifications dict with all directories classified
@@ -679,6 +809,15 @@ Respond with ONLY a JSON object, no markdown formatting:
                 if confidence >= 0.8:
                     # Auto-accept high confidence
                     known_classifications[dir_name] = classification
+                elif non_interactive:
+                    # No stdin: default uncertain dirs to source so real code is never
+                    # silently dropped (F6). Recorded so the choice is auditable.
+                    known_classifications[dir_name] = {
+                        'type': 'source',
+                        'confidence': 1.0,
+                        'source': 'auto-source-default',
+                        'reasoning': f"Non-interactive default after AI suggestion ({classification['type']})",
+                    }
                 else:
                     # Ask user for low confidence
                     final_type = self._ask_user_classification(dir_name, classification)
@@ -847,14 +986,8 @@ Respond with ONLY a JSON object, no markdown formatting:
         imports = self._parse_imports(content, language) if language else []
         exports = self._parse_exports(content, language) if language else []
 
-        # Resolve import paths
-        resolved_imports = []
-        for imp in imports:
-            resolved = self._resolve_import_path(imp, rel_path)
-            if resolved:
-                resolved_imports.append(resolved)
-            elif not imp.startswith('.'):
-                resolved_imports.append(f'external:{imp}')
+        # Resolve + classify import paths (internal / external: / unresolved:)
+        resolved_imports = [self._classify_import(imp, rel_path) for imp in imports]
 
         return {
             'exports': exports,
@@ -864,18 +997,20 @@ Respond with ONLY a JSON object, no markdown formatting:
             'language': language,
         }
 
-    def build(self, ai_response: Optional[str] = None) -> Dict[str, Any]:
+    def build(self, ai_response: Optional[str] = None, non_interactive: bool = False) -> Dict[str, Any]:
         """Build the dependency graph from scratch.
 
         Args:
             ai_response: Pre-fetched AI response for directory classification
                          (used when skill invokes this with AI access)
+            non_interactive: Never prompt for directory classification (F6)
         """
         print(f'Scanning {self.project_dir}...')
 
         # Step 1: Classify directories (rules → AI → user)
         print('Classifying directories...')
-        classifications = self._classify_directories(use_ai=True, ai_response=ai_response)
+        classifications = self._classify_directories(use_ai=True, ai_response=ai_response,
+                                                      non_interactive=non_interactive)
         source_count = sum(1 for d in classifications.get('directories', {}).values() if d.get('type') == 'source')
         exclude_count = sum(1 for d in classifications.get('directories', {}).values() if d.get('type') == 'exclude')
         print(f'Classified: {source_count} source dirs, {exclude_count} excluded dirs')
@@ -904,7 +1039,7 @@ Respond with ONLY a JSON object, no markdown formatting:
                     graph['files'][imp]['dependents'].append(file_path)
 
         # Save graph
-        self.graph_dir.mkdir(parents=True, exist_ok=True)
+        self._ensure_graph_dir()
         with open(self.graph_path, 'w') as f:
             json.dump(graph, f, indent=2)
 
@@ -930,17 +1065,17 @@ Respond with ONLY a JSON object, no markdown formatting:
             return self.graph
         return None
 
-    def update(self) -> Dict[str, Any]:
+    def update(self, non_interactive: bool = False) -> Dict[str, Any]:
         """Incrementally update the graph."""
         graph = self.load()
         if not graph:
             print('No cached graph found. Running full build...')
-            return self.build()
+            return self.build(non_interactive=non_interactive)
 
         last_commit = graph.get('commit')
         if not last_commit:
             print('No commit info in cached graph. Running full build...')
-            return self.build()
+            return self.build(non_interactive=non_interactive)
 
         changed_files = self._get_changed_files(last_commit)
         if not changed_files:
@@ -1045,7 +1180,7 @@ Respond with ONLY a JSON object, no markdown formatting:
         def traverse(path: str):
             info = graph['files'].get(path, {})
             for imp in info.get('imports', []):
-                if not imp.startswith('external:') and imp not in result:
+                if not imp.startswith(('external:', 'unresolved:')) and imp not in result:
                     result.add(imp)
                     if transitive:
                         traverse(imp)
@@ -1196,19 +1331,25 @@ def main():
     parser.add_argument('--dir', metavar='PATH', help='Project directory')
     parser.add_argument('--format', choices=['json', 'summary'], default='json',
                        help='Output format (default: json)')
+    parser.add_argument('--non-interactive', action='store_true',
+                        help='Never prompt for directory classification; default uncertain dirs '
+                             'to source (also auto-enabled when stdin is not a TTY)')
 
     args = parser.parse_args()
+
+    # Auto-detect non-interactive when there is no TTY (e.g. invoked by wrap-up). F6.
+    non_interactive = args.non_interactive or not sys.stdin.isatty()
 
     graph = CodeGraph(args.dir)
     output = None
     operation = None
 
     if args.build:
-        output = graph.build()
+        output = graph.build(non_interactive=non_interactive)
         operation = 'build'
 
     elif args.update:
-        output = graph.update()
+        output = graph.update(non_interactive=non_interactive)
         operation = 'update'
 
     elif args.query:

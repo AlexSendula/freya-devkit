@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Get Started — freya-devkit</title>
+  <meta name="description" content="Install freya-devkit and stand it up on a brand-new project (greenfield) or an existing one (brownfield), with the exact command sequence and the internal-edge shape detector.">
+  <link rel="stylesheet" href="assets/styles.css">
+  <script src="assets/site.js"></script>
+</head>
+<body>
+  <div id="site-header"></div>
+
+  <div class="doc">
+    <aside class="toc" id="toc"></aside>
+    <div class="doc-body">
+      <span class="eyebrow" style="color:var(--accent-strong);font-weight:650;font-size:.8rem;letter-spacing:.06em;text-transform:uppercase;">Get Started</span>
+      <h1>Stand it up on your project</h1>
+      <p class="lead">One command brings the whole toolkit up. It detects whether your project is
+      brand-new (<strong>greenfield</strong>) or already substantial (<strong>brownfield</strong>) and
+      takes the right path — and it always lets you confirm or override.</p>
+
+      <section>
+        <h2>Install</h2>
+        <div class="code-block">
+          <div class="code-head"><span class="dot"></span><span class="dot"></span><span class="dot"></span>&nbsp; in Claude Code</div>
+          <pre class="code"><code>/plugin marketplace add AlexSendula/freya-devkit
+/plugin install freya-devkit@freya-devkit</code></pre>
+        </div>
+        <p>Then every skill is invoked with the plugin namespace, e.g.
+        <code>/freya-devkit:code-graph help</code>. The <code>freya-devkit@freya-devkit</code> string is
+        <code>&lt;plugin&gt;@&lt;marketplace&gt;</code> — the repo hosts its own single-plugin marketplace,
+        so both names match. For local development, point the marketplace at a checkout path instead.</p>
+      </section>
+
+      <section>
+        <h2>The one entry point: bootstrap</h2>
+        <p><code>spec-manager bootstrap</code> is the unified "bring the plugin up on this project" flow.
+        It replaces running <code>init</code> / <code>code-graph build</code> / <code>scan</code> by hand,
+        and it's <strong>one-time</strong> — after it, everything is incremental.</p>
+        <ol class="cmd-steps">
+          <li><strong>Init structure</strong> — creates the <code>knowledge-base/</code> layout and <code>principles.md</code> (idempotent; never clobbers existing files).</li>
+          <li><strong>Build the code graph</strong> — runs <code>code-graph build</code>; the shape detector needs it.</li>
+          <li><strong>Detect shape and recommend</strong> — shows you the recommendation <em>and its evidence</em>, then asks you to confirm or override.</li>
+          <li><strong>Branch</strong> — greenfield or brownfield (below).</li>
+          <li><strong>Summary</strong> — reports what was created; for brownfield, a count of proposed candidates, with the reminder that <em>nothing needs review now</em>.</li>
+        </ol>
+      </section>
+
+      <section>
+        <h2>The shape detector</h2>
+        <p>The greenfield/brownfield call is objective and transparent: it counts <strong>internal import
+        edges</strong> in the code graph — real feature wiring — <em>not</em> raw file count. A bare
+        scaffold can have hundreds of boilerplate files and zero real wiring. Try it:</p>
+
+        <div class="panel">
+          <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:flex-end;">
+            <label style="font-size:.85rem;color:var(--text-muted);">Source files<br>
+              <input class="filter-input" id="sd-files" type="number" min="0" value="120" style="max-width:120px;margin-top:4px;"></label>
+            <label style="font-size:.85rem;color:var(--text-muted);">Internal import edges<br>
+              <input class="filter-input" id="sd-edges" type="number" min="0" value="0" style="max-width:120px;margin-top:4px;"></label>
+          </div>
+          <div class="result-line" id="sd-out" style="margin-top:14px;"></div>
+        </div>
+        <p class="small muted">Set edges to 0 → <strong>greenfield</strong>; any positive value →
+        <strong>brownfield</strong>. (No graph at all → <code>unknown</code>: run <code>code-graph
+        build</code> first.) The detector never forces a branch; a human confirms on sight — which is the
+        escape hatch for, say, a large Rust codebase that code-graph can't yet wire.</p>
+      </section>
+
+      <section>
+        <h2>Your path</h2>
+        <div class="seg" id="path-seg">
+          <button class="active" data-path="green">Greenfield · new project</button>
+          <button data-path="brown">Brownfield · existing project</button>
+        </div>
+
+        <div id="path-green">
+          <p class="muted">There's no code to infer intent from, so bootstrap <strong>skips inference</strong>
+          and you author intent forward as you build. This is the easier, intent-first path.</p>
+          <ol class="cmd-steps">
+            <li><strong>Bootstrap</strong> — <code>/freya-devkit:spec-manager bootstrap</code> detects greenfield, skips <code>scan</code>, and builds an (empty) behavior graph. It prints: <em>"Greenfield project — no inference run. Author behaviors forward as you build with <code>spec-manager create</code>."</em></li>
+            <li><strong>Scaffold docs</strong> — <code>/freya-devkit:docs-manager init</code>. On a near-empty project many docs are <code>[TODO:]</code> placeholders you fill in as it grows.</li>
+            <li><strong>Author intent</strong> — <code>/freya-devkit:spec-manager create &lt;feature&gt;</code> for each feature as you build it. New specs are certainty 100; add behavior records for observable behavior.</li>
+            <li><strong>Implement + link a test</strong> — write (or link) the test; once it passes, bump the behavior to <code>accepted</code>. Acceptance is a byproduct of implementing, not a separate ceremony.</li>
+            <li><strong>Wrap up</strong> — <code>/freya-devkit:wrap-up</code>. Two commits: code, then artifacts.</li>
+          </ol>
+        </div>
+
+        <div id="path-brown" style="display:none;">
+          <p class="muted">There's real code with intent that was never written down. Bootstrap reverse-engineers
+          a review queue of <strong>proposed</strong> candidates — never authoritative, never in the code tree.</p>
+          <ol class="cmd-steps">
+            <li><strong>Bootstrap</strong> — <code>/freya-devkit:spec-manager bootstrap</code> detects brownfield and runs <code>scan</code> to infer candidate behaviors (warns first — it spawns discovery agents and can take a while), then builds the behavior graph.</li>
+            <li><strong>Docs from the code</strong> — <code>/freya-devkit:docs-manager init</code> (a separate step — bootstrap doesn't run docs-manager). Docs give the security scan and spec inference architectural context.</li>
+            <li><strong>Security baseline</strong> — <code>/freya-devkit:codebase-security-scan scan</code>. The first run has no prior report; it becomes the baseline.</li>
+            <li><strong>Drain the queue lazily</strong> — nothing needs review immediately. Work the tail with <code>/freya-devkit:status review intent</code> (proposed → confirm) and <code>review tests</code> (confirmed → accept), or let wrap-up's validate-on-hit surface behaviors as you touch their code.</li>
+            <li><strong>Go incremental</strong> — <code>/freya-devkit:wrap-up</code> after each feature, <code>/freya-devkit:status</code> to check where you stand.</li>
+          </ol>
+          <p class="small muted">A fresh brownfield <code>behavior.json</code> is <em>near-empty</em> by
+          design — <code>scan</code> only produces <code>proposed</code> records, and the graph projects
+          only accepted/confirmed. That's correct, not a failure.</p>
+        </div>
+      </section>
+
+      <section>
+        <h2>After onboarding: incremental forever</h2>
+        <p>Bootstrap is a one-time act. From then on, the loop is small:</p>
+        <div class="card-grid cols-2">
+          <div class="card">
+            <h3>wrap-up</h3>
+            <p class="muted">After each feature: refresh graph → docs → specs → behavior integrity &amp;
+            governance → security, then two commits. The mutating, syncing path.</p>
+          </div>
+          <div class="card">
+            <h3>status</h3>
+            <p class="muted">Any time: a read-only census of outstanding intent, tests owed, coverage gaps,
+            and open findings, refreshing <code>BACKLOG.md</code>. The checking path.</p>
+          </div>
+        </div>
+        <div class="callout callout--danger">
+          <span class="callout-label">Why bootstrap-first matters</span>
+          <p>Incremental <code>update</code> assumes a prior sync. On a never-synced project, wrap-up
+          refuses to silently run a full-codebase generation (the never-synced guard). Running
+          <code>bootstrap</code> first — which builds the graph and initializes the structure — is exactly
+          what makes your first <code>wrap-up</code> behave.</p>
+        </div>
+      </section>
+
+      <div class="next-prev">
+        <a class="np-card" href="governance.html"><div class="np-dir">← Back</div><div class="np-title">Governance</div></a>
+        <a class="np-card" href="reference.html" style="text-align:right;"><div class="np-dir">Next →</div><div class="np-title">Reference</div></a>
+      </div>
+    </div>
+  </div>
+
+  <div id="site-footer"></div>
+
+  <script>
+  (function () {
+    /* shape detector */
+    var files = document.getElementById("sd-files");
+    var edges = document.getElementById("sd-edges");
+    var out = document.getElementById("sd-out");
+    function compute() {
+      var f = parseInt(files.value, 10); if (isNaN(f) || f < 0) f = 0;
+      var e = parseInt(edges.value, 10); if (isNaN(e) || e < 0) e = 0;
+      var rec, reason, color;
+      if (e === 0) {
+        rec = "greenfield"; color = "var(--teal)";
+        reason = f + " source file(s) but 0 internal import edges — no real feature wiring yet";
+      } else {
+        rec = "brownfield"; color = "var(--accent-strong)";
+        reason = f + " source file(s) with " + e + " internal import edge(s) — existing codebase";
+      }
+      out.innerHTML = '→ <strong style="color:' + color + '">' + rec + '</strong>  ·  ' + reason;
+    }
+    files.addEventListener("input", compute);
+    edges.addEventListener("input", compute);
+    compute();
+
+    /* path toggle */
+    var btns = document.querySelectorAll("#path-seg button");
+    var green = document.getElementById("path-green");
+    var brown = document.getElementById("path-brown");
+    btns.forEach(function (b) {
+      b.addEventListener("click", function () {
+        var p = b.getAttribute("data-path");
+        btns.forEach(function (x) { x.classList.toggle("active", x === b); });
+        green.style.display = p === "green" ? "" : "none";
+        brown.style.display = p === "brown" ? "" : "none";
+      });
+    });
+  })();
+  </script>
+</body>
+</html>

@@ -1,6 +1,6 @@
 # freya-devkit
 
-An integrated, AI-assisted development toolkit for Claude Code. Seven skills that work together to keep your dependency graph, documentation, feature specs, and security posture in sync as you build — plus a one-command wrap-up workflow that runs them all.
+An integrated, AI-assisted development toolkit for Claude Code. Ten skills that work together to keep your dependency graph, documentation, feature specs, intended behavior, and security posture in sync as you build — plus a one-command wrap-up workflow that runs them all.
 
 ## Install
 
@@ -19,11 +19,14 @@ Skills are invoked with the plugin namespace: **`/freya-devkit:<skill>`**.
 |-------|---------|---------|
 | `code-graph` | Dependency graphs, impact analysis, blast radius | `/freya-devkit:code-graph impact src/auth.ts` |
 | `docs-manager` | Standardized project documentation | `/freya-devkit:docs-manager update` |
-| `spec-manager` | Feature specs capturing intentional design decisions | `/freya-devkit:spec-manager scan` |
+| `spec-manager` | Feature specs + intentional design decisions, ADRs, principles, and the behavior lifecycle | `/freya-devkit:spec-manager scan` |
+| `behavior-graph` | Behavior graph: intended behavior as first-class records; blast radius code→behavior and behavior→code | `/freya-devkit:behavior-graph --affected src/auth.ts` |
+| `behavior-runner` | Runs accepted behaviors, captures observed TEST→CODE coverage | `/freya-devkit:behavior-runner run` |
 | `codebase-security-scan` | Security auditing (with adversarial verification + deep `audit` mode) | `/freya-devkit:codebase-security-scan update` |
 | `codebase-security-resolver` | Interactive fixing of security findings | `/freya-devkit:codebase-security-resolver` |
 | `dependency-vulnerability-check` | Supply-chain / dependency CVE auditing | `/freya-devkit:dependency-vulnerability-check` |
 | `wrap-up` | Post-implementation orchestrator (runs the above in sequence) | `/freya-devkit:wrap-up` |
+| `status` | Read-only census of outstanding intent, tests owed, coverage gaps, and findings; refreshes `BACKLOG.md` | `/freya-devkit:status` |
 
 ## How they fit together
 
@@ -31,16 +34,19 @@ Skills are invoked with the plugin namespace: **`/freya-devkit:<skill>`**.
 code-graph (foundation: dependency + blast-radius data)
     │
     ├─> docs-manager        (impact-aware doc updates)
-    ├─> spec-manager        (impact-aware spec updates)
+    ├─> spec-manager        (impact-aware spec updates + intent/governance)
+    ├─> behavior-graph      (behavior.json — intended behavior, sibling of graph.json)
+    │       └─> behavior-runner (runs accepted behaviors, captures TEST→CODE coverage)
     └─> codebase-security-scan ──┐
-                                 │ (specs reduce false positives)
+                                 │ (specs + accepted behaviors reduce false positives)
         codebase-security-resolver (fixes findings, documents intentional ones)
 
-wrap-up  ── orchestrates: code-graph → docs → specs → security, with a clean two-commit pattern
+wrap-up  ── orchestrates: code-graph → docs → specs → behavior integrity & run → security, two-commit pattern
+status   ── read-only counterpart of wrap-up: what intent / tests / coverage / findings are outstanding
 ```
 
 - **code-graph is the keystone.** The doc, spec, and security skills query it for blast radius and degrade gracefully to plain `git diff` when it's unavailable.
-- **specs are the false-positive filter.** The security scan reads `/docs/specs/` and marks spec'd behavior as *intentional design* rather than a vulnerability.
+- **specs are the false-positive filter.** The security scan reads `/knowledge-base/specs/` and marks spec'd behavior as *intentional design* rather than a vulnerability.
 - **incremental by default.** Each skill tracks the last processed commit and only reprocesses what changed.
 
 ## Core patterns
@@ -58,7 +64,7 @@ After implementing a feature:
 /freya-devkit:wrap-up
 ```
 
-This runs `code-graph update` → `docs-manager update` → `spec-manager update` → `codebase-security-scan update`, then makes the two commits. Skip steps with `--no-security`, `--no-docs`, `--no-specs`, `--no-graph`.
+This runs `code-graph update` → `docs-manager update` → `spec-manager update` → **behavior integrity & accepted-behavior run** (Phase 3.5) → `codebase-security-scan update`, then makes the two commits. Skip steps with `--no-security`, `--no-docs`, `--no-specs`, `--no-graph`.
 
 For a deep, exhaustive security pass before a release:
 

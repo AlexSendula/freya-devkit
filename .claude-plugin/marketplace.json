@@ -9,9 +9,9 @@
     {
       "name": "freya-devkit",
       "source": ".",
-      "description": "Dependency graphs, docs, specs, security scan/resolve, and a wrap-up workflow that keeps them in sync.",
+      "description": "Dependency graphs, docs, specs, a behavior layer, security scan/resolve, status, and a wrap-up workflow that keeps them in sync.",
       "category": "development",
-      "tags": ["dependencies", "documentation", "specs", "security", "workflow"]
+      "tags": ["dependencies", "documentation", "specs", "behavior", "security", "status", "workflow"]
     }
   ]
 }

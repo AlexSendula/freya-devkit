@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>freya-devkit — an integrated AI-assisted development toolkit</title>
+  <meta name="description" content="freya-devkit is a Claude Code plugin of ten composable skills that keep your dependency graph, docs, feature specs, intended behaviors, and security posture in sync as your code evolves.">
+  <link rel="stylesheet" href="assets/styles.css">
+  <script src="assets/site.js"></script>
+</head>
+<body>
+  <div id="site-header"></div>
+
+  <main>
+    <section class="hero wrap">
+      <span class="eyebrow">The whole plugin, explained</span>
+      <h1>A knowledge base that stays <em>in sync</em> with your code.</h1>
+      <p class="lead">
+        <strong>freya-devkit</strong> is a Claude Code plugin of <strong>ten composable skills</strong>.
+        Each keeps one kind of artifact — your dependency graph, docs, feature specs, intended
+        behaviors, and security posture — coherent with the code as it changes. They cooperate
+        through one shared, version-controlled <code>knowledge-base/</code> folder, and one command
+        runs the whole team.
+      </p>
+      <div class="hero-actions">
+        <a class="btn btn-primary" href="getting-started.html">Get started →</a>
+        <a class="btn btn-ghost" href="architecture.html">How it fits together</a>
+      </div>
+
+      <div class="hero-stats">
+        <div class="stat"><div class="num">10</div><div class="lbl">composable skills</div></div>
+        <div class="stat"><div class="num">5</div><div class="lbl">dependency tiers</div></div>
+        <div class="stat"><div class="num">1</div><div class="lbl">shared knowledge-base/</div></div>
+        <div class="stat"><div class="num">2</div><div class="lbl">commit pattern (code + artifacts)</div></div>
+      </div>
+    </section>
+
+    <section class="wrap section">
+      <div class="code-block" style="max-width:680px;margin:0 auto;">
+        <div class="code-head"><span class="dot"></span><span class="dot"></span><span class="dot"></span>&nbsp; install</div>
+        <pre class="code"><code><span class="tok-c"># add the marketplace, then install the plugin</span>
+/plugin marketplace add AlexSendula/freya-devkit
+/plugin install freya-devkit@freya-devkit
+
+<span class="tok-c"># every skill is invoked namespaced:</span>
+/freya-devkit:code-graph impact src/auth.ts
+/freya-devkit:wrap-up</code></pre>
+      </div>
+      <p class="center muted small" style="margin-top:14px;">
+        <code>freya-devkit@freya-devkit</code> is <code>&lt;plugin&gt;@&lt;marketplace&gt;</code> — the repo is
+        both the plugin <em>and</em> its own single-plugin marketplace, so the names match.
+      </p>
+    </section>
+
+    <!-- ============================ THE PROBLEM ============================ -->
+    <section class="wrap section">
+      <h2 class="center">The problem it solves</h2>
+      <p class="lead center prose" style="margin:0 auto 2em;">
+        As code changes, the things <em>around</em> the code rot: docs go stale, design intent is
+        forgotten, security findings drift, and tests quietly start mirroring what the code
+        <em>does</em> instead of what it <em>should</em> do. Doing all that upkeep by hand, in the
+        right order, every time — nobody does.
+      </p>
+
+      <div class="card-grid">
+        <div class="card problem">
+          <div class="ico" aria-hidden="true">🧱</div>
+          <h3>The monolithic prompt</h3>
+          <p>One giant instruction blob bloats context, resists change, and can't be mixed and
+          matched. freya-devkit replaces it with focused skills that load only when needed and
+          compose on demand.</p>
+        </div>
+        <div class="card problem">
+          <div class="ico" aria-hidden="true">📉</div>
+          <h3>Artifacts drift from code</h3>
+          <p>Docs, specs, and security reports fall out of date the moment code changes — and no one
+          remembers to update all of them, in order. Each skill re-syncs its own artifact
+          incrementally.</p>
+        </div>
+        <div class="card problem">
+          <div class="ico" aria-hidden="true">💥</div>
+          <h3>Change-impact blindness</h3>
+          <p>Updating only the files you literally edited misses the <em>blast radius</em> — the
+          dependent files a change actually reaches. A dependency graph turns "changed" into
+          "affected."</p>
+        </div>
+        <div class="card problem">
+          <div class="ico" aria-hidden="true">🔧</div>
+          <h3>Intentional design gets "fixed"</h3>
+          <p>Scanners and agents flag deliberate decisions as bugs because nothing records that a
+          behavior is on purpose. Specs capture the decision so the scan leaves it alone.</p>
+        </div>
+        <div class="card problem">
+          <div class="ico" aria-hidden="true">🎯</div>
+          <h3>AI output treated as certain</h3>
+          <p>Without a confidence signal you can't tell which generated content to trust versus
+          review. Inferred specs carry a <strong>0–100 certainty</strong> so uncertainty is visible,
+          not hidden.</p>
+        </div>
+        <div class="card problem">
+          <div class="ico" aria-hidden="true">🫥</div>
+          <h3>Behavior goes unguarded</h3>
+          <p>Tests mirror what code does, not what it should. Behavior can drift while a green,
+          high-coverage suite stays green. The behavior layer makes intended behavior a first-class,
+          executable, gated artifact.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================ THE BIG IDEA ============================ -->
+    <section class="wrap section">
+      <h2 class="center">The one idea</h2>
+      <p class="lead prose center" style="margin:0 auto 1.6em;">
+        Derive one shared source of truth from the code — a dependency graph — and let a
+        <strong>team of single-purpose skills</strong> each keep one artifact coherent by reasoning
+        about <em>blast radius</em> instead of just changed files, scoring their own confidence, and
+        degrading gracefully when a teammate is missing.
+      </p>
+
+      <figure class="diagram">
+        <div class="flow">
+          <div class="node code">Your code<span class="sub">changes</span></div>
+          <span class="arrow">→</span>
+          <div class="node intent">code-graph<span class="sub">blast radius</span></div>
+          <span class="arrow">→</span>
+          <div class="node beh">docs · specs · behaviors<span class="sub">re-synced</span></div>
+          <span class="arrow">→</span>
+          <div class="node test">security scan<span class="sub">spec-aware</span></div>
+          <span class="arrow">→</span>
+          <div class="node" style="border-color:var(--violet);background:color-mix(in srgb,var(--violet) 12%,transparent);color:var(--violet)">wrap-up<span class="sub">two commits</span></div>
+        </div>
+        <figcaption>Skills compose through a shared, version-controlled knowledge base — and by
+        invoking the foundation skill (<code>code-graph</code>) for blast radius — rather than embedding
+        one another's logic. <code>wrap-up</code> runs them in dependency order; <code>status</code> is its read-only mirror.</figcaption>
+      </figure>
+
+      <div class="callout callout--info">
+        <span class="callout-label">The mental model</span>
+        <p>Think of the skills as <strong>specialized team members</strong> working on your codebase:
+        an <em>analyst</em> (code-graph), a <em>writer</em> (docs-manager), an <em>architect</em>
+        (spec-manager), auditors (the security skills), and an <em>integrator</em> (wrap-up). Each
+        has a role, knows its job, and collaborates through the shared knowledge base.</p>
+      </div>
+    </section>
+
+    <!-- ============================ FIVE BELIEFS ============================ -->
+    <section class="wrap section">
+      <h2 class="center">Five core beliefs</h2>
+      <ol class="principle-list prose" style="margin:1.5em auto 0;">
+        <li><strong>Intentional design is real.</strong> Code isn't just "correct" or "incorrect" —
+        some things are on purpose. Specs record those decisions so tools stop trying to fix them.</li>
+        <li><strong>Acknowledge uncertainty.</strong> AI-generated content carries a certainty score
+        rather than pretending to be sure. Low confidence asks for review; high confidence is trusted.</li>
+        <li><strong>Impact awareness.</strong> A change isn't about the files you edited — it's about
+        the files they affect. Everything reasons about the dependency graph's blast radius.</li>
+        <li><strong>Incremental over full.</strong> Don't re-scan everything every time. Tracking
+        files remember the last processed commit so skills only reprocess what changed.</li>
+        <li><strong>Separation of concerns.</strong> Code changes and generated artifacts are
+        different things — they land in two separate commits so history stays clean and references
+        stay stable.</li>
+      </ol>
+    </section>
+
+    <!-- ============================ THE ROSTER ============================ -->
+    <section class="wrap section">
+      <h2 class="center">The ten skills</h2>
+      <p class="center muted prose" style="margin:0 auto 1.2em;">Five tiers, one keystone. Click any
+      skill for the full detail.</p>
+      <div class="roster">
+        <a class="tile" href="skills.html#code-graph">
+          <div class="top"><span class="nm">code-graph</span><span class="tier-badge tier-1">Foundation</span></div>
+          <div class="ds">The dependency graph + blast radius every other skill queries.</div>
+        </a>
+        <a class="tile" href="skills.html#docs-manager">
+          <div class="top"><span class="nm">docs-manager</span><span class="tier-badge tier-2">Knowledge</span></div>
+          <div class="ds">Standardized project docs, impact-aware, in <code>knowledge-base/reference/</code>.</div>
+        </a>
+        <a class="tile" href="skills.html#spec-manager">
+          <div class="top"><span class="nm">spec-manager</span><span class="tier-badge tier-2">Knowledge</span></div>
+          <div class="ds">Feature specs, intentional-design decisions, the behavior lifecycle, and governance.</div>
+        </a>
+        <a class="tile" href="skills.html#behavior-graph">
+          <div class="top"><span class="nm">behavior-graph</span><span class="tier-badge tier-2">Knowledge</span></div>
+          <div class="ds">Owns <code>behavior.json</code>; answers both blast-radius directions.</div>
+        </a>
+        <a class="tile" href="skills.html#behavior-runner">
+          <div class="top"><span class="nm">behavior-runner</span><span class="tier-badge tier-2">Knowledge</span></div>
+          <div class="ds">Runs accepted behaviors; emits observed coverage fingerprints.</div>
+        </a>
+        <a class="tile" href="skills.html#codebase-security-scan">
+          <div class="top"><span class="nm">codebase-security-scan</span><span class="tier-badge tier-3">Analysis</span></div>
+          <div class="ds">Six parallel finders + adversarial verification; specs cut false positives.</div>
+        </a>
+        <a class="tile" href="skills.html#dependency-vulnerability-check">
+          <div class="top"><span class="nm">dependency-vulnerability-check</span><span class="tier-badge tier-3">Analysis</span></div>
+          <div class="ds">Supply-chain CVE audit for Node projects (npm / yarn / pnpm).</div>
+        </a>
+        <a class="tile" href="skills.html#codebase-security-resolver">
+          <div class="top"><span class="nm">codebase-security-resolver</span><span class="tier-badge tier-5">Resolution</span></div>
+          <div class="ds">Interactive fixer; routes every finding to a terminal state.</div>
+        </a>
+        <a class="tile" href="skills.html#wrap-up">
+          <div class="top"><span class="nm">wrap-up</span><span class="tier-badge tier-4">Orchestration</span></div>
+          <div class="ds">Runs the whole team in order under a two-commit pattern.</div>
+        </a>
+        <a class="tile" href="skills.html#status">
+          <div class="top"><span class="nm">status</span><span class="tier-badge tier-4">Orchestration</span></div>
+          <div class="ds">Read-only backlog: what intent, tests, and findings are outstanding.</div>
+        </a>
+      </div>
+      <p class="center small faint" style="margin-top:6px;">
+        The last three — <code>behavior-graph</code>, <code>behavior-runner</code>, <code>status</code> —
+        are the newest additions (the <a href="behavior-layer.html">behavior layer</a>). The project's
+        older "seven skills" tagline predates them.
+      </p>
+    </section>
+
+    <!-- ============================ NOT ============================ -->
+    <section class="wrap section">
+      <h2 class="center">What it is <em>not</em></h2>
+      <div class="callout callout--why" style="max-width:var(--prose);margin:1.4em auto;">
+        <span class="callout-label">Coherence, not enforcement</span>
+        <p>The patterns and conventions are <strong>guidelines, not rules</strong> — skills adapt them
+        where they fit. Nothing is forced; the goal is coherence and collaboration. The one exception
+        is the newer behavior/governance layer, where <strong>deterministic facts</strong> (a broken
+        test link, a regressed test) can hard-block a change while <strong>model judgment</strong> (does
+        this violate a principle?) must be resolved before proceeding — the
+        <a href="governance.html">Governance</a> page explains how. Everywhere else, the toolkit is not
+        prescriptive, not complete, and not perfect — and its certainty scores say so out loud.</p>
+      </div>
+    </section>
+
+    <!-- ============================ NEXT ============================ -->
+    <section class="wrap section">
+      <h2 class="center">Where to go next</h2>
+      <div class="card-grid cols-2" style="margin-top:1.2em;">
+        <a class="card" href="architecture.html">
+          <h3>Architecture →</h3>
+          <p class="muted">The five tiers, the keystone, the shared <code>knowledge-base/</code> tree,
+          and how skills degrade gracefully when a teammate is missing.</p>
+        </a>
+        <a class="card" href="skills.html">
+          <h3>The Skills →</h3>
+          <p class="muted">All ten in depth: purpose, exact CLI, what each reads and writes, and how
+          they compose.</p>
+        </a>
+        <a class="card" href="behavior-layer.html">
+          <h3>The Behavior Layer →</h3>
+          <p class="muted">The newest capability: intended behavior as a first-class, executable,
+          blast-radius-aware, governed artifact.</p>
+        </a>
+        <a class="card" href="getting-started.html">
+          <h3>Get Started →</h3>
+          <p class="muted">Stand it up on a brand-new project (greenfield) or an existing one
+          (brownfield) — with the exact command sequence.</p>
+        </a>
+      </div>
+    </section>
+  </main>
+
+  <div id="site-footer"></div>
+</body>
+</html>

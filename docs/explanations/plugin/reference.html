@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reference — freya-devkit</title>
+  <meta name="description" content="Quick reference for freya-devkit: filterable CLI for every skill, the knowledge-base layout, tracking files, certainty bands, the behavior lifecycle cheat-sheet, coverage-unknown reasons, finding statuses, and a glossary.">
+  <link rel="stylesheet" href="assets/styles.css">
+  <script src="assets/site.js"></script>
+</head>
+<body>
+  <div id="site-header"></div>
+
+  <div class="doc">
+    <aside class="toc" id="toc"></aside>
+    <div class="doc-body">
+      <span class="eyebrow" style="color:var(--accent-strong);font-weight:650;font-size:.8rem;letter-spacing:.06em;text-transform:uppercase;">Reference</span>
+      <h1>Lookup</h1>
+      <p class="lead">Every skill's key commands, the knowledge-base layout, the cheat-sheets, and a
+      glossary. For the "why," follow the links back to the deeper pages.</p>
+
+      <section>
+        <h2>Command reference</h2>
+        <div class="legend">
+          <span><i style="background:var(--accent)"></i> slash-command skill: <code>/freya-devkit:&lt;skill&gt;</code></span>
+          <span><i style="background:var(--teal)"></i> python script: <code>python "$CLAUDE_PLUGIN_ROOT/…"</code></span>
+        </div>
+        <input class="filter-input" id="cli-filter" type="text" placeholder="Filter commands… (e.g. impact, scan, behavior, --no-)" aria-label="Filter commands">
+        <div class="table-wrap">
+          <table id="cli-table">
+            <thead><tr><th>Skill</th><th>Command</th><th>What it does</th></tr></thead>
+            <tbody>
+              <tr><td>code-graph</td><td><code>build</code> · <code>update</code></td><td>Full scan / incremental git-diff refresh of the dependency graph.</td></tr>
+              <tr><td>code-graph</td><td><code>impact &lt;file…&gt;</code></td><td>Blast radius: the file + its direct and transitive dependents.</td></tr>
+              <tr><td>code-graph</td><td><code>query</code> · <code>dependents</code> · <code>dependencies &lt;file&gt;</code></td><td>Inspect a file's edges.</td></tr>
+              <tr><td>code-graph</td><td><code>clear</code></td><td>Delete the cached graph.</td></tr>
+              <tr><td>docs-manager</td><td><code>init</code> · <code>update</code> · <code>update &lt;doc&gt;</code></td><td>Create / refresh project docs (impact-aware).</td></tr>
+              <tr><td>docs-manager</td><td><code>review</code> · <code>sync</code> · <code>resolve</code> · <code>upgrade-diagrams</code></td><td>Standalone review, full re-analysis, fill placeholders, ASCII→mermaid.</td></tr>
+              <tr><td>spec-manager</td><td><code>bootstrap</code></td><td>One-time onboarding: init + graph + shape detect + branch.</td></tr>
+              <tr><td>spec-manager</td><td><code>create &lt;name&gt;</code></td><td>Author a spec interactively (certainty 100).</td></tr>
+              <tr><td>spec-manager</td><td><code>scan</code> · <code>update</code> · <code>update &lt;spec&gt;</code></td><td>Infer proposed candidates (brownfield) / git-aware incremental sync.</td></tr>
+              <tr><td>spec-manager</td><td><code>verify</code></td><td>Deterministic integrity checks (links, ADRs, intent).</td></tr>
+              <tr><td>spec-manager</td><td><code>intent new &lt;BEH&gt;</code></td><td>Author an INTENT-NNN record authorizing an accepted-test change (G1).</td></tr>
+              <tr><td>spec-manager</td><td><code>adr create</code> · <code>adr list</code> · <code>adr verify</code></td><td>Cross-cutting ADRs + deterministic ADR integrity.</td></tr>
+              <tr><td>spec-manager</td><td><code>search</code> · <code>by-tag</code> · <code>get</code> · <code>review</code> · <code>principles</code> · <code>drift gaps</code></td><td>Find, load, review low-certainty specs, print constitution, list drift-blind items.</td></tr>
+              <tr><td>codebase-security-scan</td><td><code>scan</code> · <code>update</code></td><td>Full / incremental app-code security scan (update is used by wrap-up).</td></tr>
+              <tr><td>codebase-security-scan</td><td><code>audit</code></td><td>Exhaustive Workflow-powered deep audit — on-demand, not in wrap-up.</td></tr>
+              <tr><td>codebase-security-scan</td><td><code>impact &lt;file&gt;</code> · <code>check-specs</code></td><td>Per-file security blast radius / cross-reference findings against specs.</td></tr>
+              <tr><td>codebase-security-resolver</td><td><code>(default)</code> · <code>list</code></td><td>Interactive fix workflow / show findings (optionally by severity).</td></tr>
+              <tr><td>codebase-security-resolver</td><td><code>fix &lt;ids&gt;</code> · <code>fix --critical|--high</code> · <code>fix --dry-run</code></td><td>Fix by ID, by cumulative severity, or preview.</td></tr>
+              <tr><td>dependency-vulnerability-check</td><td><code>(default)</code></td><td>Detect package manager, run <code>&lt;pm&gt; audit --json</code>, enrich via WebSearch.</td></tr>
+              <tr><td>wrap-up</td><td><code>wrap-up ["msg"]</code></td><td>Post-implementation orchestrator; two-commit pattern.</td></tr>
+              <tr><td>wrap-up</td><td><code>--no-graph</code> · <code>--no-docs</code> · <code>--no-specs</code> · <code>--no-security</code></td><td>Skip individual steps (combinable).</td></tr>
+              <tr><td>behavior-graph</td><td><code>behavior_graph.py --build --project .</code></td><td>Refresh <code>behavior.json</code>.</td></tr>
+              <tr><td>behavior-graph</td><td><code>--affected &lt;file…&gt;</code> · <code>--implements &lt;BEH&gt;</code></td><td>Direction A (code→behaviors) / Direction B (behavior→code).</td></tr>
+              <tr><td>behavior-graph</td><td><code>--check --base &lt;c&gt;</code> · <code>--surface --base &lt;c&gt;</code> · <code>--gaps</code> · <code>--covering &lt;file&gt;</code></td><td>Regression gate / validate-on-hit / coverage audit / security cross-ref.</td></tr>
+              <tr><td>behavior-runner</td><td><code>run_behaviors.py --project . --emit-fingerprints</code></td><td>Run accepted behaviors, print coverage fingerprints (JSON). <code>--list</code> to list.</td></tr>
+              <tr><td>behavior-runner</td><td><code>--level</code> · <code>--states</code> · <code>--only</code> · <code>--specs-dir</code></td><td>Filter which behaviors run.</td></tr>
+              <tr><td>status</td><td><code>collect_status.py --project . --write-backlog</code></td><td>Aggregate outstanding work; regenerate <code>BACKLOG.md</code> (<code>--format json|text</code>).</td></tr>
+              <tr><td>status</td><td><code>review intent</code> · <code>review tests</code> · <code>gaps</code></td><td>Agent-driven worklists: confirm proposals, land tests, list uncovered code.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="filter-empty hide" id="cli-empty">No commands match that filter.</p>
+        <p class="small muted"><code>behavior-graph</code>, <code>behavior-runner</code>, and
+        <code>status</code> are slash-command skills whose key operations are driven by their Python
+        scripts under <code>${CLAUDE_PLUGIN_ROOT}</code>; the others are invoked purely as slash
+        commands. See <a href="skills.html">The Skills</a> for full flags and behavior.</p>
+      </section>
+
+      <section>
+        <h2>Knowledge-base layout</h2>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Path</th><th>Owner</th><th>Git</th></tr></thead>
+          <tbody>
+            <tr><td><code>knowledge-base/README.md</code></td><td>docs-manager</td><td>committed</td></tr>
+            <tr><td><code>reference/*.md</code></td><td>docs-manager</td><td>committed</td></tr>
+            <tr><td><code>principles.md</code></td><td>spec-manager</td><td>committed</td></tr>
+            <tr><td><code>specs/**</code></td><td>spec-manager</td><td>committed</td></tr>
+            <tr><td><code>decisions/ADR-*.md</code></td><td>spec-manager</td><td>committed</td></tr>
+            <tr><td><code>intents/INTENT-*.md</code></td><td>spec-manager</td><td>committed</td></tr>
+            <tr><td><code>security/codebase-security/YYYY-MM-DD.md</code></td><td>security-scan</td><td>committed</td></tr>
+            <tr><td><code>security/codebase-security/findings.json</code></td><td>security-scan</td><td>committed</td></tr>
+            <tr><td><code>BACKLOG.md</code></td><td>status (generated)</td><td>committed</td></tr>
+            <tr><td><code>{principle,contradiction,drift}-resolutions.jsonl</code></td><td>spec-manager</td><td>committed</td></tr>
+            <tr><td><code>.graph/graph.json · classifications.json</code></td><td>code-graph</td><td>git-ignored cache</td></tr>
+            <tr><td><code>.graph/behavior.json</code></td><td>behavior-graph</td><td>git-ignored cache</td></tr>
+          </tbody>
+        </table></div>
+        <h3>Tracking files</h3>
+        <div class="table-wrap"><table>
+          <thead><tr><th>File</th><th>Owner</th><th>Remembers</th></tr></thead>
+          <tbody>
+            <tr><td><code>specs/.spec-last-update</code></td><td>spec-manager</td><td>Last commit scanned for specs</td></tr>
+            <tr><td><code>security/.security-last-scan</code></td><td>security-scan</td><td>Last commit scanned + scan type</td></tr>
+            <tr><td><code>intents/.intent-last-verified</code></td><td>spec-manager</td><td>Declared-intent baseline</td></tr>
+            <tr><td><code>.graph/graph.json</code> → <code>commit</code></td><td>code-graph</td><td>Commit the graph was built from</td></tr>
+          </tbody>
+        </table></div>
+      </section>
+
+      <section>
+        <h2>Cheat-sheets</h2>
+
+        <h3>Certainty bands (spec-manager)</h3>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Score</th><th>Confidence</th><th>Action</th></tr></thead>
+          <tbody>
+            <tr><td>90–100</td><td>High</td><td>Accept / trust it</td></tr>
+            <tr><td>70–89</td><td>Good</td><td>Brief review</td></tr>
+            <tr><td>50–69</td><td>Medium</td><td>Confirm with the user</td></tr>
+            <tr><td>0–49</td><td>Low</td><td>Detailed review</td></tr>
+          </tbody>
+        </table></div>
+        <p class="small muted">Gates review of <em>inferred</em> specs; executable-behavior trust is the
+        lifecycle state, not the number.</p>
+
+        <h3>Behavior lifecycle</h3>
+        <div class="table-wrap"><table>
+          <thead><tr><th>State</th><th>In behavior.json?</th><th>Run?</th><th>Gates?</th></tr></thead>
+          <tbody>
+            <tr><td><span class="badge badge--proposed">proposed</span></td><td>no (specs only)</td><td>no</td><td>no</td></tr>
+            <tr><td><span class="badge badge--confirmed">confirmed</span></td><td>yes (advisory)</td><td>no</td><td>no</td></tr>
+            <tr><td><span class="badge badge--accepted">accepted</span></td><td>yes</td><td>yes</td><td>yes (on failure)</td></tr>
+            <tr><td><span class="badge badge--quarantined">quarantined</span></td><td>side state</td><td>no</td><td>no</td></tr>
+            <tr><td><span class="badge badge--deprecated">deprecated</span></td><td>side state</td><td>no</td><td>no</td></tr>
+          </tbody>
+        </table></div>
+
+        <h3>Coverage &amp; its "unknown" reasons</h3>
+        <p><code>observed</code> (0.8, runtime vitest) · <code>static</code> (0.5, code-graph closure of
+        an <code>entry</code>) · <code>unknown</code> (with a reason):</p>
+        <div class="tag-row">
+          <span class="pill">level-deferred</span>
+          <span class="pill">test-failed</span>
+          <span class="pill">no-coverage</span>
+          <span class="pill">no-entry</span>
+          <span class="pill">entry-missing</span>
+          <span class="pill">no-graph</span>
+          <span class="pill">not-run</span>
+        </div>
+
+        <h3>Security finding statuses</h3>
+        <p>The prose report uses eight statuses; the machine-readable <code>findings.json</code> collapses
+        them to three (<code>open</code> / <code>resolved</code> / <code>intentional</code>):</p>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Prose status</th><th>findings.json</th></tr></thead>
+          <tbody>
+            <tr><td>CONFIRMED · MITIGATED · NEEDS REVIEW · PERSISTENT · REGRESSED</td><td><code>open</code></td></tr>
+            <tr><td>RESOLVED</td><td><code>resolved</code></td></tr>
+            <tr><td>INTENTIONAL DESIGN</td><td><code>intentional</code></td></tr>
+            <tr><td>FALSE POSITIVE</td><td>excluded (not in report)</td></tr>
+          </tbody>
+        </table></div>
+        <p class="small muted">Consumers treat any finding whose status is not <code>open</code> as not
+        outstanding. <code>intentional</code> is backed by a <code>spec_ref</code> (a prose claim) or the
+        stronger <code>behavior_ref</code> (an accepted, test-backed guarantee).</p>
+      </section>
+
+      <section>
+        <h2>Glossary</h2>
+        <dl class="glossary">
+          <dt>Blast radius</dt><dd>A file plus everything that transitively depends on it — computed by code-graph. What a change actually reaches.</dd>
+          <dt>Internal edge</dt><dd>An import that resolved to a real project file (not <code>external:</code> or <code>unresolved:</code>). The signal for "real feature wiring."</dd>
+          <dt>Behavior (BEH-NNN)</dt><dd>A first-class, intent-bearing record of an intended behavior, linked to a test. Numbered stably, never renumbered.</dd>
+          <dt>Lifecycle state</dt><dd><code>proposed → confirmed → accepted</code> (+ <code>quarantined</code>/<code>deprecated</code>). Trust <em>is</em> the state; only accepted gates.</dd>
+          <dt>Adapter</dt><dd>How a behavior links to a test — a Gherkin <em>scaffold</em> (writes a skeleton <code>.feature</code>) or a <em>native</em> link to an existing test.</dd>
+          <dt>Locator</dt><dd>The address of a behavior's test, e.g. <code>path#scenario-slug</code> or <code>path::node</code>.</dd>
+          <dt>Entry</dt><dd>The route/handler file an integration behavior drives; its code-graph closure is the static coverage.</dd>
+          <dt>Fingerprint</dt><dd>The <code>TEST → CODE</code> record of which files a behavior's test exercised, with a coverage value and confidence.</dd>
+          <dt>Certainty</dt><dd>A 0–100 confidence score on an inferred spec. A heuristic, not the trust signal for executable behavior.</dd>
+          <dt>INTENT-NNN</dt><dd>A declared-intent record authorizing a change to an accepted behavior's test (governance G1).</dd>
+          <dt>ADR</dt><dd>Architecture Decision Record — a cross-cutting decision in <code>decisions/</code>. Outranks a spec, below a principle.</dd>
+          <dt>Principle</dt><dd>A project-wide rule in <code>principles.md</code> — the constitution, highest authority.</dd>
+          <dt>Resolution log</dt><dd>An append-only JSONL recording how a resolve-to-proceed finding was settled, so it isn't re-litigated.</dd>
+          <dt>Two-commit pattern</dt><dd>Code changes in one commit, generated artifacts in a second — clean history, stable references.</dd>
+          <dt>Validate-on-hit</dt><dd>wrap-up surfacing the proposed/confirmed behaviors a change touched (and uncovered code) — advisory, skippable.</dd>
+          <dt>Never-synced guard</dt><dd>wrap-up's refusal to let incremental <code>update</code> silently full-generate on a project that was never synced.</dd>
+        </dl>
+      </section>
+
+      <div class="next-prev">
+        <a class="np-card" href="getting-started.html"><div class="np-dir">← Back</div><div class="np-title">Get Started</div></a>
+        <a class="np-card" href="index.html" style="text-align:right;"><div class="np-dir">Home →</div><div class="np-title">Overview</div></a>
+      </div>
+    </div>
+  </div>
+
+  <div id="site-footer"></div>
+
+  <script>
+  (function () {
+    var input = document.getElementById("cli-filter");
+    var rows = Array.prototype.slice.call(document.querySelectorAll("#cli-table tbody tr"));
+    var empty = document.getElementById("cli-empty");
+    input.addEventListener("input", function () {
+      var q = input.value.trim().toLowerCase();
+      var shown = 0;
+      rows.forEach(function (r) {
+        var match = !q || r.textContent.toLowerCase().indexOf(q) !== -1;
+        r.classList.toggle("hide", !match);
+        if (match) shown++;
+      });
+      empty.classList.toggle("hide", shown !== 0);
+    });
+  })();
+  </script>
+</body>
+</html>

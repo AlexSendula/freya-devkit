@@ -34,11 +34,11 @@ Skills are specialized workflows that work together to maintain a codebase. Inst
 ```
 code-graph (foundation)
     ↓
-docs-manager, spec-manager (use code-graph for impact analysis)
+docs-manager, spec-manager, behavior-graph, behavior-runner  (the behavior layer) — use code-graph
     ↓
-codebase-security-scan (uses code-graph + spec-manager)
+codebase-security-scan, dependency-vulnerability-check  (analysis)
     ↓
-wrap-up (orchestrates everything)
+wrap-up (orchestrates everything, incl. behavior integrity Phase 3.5)  ·  status (read-only check)
 ```
 
 ### Key Patterns

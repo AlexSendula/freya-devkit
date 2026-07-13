@@ -72,7 +72,7 @@ const key = (f) => `${f.file}::${Math.floor(f.line / 5)}::${f.category}`
 // --- Phase 1: Context ---
 phase('Context')
 const context = await agent(
-  'Read /docs/project and /docs/specs (if present). Summarize: architecture, auth model, '
+  'Read /knowledge-base/reference and /knowledge-base/specs (if present). Summarize: architecture, auth model, '
   + 'trust boundaries, untrusted entry points, and an explicit list of SPEC\'D-INTENTIONAL '
   + 'behaviors that must NOT be reported as vulnerabilities. Return prose.',
   { label: 'context', phase: 'Context', agentType: 'Explore' }

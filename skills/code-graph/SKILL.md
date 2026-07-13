@@ -39,14 +39,14 @@ A lightweight dependency graph skill that tracks import/export relationships in 
 
 The dependency graph and classifications are stored in the project at:
 ```
-docs/.code-graph/
+knowledge-base/.graph/
 ├── graph.json           # Dependency graph
 └── classifications.json # Directory classifications (source/exclude)
 ```
 
 This keeps the graph version-controlled alongside the code and in sync with branch changes.
 
-**Note:** Add `docs/.code-graph/` to `.gitignore` if you don't want to commit the generated graph.
+**Note:** Add `knowledge-base/.graph/` to `.gitignore` if you don't want to commit the generated graph.
 
 ### Classifications File Structure
 
@@ -123,7 +123,7 @@ Build the dependency graph from scratch by scanning all source files.
 3. Scan source directories using classifications
 4. Parse imports/exports from each file
 5. Build reverse mapping (dependents) from imports
-6. Store graph in `docs/.code-graph/`
+6. Store graph in `knowledge-base/.graph/`
 
 **Directory Classification System:**
 
@@ -147,7 +147,17 @@ The build process uses a hybrid approach to determine which directories contain 
    Your choice (1 or 2):
    ```
 
-4. **Cached** - Classifications saved to `docs/.code-graph/classifications.json`
+   **Non-interactive mode** (`--non-interactive`, and auto-enabled when stdin is not a
+   TTY — e.g. when invoked by wrap-up): never prompts; uncertain directories default to
+   **source** so real code is never silently dropped. Use it for any automated run.
+
+4. **Cached** - Classifications saved to `knowledge-base/.graph/classifications.json`
+
+**Import resolution:**
+
+- **Relative imports** (`./x`, `../y`) resolve against the project directory (independent of the current working directory).
+- **Path aliases** (`@/lib/x` and similar) resolve via `tsconfig.json` / `jsconfig.json` `compilerOptions.paths` + `baseUrl`. Without this, alias-heavy projects (e.g. Next.js) would show an empty internal graph.
+- Each import edge is tagged: an internal project-relative path, `external:<pkg>` (a third-party package), or `unresolved:<import>` (a relative/alias import that could not be resolved — surfaced rather than silently dropped, so "no dependencies" is distinguishable from "could not resolve").
 
 **File patterns scanned:**
 - `**/*.ts`, `**/*.tsx`, `**/*.js`, `**/*.jsx`
@@ -172,7 +182,7 @@ Built dependency graph:
   - 147 files scanned
   - 312 import relationships
   - 89 export declarations
-  - Stored to docs/.code-graph/graph.json
+  - Stored to knowledge-base/.graph/graph.json
 ```
 
 ### `/freya-devkit:code-graph update`

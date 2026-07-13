@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Governance &amp; the ADR Question — Visual Explainer</title>
+<style>
+  :root {
+    --bg: #0e1116; --panel: #161b22; --panel-2: #1c232d; --border: #2a323d;
+    --ink: #e6edf3; --muted: #9aa7b4; --faint: #6b7785;
+    --accent: #6ea8fe; --accent-soft: #1b3a6b;
+    --green: #56d364; --amber: #e3b341; --red: #f47067; --violet: #c69bf0;
+    --code-bg: #11161d; --radius: 12px; --maxw: 860px; font-synthesis: none;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--bg); color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    line-height: 1.65; font-size: 16px; -webkit-font-smoothing: antialiased; }
+  code, pre, .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; }
+
+  .shell { display: grid; grid-template-columns: 250px 1fr; max-width: 1240px; margin: 0 auto; }
+  nav.toc { position: sticky; top: 0; align-self: start; height: 100vh; overflow-y: auto;
+    padding: 32px 20px; border-right: 1px solid var(--border); }
+  nav.toc .brand { font-weight: 700; font-size: 15px; letter-spacing: .3px; margin-bottom: 4px; }
+  nav.toc .brand span { color: var(--accent); }
+  nav.toc .sub { color: var(--faint); font-size: 12px; margin-bottom: 22px; }
+  nav.toc a { display: block; color: var(--muted); text-decoration: none; font-size: 13.5px;
+    padding: 5px 10px; border-radius: 7px; margin: 1px 0; border-left: 2px solid transparent; }
+  nav.toc a:hover { background: var(--panel); color: var(--ink); }
+  nav.toc a.active { color: var(--ink); background: var(--accent-soft); border-left-color: var(--accent); }
+  nav.toc a .n { color: var(--faint); font-variant-numeric: tabular-nums; margin-right: 7px; }
+
+  main { padding: 0 48px 140px; min-width: 0; }
+  .wrap { max-width: var(--maxw); margin: 0 auto; }
+
+  header.hero { padding: 90px 0 50px; }
+  .eyebrow { color: var(--accent); font-size: 13px; font-weight: 600; letter-spacing: 2px; text-transform: uppercase; margin-bottom: 16px; }
+  h1 { font-size: 46px; line-height: 1.1; margin: 0 0 22px; letter-spacing: -1px; }
+  h1 .hl { background: linear-gradient(120deg, var(--accent), var(--violet)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .lede { font-size: 20px; color: var(--muted); max-width: 680px; }
+  .meta-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 28px; }
+  .chip { font-size: 12px; color: var(--muted); background: var(--panel); border: 1px solid var(--border); padding: 5px 12px; border-radius: 100px; }
+  .chip b { color: var(--ink); font-weight: 600; }
+
+  section { padding: 46px 0; border-top: 1px solid var(--border); }
+  section > .kicker { color: var(--faint); font-size: 12.5px; font-weight: 600; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 10px; }
+  h2 { font-size: 30px; margin: 0 0 8px; letter-spacing: -.5px; }
+  h3 { font-size: 18px; margin: 30px 0 10px; }
+  p { color: var(--ink); }
+  .muted { color: var(--muted); }
+  .section-lede { color: var(--muted); font-size: 17px; margin-top: 0; }
+  a.inline { color: var(--accent); text-decoration: none; border-bottom: 1px solid var(--accent-soft); }
+
+  .panel { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 22px 24px; }
+  .grid { display: grid; gap: 16px; }
+  .grid.two { grid-template-columns: 1fr 1fr; }
+  .grid.three { grid-template-columns: repeat(3, 1fr); }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; }
+  .card h4 { margin: 0 0 6px; font-size: 15.5px; }
+  .card .num { font-size: 12px; font-weight: 700; color: var(--accent); display: block; margin-bottom: 8px; letter-spacing: 1px; }
+  .card p { margin: 0; font-size: 14.5px; color: var(--muted); }
+  .card p + p { margin-top: 8px; }
+
+  .callout { border-left: 3px solid var(--accent); background: var(--panel); padding: 16px 20px; border-radius: 0 var(--radius) var(--radius) 0; margin: 22px 0; }
+  .callout.warn { border-left-color: var(--amber); }
+  .callout.key { border-left-color: var(--violet); }
+  .callout.good { border-left-color: var(--green); }
+  .callout .label { font-size: 12px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--accent); margin-bottom: 4px; }
+  .callout.warn .label { color: var(--amber); }
+  .callout.key .label { color: var(--violet); }
+  .callout.good .label { color: var(--green); }
+  .callout p { margin: 0; font-size: 15px; }
+
+  pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 20px; overflow-x: auto; font-size: 13.5px; line-height: 1.7; color: #cbd5e1; }
+  pre .c { color: var(--faint); } pre .k { color: var(--violet); } pre .s { color: var(--green); } pre .t { color: var(--amber); }
+  code.ic { background: var(--panel-2); border: 1px solid var(--border); border-radius: 5px; padding: 1px 6px; font-size: 13px; color: var(--accent); }
+
+  table { width: 100%; border-collapse: collapse; margin: 18px 0; font-size: 14px; }
+  th, td { text-align: left; padding: 11px 14px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--faint); font-size: 11.5px; text-transform: uppercase; letter-spacing: .8px; font-weight: 600; }
+  tr:last-child td { border-bottom: none; }
+  td b { color: var(--ink); }
+  .tbl-wrap { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  .tbl-wrap table { margin: 0; }
+  .tbl-wrap th, .tbl-wrap td { padding-left: 20px; padding-right: 20px; }
+  .yes { color: var(--green); font-weight: 700; } .no { color: var(--red); font-weight: 700; }
+
+  /* Authority ladder */
+  .ladder { display: flex; flex-direction: column; gap: 8px; margin: 24px 0; }
+  .rung { display: grid; grid-template-columns: 130px 1fr; gap: 16px; align-items: center;
+    background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 18px; }
+  .rung .lvl { font-weight: 700; font-size: 13px; text-align: center; padding: 6px; border-radius: 7px; background: var(--panel-2); }
+  .rung.r1 { border-color: #4a3a6b; } .rung.r1 .lvl { color: var(--violet); }
+  .rung.r2 { border-color: #2c4a63; } .rung.r2 .lvl { color: var(--accent); }
+  .rung.r3 { border-color: #3a3f47; } .rung.r3 .lvl { color: var(--muted); }
+  .rung p { margin: 0; font-size: 13.5px; color: var(--muted); }
+  .rung p b { color: var(--ink); }
+  .ladder .down { text-align: center; color: var(--faint); font-size: 12px; letter-spacing: 2px; }
+
+  /* Two-decisions split */
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 22px 0; }
+  .split .col { border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; background: var(--panel); }
+  .split .col.exists { border-color: #2c4a33; }
+  .split .col.missing { border-color: #5a3230; }
+  .split .col .badge { font-size: 11.5px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 8px; }
+  .split .col.exists .badge { color: var(--green); }
+  .split .col.missing .badge { color: var(--red); }
+  .split .col h4 { margin: 0 0 8px; font-size: 16px; }
+  .split .col p { font-size: 13.5px; color: var(--muted); margin: 0 0 10px; }
+  .split .col ul { margin: 8px 0 0; padding-left: 18px; font-size: 13px; color: var(--muted); }
+  .split .col li { margin: 4px 0; }
+
+  /* folder view */
+  .folder { font-size: 13.5px; line-height: 1.9; }
+  .folder .dim { color: var(--faint); }
+  .folder .full { color: var(--green); }
+  .folder .empty { color: var(--red); }
+  .tag-pill { display:inline-block; font-size: 11px; font-weight:700; padding: 1px 8px; border-radius: 100px; margin-left: 6px; vertical-align: middle; }
+  .tag-pill.ok { background: #16351f; color: var(--green); border: 1px solid #2c4a33; }
+  .tag-pill.no { background: #3a1e1c; color: var(--red); border: 1px solid #5a3230; }
+
+  /* option cards */
+  .opts { display: grid; grid-template-columns: repeat(3,1fr); gap: 16px; margin: 24px 0; }
+  .opt { border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; background: var(--panel); }
+  .opt.rec { border-color: var(--accent); }
+  .opt .tag { font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--faint); }
+  .opt.rec .tag { color: var(--accent); }
+  .opt h4 { margin: 8px 0 8px; font-size: 15.5px; }
+  .opt p { margin: 0; font-size: 13px; color: var(--muted); }
+
+  .status-dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:7px; vertical-align: middle; }
+  .dot-done { background: var(--green); } .dot-now { background: var(--amber); } .dot-next { background: var(--faint); }
+
+  @media (max-width: 900px) {
+    .shell { grid-template-columns: 1fr; } nav.toc { display: none; }
+    main { padding: 0 22px 100px; } .split, .opts, .grid.three, .grid.two { grid-template-columns: 1fr; }
+    h1 { font-size: 34px; }
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+  <nav class="toc">
+    <div class="brand">freya·<span>devkit</span></div>
+    <div class="sub">Governance &amp; the ADR question</div>
+    <a href="#top"><span class="n">00</span>Overview</a>
+    <a href="#track"><span class="n">01</span>The governance track</a>
+    <a href="#authority"><span class="n">02</span>Authority hierarchy</a>
+    <a href="#two"><span class="n">03</span>Two kinds of "decisions"</a>
+    <a href="#why"><span class="n">04</span>Why ADRs are out (for now)</a>
+    <a href="#catches"><span class="n">05</span>What G3 catches now</a>
+    <a href="#choice"><span class="n">06</span>The choice</a>
+  </nav>
+
+  <main>
+  <div class="wrap">
+    <header class="hero" id="top">
+      <div class="eyebrow">Governance track · Phase 3</div>
+      <h1>Governance, and <span class="hl">the ADR question</span></h1>
+      <p class="lede">Why the contradiction checker (G3) doesn't yet look at architecture decisions — and why that's a missing <em>room</em>, not a missing <em>intent</em>.</p>
+      <div class="meta-row">
+        <span class="chip"><b>G1</b> declared-intent · shipped</span>
+        <span class="chip"><b>G2</b> principle enforcement · shipped</span>
+        <span class="chip"><b>G3</b> contradiction checks · in design</span>
+      </div>
+    </header>
+
+    <!-- 1 -->
+    <section id="track">
+      <div class="kicker">01 · The track</div>
+      <h2>Three ways to keep intent honest</h2>
+      <p class="section-lede">The governance track makes the project's recorded intent <em>enforced</em>, not decorative. Three sub-projects, each guarding a different seam.</p>
+      <div class="grid three" style="margin-top:22px">
+        <div class="card">
+          <span class="num"><span class="status-dot dot-done"></span>G1 · SHIPPED</span>
+          <h4>Declared-intent records</h4>
+          <p>You can't silently change an <b>accepted behavior's test</b>. Editing it needs an <code class="ic">INTENT-NNN</code> record saying why. A <em>deterministic</em> gate — a hard fact.</p>
+        </div>
+        <div class="card">
+          <span class="num"><span class="status-dot dot-done"></span>G2 · SHIPPED</span>
+          <h4>Principle enforcement</h4>
+          <p>At wrap-up, the code change is judged against <code class="ic">principles.md</code>. Each finding is fixed / refuted / amended before you finish. <em>Model judgment</em> — resolve-to-proceed.</p>
+        </div>
+        <div class="card" style="border-color:var(--amber)">
+          <span class="num" style="color:var(--amber)"><span class="status-dot dot-now"></span>G3 · IN DESIGN</span>
+          <h4>Contradiction checks</h4>
+          <p>When a <b>spec's intent</b> changes, does it <em>contradict a higher-authority intent?</em> Intent-vs-intent, resolved by the authority order below. This is the page you're reading about.</p>
+        </div>
+      </div>
+      <div class="callout">
+        <div class="label">The distinction that matters</div>
+        <p>G1 &amp; G2 compare against <b>code</b> (a test, a diff). G3 compares one recorded <b>intent</b> against <b>another recorded intent</b>. So the question "which intents does G3 know about?" is the whole ballgame — and it's where ADRs come in.</p>
+      </div>
+    </section>
+
+    <!-- 2 -->
+    <section id="authority">
+      <div class="kicker">02 · Authority</div>
+      <h2>Intent has a chain of command</h2>
+      <p class="section-lede">When two intents disagree, the higher one wins (or must be consciously amended). G3 resolves every contradiction against this order.</p>
+      <div class="ladder">
+        <div class="rung r1">
+          <div class="lvl">Highest</div>
+          <p><b>principles.md</b> — the constitution. Project-wide rules. <span class="tag-pill ok">exists</span></p>
+        </div>
+        <div class="down">▲ wins over ▼</div>
+        <div class="rung r2">
+          <div class="lvl">Middle</div>
+          <p><b>specs/</b> (per-feature intent + inline decisions) &nbsp;and&nbsp; <b>decisions/</b> (cross-cutting ADRs). Same authority level as each other. <span class="tag-pill ok">specs exist</span> <span class="tag-pill no">ADRs: empty room</span></p>
+        </div>
+        <div class="down">▲ wins over ▼</div>
+        <div class="rung r3">
+          <div class="lvl">Lowest</div>
+          <p><b>reference/</b> — describes how the code <em>currently is</em>. Reverse-synced, never authoritative.</p>
+        </div>
+      </div>
+      <p class="muted">Notice the middle rung holds <b>two</b> things. One of them — <code class="ic">specs/</code> — is fully built. The other — <code class="ic">decisions/</code>, the ADRs — is an empty room. That single fact is the whole confusion.</p>
+    </section>
+
+    <!-- 3 -->
+    <section id="two">
+      <div class="kicker">03 · The crux</div>
+      <h2>"Decisions" means two different things</h2>
+      <p class="section-lede">This is almost always the source of the confusion. There are two kinds of decision in this system, and G3 treats them very differently — because only one of them physically exists yet.</p>
+      <div class="split">
+        <div class="col exists">
+          <div class="badge">✓ Exists today (since Phase 1)</div>
+          <h4>Inline spec decisions</h4>
+          <p>The <code class="ic">## Intentional Design Decisions</code> a spec carries — tied to <em>that one feature</em>.</p>
+          <ul>
+            <li>"No password fallback — it's a phishing vector."</li>
+            <li>"Uniform 404 to prevent user enumeration."</li>
+          </ul>
+          <p style="margin-top:12px"><b class="yes">G3 checks these.</b> They're half of its comparison set (same-category peers).</p>
+        </div>
+        <div class="col missing">
+          <div class="badge">✗ No machinery yet</div>
+          <h4>ADRs — Architecture Decision Records</h4>
+          <p>Cross-cutting decisions that aren't tied to one feature — they constrain the <em>whole</em> project.</p>
+          <ul>
+            <li>"We use Postgres (ADR-007)."</li>
+            <li>"Multi-tenancy is row-level, not schema-per-tenant."</li>
+          </ul>
+          <p style="margin-top:12px"><b class="no">G3 can't check these yet</b> — there's nowhere to write them and no format to read them.</p>
+        </div>
+      </div>
+      <div class="callout key">
+        <div class="label">So, to be precise</div>
+        <p>When the design says G3 is "ADR-blind," it means <b>only</b> the right-hand box. G3 <em>does</em> govern the left-hand box (per-feature spec decisions) and the constitution (<code class="ic">principles.md</code>). It's not blind to "decisions" — it's blind to the one kind of decision that has no home yet.</p>
+      </div>
+    </section>
+
+    <!-- 4 -->
+    <section id="why">
+      <div class="kicker">04 · The real reason</div>
+      <h2>You can't check against an empty room</h2>
+      <p class="section-lede">ADRs aren't excluded because they don't matter. They're excluded because <b>the thing that would hold them hasn't been built.</b> Look at the actual folder:</p>
+      <pre class="folder"><span class="dim">knowledge-base/</span>
+  <span class="full">principles.md</span>            <span class="c">← constitution — real rules inside     </span><span class="t">✓ built</span>
+  <span class="full">specs/auth/SPEC-001…</span>     <span class="c">← per-feature intent + decisions       </span><span class="t">✓ built</span>
+  <span class="empty">decisions/</span>              <span class="c">← ADRs live here…                      </span><span class="t">✗ empty scaffold</span>
+    <span class="empty">(a .gitkeep, and nothing else)</span>
+  <span class="full">principle-resolutions.jsonl</span> <span class="c">← G2's audit log                    </span><span class="t">✓ built</span></pre>
+      <p>The <code class="ic">decisions/</code> folder is created by <code class="ic">spec-manager init</code>, but it's a placeholder. There is:</p>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>To govern ADRs, you'd need…</th><th>Status</th></tr></thead>
+          <tbody>
+            <tr><td><b>An ADR file format</b> — a parseable <code class="ic">ADR-NNN.md</code> (decision, rationale, rejected alternatives, revisit conditions)</td><td class="no">doesn't exist</td></tr>
+            <tr><td><b>A create flow</b> — <code class="ic">adr create</code>, ID allocation, indexing (like <code class="ic">spec create</code>)</td><td class="no">doesn't exist</td></tr>
+            <tr><td><b>A way to gather them</b> — so the checker can load "all ADRs in this domain"</td><td class="no">doesn't exist</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout warn">
+        <div class="label">The honest version</div>
+        <p>If G3 tried to check specs against ADRs today, it would be checking against <b>nothing</b> — an always-empty set — while <em>looking</em> like it covers architecture decisions. That false sense of coverage is worse than an honest gap. So G3 is built <b>ADR-ready</b>: the same check extends to ADRs the moment the machinery lands. It's a wired-but-unplugged socket, not a wall.</p>
+      </div>
+    </section>
+
+    <!-- 5 -->
+    <section id="catches">
+      <div class="kicker">05 · Coverage</div>
+      <h2>What G3 catches now vs. what waits</h2>
+      <p class="section-lede">The gap is real and worth seeing plainly. Here's exactly which conflicts G3-as-scoped catches, and which need the ADR machinery first.</p>
+      <div class="tbl-wrap">
+        <table>
+          <thead><tr><th>A change that…</th><th>Example</th><th>G3 now?</th></tr></thead>
+          <tbody>
+            <tr><td>contradicts a <b>principle</b></td><td>new spec adds a public endpoint; principle says "authenticated by default"</td><td class="yes">✓ caught</td></tr>
+            <tr><td>contradicts a <b>same-feature-area spec decision</b></td><td>a new auth spec says "password fallback allowed"; a peer says "never — phishing vector"</td><td class="yes">✓ caught</td></tr>
+            <tr><td>contradicts a <b>cross-cutting architecture decision</b></td><td>a spec assumes Mongo; the (unwritten) ADR chose Postgres</td><td class="no">✗ needs ADRs</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="callout good">
+        <div class="label">Not vacuous</div>
+        <p>Two of three real conflict classes are covered on day one. "New intent violates the constitution" and "two features quietly disagree" are exactly the everyday drift a solo/AI workflow produces. The third class — silent violation of an architecture decision — is precisely what the ADR sub-project unlocks next.</p>
+      </div>
+    </section>
+
+    <!-- 6 -->
+    <section id="choice">
+      <div class="kicker">06 · Your call</div>
+      <h2>So — what do we do about ADRs?</h2>
+      <p class="section-lede">This is a genuine sequencing decision, not a settled one. Three honest paths:</p>
+      <div class="opts">
+        <div class="opt rec">
+          <div class="tag">◆ Recommended</div>
+          <h4>G3 now, ADRs next</h4>
+          <p>Ship G3 against principles + spec decisions (real coverage), designed to extend. Then build <b>ADR capture</b> as its own sub-project — after which the <em>same</em> G3 check gains ADR-awareness for free. Each piece stays clean and testable.</p>
+        </div>
+        <div class="opt">
+          <div class="tag">Bigger</div>
+          <h4>ADR machinery first</h4>
+          <p>Pause G3. Build a minimal ADR format + <code class="ic">adr create</code> + index in <code class="ic">decisions/</code>. Then G3 covers principles + spec decisions + ADRs from day one. ADRs land sooner; the contradiction check waits.</p>
+        </div>
+        <div class="opt">
+          <div class="tag">Middle</div>
+          <h4>Fold a minimal ADR format into G3</h4>
+          <p>Add just enough ADR structure (a parseable <code class="ic">ADR-NNN.md</code> + a gather step) so G3 covers ADRs — without a full create/lifecycle flow. Faster, but couples two concerns and blurs G3's boundary.</p>
+        </div>
+      </div>
+      <div class="callout">
+        <div class="label">Bottom line</div>
+        <p>Nothing about "we don't care about architecture decisions" is true here. ADRs were always in the plan (vision Phase 4). The only question is <b>order</b>: finish the contradiction <em>engine</em> now and plug ADRs into it next, or build the ADR <em>room</em> first so nothing about "decisions" ships half-covered.</p>
+      </div>
+    </section>
+  </div>
+  </main>
+</div>
+
+<script>
+  // TOC active-section highlight
+  const links = [...document.querySelectorAll('nav.toc a')];
+  const map = new Map(links.map(a => [a.getAttribute('href').slice(1), a]));
+  const obs = new IntersectionObserver((entries) => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        links.forEach(l => l.classList.remove('active'));
+        const a = map.get(e.target.id); if (a) a.classList.add('active');
+      }
+    });
+  }, { rootMargin: '-40% 0px -55% 0px' });
+  ['top','track','authority','two','why','catches','choice'].forEach(id => {
+    const el = document.getElementById(id); if (el) obs.observe(el);
+  });
+</script>
+</body>
+</html>

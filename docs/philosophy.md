@@ -44,6 +44,8 @@ Think of skills as **specialized team members** working on a codebase:
 
 Each skill has a role, knows its job, and can collaborate with others.
 
+> This is a representative sketch, not the full roster. The toolkit is **ten skills across five tiers** — the three "team members" above plus the **behavior layer** (`behavior-graph`, `behavior-runner`), `status`, the security skills, and `dependency-vulnerability-check`. See [architecture.md](architecture.md) for the complete tier map.
+
 ## Core Concepts
 
 ### 1. Intentional Design
@@ -108,12 +110,23 @@ Commit 1: Code changes
   - src/api/routes.ts
 
 Commit 2: Generated artifacts
-  - docs/project/API.md
-  - docs/specs/auth/SPEC-001.md
-  - docs/security-reports/...
+  - knowledge-base/reference/API.md
+  - knowledge-base/specs/auth/SPEC-001.md
+  - knowledge-base/security/...
 ```
 
 The two-commit pattern keeps git history clean and lets tools reference stable commits.
+
+### 6. Intended Behavior as First-Class
+
+Tests are usually written *from* the code, so they verify "what the code does," not "what it should do." The behavior layer makes **intended behavior** its own first-class, executable artifact.
+
+- Each observable behavior becomes a stable record — `BEH-NNN` — with a lifecycle `state`: `proposed → confirmed → accepted` (plus `quarantined` / `deprecated`). Only **accepted** behavior is authoritative and gates.
+- `behavior-graph` projects these into `behavior.json`, a **sibling** of the code graph (`graph.json`), linking BEHAVIOR → TEST → CODE. It answers two directions of blast radius: *code change → which behaviors are affected*, and *behavior → the code that implements it*.
+- `behavior-runner` runs the accepted behaviors via their test adapter and captures observed TEST → CODE coverage; where it cannot observe an edge, it says so (`unknown`, never falsely attributed).
+- `wrap-up` gains a **Phase 3.5** that re-runs only the accepted behaviors a change actually touches and gates on real regressions — verification "upgraded from eyeballing prose to actually running the linked tests."
+
+This turns specs from inert prose that nothing runs into executable, governed guarantees.
 
 ## What This Enables
 
@@ -126,8 +139,8 @@ The two-commit pattern keeps git history clean and lets tools reference stable c
 ### For Understanding
 
 1. New AI session starts
-2. Reads `docs/project/` for context
-3. Reads `docs/specs/` for intentional design decisions
+2. Reads `knowledge-base/reference/` for context
+3. Reads `knowledge-base/specs/` for intentional design decisions
 4. Has full understanding without being told everything
 
 ### For Maintenance

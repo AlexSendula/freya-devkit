@@ -40,9 +40,9 @@ Resolve security findings with an interactive selection and planning workflow.
 
 Reads findings from:
 ```
-/docs/security-reports/codebase-security/
-├── latest.md          # Most recent scan (symlink or copy)
-└── YYYY-MM-DD.md      # Dated reports
+/knowledge-base/security/codebase-security/
+├── YYYY-MM-DD.md      # Dated reports — load the most recent
+└── findings.json      # Machine-readable findings index
 ```
 
 ### Finding Format
@@ -377,7 +377,7 @@ PART 2: METADATA CLEANUP
 -------------------------
 
 SEC-H2 (INTENTIONAL_DESIGN):
-  → Add to spec: docs/specs/security.decisions.md
+  → Add to spec: knowledge-base/specs/security.decisions.md
     "CSP allows unsafe-inline for Tiptap editor, mitigated by DOMPurify sanitization"
   → Update report: Mark as INTENTIONAL, add spec reference
 
@@ -473,7 +473,7 @@ After code fixes, execute metadata cleanup for skipped findings:
    → No entry found for CSP decision
 
 2. Adding to spec (via /freya-devkit:spec-manager):
-   → File: docs/specs/security.decisions.md
+   → File: knowledge-base/specs/security.decisions.md
    → Entry: "CSP allows unsafe-inline for Tiptap editor"
    → Rationale: "Required for Tiptap, mitigated by DOMPurify"
 
@@ -551,8 +551,9 @@ After committing code changes, call `/freya-devkit:wrap-up`. Wrap-up will:
 2. Update dependency graph
 3. Update documentation
 4. Update specifications
-5. Run fresh security scan (confirms fixes by comparing to pre-fix commit)
-6. Commit all artifacts together (docs, specs, graph, security report)
+5. Verify behavior integrity & run affected accepted behaviors (Phase 3.5)
+6. Run fresh security scan (confirms fixes by comparing to pre-fix commit)
+7. Commit all artifacts together (docs, specs, graph, security report)
 
 Result: Two clean commits
 ```

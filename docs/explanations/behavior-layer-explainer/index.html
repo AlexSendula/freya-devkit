@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>The Behavior Layer — a first-class, executable, governed record of intent</title>
+  <meta name="description" content="An explainer for the freya-devkit Behavior Layer: the problem, the vision, what shipped, and how it all fits together.">
+  <link rel="stylesheet" href="assets/styles.css">
+  <script src="assets/site.js"></script>
+</head>
+<body>
+  <div id="site-header"></div>
+
+  <header class="hero wrap">
+    <span class="eyebrow">freya-devkit · the behavior layer</span>
+    <h1>Your tests prove what your code <em>does</em>. Nothing proves what it's <em>supposed to do</em>.</h1>
+    <p class="lead">freya-devkit was a strong <strong>reverse-sync engine</strong>: after you change code, it re-syncs a dependency graph, docs, specs, and security findings. What it couldn't do was capture <strong>what the system is supposed to do</strong> — in a form that is executable, intent-driven, and visible at design time. The Behavior Layer adds exactly that.</p>
+    <div class="hero-actions">
+      <a class="btn btn-primary" href="#problem">Start the story ↓</a>
+      <a class="btn btn-ghost" href="concepts.html">See how it works →</a>
+    </div>
+  </header>
+
+  <div class="doc">
+    <aside class="toc" id="toc"></aside>
+    <main class="doc-body">
+
+      <section>
+        <h2 id="problem">The problem: four ways behavior goes unguarded</h2>
+        <p>Every failure below is a "before" — the reason the whole initiative exists. All four come straight from the vision document.</p>
+        <div class="card-grid cols-2">
+          <div class="card problem">
+            <div class="ico" aria-hidden="true">🔁</div>
+            <h3>Tests mirror code, not intent</h3>
+            <p>Tests are usually written <em>from the code</em>, so they verify "what the code does," not "what it should do." Coverage looks fine while the actual intended behavior goes unguarded.</p>
+          </div>
+          <div class="card problem">
+            <div class="ico" aria-hidden="true">👻</div>
+            <h3>Behavior drifts silently</h3>
+            <p>A change can alter behavior unintentionally and <em>still pass a green suite</em>, because nothing pins the intended behavior. The suite never turns red.</p>
+          </div>
+          <div class="card problem">
+            <div class="ico" aria-hidden="true">📄</div>
+            <h3>Specs are inert</h3>
+            <p>spec-manager captured <em>why</em> well, but the "what" was an acceptance-criteria checklist that nothing executes — <code>verify</code> could only eyeball it.</p>
+          </div>
+          <div class="card problem">
+            <div class="ico" aria-hidden="true">🎯</div>
+            <h3>No behavioral impact analysis</h3>
+            <p>code-graph answers "what <em>code</em> does this change touch?" Nothing answered "what <em>intended behavior</em> does this change touch?"</p>
+          </div>
+        </div>
+        <div class="callout callout--info">
+          <span class="callout-label">The through-line</span>
+          <p>A green, high-coverage suite can be perfectly consistent with the system doing the wrong thing — because the tests were derived from the code rather than from intent. Fixing that is the entire point.</p>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="idea">The one idea</h2>
+        <p class="lead">Make <strong>intended behavior</strong> a first-class, executable, blast-radius-aware artifact.</p>
+        <p>Concretely: a <strong>behavior</strong> becomes a stable, id'd record — <code>BEH-003</code> — with a lifecycle, linked through a runner-agnostic <strong>adapter</strong> to a real, executable test. The test is authored as <strong>Gherkin</strong> where <code>Given/When/Then</code> adds intent-clarity, or <strong>linked to an existing native test</strong> (jest, pytest, playwright…) where one already covers the behavior. Then every behavior is wired into a <strong>behavior graph</strong> so any change can be traced to the behaviors it touches.</p>
+
+        <figure class="diagram">
+          <div class="flow">
+            <span class="node intent">SPEC<span class="sub">intent &amp; why</span></span>
+            <span class="arrow">→</span>
+            <span class="node beh">BEHAVIOR<span class="sub">BEH-003 · lifecycle</span></span>
+            <span class="arrow">→</span>
+            <span class="node test">TEST<span class="sub">adapter + locator</span></span>
+            <span class="arrow">→</span>
+            <span class="node code">CODE<span class="sub">files it exercises</span></span>
+            <span class="arrow">→</span>
+            <span class="node code">CODE<span class="sub">imports</span></span>
+          </div>
+          <figcaption>The chain. <code>SPEC → BEHAVIOR → TEST</code> are authored links (deterministic). <code>TEST → CODE</code> is the one genuinely new edge — captured, never asserted as certain. <code>CODE → CODE</code> is the existing dependency graph.</figcaption>
+        </figure>
+
+        <h3 id="taxonomy">Not all "intent" is the same thing</h3>
+        <p>The layer sorts intent into four kinds — each with a home and a way it's verified. This taxonomy is what keeps an executable guarantee from being confused with a prose decision.</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Kind of intent</th><th>Example</th><th>Home</th><th>Verified by</th></tr></thead>
+            <tbody>
+              <tr><td><strong>Executable behavior</strong></td><td>"a new user can register a passkey and is logged in"</td><td>a <code>Behavior</code> linked to a test, in the code tree</td><td>the runner, via the adapter — automated regression</td></tr>
+              <tr><td><strong>Declarative decision</strong> (feature-local)</td><td>"this feature offers no password fallback"</td><td>a spec's Intentional Design Decisions</td><td>human review + certainty</td></tr>
+              <tr><td><strong>Cross-cutting decision</strong> (ADR)</td><td>"we use Postgres, not Mongo"</td><td><code>knowledge-base/decisions/</code></td><td>human review + certainty</td></tr>
+              <tr><td><strong>Principle</strong> (project-wide)</td><td>"every endpoint authenticated by default"</td><td><code>knowledge-base/principles.md</code></td><td>applies to all of the above</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout callout--why">
+          <span class="callout-label">The promotion rule</span>
+          <p>Prefer turning a declarative decision into a <em>guard scenario</em> (often a negative test) when it's cheap — "no password fallback" becomes <code>When credentials are POSTed to /login, Then it is rejected</code>. When a decision genuinely can't be tested, it stays declarative. That's the honest ceiling of what tests can do — <strong>not a failure</strong>.</p>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="principles">The five non-negotiables</h2>
+        <p>These are the load-bearing constraints. Get them right and the rest of the design follows.</p>
+        <ol class="principle-list">
+          <li><strong>Accepted behavior is authoritative — but classify, don't just fail.</strong> An <em>accepted</em> behavior's failure blocks completion until it is <em>classified</em> — a <strong>regression</strong> (fix the code), an <strong>intended change</strong> (record it), or a <strong>test-infra failure</strong> (quarantine). It deliberately does <em>not</em> claim every red test means broken code — only that an accepted behavior may not fail <em>silently or unclassified</em>.</li>
+          <li><strong>Intent has two kinds.</strong> Executable behavior → an executable test. Declarative decisions → prose, governed by review. Only the first becomes a test.</li>
+          <li><strong>Truth flows in two directions.</strong> Specs + behavior are <em>forward / authoritative</em> (code conforms to them). Reference docs are <em>reverse / descriptive</em> (they mirror the code). Never conflate the two.</li>
+          <li><strong>Single source of truth, never a duplicate.</strong> A generated projection (one source, a derived view) is allowed; a hand-maintained duplicate (two editable copies that drift) is forbidden.</li>
+          <li><strong>Adapter-based, runner-agnostic.</strong> A behavior is modelled independently of any runner. No hardcoded stack — and <strong>no forced re-authoring</strong> of tests a project already has.</li>
+        </ol>
+      </section>
+
+      <section>
+        <h2 id="shape">What it looks like end to end</h2>
+        <p>A behavior moves through a <strong>lifecycle</strong>, and only one state is authoritative:</p>
+        <div class="tag-row">
+          <span class="badge badge--proposed">proposed</span>
+          <span class="arrow" aria-hidden="true">→</span>
+          <span class="badge badge--confirmed">confirmed</span>
+          <span class="arrow" aria-hidden="true">→</span>
+          <span class="badge badge--accepted">accepted</span>
+          <span class="faint">· </span>
+          <span class="badge badge--quarantined">quarantined</span>
+          <span class="badge badge--deprecated">deprecated</span>
+        </div>
+        <p><code>proposed</code> = a candidate (often inferred), intent not yet human-confirmed. <code>confirmed</code> = a human agreed the intent is real, but the test is still owed. <strong><code>accepted</code></strong> = the test exists and passes — <strong>only accepted behaviors gate and get run</strong>. <code>quarantined</code>/<code>deprecated</code> sit outside the authoritative set.</p>
+        <p>That executable link is also what fixes problem #3: <code>verify</code> is upgraded from eyeballing prose to <em>actually running the linked tests</em>.</p>
+
+        <p>With behaviors linked to code, blast radius flows two ways:</p>
+        <div class="grid-2">
+          <div class="card">
+            <h3>Direction A — code → behavior</h3>
+            <p>Regression early-warning: <code>git diff</code> → code-graph blast radius → intersect with test fingerprints → "these behaviors exercise code you're touching." At wrap-up it re-runs <em>only</em> the affected accepted behaviors.</p>
+          </div>
+          <div class="card">
+            <h3>Direction B — intent → behavior</h3>
+            <p>The planning question: a spec/behavior edit → its affected behaviors → the implementing code. Available at design time: "this change touches behaviors X, Y — change or preserve?"</p>
+          </div>
+        </div>
+        <p><a href="concepts.html">How It Works →</a> unpacks the graph, the coverage fingerprints, and both directions interactively.</p>
+      </section>
+
+      <section>
+        <h2 id="governance">Turning captured intent into a gate</h2>
+        <p>Capturing intent is half the story; the other half is enforcement. The keystone is a single, careful distinction:</p>
+        <div class="grid-2">
+          <div class="card" style="border-top:3px solid var(--red)">
+            <h3>Deterministic facts hard-block</h3>
+            <p>A broken link, an accepted test failing, an accepted-test edit with no intent record — these are <strong>facts</strong>. Wrap-up refuses to finish until they're resolved.</p>
+          </div>
+          <div class="card" style="border-top:3px solid var(--accent)">
+            <h3>Model findings resolve-to-proceed</h3>
+            <p>A model saying "this looks like a contradiction" is a fallible guess. It must be <strong>seen and resolved</strong> — but never hard-blocks on confidence, because blocking on uncalibrated "high confidence" just trains people to rubber-stamp past it.</p>
+          </div>
+        </div>
+        <p>The gates themselves: <strong>Tier-1 link + ADR integrity</strong> and the <strong>declared-intent gate</strong> block on facts — as does the gated run of affected accepted behaviors — while <strong>principle</strong>, <strong>contradiction</strong> (spec/ADR), and <strong>declarative-drift</strong> checks surface model findings you <strong>resolve-to-proceed</strong> ("ignore and push" is not a resolution). <a href="governance.html">Governance →</a> walks each one, interactively.</p>
+      </section>
+
+      <section>
+        <h2 id="borrowed">Why not just adopt spec-kit?</h2>
+        <p>Two ideas were borrowed from <code>github/spec-kit</code>; the engine was not.</p>
+        <ul>
+          <li><strong>Borrowed — a constitution.</strong> spec-kit's <code>constitution.md</code> becomes <code>knowledge-base/principles.md</code>: project-wide rules above all specs and decisions.</li>
+          <li><strong>Borrowed — executable acceptance criteria.</strong> spec-kit writes <code>Given/When/Then</code> but leaves it inert prose. The Behavior Layer makes the same grammar <em>executable</em> — via a Gherkin <code>.feature</code> or a linked native test.</li>
+          <li><strong>Not adopted — spec-kit wholesale.</strong> spec-kit is a forward <em>build engine</em> (specify → plan → tasks → implement). freya-devkit already has a forward flow, and its differentiator is the reverse-sync + intentional-decisions/security tie-in. Adopting spec-kit wholesale would discard that.</li>
+        </ul>
+      </section>
+
+      <section>
+        <h2 id="status">The honest status</h2>
+        <div class="callout callout--success">
+          <span class="callout-label">Delivered &amp; dogfooded</span>
+          <p>The layer shipped across a 135-commit branch and was dogfooded on a real, production-shaped Next.js / TypeScript app with <strong>zero pre-existing tests</strong>. Phases 1–4 of the original vision are all in: traceability, impact indexing, the adoption track, governance (G1–G3), ADR support (P4a), and declarative-drift (P4b).</p>
+        </div>
+        <div class="callout callout--warn">
+          <span class="callout-label">Scope &amp; honesty</span>
+          <p>It is <strong>functionally complete for the greenfield / TypeScript case</strong>. Remaining Phase-4 leaves are deliberate deferrals (more adapters deprioritized; calibrated enforcement evidence-gated). The branch is <strong>unmerged by a standing decision</strong>, and the new frontier — multi-agent portability + a polyglot code-graph — is a fresh "Phase 5." The dogfooding numbers on the journey page are <em>illustrative — measured on 2 behaviors and 3 changes</em> — not benchmarks. <a href="journey.html">See the full journey &amp; proof →</a></p>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="next">Where to go next</h2>
+        <div class="card-grid cols-2">
+          <a class="card" href="concepts.html" style="text-decoration:none;color:inherit">
+            <h3>How It Works →</h3>
+            <p>The behavior record &amp; lifecycle, adapters, the behavior graph, coverage fingerprints, and both blast-radius directions — with interactive demos.</p>
+          </a>
+          <a class="card" href="governance.html" style="text-decoration:none;color:inherit">
+            <h3>Governance →</h3>
+            <p>The six checks (G1/G2/G3/P4a/P4b + Tier-1 links), the authority ladder, resolve-to-proceed, and block-vs-warn.</p>
+          </a>
+          <a class="card" href="journey.html" style="text-decoration:none;color:inherit">
+            <h3>The Journey →</h3>
+            <p>Mechanism-first sequencing, the phase timeline, the dogfooding proof (a lie a green suite can't catch, and the latent substrate bug dogfooding exposed), and what's parked.</p>
+          </a>
+          <a class="card" href="reference.html" style="text-decoration:none;color:inherit">
+            <h3>Reference →</h3>
+            <p>Commands per script (with the real flags), the knowledge-base layout, the coverage-unknown reasons, a lifecycle cheat-sheet, and a glossary.</p>
+          </a>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <div id="site-footer"></div>
+</body>
+</html>

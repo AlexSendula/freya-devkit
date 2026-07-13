@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Governance — The Behavior Layer</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script src="assets/site.js"></script>
+</head>
+<body>
+  <div id="site-header"></div>
+
+  <div class="doc">
+    <aside class="toc" id="toc"></aside>
+    <main class="doc-body">
+      <h1>Governance</h1>
+      <p class="lead">Capturing intent is half the story. Governance is the other half: how captured intent is actually <em>enforced</em> — through six checks, an authority ladder, and one careful rule about when a machine is allowed to block you.</p>
+
+      <section>
+        <h2 id="stance">The keystone: block on facts, only acknowledge guesses</h2>
+        <p>Failures are gated by <strong>what kind of check produced them</strong> — not by a model's self-reported confidence.</p>
+        <div class="grid-2">
+          <div class="card" style="border-top:3px solid var(--red)">
+            <h3><span class="badge badge--block">deterministic</span> hard-block</h3>
+            <p>A Tier-1 link break, an <em>accepted</em> behavior's test failing, or an accepted-test edit with no intent record. These are <strong>facts</strong> — wrap-up refuses to complete until they're resolved (fix, declare intent, or quarantine).</p>
+          </div>
+          <div class="card" style="border-top:3px solid var(--accent)">
+            <h3><span class="badge badge--advisory">model</span> resolve-to-proceed</h3>
+            <p>A model saying "this looks like a contradiction" is a fallible guess. It must be <strong>seen and resolved</strong> — but never hard-blocks on confidence.</p>
+          </div>
+        </div>
+        <div class="callout callout--why">
+          <span class="callout-label">Why not block on the model too?</span>
+          <p>"A model's 'high certainty' is not a calibrated probability, and blocking on it would train people to rubber-stamp 'declare intent' to escape noise." Once bypass is reflexive, <em>real</em> violations get waved through too. So a model finding surfaces and must be resolved — but confidence becomes a hard gate only after its false-positive rate is measured on a real project and shown acceptable.</p>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="matrix">What guards what</h2>
+        <p>Six checks, each protecting a different kind of intent. Click one.</p>
+        <div class="toggle-row" id="check-btns"></div>
+        <div class="panel" id="check-panel"><p class="placeholder">Select a check.</p></div>
+        <p class="muted small">To see where these run — in order, inside wrap-up — step through <a href="journey.html#pipeline">the pipeline explorer on the journey page</a>.</p>
+      </section>
+
+      <section>
+        <h2 id="g1">G1 — declared-intent records</h2>
+        <p>An accepted behavior's <strong>test</strong> is its machine-checkable guarantee. The system keeps <em>code</em>, the <em>test</em>, and the <em>description</em> in agreement. Code-vs-test is a fact: you run the test. But that fact-layer has <strong>one blind spot — editing the test itself.</strong></p>
+        <div class="callout callout--danger">
+          <span class="callout-label">The edit-both-and-stay-green hole</span>
+          <p>If you change the code <em>and</em> its test together, the test still passes — <strong>green</strong> — so the strongest check in the system sees nothing, even though the guarantee was silently redefined. That is the one way to slip a changed guarantee past every fact-check.</p>
+        </div>
+        <p>G1 plugs exactly that hole. It gives an accepted test <strong>one sanctioned way to change</strong>: a durable, machine-checkable <code>INTENT-NNN</code> record. The gate's own question is itself a fact — "was an accepted test edited, and is there a record naming it?" — so G1 stays 100% deterministic and <strong>hard-blocks</strong>.</p>
+
+        <h3 id="g1-demo">Watch the gate fire</h3>
+        <p>The canonical end-to-end case from the G1 design: the anti-enumeration response of <code>BEH-003</code> is changed.</p>
+        <div class="stepper" id="g1-stepper">
+          <div class="stepper-track">
+            <button class="step-tab active" data-i="0"><span class="n">1</span>Edit</button>
+            <button class="step-tab" data-i="1"><span class="n">2</span>Commit</button>
+            <button class="step-tab" data-i="2"><span class="n">3</span>Gate fires</button>
+            <button class="step-tab" data-i="3"><span class="n">4</span>Declare intent</button>
+            <button class="step-tab" data-i="4"><span class="n">5</span>Pass</button>
+          </div>
+          <div class="step-panel active" data-panel="0"></div>
+          <div class="step-panel" data-panel="1"></div>
+          <div class="step-panel" data-panel="2"></div>
+          <div class="step-panel" data-panel="3"></div>
+          <div class="step-panel" data-panel="4"></div>
+          <div class="stepper-nav">
+            <button class="btn btn-ghost" id="g1-prev">← Prev</button>
+            <button class="btn btn-primary" id="g1-next">Next →</button>
+          </div>
+        </div>
+        <p class="muted">Control case that proves the gate is narrow: edit a <code>proposed</code> behavior's test → <strong>never blocked</strong>. Only accepted guarantees are governed. And "chat history saying I meant to" does not count — the record is the source of truth.</p>
+      </section>
+
+      <section>
+        <h2 id="g2">G2 — principle enforcement</h2>
+        <p><code>principles.md</code> is the project's <strong>constitution</strong> — a short, sharp list of rules above every spec and decision. G2 makes it <em>actually enforced</em> instead of a passive document. "A passive file is not enforcement; these two mechanisms are":</p>
+        <div class="grid-2">
+          <div class="card"><h3>Soft — context injection</h3><p>The constitution is auto-loaded into the working context of design-time flows and wrap-up, so you build with the rules in view.</p></div>
+          <div class="card"><h3>Checkpoint — resolve-to-proceed</h3><p>At wrap-up, the change diff is judged against each principle. A finding must be resolved; wrap-up won't complete while one is open.</p></div>
+        </div>
+        <div class="callout callout--why">
+          <span class="callout-label">The human is the calibration</span>
+          <p>A "violation" hides two questions: <em>is it real?</em> (the model's fallible judgment) and <em>what should happen?</em> (must be adhered to). Not-hard-blocking answers only the first — it is <strong>not</strong> a license to let violations slide. "Ignore and push" is not a resolution. Refuting a false positive is a first-class, legitimate resolution — which is exactly what keeps there being no reflexive-bypass pressure.</p>
+        </div>
+        <h3 id="g2-resolutions">Three resolutions, one append-only log</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Resolution</th><th>When</th><th>Recorded as</th></tr></thead>
+            <tbody>
+              <tr><td><strong>Fix</strong></td><td>the principle really was violated</td><td>the code diff + commit — git is the record, <em>no log entry</em></td></tr>
+              <tr><td><strong>Refute</strong></td><td>the model flagged a false positive</td><td>a <code>refuted</code> record in the resolution log</td></tr>
+              <tr><td><strong>Amend</strong></td><td>the principle itself should change</td><td>edit <code>principles.md</code> + an <code>amended</code> record</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>The log — <code>knowledge-base/principle-resolutions.jsonl</code> — is <strong>append-only</strong>. Its load-bearing job: stop the check from re-nagging about the same refuted false positive on every later change. Retirement is a <em>later</em> <code>superseded</code> record (latest-wins), never a mutated field — so the audit trail is never erased.</p>
+        <div class="callout callout--info">
+          <span class="callout-label">LLM-first recurrence triage — fenced</span>
+          <p>When a finding recurs, the model re-validates the prior against the <em>current</em> code: still clearly the same intentional thing → <strong>auto-clear</strong> (logged); the code moved so the prior no longer maps → <strong>retire &amp; re-judge</strong>; the reason no longer excuses what's there → <strong>escalate</strong>. The guardrails: re-judge against the <em>specific</em> prior reason (not the whole file), bias to escalate on any ambiguity, always log auto-clears, and a finding with <em>no</em> prior always reaches the human — the safety floor.</p>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="g3">G3 — contradiction checks</h2>
+        <p>G3 is uniquely <strong>intent × intent</strong>: when a spec's or ADR's intent is created or changed, does it contradict a <em>higher-authority</em> intent? (G1 is test-vs-record; G2 is code-vs-principle; G3 is intent-vs-intent.) It's a Tier-2 model check — resolve-to-proceed.</p>
+        <div class="callout callout--why">
+          <span class="callout-label">Why it's scoped (and stays trusted)</span>
+          <p>G3 never re-derives the whole repo. A changed spec is compared against <code>principles.md</code> plus the intentional decisions of <em>other specs in the same category</em> — the blast radius of the changed intent. A whole-repo re-derivation on every spec edit would be slow and noisy, and noise erodes trust in the gate.</p>
+        </div>
+
+        <h3 id="ladder">The authority ladder</h3>
+        <p>Authority order: <strong>principle &gt; ADR &gt; spec</strong> (with <code>reference/</code> below all). When two intents collide, the higher-authority one wins by default, so you fix the lower one. Two same-tier items have no automatic winner — that's a consistency conflict to reconcile. Pick a collision:</p>
+        <div class="toggle-row" id="ladder-btns"></div>
+        <div class="panel" id="ladder-panel"><p class="placeholder">Select a collision.</p></div>
+      </section>
+
+      <section>
+        <h2 id="p4a">P4a — ADRs, and why they're always-global</h2>
+        <p>An ADR (<code>ADR-NNN</code>) is a cross-cutting Architecture Decision Record — Decision · Rationale · Rejected Alternatives · Revisit Conditions. Before P4a, <code>knowledge-base/decisions/</code> was an empty scaffold nothing read. P4a shipped the format <em>and</em> made G3 compare against it. Only <code>accepted</code> ADRs are authoritative.</p>
+        <div class="callout callout--why">
+          <span class="callout-label">The big decision: show the model ALL active ADRs, no scoping</span>
+          <p>Scoping only decides what reaches the model — the model still makes the judgment. Over-scoping (a filter that hides a relevant ADR) is a <strong>silent miss</strong>, the exact failure this layer exists to prevent, and it's <em>unrecoverable</em>. Under-scoping (an irrelevant ADR reaches the model) is just noise it dismisses in one line. A false negative here is far worse than a false positive — and ADRs are cross-cutting by definition, with a tiny corpus. So the only filter is lifecycle status.</p>
+        </div>
+        <p>Deterministic <code>adr verify</code> (duplicate ids, dangling supersede links, bad status) <em>does</em> hard-block — it's a Tier-1 integrity fact, like link integrity. The contradiction judgment stays advisory.</p>
+      </section>
+
+      <section>
+        <h2 id="p4b">P4b — declarative-drift, and why it's the opposite</h2>
+        <p>Declarative intent — a spec's <code>intentional_decisions</code>, a purely-declarative spec's prose, or an accepted ADR's decision — has <strong>no test to fail</strong>. P4b guards it against the code drifting away, at wrap-up: <em>does the changed code contradict a declared intent that governs it?</em></p>
+        <p>Here's the deliberate asymmetry with P4a — and it's correct both ways:</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th></th><th>P4a · spec ↔ ADR (G3)</th><th>P4b · code ↔ declared intent</th></tr></thead>
+            <tbody>
+              <tr><td>Nature</td><td>intent-vs-intent, no code anchor</td><td>code-vs-intent, triggered by a code change</td></tr>
+              <tr><td>Scope</td><td><strong>always-global</strong> — all active ADRs</td><td><strong>blast-radius-scoped</strong> — <code>related_code ∩ impact</code></td></tr>
+              <tr><td>Errs toward</td><td>recall — a missed ADR is unrecoverable</td><td>quiet — a code-triggered check must stay incremental</td></tr>
+              <tr><td>Refuses</td><td>a silent miss (false negative)</td><td>whole-repo re-nagging (noise)</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout callout--info">
+          <span class="callout-label">Honest about its blind spot</span>
+          <p>Because P4b follows <code>related_code</code>, a declared decision with <em>no</em> <code>related_code</code> is invisible to it. Rather than hide that, <code>drift gaps</code> makes the un-scopable set <strong>visible</strong> on demand — the recall gap is surfaced, never silent.</p>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="logs">Resolve-to-proceed &amp; the append-only logs</h2>
+        <p>G2, G3, and P4b each keep an <strong>append-only</strong> resolution log (<code>principle-</code>, <code>contradiction-</code>, and <code>drift-resolutions.jsonl</code>). They share four verdicts — <code>refuted</code>, <code>amended</code>, <code>auto-cleared</code>, <code>superseded</code> — and the same discipline: a fix leaves no entry (git records it); a refute/amend/auto-clear is logged; retirement is a later <code>superseded</code> record, latest-wins.</p>
+        <p>Because all three logs did the same latest-wins / drop-superseded / de-dupe dance, the third copy tipped the balance and the logic was extracted into a shared <code>resolution_log.py</code> — a behavior-preserving refactor proven by the three existing test suites passing with their files byte-unchanged. <a href="journey.html#refactor">More on that in the journey →</a></p>
+      </section>
+
+      <div class="next-prev">
+        <a class="np-card" href="concepts.html"><div class="np-dir">← Back</div><div class="np-title">How It Works</div></a>
+        <a class="np-card" href="journey.html" style="text-align:right"><div class="np-dir">Next →</div><div class="np-title">The Journey</div></a>
+      </div>
+    </main>
+  </div>
+
+  <div id="site-footer"></div>
+  <script>
+  /* ---------- What-guards-what matrix ---------- */
+  (function () {
+    var CHECKS = [
+      { id: "Tier-1 links", cmp: "behavior links (locators &amp; @SPEC/@BEH tags) vs the files &amp; specs they point at",
+        guards: "traceability of executable behaviors", kind: "deterministic", gate: "HARD-BLOCK",
+        note: "Cheap and certain: unresolved locator, missing reverse tag, accepted-but-scaffold, duplicate BEH-NNN, orphan tag." },
+      { id: "G1 intent", cmp: "an accepted test edit vs an INTENT-NNN record naming it",
+        guards: "changes to an accepted behavior's guarantee", kind: "deterministic", gate: "HARD-BLOCK",
+        note: "Plugs the edit-both-and-stay-green hole. The gate's question is a fact, so it can block." },
+      { id: "G2 principles", cmp: "the code diff vs principles.md",
+        guards: "project-wide principles", kind: "model judgment", gate: "RESOLVE-TO-PROCEED",
+        note: "All principles apply to any change (they're project-wide), so no blast-radius scoping." },
+      { id: "G3 contradictions", cmp: "a changed spec/ADR vs higher-authority intent",
+        guards: "coherence between intents", kind: "model judgment", gate: "RESOLVE-TO-PROCEED",
+        note: "Scoped to the changed item vs same-category peers + principles + all active ADRs." },
+      { id: "P4a ADRs", cmp: "a changed spec vs ALL active ADRs (+ a changed ADR vs principles)",
+        guards: "cross-cutting architecture decisions", kind: "model + deterministic verify", gate: "RESOLVE-TO-PROCEED",
+        note: "Always-global comparison; separately, adr verify integrity is a deterministic hard-block." },
+      { id: "P4b drift", cmp: "changed code vs declarative intent (related_code ∩ blast radius)",
+        guards: "untestable declarative intent", kind: "model judgment", gate: "RESOLVE-TO-PROCEED",
+        note: "Code-anchored and blast-radius-scoped; an item with no related_code is surfaced by 'drift gaps'." }
+    ];
+    var host = document.getElementById("check-btns");
+    var panel = document.getElementById("check-panel");
+    if (!host) return;
+    CHECKS.forEach(function (c) {
+      var b = document.createElement("button");
+      b.className = "chip-btn"; b.textContent = c.id;
+      b.addEventListener("click", function () {
+        host.querySelectorAll(".chip-btn").forEach(function (x) { x.classList.remove("active"); });
+        b.classList.add("active");
+        var badge = c.gate === "HARD-BLOCK"
+          ? '<span class="badge badge--block">' + c.gate + '</span>'
+          : '<span class="badge badge--advisory">' + c.gate + '</span>';
+        panel.innerHTML = '<h4>' + c.id + ' &nbsp;' + badge + '</h4>' +
+          '<dl class="dl">' +
+            '<div><dt>Compares</dt><dd>' + c.cmp + '</dd></div>' +
+            '<div><dt>Guards</dt><dd>' + c.guards + '</dd></div>' +
+            '<div><dt>Kind</dt><dd>' + c.kind + '</dd></div>' +
+          '</dl><p class="muted" style="margin-top:12px">' + c.note + '</p>';
+      });
+      host.appendChild(b);
+    });
+    host.querySelector(".chip-btn").click();
+  })();
+
+  /* ---------- Authority ladder resolver ---------- */
+  (function () {
+    var ROWS = [
+      { k: "spec vs principle", r: "Fix the spec — or consciously amend the principle. A principle outranks a spec." },
+      { k: "spec vs ADR", r: "Fix the spec — an ADR outranks a spec. (Or consciously amend the ADR.)" },
+      { k: "spec vs peer spec", r: "Reconcile — same tier, no automatic winner. Fix either side, or refute if they don't truly conflict." },
+      { k: "ADR vs principle", r: "Fix the ADR — a principle outranks an ADR. (Or amend the principle.)" },
+      { k: "ADR vs peer ADR", r: "Reconcile — same tier. Fix either, or refute." }
+    ];
+    var host = document.getElementById("ladder-btns");
+    var panel = document.getElementById("ladder-panel");
+    if (!host) return;
+    ROWS.forEach(function (row) {
+      var b = document.createElement("button");
+      b.className = "chip-btn"; b.textContent = row.k;
+      b.addEventListener("click", function () {
+        host.querySelectorAll(".chip-btn").forEach(function (x) { x.classList.remove("active"); });
+        b.classList.add("active");
+        panel.innerHTML = '<h4>' + row.k + '</h4><p>' + row.r + '</p>';
+      });
+      host.appendChild(b);
+    });
+    host.querySelector(".chip-btn").click();
+  })();
+
+  /* ---------- G1 governance-in-action stepper ---------- */
+  (function () {
+    var STEPS = [
+      { title: "You edit code and test together",
+        html: '<p>You decide the anti-enumeration response of <code>BEH-003</code> should change from a 404 to a uniform 200. You edit the route <em>and</em> its test together — so the assertion matches the new behavior.</p>' +
+              '<p class="result-line" style="color:var(--green)">✓ test suite GREEN — everything passes</p>' +
+              '<p class="muted" style="margin-top:12px">And that is the problem: the guarantee was just silently redefined, and the strongest check in the system — running the test — sees nothing wrong.</p>' },
+      { title: "wrap-up commits the code",
+        html: '<p>You run <code>wrap-up</code>. Its Phase 0 commits the code changes — <strong>including the test edit</strong> — as commit 1.</p>' +
+              '<p class="muted">Nothing has blocked yet. A green suite plus a clean commit looks completely healthy.</p>' },
+      { title: "The G1 gate fires",
+        html: '<p>In Phase 3.5, <code>verify_intent.py</code> runs. It sees <code>BEH-003</code>\'s locator was <strong>Modified</strong>, and no new <code>INTENT-NNN</code> record names it.</p>' +
+              '<p class="result-line" style="color:var(--red)">✗ exit 1 — [BEH-003] test changed, no intent record</p>' +
+              '<div class="code-block" style="margin-top:12px"><div class="code-head"><span class="dot"></span> remedy printed by the gate</div><pre class="code"><code>[BEH-003] SPEC-001: features/auth/passkey-login.feature changed —\nfile knowledge-base/intents/INTENT-NNN.md naming BEH-003\n(intent.py new --behavior BEH-003), or revert the test edit.</code></pre></div>' +
+              '<p class="muted">This is deterministic — a fact, not a guess — so it hard-blocks. The invisible green change is now visible.</p>' },
+      { title: "You declare the intent",
+        html: '<p>The change really was intentional, so you record it — a ~20-second action:</p>' +
+              '<div class="code-block"><div class="code-head"><span class="dot"></span> shell</div><pre class="code"><code>intent.py new --behavior BEH-003 --approver Alex \\\n  --rationale "Anti-enumeration response changed 404 → uniform 200\n               per the revised threat model."</code></pre></div>' +
+              '<p>That writes <code>knowledge-base/intents/INTENT-001.md</code> — a durable record naming <code>BEH-003</code>, with an approver, a date, and the rationale. Chat history wouldn\'t have counted; a file does.</p>' },
+      { title: "Re-run — it passes",
+        html: '<p>You run <code>wrap-up</code> again. <code>verify_intent</code> now finds a record covering <code>BEH-003</code>.</p>' +
+              '<p class="result-line" style="color:var(--green)">✓ exit 0 — BEH-003 authorized by INTENT-001</p>' +
+              '<p>The artifacts commit includes <code>INTENT-001.md</code>; the code commit\'s trailer points to it. A silent green edit became a <strong>visible, deliberate, auditable</strong> one — which is exactly what lets the rest of the system trust an <code>accepted</code> state as a real, standing guarantee.</p>' }
+    ];
+    var root = document.getElementById("g1-stepper");
+    if (!root) return;
+    var tabs = root.querySelectorAll(".step-tab");
+    var panels = root.querySelectorAll(".step-panel");
+    var prev = document.getElementById("g1-prev");
+    var next = document.getElementById("g1-next");
+    var cur = 0;
+    panels.forEach(function (p, i) { p.innerHTML = '<h3 style="margin-top:0">' + STEPS[i].title + '</h3>' + STEPS[i].html; });
+    function go(i) {
+      cur = Math.max(0, Math.min(STEPS.length - 1, i));
+      tabs.forEach(function (t, j) { t.classList.toggle("active", j === cur); t.classList.toggle("done", j < cur); });
+      panels.forEach(function (p, j) { p.classList.toggle("active", j === cur); });
+      prev.disabled = cur === 0; next.disabled = cur === STEPS.length - 1;
+    }
+    tabs.forEach(function (t) { t.addEventListener("click", function () { go(+t.dataset.i); }); });
+    prev.addEventListener("click", function () { go(cur - 1); });
+    next.addEventListener("click", function () { go(cur + 1); });
+    go(0);
+  })();
+  </script>
+</body>
+</html>

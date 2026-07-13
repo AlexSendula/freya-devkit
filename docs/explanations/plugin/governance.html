@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Governance — freya-devkit</title>
+  <meta name="description" content="How freya-devkit enforces captured intent: deterministic hard-blocks vs resolve-to-proceed model judgment, the G1–G3/P4a/P4b guards, and the wrap-up Phase 3.5 pipeline.">
+  <link rel="stylesheet" href="assets/styles.css">
+  <script src="assets/site.js"></script>
+</head>
+<body>
+  <div id="site-header"></div>
+
+  <div class="doc">
+    <aside class="toc" id="toc"></aside>
+    <div class="doc-body">
+      <span class="eyebrow" style="color:var(--accent-strong);font-weight:650;font-size:.8rem;letter-spacing:.06em;text-transform:uppercase;">Governance</span>
+      <h1>Enforcing captured intent</h1>
+      <p class="lead">Recording intent is only half the job — it also has to be <em>enforced</em> when
+      code and specs change. Governance runs inside <code>wrap-up</code>, and its defining rule is
+      simple: <strong>a failure is gated by what kind of check produced it, not by a model's
+      self-reported confidence.</strong></p>
+
+      <section>
+        <h2>Two kinds of gate</h2>
+        <div class="grid-2">
+          <div class="card" style="border-top:3px solid var(--red)">
+            <h3 style="margin-top:0;">Block on facts</h3>
+            <p>Deterministic checks — a broken test link, a duplicate ID, a regressed accepted behavior —
+            are <strong>cheap and certain</strong>. They <strong>hard-block</strong> (fail-closed): a
+            non-zero script exit stops wrap-up until you fix it or reclassify the behavior.</p>
+          </div>
+          <div class="card" style="border-top:3px solid var(--amber)">
+            <h3 style="margin-top:0;">Resolve to proceed</h3>
+            <p>Model-judgment checks — does this violate a principle? contradict a decision? drift from a
+            declared choice? — are <strong>not</strong> script hard-blocks. Each finding must be
+            <strong>resolved</strong> (fixed, refuted, or amended) before wrap-up completes. They
+            fail-open on missing inputs.</p>
+          </div>
+        </div>
+        <div class="callout callout--danger">
+          <span class="callout-label">The rule</span>
+          <p>"Ignore and push" is <strong>not</strong> a resolution. Model findings aren't carried
+          forward as backlog debt — each is resolved in the wrap-up that raised it.</p>
+        </div>
+      </section>
+
+      <section>
+        <h2>What guards what</h2>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Guard</th><th>Checks</th><th>Gate</th></tr></thead>
+          <tbody>
+            <tr><td>Link integrity</td><td>Locators resolve, tags match, no duplicate <code>BEH-NNN</code></td><td><span class="badge badge--block">hard-block</span></td></tr>
+            <tr><td>ADR integrity</td><td>No duplicate <code>ADR-NNN</code>, no dangling links, valid status</td><td><span class="badge badge--block">hard-block</span></td></tr>
+            <tr><td><strong>G1</strong> · declared-intent</td><td>An accepted test changed → needs a new <code>INTENT-NNN</code></td><td><span class="badge badge--block">hard-block</span></td></tr>
+            <tr><td>Accepted-behavior run</td><td>Affected accepted behaviors still pass (Direction A)</td><td><span class="badge badge--block">hard-block</span></td></tr>
+            <tr><td>Validate-on-hit</td><td>Surfaces touched proposed/confirmed behaviors + uncovered code</td><td><span class="badge badge--advisory">advisory</span></td></tr>
+            <tr><td><strong>G2</strong> · principles</td><td>Does the diff violate the constitution?</td><td><span class="badge badge--quarantined">resolve</span></td></tr>
+            <tr><td><strong>G3</strong> · contradictions</td><td>Does changed intent contradict higher-authority intent?</td><td><span class="badge badge--quarantined">resolve</span></td></tr>
+            <tr><td><strong>P4b</strong> · declarative drift</td><td>Does changed code contradict a declared decision?</td><td><span class="badge badge--quarantined">resolve</span></td></tr>
+          </tbody>
+        </table></div>
+      </section>
+
+      <section>
+        <h2>The wrap-up Phase 3.5 pipeline</h2>
+        <p>All of it runs in one place, in a deliberate order: <strong>deterministic facts first</strong>,
+        then model judgment (principles → contradictions → drift). Step through it:</p>
+
+        <div class="stepper" id="pipeline">
+          <div class="stepper-track" role="tablist">
+            <button class="step-tab active" data-i="0"><span class="n">1</span>Integrity</button>
+            <button class="step-tab" data-i="1"><span class="n">2</span>G1 intent</button>
+            <button class="step-tab" data-i="2"><span class="n">3</span>Run</button>
+            <button class="step-tab" data-i="3"><span class="n">4</span>Surface</button>
+            <button class="step-tab" data-i="4"><span class="n">5</span>G2</button>
+            <button class="step-tab" data-i="5"><span class="n">6</span>G3</button>
+            <button class="step-tab" data-i="6"><span class="n">7</span>P4b</button>
+          </div>
+
+          <div class="step-panel active" data-i="0">
+            <h3 style="margin-top:0;">1 · Link &amp; ADR integrity <span class="badge badge--block">hard-block</span></h3>
+            <p>Deterministic checks: every <code>locator</code> resolves, Gherkin tags are present, no
+            <code>accepted</code>-but-<code>TODO(scaffold)</code>, no duplicate <code>BEH-NNN</code>, and
+            ADR frontmatter/links are valid. A non-zero exit blocks wrap-up.</p>
+            <pre class="code"><code>verify_links.py --format json   &amp;&amp;   adr.py verify --project .</code></pre>
+          </div>
+          <div class="step-panel" data-i="1">
+            <h3 style="margin-top:0;">2 · Declared-intent gate (G1) <span class="badge badge--block">hard-block</span></h3>
+            <p>If an <code>accepted</code> behavior's linked test was modified or deleted in this change-set
+            <em>without</em> a new <code>INTENT-NNN</code> record naming it, this blocks — a bare accepted-test
+            change is a regression. With no baseline yet, the gate skips.</p>
+            <pre class="code"><code>verify_intent.py --project . --format json   <span class="tok-c"># read the JSON on non-zero</span></code></pre>
+          </div>
+          <div class="step-panel" data-i="2">
+            <h3 style="margin-top:0;">3 · Run affected accepted behaviors <span class="badge badge--block">hard-block</span></h3>
+            <p>Refresh the behavior graph, then re-run <em>only</em> the accepted behaviors whose exercised
+            code the change touched (Direction A). A <code>test-failed</code> blocks until you fix the code,
+            record an intended change, or quarantine an infra failure.</p>
+            <pre class="code"><code>behavior_graph.py --build --project . &amp;&amp; \
+behavior_graph.py --check --base "$BASE" --project .</code></pre>
+          </div>
+          <div class="step-panel" data-i="3">
+            <h3 style="margin-top:0;">4 · Validate-on-hit <span class="badge badge--advisory">advisory</span></h3>
+            <p>Read-only. Surfaces the proposed/confirmed behaviors this change touched (offer to confirm
+            them) and any touched code no behavior covers (offer to capture one). Bounded to the affected
+            subset and fully skippable — it never changes the exit code.</p>
+            <pre class="code"><code>behavior_graph.py --surface --base "$BASE" --project .</code></pre>
+          </div>
+          <div class="step-panel" data-i="4">
+            <h3 style="margin-top:0;">5 · Principle checkpoint (G2) <span class="badge badge--quarantined">resolve-to-proceed</span></h3>
+            <p>Judge the diff against each principle in the constitution. Model judgment, so it's a
+            procedural gate, not a script exit — but wrap-up must not complete while a finding is
+            unresolved (fix / refute / amend). Prior resolutions auto-clear when still valid.</p>
+            <pre class="code"><code>principles.py list   ·   principles.py prior/resolve …</code></pre>
+          </div>
+          <div class="step-panel" data-i="5">
+            <h3 style="margin-top:0;">6 · Contradiction check (G3) <span class="badge badge--quarantined">resolve-to-proceed</span></h3>
+            <p>For each spec or ADR changed this cycle, check it doesn't contradict higher-authority intent
+            (<strong>principle &gt; ADR &gt; spec</strong>). ADRs are compared always-global. Resolve each
+            escalated finding before completing.</p>
+            <pre class="code"><code>contradictions.py context --spec &lt;ID&gt;   ·   adr-context --adr &lt;ID&gt;</code></pre>
+          </div>
+          <div class="step-panel" data-i="6">
+            <h3 style="margin-top:0;">7 · Declarative-drift check (P4b) <span class="badge badge--quarantined">resolve-to-proceed</span></h3>
+            <p>Does the changed code contradict a <em>declared</em> decision (a spec's intentional decisions
+            or an ADR body)? Scoped by blast radius — deliberately <em>not</em> always-global like G3. Degrades
+            to changed-files-only when code-graph is absent (never a silent empty set).</p>
+            <pre class="code"><code>drift.py context --base "$BASE" --project .</code></pre>
+          </div>
+
+          <div class="stepper-nav">
+            <button class="btn btn-ghost" id="pv-prev">← Prev</button>
+            <button class="btn btn-ghost" id="pv-next">Next →</button>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2>G1 · Declared-intent records</h2>
+        <p>An accepted behavior's test is its machine-checkable guarantee. So <strong>changing that test
+        requires declaring intent</strong>: a new <code>INTENT-NNN</code> record, created <em>in the same
+        change-set</em>, naming the behavior. Among the intent guards (G1–G3/P4b), this is the only one
+        that is purely deterministic and hard-blocking — the others are model judgment,
+        resolve-to-proceed. (Link and ADR integrity and the accepted-behavior run are deterministic
+        hard-blocks too.)</p>
+        <ul>
+          <li>Only <code>accepted</code> behaviors are governed — the others have no guarantee to protect.</li>
+          <li><strong>Temporal self-scoping:</strong> the record must be new in the change-set; a past record can't bless a future edit.</li>
+          <li>The gate verifies a record <em>exists</em>, not that its rationale is honest — honesty is a separate, model-judgment track.</li>
+        </ul>
+        <pre class="code"><code>/freya-devkit:spec-manager intent new BEH-003
+<span class="tok-c"># … then edit the test; wrap-up's G1 gate now passes.</span></code></pre>
+      </section>
+
+      <section>
+        <h2>G2 · Principles (the constitution)</h2>
+        <p><code>principles.md</code> is the highest-authority intent record. It's enforced two ways:
+        <strong>soft injection</strong> (surfaced when you <code>create</code> or <code>scan</code> so you
+        draft against the rules) and a <strong>resolve-to-proceed checkpoint</strong> at wrap-up (judge the
+        diff against each principle; resolve every finding). Empty constitution ⇒ the step skips.</p>
+      </section>
+
+      <section>
+        <h2>G3 · Contradictions &amp; P4a · ADRs</h2>
+        <p><strong>G3</strong> checks that <em>intent doesn't contradict intent</em>: when a spec or ADR
+        changes, compare it against higher-authority intent. <strong>P4a</strong> adds ADR support — cross-cutting
+        decisions in <code>decisions/</code>. Only <code>accepted</code> ADRs are authoritative, and they're
+        compared <strong>always-global</strong> (every accepted ADR, no category scoping — over-scoping would
+        be a silent miss). Malformed ADRs surface as warnings, never silently dropped.</p>
+        <figure class="diagram">
+          <div class="flow">
+            <div class="node intent">principle<span class="sub">constitution</span></div>
+            <span class="arrow">▸</span>
+            <div class="node beh">ADR<span class="sub">cross-cutting</span></div>
+            <span class="arrow">▸</span>
+            <div class="node test">spec<span class="sub">feature-local</span></div>
+          </div>
+          <figcaption>Authority ladder. A conflict is resolved in favor of the higher tier — a spec-vs-ADR
+          clash means fix the spec.</figcaption>
+        </figure>
+      </section>
+
+      <section>
+        <h2>P4b · Declarative drift</h2>
+        <p>The mirror of G3. Where G3 is intent-vs-intent, <strong>P4b is code-vs-declared-intent</strong>:
+        does the changed code contradict a decision a spec or ADR declared? It's <strong>code-anchored</strong>
+        — scoped by the change's blast radius (a decision's <code>related_code</code> intersected with the
+        impact set), deliberately not always-global like G3. If code-graph is missing it narrows to
+        changed-files-only and says so — never a silent empty set.</p>
+        <p class="small muted">Honest limit: a declared spec or ADR with <strong>no <code>related_code</code></strong>
+        is invisible to the drift check (its intersection is always empty). The on-demand
+        <code>spec-manager drift gaps</code> view lists those drift-blind items so anchors can be added.</p>
+      </section>
+
+      <section>
+        <h2>Resolution logs</h2>
+        <p>Every resolve-to-proceed decision <em>other than a straight code fix</em> is recorded in an
+        append-only log at the <code>knowledge-base/</code> root, so the same finding isn't re-litigated
+        every cycle (a code fix needs no log — git records it, and the finding is gone):</p>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Log</th><th>Guard</th></tr></thead>
+          <tbody>
+            <tr><td><code>principle-resolutions.jsonl</code></td><td>G2</td></tr>
+            <tr><td><code>contradiction-resolutions.jsonl</code></td><td>G3</td></tr>
+            <tr><td><code>drift-resolutions.jsonl</code></td><td>P4b</td></tr>
+          </tbody>
+        </table></div>
+        <p class="muted">All three share one append-only core (<code>resolution_log.py</code>): append a
+        line, load latest-per-key, drop <code>superseded</code> entries. On the next wrap-up a prior
+        resolution <strong>auto-clears</strong> if the flagged code is materially unchanged, is
+        <strong>retired</strong> if the code changed out from under it, or <strong>escalates</strong> if it's
+        now a real violation.</p>
+      </section>
+
+      <div class="next-prev">
+        <a class="np-card" href="behavior-layer.html"><div class="np-dir">← Back</div><div class="np-title">The Behavior Layer</div></a>
+        <a class="np-card" href="getting-started.html" style="text-align:right;"><div class="np-dir">Next →</div><div class="np-title">Get Started</div></a>
+      </div>
+    </div>
+  </div>
+
+  <div id="site-footer"></div>
+
+  <script>
+  (function () {
+    var stepper = document.getElementById("pipeline");
+    if (!stepper) return;
+    var tabs = Array.prototype.slice.call(stepper.querySelectorAll(".step-tab"));
+    var panels = Array.prototype.slice.call(stepper.querySelectorAll(".step-panel"));
+    var i = 0;
+    function show(n) {
+      i = Math.max(0, Math.min(panels.length - 1, n));
+      tabs.forEach(function (t, k) { t.classList.toggle("active", k === i); t.classList.toggle("done", k < i); });
+      panels.forEach(function (p, k) { p.classList.toggle("active", k === i); });
+      document.getElementById("pv-prev").disabled = i === 0;
+      document.getElementById("pv-next").disabled = i === panels.length - 1;
+    }
+    tabs.forEach(function (t, k) { t.addEventListener("click", function () { show(k); }); });
+    document.getElementById("pv-prev").addEventListener("click", function () { show(i - 1); });
+    document.getElementById("pv-next").addEventListener("click", function () { show(i + 1); });
+    show(0);
+  })();
+  </script>
+</body>
+</html>

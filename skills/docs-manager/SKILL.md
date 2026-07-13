@@ -1,7 +1,7 @@
 ---
 name: docs-manager
 description: |
-  Manages all project documentation in a standardized `docs/` directory structure.
+  Manages all project documentation in a standardized `knowledge-base/` directory structure.
   Use this skill when the user wants to create, update, or sync project documentation,
   set up documentation for a new project, or maintain documentation consistency.
   TRIGGER when: user mentions "docs", "documentation", "create docs", "update docs",
@@ -32,9 +32,9 @@ This skill creates and maintains comprehensive, standardized project documentati
 ## Standard Documentation Structure
 
 ```
-docs/
+knowledge-base/
 ├── README.md                  # Documentation index and navigation (at root)
-└── project/                   # All project documentation
+└── reference/                 # All project documentation (descriptive, reverse-synced)
     ├── PROJECT_OVERVIEW.md    # Project purpose, domain, business context
     ├── ARCHITECTURE.md        # System architecture and design decisions
     ├── DATABASE.md            # Database schema, models, relationships
@@ -52,7 +52,7 @@ docs/
 
 Not all docs are needed for every project. The skill detects project type and creates only relevant documentation.
 
-**Note:** The README.md stays at `docs/` root level as the index, while all other documentation files go in `docs/project/`. This keeps the docs folder clean and allows for other types of documentation (like API specs, design docs, etc.) to have their own subdirectories later.
+**Note:** The README.md stays at the `knowledge-base/` root level as the index, while all other documentation files go in `knowledge-base/reference/`. The `knowledge-base/` root also holds sibling directories owned by other skills (`specs/`, `security/`, `decisions/`, `principles.md`, `.graph/`); docs-manager owns `README.md` and `reference/`.
 
 ## Architecture: Coordinator + Parallel Workers
 
@@ -97,8 +97,8 @@ Each worker receives:
 
 ### Phase 3: Index & Summary
 
-Create `docs/README.md` index with:
-- Navigation to all docs in `project/` subdirectory
+Create `knowledge-base/README.md` index with:
+- Navigation to all docs in `reference/` subdirectory
 - Brief descriptions
 - Reading order for onboarding
 
@@ -149,7 +149,7 @@ After placeholders are resolved, automatically run a documentation review. This 
 **Standalone `resolve` mode:**
 
 When you run `/freya-devkit:docs-manager resolve`, the skill:
-1. Scans all existing docs in the `docs/project/` directory
+1. Scans all existing docs in the `knowledge-base/reference/` directory
 2. Finds all `[TODO:` placeholders
 3. Groups them and asks you batched questions
 4. Updates the docs with your answers
@@ -169,7 +169,7 @@ Ask ONE question: "Where is this project hosted (e.g., Hetzner, Vercel, AWS)? Pl
 
 When you run `/freya-devkit:docs-manager upgrade-diagrams`, the skill:
 
-1. **Scan for Diagrams** - Search all docs in `docs/project/` for:
+1. **Scan for Diagrams** - Search all docs in `knowledge-base/reference/` for:
    - ASCII art diagrams (boxes with `+--+`, `|`, `-`)
    - Text-based flow diagrams (arrows like `-->`, `->`)
    - Indented hierarchy diagrams
@@ -402,7 +402,7 @@ Example placeholder format:
 ```
 /freya-devkit:docs-manager upgrade-diagrams
 ```
-→ Scans all docs in `docs/project/` for ASCII/text-based diagrams, converts them to mermaid format. Use this to modernize older documentation.
+→ Scans all docs in `knowledge-base/reference/` for ASCII/text-based diagrams, converts them to mermaid format. Use this to modernize older documentation.
 
 ### Code-Graph Integration
 
@@ -497,13 +497,13 @@ Each documentation file follows a consistent structure. See `references/template
 ## Output Format
 
 Always:
-1. Create the `docs/` and `docs/project/` directories if they don't exist
+1. Create the `knowledge-base/` and `knowledge-base/reference/` directories if they don't exist
 2. Create/update files using the Write tool:
-   - `docs/README.md` - Documentation index
-   - `docs/project/*.md` - All other documentation files
+   - `knowledge-base/README.md` - Documentation index
+   - `knowledge-base/reference/*.md` - All other documentation files
 3. Provide a summary of what was created/updated
 4. **Attempt to resolve placeholders automatically** (Phase 4):
-   - Scan all created docs in `docs/project/` for `[TODO:` placeholders
+   - Scan all created docs in `knowledge-base/reference/` for `[TODO:` placeholders
    - Group them by topic (business, infrastructure, deployment, contacts, services)
    - Ask the user batched questions - one per topic group
    - Update all relevant docs with the answers

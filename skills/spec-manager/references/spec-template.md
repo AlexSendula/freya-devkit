@@ -18,6 +18,12 @@ related_code:
   - [path/to/file]
 intentional_decisions:
   - "[Brief description of intentional decision]"
+behaviors:
+  - behavior_id: BEH-XXX
+    title: [Observable behavior, e.g. "Successful passkey login"]
+    state: proposed            # proposed | confirmed | accepted | quarantined | deprecated
+    adapter: cucumber          # cucumber | behave | pytest-bdd | jest | playwright | ... | manual
+    locator: [features/<cat>/<name>.feature#<scenario>  OR  path/to/test#case]
 ---
 
 # [Feature Name]
@@ -38,11 +44,20 @@ intentional_decisions:
 - Business value
 - Design goals]
 
-## Acceptance Criteria
+## Behavior
 
-- [ ] [Criterion 1 - specific, testable]
-- [ ] [Criterion 2 - specific, testable]
-- [ ] [Criterion 3 - specific, testable]
+The observable acceptance behavior is owned by each behavior's **test**, not by
+this spec — link to it here, never copy the scenario steps (single source of
+truth). Add one row per `BEH-NNN` in the frontmatter `behaviors:` list.
+
+| Behavior | State | Verified by |
+|----------|-------|-------------|
+| BEH-XXX [Observable behavior] | proposed | `[features/<cat>/<name>.feature]` (cucumber) |
+
+Declarative decisions that are *not* executable are recorded under **Intentional
+Design Decisions** below, not here. A spec with no testable behavior may leave
+the `behaviors:` list empty and this table out — it is then a purely declarative
+spec (still requires `related_code`, see frontmatter notes).
 
 ## Intentional Design Decisions
 
@@ -89,8 +104,24 @@ intentional_decisions:
 | `certainty` | Yes | 0-100 confidence score (100 for user-created) |
 | `created` | Yes | ISO date when spec was created |
 | `updated` | Yes | ISO date when spec was last modified |
-| `related_code` | No | Array of file paths to related code |
+| `related_code` | Recommended | Array of file paths to related code. **Expected on declarative specs too** (not just behavioral ones): it is the key the declarative-drift check uses to decide whether a change's blast radius can affect this decision. A declarative spec with no `related_code` is invisible to that check. |
 | `intentional_decisions` | No | Array of brief decision descriptions (for search indexing) |
+| `behaviors` | No | List of first-class `Behavior` records (`behavior_id`, `title`, `state`, `adapter`, `locator`). Empty/absent ⇒ the spec is purely declarative. See **Behavior record fields** below. |
+
+### Behavior record fields
+
+Each entry in `behaviors:` is a stable, intent-bearing record linked to an executable test:
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `behavior_id` | Yes | `BEH-NNN`, stable across renames (never renumber) |
+| `title` | Yes | The observable behavior, in plain language |
+| `state` | Yes | `proposed` \| `confirmed` \| `accepted` \| `quarantined` \| `deprecated`. `confirmed` = intent confirmed, test owed (advisory); only **accepted** is authoritative and blocks on failure |
+| `level` | Yes | Test level: `unit` \| `component` \| `integration` \| `e2e`. Used by behavior-runner to select the coverage capture mechanism |
+| `adapter` | Required for `accepted`; optional for `proposed`/`confirmed` | How it is verified: `cucumber`/`behave`/`pytest-bdd` (Gherkin), a native runner (`jest`, `playwright`, `pytest`, …), or `manual` |
+| `locator` | Required for `accepted` (except `manual`); optional for `proposed`/`confirmed` | Where the test lives — `features/<cat>/<name>.feature#<scenario>` for Gherkin, or `path/to/test#case` for a native test |
+| `entry` | Required for `level: integration` | Project-relative path to the route/handler file the integration test drives (e.g. `app/api/auth/route.ts`). behavior-runner uses it to derive the static code-graph transitive import closure (`source: static` edges). Omitting it on an integration behavior yields `coverage: unknown, reason: no-entry` |
+| `spec_id` | No | Inherited from this spec's `id`; if given, must match |
 
 ## Section Guidelines
 

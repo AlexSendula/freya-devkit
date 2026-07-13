@@ -68,6 +68,15 @@ Standard categories and tag guidelines for organizing specifications.
 3. **Include domain tags**: Tag with relevant domain (e.g., `payment`, `email`)
 4. **Cross-reference**: If related to another spec, mention in Related Specs section
 
+## Behaviors and categories
+
+Categories and tags apply to the **spec**. A spec's `behaviors:` records do not
+carry their own category — they inherit the spec's. When a behavior is verified
+by a Gherkin feature, mirror the spec's category in the feature path
+(`features/<category>/<name>.feature`) so the test tree parallels the spec tree.
+Use the `testing` tag on a spec when its subject *is* test infrastructure, not
+merely because it owns behaviors (every behavioral spec does).
+
 ## Category Decision Tree
 
 ```
