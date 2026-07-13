@@ -2,6 +2,8 @@
 
 An integrated, AI-assisted development toolkit for Claude Code. Ten skills that work together to keep your dependency graph, documentation, feature specs, intended behavior, and security posture in sync as you build — plus a one-command wrap-up workflow that runs them all.
 
+> 📖 **New here? Read the visual explainers → [alexsendula.github.io/freya-devkit](https://alexsendula.github.io/freya-devkit/)** — no-install webapps covering the whole plugin, the behavior layer, and governance.
+
 ## Install
 
 ```text
@@ -73,6 +75,12 @@ For a deep, exhaustive security pass before a release:
 ```
 
 ## Documentation
+
+**Visual explainers** — no-install webapps hosted on GitHub Pages (source in [`docs/explanations/`](docs/explanations/)):
+
+- **[The whole plugin](https://alexsendula.github.io/freya-devkit/plugin/)** — philosophy, architecture, all ten skills, patterns, the behavior layer, governance, and adoption. Start here.
+- **[The behavior layer](https://alexsendula.github.io/freya-devkit/behavior-layer-explainer/)** — intended behavior as a first-class, executable, blast-radius-aware artifact (five-page deep dive).
+- **[Governance](https://alexsendula.github.io/freya-devkit/governance-explainer/)** — block-on-facts vs resolve-to-proceed, and the wrap-up checkpoints.
 
 Design rationale and architecture live in [`docs/`](docs/):
 
