@@ -1,6 +1,12 @@
-# freya-devkit
+<p align="center">
+  <img src="assets/freya.png" alt="Freya — the freya-devkit mascot" width="460">
+</p>
 
+<h1 align="center">freya-devkit</h1>
+
+<p align="center">
 An integrated, AI-assisted development toolkit for Claude Code. Ten skills that work together to keep your dependency graph, documentation, feature specs, intended behavior, and security posture in sync as you build — plus a one-command wrap-up workflow that runs them all.
+</p>
 
 > 📖 **New here? Read the visual explainers → [alexsendula.github.io/freya-devkit](https://alexsendula.github.io/freya-devkit/)** — no-install webapps covering the whole plugin, the behavior layer, and governance.
 
