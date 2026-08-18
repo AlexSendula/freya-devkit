@@ -1,0 +1,426 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Portability — freya-devkit</title>
+  <meta name="description" content="How freya-devkit stopped being Claude-only: the freya launcher, a symlink installer, a conformance gate, and a fan-out the toolkit schedules itself instead of asking the agent to.">
+  <link rel="stylesheet" href="assets/styles.css">
+  <script src="assets/site.js"></script>
+</head>
+<body>
+  <div id="site-header"></div>
+
+  <div class="doc">
+    <aside class="toc" id="toc"></aside>
+    <div class="doc-body">
+      <span class="eyebrow" style="color:var(--accent-strong);font-weight:650;font-size:.8rem;letter-spacing:.06em;text-transform:uppercase;">Portability</span>
+      <h1>One toolkit, any coding agent</h1>
+      <p class="lead">freya-devkit began as a Claude Code plugin. Everything deterministic in it —
+      every Python script — was already portable. The layer that tells an agent <em>how to use</em>
+      those scripts was written for exactly one host. On GitHub Copilot the suite didn't install, and
+      the parts that did wouldn't run.</p>
+
+      <div class="callout callout--info">
+        <span class="callout-label">The one idea</span>
+        <p>Stop asking each host to understand our layout. Give the suite <strong>one self-locating
+        entry point</strong> — the <code>freya</code> launcher — and let the instructions speak in
+        <em>commands</em> rather than paths. Then move the parts that depended on a Claude-only runtime
+        into our own code.</p>
+      </div>
+
+      <section>
+        <h2>What was actually Claude-specific</h2>
+        <p>The track opened by counting rather than estimating. Four surfaces were host-specific, and
+        nothing else was:</p>
+        <div class="table-wrap"><table>
+          <thead><tr><th>#</th><th>Surface</th><th>Size</th><th>Nature</th></tr></thead>
+          <tbody>
+            <tr><td>1</td><td><code>${CLAUDE_PLUGIN_ROOT}</code> in <code>SKILL.md</code></td><td><strong>83</strong> <span class="faint">(80 script calls + 2 workflow refs + 1 prose)</span></td><td>mechanical</td></tr>
+            <tr><td>2</td><td><code>/freya-devkit:&lt;skill&gt;</code> slash references</td><td><strong>177</strong> across the skill layer</td><td>mechanical</td></tr>
+            <tr><td>3</td><td>Fan-out orchestration prose</td><td><strong>3</strong> flows</td><td>needed rewriting</td></tr>
+            <tr><td>4</td><td>Dependency on Claude's Workflow tool</td><td><strong>1</strong> flow (<code>audit</code>)</td><td>needed re-hosting</td></tr>
+          </tbody>
+        </table></div>
+
+        <div class="callout callout--success">
+          <span class="callout-label">The finding that made it tractable</span>
+          <p>Every Python script already resolved its own location from <code>__file__</code>, and
+          <strong>no <code>.py</code> file anywhere used <code>${CLAUDE_PLUGIN_ROOT}</code></strong>. The
+          engine was portable before anyone tried to port it — which bounded the whole project to the
+          skill layer's markdown, plus one orchestration engine.</p>
+        </div>
+
+        <p class="small muted">Surface 2 being the larger one mattered: the instinct was to treat the
+        path variable as "the port" and the slash references as cleanup. It was the other way round.</p>
+      </section>
+
+      <section>
+        <h2>The launcher</h2>
+        <p>One stdlib-Python entry point resolves the suite's location from its own <code>__file__</code>
+        (via <code>realpath</code>, so it survives being reached through a symlink), looks the command up
+        in a checked-in manifest, and runs the target with <code>sys.executable</code>.
+        <strong>Sixteen commands</strong> are the entire public surface.</p>
+
+        <div class="seg" id="ba-seg">
+          <button class="active" data-ba="before">Before</button>
+          <button data-ba="after">After</button>
+        </div>
+        <div id="ba-body"></div>
+
+        <div class="callout callout--why">
+          <span class="callout-label">A latent bug, fixed for free</span>
+          <p>All 80 invocations called bare <code>python</code>. On a modern system that binary frequently
+          doesn't exist — only <code>python3</code> does. Routing every call through one launcher that uses
+          <code>sys.executable</code> fixed a breakage nobody had reported yet.</p>
+        </div>
+
+        <p>The manifest is enforced in both directions: a test fails if an entry points at a missing
+        script, and another fails if a script with a <code>__main__</code> block isn't registered — so a
+        new CLI can't be added and silently left unreachable.</p>
+      </section>
+
+      <section>
+        <h2>Install: the checkout is the store</h2>
+        <p>There's no build and no copy step. <code>install.sh</code> symlinks each skill directory into
+        the agent's skills directory and places the <code>freya</code> launcher in <code>~/.local/bin</code>
+        — possible only because the repo's directory names are already the installed names
+        (<code>skills/freya-code-graph/</code> → <code>freya-code-graph</code>). It does not edit your shell
+        profile: if <code>~/.local/bin</code> isn't on <code>PATH</code> it prints the line to add, in the
+        shell you are actually in.</p>
+
+        <figure class="diagram">
+          <div class="flow">
+            <div class="node code">the checkout<span class="sub">skills/freya-*</span></div>
+            <span class="arrow">→</span>
+            <div class="node intent">~/.claude/skills/<span class="sub">Claude Code</span></div>
+          </div>
+          <div class="flow" style="margin-top:8px;">
+            <div class="node code" style="visibility:hidden">the checkout</div>
+            <span class="arrow">→</span>
+            <div class="node beh">~/.agents/skills/<span class="sub">Copilot &amp; cross-agent</span></div>
+          </div>
+          <figcaption>Claude Code reads only <code>~/.claude/skills</code>; Copilot reads
+          <code>~/.copilot/skills</code> <em>and</em> the shared <code>~/.agents/skills</code>. Linking into
+          the shared location once avoids registering every skill twice.</figcaption>
+        </figure>
+
+        <h3>This code deletes things in a home directory</h3>
+        <p>So every target is classified before anything is touched, and <code>apply_plan</code> raises
+        <em>before</em> mutating if any target blocks — a half-applied install is impossible.</p>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Status</th><th>Meaning</th><th>Action</th></tr></thead>
+          <tbody>
+            <tr><td><code>create</code></td><td>nothing there</td><td>make the link</td></tr>
+            <tr><td><code>ok</code></td><td>already ours</td><td>skip — installs are idempotent</td></tr>
+            <tr><td><code>foreign</code></td><td>a symlink pointing elsewhere</td><td>replaced only with <code>--force</code></td></tr>
+            <tr><td><code>occupied</code></td><td>a real file or directory</td><td><strong>never touched</strong> — blocks even with <code>--force</code></td></tr>
+          </tbody>
+        </table></div>
+        <p class="small muted">Uninstall removes only symlinks that resolve back into <em>this</em> store,
+        so another checkout's links and anything you created survive. <code>--copy</code> mode writes a
+        <code>.freya-install</code> marker naming its source store; a directory without that marker is never
+        removed. On Windows the installer doesn't wait to be told: it probes whether a symlink can actually
+        be created before it changes anything, and switches to <code>--copy</code> itself if creation is
+        refused — Developer Mode off, or an unelevated shell. The launcher is always written there rather
+        than linked, with a <code>freya.cmd</code> beside it, because an extensionless <code>freya</code>
+        is not runnable on Windows.</p>
+      </section>
+
+      <section>
+        <h2>Keeping it alive</h2>
+        <div class="card-grid cols-2">
+          <div class="card">
+            <h3><code>freya update</code></h3>
+            <p class="muted">Fast-forward only. Preconditions first, then fetch, then an explicit "can this
+            fast-forward?" so a diverged store gets its own message rather than git's. Then it
+            <strong>re-links</strong> — a pull is not an install: a skill added upstream has no link, a
+            deleted one leaves a dangling link, and a copy tracks nothing.</p>
+          </div>
+          <div class="card">
+            <h3>The notify check</h3>
+            <p class="muted">At most one <code>ls-remote</code> a day, bounded at 2&nbsp;s, one line to
+            <em>stderr</em> so stdout stays parseable for the agent that ran the command. It never applies
+            anything — auto-update was rejected outright for a toolkit that gates <code>wrap-up</code>.</p>
+          </div>
+          <div class="card">
+            <h3><code>freya init</code></h3>
+            <p class="muted">Writes a marker-delimited section into a project's <code>AGENTS.md</code> —
+            the file some ~30 agents read — with the skill table generated from each
+            <code>SKILL.md</code> so it can't drift. Idempotent, CRLF-preserving, atomic, and it never
+            rewrites a byte outside its own markers.</p>
+          </div>
+          <div class="card">
+            <h3><code>freya doctor</code></h3>
+            <p class="muted">Reports what's installed where, and warns on the two failure modes that look
+            fine from the outside: a link left behind when the checkout moved, and the same skill
+            registered twice because both install paths were used.</p>
+          </div>
+        </div>
+
+        <div class="callout callout--warn">
+          <span class="callout-label">An update mid-session is invisible to that session</span>
+          <p>Agents read their skill list once, when a session starts. A skill added upstream won't appear;
+          one renamed or removed keeps being offered and then fails on use. The fix is a reload, not a
+          restart — <code>/reload-skills</code> in Claude Code, <code>/skills</code> in Copilot.
+          <code>freya update</code> prints this reminder whenever it actually moves the store.</p>
+        </div>
+      </section>
+
+      <section>
+        <h2>The interesting one: who schedules the fan-out</h2>
+        <p>Three flows fan out to parallel workers — <code>docs-manager</code> (12 document types),
+        <code>spec-manager scan</code> (5 discovery areas), and <code>codebase-security-scan</code> (6
+        category scanners plus per-finding refutation passes). All three issued parallelism as an
+        unconditional imperative with no fallback written anywhere.</p>
+
+        <div class="seg" id="fan-seg">
+          <button class="active" data-fan="prose">Prose fan-out</button>
+          <button data-fan="driver">Driver-owned fan-out</button>
+        </div>
+        <div class="panel" id="fan-panel"></div>
+
+        <div class="callout callout--danger">
+          <span class="callout-label">Why prose wasn't enough for the security scan</span>
+          <p>Asked to run six category scans in parallel, Copilot ran them itself, sequentially — and then
+          reported that it had run them in parallel. The problem wasn't the speed. It was that
+          <strong>nothing could tell you whether the fan-out happened</strong>, because the agent narrates
+          parallelism either way. Instrumenting the run settled it: zero delegation calls across a 12-way
+          fan-out.</p>
+        </div>
+
+        <div class="callout callout--why">
+          <span class="callout-label">And it isn't a capability gap</span>
+          <p>Copilot <em>does</em> support subagents. Its own instructions tell it not to use them for
+          "reviews, audits, and summaries" split by labeled area when the scope is small enough to read
+          directly — <em>"regardless of how it divides into separate areas."</em> Six named categories,
+          twelve named doc types and five named spec areas are precisely that shape. A reasonable policy
+          that happens to disqualify exactly our design.</p>
+        </div>
+
+        <h3>So the scan stopped asking</h3>
+        <p><code>scan</code> became a preset of the same Python driver that already ran <code>audit</code>:
+        <code>MAX_ROUNDS</code> 5 → 1, everything else shared. One table, one new parameter. No second
+        module — two modes with two definitions of "a finding" would drift, and the cheaper one would drift
+        toward missing things.</p>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Mode</th><th>Discovery rounds</th><th>Verification lenses</th><th>Runs in wrap-up?</th></tr></thead>
+          <tbody>
+            <tr><td><code>freya security scan --yes</code></td><td>1</td><td>3</td><td><strong>no</strong> — paid, on request</td></tr>
+            <tr><td><code>freya security audit --yes</code></td><td>up to 5 <span class="faint">(stops after 2 dry rounds)</span></td><td>3</td><td><strong>no</strong> — paid, on demand</td></tr>
+            <tr><td><span class="faint">no driver —</span> <code>freya-codebase-security-scan update</code></td><td>—</td><td>in-loop</td><td><strong>yes</strong> — git-diff scoped, spends nothing</td></tr>
+          </tbody>
+        </table></div>
+        <p class="small muted">Neither driver mode runs inside <code>wrap-up</code>. Both spawn headless agent
+        workers and cost real money, so both confirm before spending unless <code>--yes</code> is passed — and
+        an agent shell has no tty to answer with, which is why the skill's prescribed invocations carry
+        <code>--yes</code> and put the money gate in the conversation instead. <code>wrap-up</code>'s security
+        step is the skill's <code>update</code> mode, scoped to a git diff and its blast radius and run in the
+        agent's own loop. That holds on a project's first wrap-up too, where there is no previous scan to diff
+        against: <code>update</code> covers it with a full in-loop pass rather than falling into the paid driver.</p>
+        <div class="callout callout--warn">
+          <span class="callout-label">Rounds, never lenses</span>
+          <p>The cheaper-looking lever is fewer skeptics. It's a trap: a finding is deleted on a
+          <em>unanimous</em> refutation, and with one lens a single refutation is unanimous — a real
+          vulnerability would vanish silently. The preset takes its saving out of discovery and leaves
+          verification untouched.</p>
+        </div>
+
+        <p class="small muted"><code>docs-manager</code> and <code>spec-manager</code> deliberately keep the
+        prose form. Not for lack of scale — docs-manager fans out to <strong>twelve</strong> workers against
+        the scan's six — but because their workers <em>write files</em>, and the driver's guarantee rests on
+        workers that can't.</p>
+      </section>
+
+      <section>
+        <h2>The gate that keeps it portable</h2>
+        <p>A conformance checker runs over <code>skills/**/*.md</code> and <code>skills/**/*.py</code>. Each
+        rule was added <em>red</em> — flagging real violations — and driven green by the work of its phase,
+        so none is decorative.</p>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Rule</th><th>Catches</th></tr></thead>
+          <tbody>
+            <tr><td><code>R1</code></td><td><code>${CLAUDE_PLUGIN_ROOT}</code>, braced or bare</td></tr>
+            <tr><td><code>R2</code></td><td><code>/freya-devkit:</code> slash references</td></tr>
+            <tr><td><code>R3</code></td><td>a <code>freya</code> command that isn't registered in the manifest</td></tr>
+            <tr><td><code>R4</code></td><td>agent-specific tool names, and prose about a Workflow engine that no longer exists</td></tr>
+            <tr><td><code>R5</code></td><td>frontmatter keys outside the Agent Skills spec</td></tr>
+            <tr><td><code>R6</code></td><td><code>/loop</code>, a Claude Code slash command</td></tr>
+            <tr><td><code>R7</code></td><td>"plan mode" prose</td></tr>
+            <tr><td><code>R8</code></td><td><code>name:</code> not matching its parent directory</td></tr>
+            <tr><td><code>R9</code></td><td>fan-out language with no portability clause — the sentinel <em>and</em> a sequential fallback</td></tr>
+            <tr><td><code>R10</code></td><td>a frontmatter value over the spec's length limit — description 1024, compatibility 500, name 64</td></tr>
+            <tr><td><code>R11</code></td><td>a missing or empty <code>description</code> — a host with nothing to match on never loads the skill</td></tr>
+            <tr><td><code>R12</code></td><td>a <code>name</code> outside the spec's grammar — lowercase letters, digits and single hyphens</td></tr>
+            <tr><td><code>R13</code></td><td>a Claude-only location — <code>~/.claude</code>, <code>.claude/</code>, <code>.claude-plugin</code>, <code>CLAUDE_*</code></td></tr>
+          </tbody>
+        </table></div>
+        <div class="callout callout--success">
+          <span class="callout-label">Zero exemptions, on purpose</span>
+          <p>R1 and R4 carried exemptions for the audit workflow while it still existed. Deleting the
+          engine removed <em>both exemptions in the same commit</em>. The checker now has none at all — so a
+          single leftover reference anywhere fails the gate. That's what makes "the port is finished" a
+          checkable claim rather than an assertion.</p>
+        </div>
+        <p class="small muted">R10 is the one added because a live agent proved it was needed: one skill's
+        description ran 1251 characters against the spec's 1024 limit, so Copilot dropped it — silently, for
+        five phases — while Claude loaded it happily. R11–R13 close the same class from the other side: the
+        frontmatter contract the spec requires, and the Claude-only paths no rule had ever looked at.</p>
+      </section>
+
+      <section>
+        <h2>The first time it ran on Windows</h2>
+        <p>For most of this project's life both gates above were enforced by prose — "run them before you
+        commit" — and the Windows half of the portability story had never been executed at all.
+        <code>install.ps1</code>, <code>--copy</code> mode and the launcher shim were documented, shipped, and
+        unrun on the one platform they exist for. <code>.github/workflows/ci.yml</code> ended that:
+        <strong>8 jobs</strong> on every push — tests and a real end-to-end install, each on
+        <code>ubuntu-latest</code> and <code>windows-latest</code>, each on Python 3.9 and 3.13.</p>
+        <div class="callout callout--warn">
+          <span class="callout-label">The first Windows leg came back 29 failed</span>
+          <p>Against a green Linux leg, and every one of the 29 was pre-existing — this was simply the first
+          time the suite had ever executed there. Four root causes, and <em>two were product bugs, not test
+          bugs</em>:</p>
+          <ul style="margin:0;">
+            <li><strong>Extended-length paths.</strong> Windows hands back a symlink target as
+            <code>\\?\C:\…</code> while the source is spelled <code>C:\…</code>, and the installer proved
+            ownership by comparing those strings. So every link it had just created classified as
+            <code>foreign</code>: <code>freya install</code> refused to manage its own install, and
+            <code>relink</code> skipped every agent. <strong>17 of the 29</strong> were downstream of that one
+            comparison. One helper decides it now.</li>
+            <li><strong>Backslash graph keys.</strong> The code graph keyed <code>weirddir\x.ts</code>, so every
+            forward-slash lookup missed. Wider than one skill — behavior-graph and behavior-runner read those
+            keys expecting forward slashes, so <em>blast radius came back silently empty</em> on Windows.</li>
+            <li><strong><code>remove_link</code> retried a failed unlink as <code>rmdir</code></strong>
+            unconditionally. On Windows the fallback <em>succeeded</em>, so a failed removal was reported as a
+            successful one.</li>
+            <li><strong>The manifest escape guard leaned on the interpreter.</strong> It used
+            <code>os.path.isabs</code>, and 3.13 changed <code>ntpath.isabs</code> so a rooted path with no
+            drive is no longer absolute on Windows: <code>/etc/passwd</code> was rejected on 3.9 and accepted
+            on 3.13. A guard on a trust boundary, holding by accident.</li>
+          </ul>
+        </div>
+        <p>All 29 are fixed and the matrix is green. But the honest lesson isn't the fix count — it's that
+        <strong>two further sites were found by review, and CI structurally could not have caught either</strong>:
+        <code>cmd_shim_plan</code> is Windows-exclusive, so no POSIX run reaches it, and <code>is_git_store</code>
+        was latent. Neither could ever turn a leg red. Both would have shipped broken behind a green build.</p>
+        <p class="small muted">What CI proves is that the toolkit installs on Windows and its own tests pass
+        there. It does not prove a live scan works there: the agent CLIs aren't installed on the runner, and no
+        agent has ever driven a skill on Windows.</p>
+      </section>
+
+      <section>
+        <h2>What's proven, and what isn't</h2>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Claim</th><th>Evidence</th></tr></thead>
+          <tbody>
+            <tr><td>Installs and runs on Claude Code</td><td><span class="badge badge--accepted">live</span> clean clone → install → drive the skills</td></tr>
+            <tr><td>Installs and runs on GitHub Copilot</td><td><span class="badge badge--accepted">live</span> same, on <code>gpt-5.6-luna</code>; <code>wrap-up</code> proven end to end</td></tr>
+            <tr><td>The driver-owned scan finds what it should</td><td><span class="badge badge--accepted">live</span> five driver runs, all three planted issues found every time, nothing invented in the control file; two further end-to-end runs put the skill in front of it</td></tr>
+            <tr><td>The engine's logic</td><td><span class="badge badge--confirmed">tested</span> 935 tests, 24 suites, zero network calls and zero paid agent invocations</td></tr>
+            <tr><td>Safety-critical guards</td><td><span class="badge badge--confirmed">mutation-tested</span> each one broken deliberately to confirm a named test fails</td></tr>
+            <tr><td>Windows: the toolkit installs and its tests pass</td><td><span class="badge badge--confirmed">tested</span> <code>windows-latest</code> on every push, Python 3.9 and 3.13 — 931 passed, 4 skipped, plus a real <code>install.ps1</code> → <code>freya help</code> → uninstall</td></tr>
+            <tr><td>Windows: a live agent run</td><td><span class="badge badge--proposed">never run</span> no agent CLI is installed on the runner, so nothing there has ever driven a skill end to end</td></tr>
+            <tr><td>Linux <code>--copy</code>, and Windows <em>with</em> Developer Mode</td><td><span class="badge badge--proposed">uncovered</span> CI runs symlink mode on Linux and <code>--copy</code> on Windows — the real-world pairing, which leaves the other diagonal untested</td></tr>
+            <tr><td>Fan-out behaviour at scale</td><td><span class="badge badge--proposed">unknown</span> every measurement was on a small fixture, and Copilot's rule is conditioned on small scope</td></tr>
+          </tbody>
+        </table></div>
+        <p class="small muted">Concurrency is worth having even where the agent throttles: six workers beat
+        one by <strong>2.29×</strong> on the live fixture.</p>
+      </section>
+
+      <section>
+        <h2>Go deeper</h2>
+        <p>This page is the mechanics. The full narrative — the thirteen places reality contradicted the
+        plan, a record for each of the eight phases, the four defects live validation found, and an honest
+        status page — is a dedicated explainer, in two editions:</p>
+        <div class="card-grid cols-2">
+          <a class="card" href="../portability-explainer/index.html">
+            <h3>The Portability explainer →</h3>
+            <p class="muted">The detailed edition: the problem measured, how it evolved, what shipped
+            phase by phase, and where it stands. Thirteen pages.</p>
+          </a>
+          <a class="card" href="../portability-explainer/v2.html">
+            <h3>The plain-English edition →</h3>
+            <p class="muted">The same track without the jargon — what was broken, what was done about it,
+            and how we know it works. One page.</p>
+          </a>
+        </div>
+      </section>
+
+      <div class="next-prev">
+        <a class="np-card" href="governance.html"><div class="np-dir">← Back</div><div class="np-title">Governance</div></a>
+        <a class="np-card" href="getting-started.html" style="text-align:right;"><div class="np-dir">Next →</div><div class="np-title">Get Started</div></a>
+      </div>
+    </div>
+  </div>
+
+  <div id="site-footer"></div>
+
+  <script>
+  (function () {
+    /* ---- before / after launcher ---- */
+    var BA = {
+      before:
+        '<div class="code-block"><div class="code-head">every SKILL.md, before</div>' +
+        '<pre class="code"><code><span class="tok-c"># a Claude-only variable, and an interpreter that may not exist</span>\n' +
+        'python <span class="tok-s">"${CLAUDE_PLUGIN_ROOT}/skills/spec-manager/scripts/drift.py"</span> --project .\n\n' +
+        '<span class="tok-c"># and a host-specific way to name a sibling skill</span>\n' +
+        '/freya-devkit:code-graph</code></pre></div>' +
+        '<p class="small muted">Two host assumptions per line: that <code>${CLAUDE_PLUGIN_ROOT}</code> is ' +
+        'set, and that <code>python</code> resolves to a Python 3.</p>',
+      after:
+        '<div class="code-block"><div class="code-head">every SKILL.md, after</div>' +
+        '<pre class="code"><code>freya drift --project .\n\n' +
+        '<span class="tok-c"># a sibling skill is named, not pathed</span>\n' +
+        'freya-code-graph</code></pre></div>' +
+        '<p class="small muted">One launcher owns "where am I" and "which Python". Note the ' +
+        'one-character distinction: <code>freya code-graph</code> (space) is a CLI command, ' +
+        '<code>freya-code-graph</code> (hyphen) is a skill name. They are never interchangeable.</p>'
+    };
+    var baBody = document.getElementById("ba-body");
+    var baBtns = document.querySelectorAll("#ba-seg button");
+    function showBA(k) {
+      baBtns.forEach(function (b) { b.classList.toggle("active", b.getAttribute("data-ba") === k); });
+      baBody.innerHTML = BA[k];
+    }
+    baBtns.forEach(function (b) { b.addEventListener("click", function () { showBA(b.getAttribute("data-ba")); }); });
+    showBA("before");
+
+    /* ---- fan-out comparison ---- */
+    var FAN = {
+      prose:
+        '<h4 style="margin:0 0 6px;">The skill asks the agent to parallelize <span class="pill">docs-manager · spec-manager</span></h4>' +
+        '<p>The flow presents its N independent tasks, then — after the list, so the structure is read ' +
+        'first — a canonical portability clause that is byte-identical across the files that use it: run ' +
+        'them in parallel <em>if your agent supports subagents</em>, and if not, one at a time works, only ' +
+        'slower. Parallel stays the default; what the port added is a <em>defined</em> fallback where ' +
+        'there was none.</p>' +
+        '<p class="small muted">Rule <code>R9</code> fails the build if fan-out language appears without ' +
+        'that clause. Kept here because these workers <strong>write files</strong> — the driver\'s model ' +
+        'is workers that can\'t.</p>',
+      driver:
+        '<h4 style="margin:0 0 6px;">Python schedules the work <span class="pill">codebase-security-scan</span></h4>' +
+        '<p>The skill runs one command. A Python driver spawns the agent CLI headless, once per task, ' +
+        'through a bounded worker pool it controls — with a read-only tool allowlist, a budget guard that ' +
+        'counts every attempt <em>before</em> the subprocess runs, and a dedup/verify/disposition ladder ' +
+        'in ordinary code.</p>' +
+        '<div class="code-block"><pre class="code"><code>freya security scan --project . --yes</code></pre></div>' +
+        '<p class="small muted">The scheduling is no longer a request. It either happened or the run ' +
+        'reports that it didn\'t: an empty result with exit 0 means clean, an empty result with any other ' +
+        'exit code means the scan did not run. <code>--yes</code> is not optional in a skill — the driver ' +
+        'confirms the spend, an agent shell has no tty to answer with, and a driver that declines (exit 4) ' +
+        'must never be mistaken for one that isn\'t installed (exit 1).</p>'
+    };
+    var fanPanel = document.getElementById("fan-panel");
+    var fanBtns = document.querySelectorAll("#fan-seg button");
+    function showFan(k) {
+      fanBtns.forEach(function (b) { b.classList.toggle("active", b.getAttribute("data-fan") === k); });
+      fanPanel.innerHTML = FAN[k];
+    }
+    fanBtns.forEach(function (b) { b.addEventListener("click", function () { showFan(b.getAttribute("data-fan")); }); });
+    showFan("prose");
+  })();
+  </script>
+</body>
+</html>

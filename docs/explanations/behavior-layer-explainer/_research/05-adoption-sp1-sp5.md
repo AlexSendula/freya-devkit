@@ -38,7 +38,7 @@ The design breaks into five sub-projects, each shipping working, testable softwa
 4. **SP4 — Status & backlog.** A read-only `status` command + generated, git-tracked `BACKLOG.md` + `gaps` command + two `review` worklists.
 5. **SP5 — Security ↔ behavior cross-reference.** Extend `codebase-security-scan` to consult `accepted` behaviors as verified intentional evidence. Independent of SP1–4.
 
-Suggested order: **SP1 first**, then SP2 → SP3 → SP4; **SP5 in parallel**. The **testbed** (`/Users/main/Documents/projects/viva-croatia-testbed`) is the brownfield proving ground for SP2/SP3; the production webapp is off-limits for all dogfooding.
+Suggested order: **SP1 first**, then SP2 → SP3 → SP4; **SP5 in parallel**. The **testbed** (`<testbed>`) is the brownfield proving ground for SP2/SP3; the production webapp is off-limits for all dogfooding.
 
 ---
 
@@ -271,4 +271,4 @@ The whole design's promise (its final acceptance criterion): **"No fabricated au
 ---
 
 ## 8. Sanitization note
-No proprietary viva-croatia business/domain content, secrets, or customer data was reproduced. The `viva-croatia-testbed` is referenced by path only as the dogfooding proving ground (as the sources do); the production webapp is noted as off-limits (as the sources state). Route paths like `app/api/auth/passkey/authenticate/start/route.ts` and `app/api/posts/[id]/lock/route.ts` appear verbatim in the design docs as generic illustrative anchors and carry no proprietary content.
+No proprietary testbed business/domain content, secrets, or customer data was reproduced. The `testbed` is referenced by path only as the dogfooding proving ground (as the sources do); the production webapp is noted as off-limits (as the sources state). Route paths like `app/api/auth/passkey/authenticate/start/route.ts` and `app/api/posts/[id]/lock/route.ts` appear verbatim in the design docs as generic illustrative anchors and carry no proprietary content.

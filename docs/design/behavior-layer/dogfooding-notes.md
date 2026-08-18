@@ -1,19 +1,19 @@
 # Phase 1 — Dogfooding Notes & Friction Log
 
 **Started:** 2026-06-28
-**Testbed:** `/Users/main/Documents/projects/viva-croatia-testbed/` (isolated snapshot of the Viva Croatia production webapp — production at `/Users/main/Documents/areas/viva-croatia/webapp/` is **off-limits**, never touch it).
+**Testbed:** `<testbed>/` (isolated snapshot of the testbed production webapp — production at `<production-webapp>/` is **off-limits**, never touch it).
 **Purpose:** Validate Phase 1 (Traceability MVP) against a real project, per vision §9 ("mechanism-first, validated by dogfooding"). Capture provisional-choice corrections and friction as we go.
 
 ---
 
-## Testbed facts (Viva Croatia)
+## Testbed facts (the testbed)
 
 - **Stack:** Next.js 16 (App Router) + React 19 + TypeScript, Prisma 7 (SQLite `dev.db`/`cms.db`), NextAuth 4 (`auth.ts`), pnpm, Tailwind + shadcn/ui, next-intl (`messages/`). CMS-style web app.
 - **Tests: NONE.** No test files, no runner in `devDependencies`, no test script. → exercises the "runner detection reports **none**" case, and the greenfield-adoption path.
 - **Notable for dogfooding:**
   - Uses `@simplewebauthn` (passkeys) — matches the vision's running example; the natural **first spec is passkey auth**.
   - TS path alias `@/* → ./*`, used pervasively (`@/lib/...`, `@/components/...`). This is a **direct stress test of the code-graph substrate debt** (vision §10): `graph_ops.py:198/857` treats non-relative imports as `external` and drops them. Relevant when Phase 2 blast radius lands — expect under-counted dependencies here.
-- **Git baseline:** fresh repo, initial commit `b4fb973` ("import viva-croatia webapp snapshot…"). 307 tracked files. node_modules/.next/.git/.env/.env.local excluded from the snapshot.
+- **Git baseline:** fresh repo, initial commit `b4fb973` ("import testbed webapp snapshot…"). 307 tracked files. node_modules/.next/.git/.env/.env.local excluded from the snapshot.
 
 ## Local-dev install setup (so branch code runs via `/freya-devkit:*`)
 

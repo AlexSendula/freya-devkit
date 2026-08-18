@@ -22,15 +22,88 @@
 
       <section>
         <h2>Install</h2>
-        <div class="code-block">
-          <div class="code-head"><span class="dot"></span><span class="dot"></span><span class="dot"></span>&nbsp; in Claude Code</div>
-          <pre class="code"><code>/plugin marketplace add AlexSendula/freya-devkit
-/plugin install freya-devkit@freya-devkit</code></pre>
+        <p>Two paths. The first works on any agent that loads skills; the second is a Claude Code
+        convenience. <strong>Pick one</strong> — with both, every skill registers twice. Prefer the first:
+        it is the only one that installs the <code>freya</code> launcher the skill layer now speaks in.</p>
+
+        <div class="seg" id="install-seg">
+          <button class="active" data-inst="any">Any agent · recommended</button>
+          <button data-inst="claude">Claude Code · marketplace</button>
         </div>
-        <p>Then every skill is invoked with the plugin namespace, e.g.
-        <code>/freya-devkit:code-graph help</code>. The <code>freya-devkit@freya-devkit</code> string is
-        <code>&lt;plugin&gt;@&lt;marketplace&gt;</code> — the repo hosts its own single-plugin marketplace,
-        so both names match. For local development, point the marketplace at a checkout path instead.</p>
+
+        <div id="install-any">
+          <div class="code-block">
+            <div class="code-head"><span class="dot"></span><span class="dot"></span><span class="dot"></span>&nbsp; any agent</div>
+            <pre class="code"><code>git clone https://github.com/AlexSendula/freya-devkit.git
+cd freya-devkit
+./install.sh
+
+freya doctor          <span class="tok-c"># verify what landed where</span></code></pre>
+          </div>
+          <p>The checkout <em>is</em> the store: <code>install.sh</code> symlinks each skill into your
+          agent's skills directory and places the <code>freya</code> launcher in <code>~/.local/bin</code>.
+          Skills install under their own names — <code>freya-code-graph</code>, <code>freya-wrap-up</code>,
+          and so on. Choose agents explicitly with <code>--agent claude --agent copilot</code>; use
+          <code>--copy</code> where symlinks are awkward (on Windows the installer probes for the privilege
+          and switches to <code>--copy</code> itself if it isn't there), <code>--dry-run</code> to preview,
+          <code>--uninstall</code> to remove.</p>
+          <div class="callout callout--warn">
+            <span class="callout-label">If <code>freya doctor</code> says <em>command not found</em></span>
+            <p><code>~/.local/bin</code> is not on <code>PATH</code> by default on a stock macOS shell, and
+            the installer deliberately does not edit your shell profile. When that directory is missing from
+            <code>PATH</code> it prints the exact line to add — <code>export
+            PATH="$HOME/.local/bin:$PATH"</code> on a POSIX shell, the PowerShell equivalent on Windows. Run
+            it, and put it in your shell profile so it survives the session.</p>
+          </div>
+          <p class="small muted">Keep it current with <code>freya update</code> (fast-forward only, then
+          re-links). Tell a project's agent what the toolkit is with <code>freya init</code>, which writes a
+          marker-delimited section into that project's <code>AGENTS.md</code> and leaves every other byte
+          alone. <a href="portability.html">The mechanics →</a></p>
+        </div>
+
+        <div id="install-claude" style="display:none;">
+          <div class="code-block">
+            <div class="code-head"><span class="dot"></span><span class="dot"></span><span class="dot"></span>&nbsp; in Claude Code</div>
+            <pre class="code"><code>/plugin marketplace add AlexSendula/freya-devkit
+/plugin install freya-devkit@freya-devkit</code></pre>
+          </div>
+          <p>Skills then appear namespaced, e.g. <code>/freya-devkit:freya-code-graph help</code>. The
+          <code>freya-devkit@freya-devkit</code> string is <code>&lt;plugin&gt;@&lt;marketplace&gt;</code> —
+          the repo hosts its own single-plugin marketplace, so both names match. For local development,
+          point the marketplace at a checkout path instead.</p>
+          <div class="callout callout--warn">
+            <span class="callout-label">How <code>freya</code> reaches <code>PATH</code> on this path</span>
+            <p>Since the port, the skill layer speaks in commands rather than paths: <strong>7 of the 10</strong>
+            <code>SKILL.md</code> files invoke <code>freya &lt;command&gt;</code> <strong>102</strong> times in
+            total (spec-manager 38, wrap-up 28, the security scan 14). So the launcher is not optional here —
+            without it those steps fail with <code>command not found</code>.</p>
+            <p>Claude Code supplies it for you. It adds every installed plugin's <code>bin/</code> directory to
+            <code>PATH</code> automatically — <code>~/.claude/plugins/cache/&lt;marketplace&gt;/&lt;plugin&gt;/&lt;version&gt;/bin</code>
+            — so a plugin that ships <code>bin/freya</code> puts <code>freya</code> on <code>PATH</code> with no
+            extra step. Verified directly: an executable placed in that directory resolves by bare name. The
+            entry is version-stamped, but Claude Code re-adds it for whichever version is installed, so
+            <code>/plugin update</code> does not break it.</p>
+            <p>Two honest caveats. This host behaviour is <em>undocumented</em> by Claude Code and nothing in
+            this repo tests it, so it is a dependency worth knowing you have. And on <strong>Windows</strong>
+            the marketplace path still has no runnable launcher: <code>bin/freya</code> is an extensionless
+            shebang script, which Windows cannot execute, and the <code>freya.cmd</code> shim is <em>generated
+            by the installer</em> — which a marketplace install never runs. On Windows, use the clone path
+            above.</p>
+            <p class="small muted">Earlier revisions of this page said a plugin install "puts nothing on
+            <code>PATH</code>" and that <code>01-design.md</code> §Decision 1's first-run bootstrap was a
+            missing prerequisite. That premise was wrong and has been retracted — see the dated correction in
+            <code>01-design.md</code>. No bootstrap is needed.</p>
+          </div>
+          <p class="small muted">The commands below are written in the unprefixed form. On a marketplace
+          install, prefix each one with <code>/freya-devkit:</code>.</p>
+        </div>
+
+        <div class="callout callout--warn" style="margin-top:14px;">
+          <span class="callout-label">Don't run both</span>
+          <p>With a marketplace install <em>and</em> a symlink install, Claude registers every skill twice —
+          once namespaced by the plugin, once from your personal directory. <code>freya doctor</code> warns
+          when it sees this.</p>
+        </div>
       </section>
 
       <section>
@@ -79,11 +152,11 @@
           <p class="muted">There's no code to infer intent from, so bootstrap <strong>skips inference</strong>
           and you author intent forward as you build. This is the easier, intent-first path.</p>
           <ol class="cmd-steps">
-            <li><strong>Bootstrap</strong> — <code>/freya-devkit:spec-manager bootstrap</code> detects greenfield, skips <code>scan</code>, and builds an (empty) behavior graph. It prints: <em>"Greenfield project — no inference run. Author behaviors forward as you build with <code>spec-manager create</code>."</em></li>
-            <li><strong>Scaffold docs</strong> — <code>/freya-devkit:docs-manager init</code>. On a near-empty project many docs are <code>[TODO:]</code> placeholders you fill in as it grows.</li>
-            <li><strong>Author intent</strong> — <code>/freya-devkit:spec-manager create &lt;feature&gt;</code> for each feature as you build it. New specs are certainty 100; add behavior records for observable behavior.</li>
+            <li><strong>Bootstrap</strong> — <code>/freya-spec-manager bootstrap</code> detects greenfield, skips <code>scan</code>, and builds an (empty) behavior graph. It prints: <em>"Greenfield project — no inference run. Author behaviors forward as you build with <code>spec-manager create</code>."</em></li>
+            <li><strong>Scaffold docs</strong> — <code>/freya-docs-manager init</code>. On a near-empty project many docs are <code>[TODO:]</code> placeholders you fill in as it grows.</li>
+            <li><strong>Author intent</strong> — <code>/freya-spec-manager create &lt;feature&gt;</code> for each feature as you build it. New specs are certainty 100; add behavior records for observable behavior.</li>
             <li><strong>Implement + link a test</strong> — write (or link) the test; once it passes, bump the behavior to <code>accepted</code>. Acceptance is a byproduct of implementing, not a separate ceremony.</li>
-            <li><strong>Wrap up</strong> — <code>/freya-devkit:wrap-up</code>. Two commits: code, then artifacts.</li>
+            <li><strong>Wrap up</strong> — <code>/freya-wrap-up</code>. Two commits: code, then artifacts.</li>
           </ol>
         </div>
 
@@ -91,11 +164,11 @@
           <p class="muted">There's real code with intent that was never written down. Bootstrap reverse-engineers
           a review queue of <strong>proposed</strong> candidates — never authoritative, never in the code tree.</p>
           <ol class="cmd-steps">
-            <li><strong>Bootstrap</strong> — <code>/freya-devkit:spec-manager bootstrap</code> detects brownfield and runs <code>scan</code> to infer candidate behaviors (warns first — it spawns discovery agents and can take a while), then builds the behavior graph.</li>
-            <li><strong>Docs from the code</strong> — <code>/freya-devkit:docs-manager init</code> (a separate step — bootstrap doesn't run docs-manager). Docs give the security scan and spec inference architectural context.</li>
-            <li><strong>Security baseline</strong> — <code>/freya-devkit:codebase-security-scan scan</code>. The first run has no prior report; it becomes the baseline.</li>
-            <li><strong>Drain the queue lazily</strong> — nothing needs review immediately. Work the tail with <code>/freya-devkit:status review intent</code> (proposed → confirm) and <code>review tests</code> (confirmed → accept), or let wrap-up's validate-on-hit surface behaviors as you touch their code.</li>
-            <li><strong>Go incremental</strong> — <code>/freya-devkit:wrap-up</code> after each feature, <code>/freya-devkit:status</code> to check where you stand.</li>
+            <li><strong>Bootstrap</strong> — <code>/freya-spec-manager bootstrap</code> detects brownfield and runs <code>scan</code> to infer candidate behaviors (warns first — it spawns discovery agents and can take a while), then builds the behavior graph.</li>
+            <li><strong>Docs from the code</strong> — <code>/freya-docs-manager init</code> (a separate step — bootstrap doesn't run docs-manager). Docs give the security scan and spec inference architectural context.</li>
+            <li><strong>Security baseline</strong> — <code>/freya-codebase-security-scan scan</code>. The first run has no prior report; it becomes the baseline.</li>
+            <li><strong>Drain the queue lazily</strong> — nothing needs review immediately. Work the tail with <code>/freya-status review intent</code> (proposed → confirm) and <code>review tests</code> (confirmed → accept), or let wrap-up's validate-on-hit surface behaviors as you touch their code.</li>
+            <li><strong>Go incremental</strong> — <code>/freya-wrap-up</code> after each feature, <code>/freya-status</code> to check where you stand.</li>
           </ol>
           <p class="small muted">A fresh brownfield <code>behavior.json</code> is <em>near-empty</em> by
           design — <code>scan</code> only produces <code>proposed</code> records, and the graph projects
@@ -128,7 +201,7 @@
       </section>
 
       <div class="next-prev">
-        <a class="np-card" href="governance.html"><div class="np-dir">← Back</div><div class="np-title">Governance</div></a>
+        <a class="np-card" href="portability.html"><div class="np-dir">← Back</div><div class="np-title">Portability</div></a>
         <a class="np-card" href="reference.html" style="text-align:right;"><div class="np-dir">Next →</div><div class="np-title">Reference</div></a>
       </div>
     </div>
@@ -158,6 +231,19 @@
     files.addEventListener("input", compute);
     edges.addEventListener("input", compute);
     compute();
+
+    /* install toggle */
+    var iBtns = document.querySelectorAll("#install-seg button");
+    var iAny = document.getElementById("install-any");
+    var iClaude = document.getElementById("install-claude");
+    iBtns.forEach(function (b) {
+      b.addEventListener("click", function () {
+        var k = b.getAttribute("data-inst");
+        iBtns.forEach(function (x) { x.classList.toggle("active", x === b); });
+        iAny.style.display = k === "any" ? "" : "none";
+        iClaude.style.display = k === "claude" ? "" : "none";
+      });
+    });
 
     /* path toggle */
     var btns = document.querySelectorAll("#path-seg button");

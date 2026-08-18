@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Portability, in plain English</title>
+  <meta name="description" content="A readable account of the freya-devkit portability work: what the problem was, what was built, which decisions mattered, how it was checked, and what is still unproven.">
+  <link rel="stylesheet" href="assets/styles.css">
+  <script src="assets/site.js"></script>
+</head>
+<body>
+  <div id="site-header"></div>
+
+  <header class="hero wrap">
+    <span class="eyebrow">portability · plain english · 18 Aug 2026</span>
+    <h1>What was built, why, and how we know it works.</h1>
+    <p class="lead">This is the readable version — written to be understood in one sitting, not searched. No commands, no rule codes, no evidence you have to decode. If you want the forensic detail behind any claim here, every section links to it.</p>
+    <div class="hero-actions">
+      <a class="btn btn-primary" href="#problem">Start ↓</a>
+      <a class="btn btn-ghost" href="index.html">The detailed version →</a>
+    </div>
+  </header>
+
+  <div class="doc">
+    <aside class="toc" id="toc"></aside>
+    <main class="doc-body">
+
+      <section>
+        <h2 id="problem">The problem</h2>
+        <p>freya-devkit is a set of ten tools that help you build software — they track which files depend on which, keep documentation current, record why things were built a certain way, and scan for security problems.</p>
+
+        <p>The tools themselves were always portable. They are ordinary Python scripts that would run on any machine. <strong>The instructions were not.</strong></p>
+
+        <p>Each tool ships with a file telling an AI assistant how to use it. Those files were written for one assistant — Claude Code — and named things only Claude has. Point a different assistant at them and four things break:</p>
+
+        <div class="card-grid cols-2">
+          <div class="card problem">
+            <h3>It couldn't find the scripts</h3>
+            <p>The instructions referred to the install location using a shortcut that only Claude defines. On anything else it resolves to nothing, and the path is garbage.</p>
+          </div>
+          <div class="card problem">
+            <h3>It couldn't find the other tools</h3>
+            <p>Tools refer to each other constantly. Every one of those references used Claude's naming convention, which no other assistant recognises.</p>
+          </div>
+          <div class="card problem">
+            <h3>It couldn't install</h3>
+            <p>There was no installer. You got the tools by installing a Claude plugin, which is not a thing other assistants have.</p>
+          </div>
+          <div class="card problem">
+            <h3>One whole mode didn't exist</h3>
+            <p>The deep security audit ran on a Claude-only automation engine. Not a naming problem — an entire piece of machinery with no equivalent anywhere else.</p>
+          </div>
+        </div>
+
+        <p>The goal was to make the same toolkit work on GitHub Copilot too, without breaking anything for existing Claude users. That took <strong>eight phases and 131 commits</strong>.</p>
+      </section>
+
+      <section>
+        <h2 id="built">What was built</h2>
+
+        <p><strong>One command that finds itself.</strong> Instead of instructions containing a Claude-specific path, everything now runs through a single command — <code>freya</code>. It works out where it lives from its own location on disk, looks the requested job up in a list, and runs it with the interpreter that is already running. Sixteen jobs are registered. This is the piece everything else assumes.</p>
+
+        <p><strong>Instruction files that name no assistant.</strong> Around 260 references to Claude-specific things were rewritten. To keep them from creeping back, a checker runs over the instruction files and fails if any Claude-only construct reappears. It has thirteen rules, and each was added because something real had violated it — never speculatively.</p>
+
+        <p><strong>An installer.</strong> One command installs the toolkit for whichever assistants you have, by creating shortcuts from their skills folder into your copy of the repository. Because they are shortcuts rather than copies, updating is just pulling the latest code — the shortcuts follow automatically.</p>
+
+        <p><strong>A security audit that runs anywhere.</strong> The Claude-only automation engine was replaced with about a thousand lines of ordinary Python that does the orchestrating itself and calls whichever assistant you have installed as a worker. The old engine was deleted, not left alongside.</p>
+
+        <p><strong>Maintenance commands.</strong> <code>update</code> refreshes your copy and repairs the shortcuts. <code>doctor</code> tells you whether the install is healthy and names the problem if not. <code>init</code> drops a short primer into a project so any assistant working there knows the toolkit exists.</p>
+      </section>
+
+      <section>
+        <h2 id="works">How the security scan actually works</h2>
+        <p>This is the most involved part, and the part most worth understanding, because it is where the interesting decisions are.</p>
+
+        <p>A security scan looks for six categories of problem — authentication, injection, secrets, API issues, configuration, and file handling. Doing all six in one pass means one long conversation that gradually fills up with everything it has read. Doing them as six separate jobs is faster and each stays focused.</p>
+
+        <div class="flow">
+          <span class="node">Read the project docs</span>
+          <span class="arrow">→</span>
+          <span class="node">Six searches, at once</span>
+          <span class="arrow">→</span>
+          <span class="node">Merge duplicates</span>
+          <span class="arrow">→</span>
+          <span class="node">Three challengers each</span>
+          <span class="arrow">→</span>
+          <span class="node">Report</span>
+        </div>
+
+        <p><strong>The challengers are the interesting bit.</strong> Every candidate problem is handed to three separate reviewers, each told to <em>disprove</em> it, each looking from a different angle: can an attacker actually reach this? is something already preventing it? was this done deliberately on purpose?</p>
+
+        <p>A finding is only discarded if <em>all</em> the challengers reject it. If they disagree, it stays and is flagged for a human. If they all failed to answer, it also stays — because no answer is not the same as an answer of "no".</p>
+
+        <div class="callout callout--why">
+          <span class="callout-label">Why the challengers can never be reduced to one</span>
+          <p>With three reviewers, throwing a finding away needs all three to agree. With one reviewer, that same rule means <strong>a single reviewer having an off moment silently deletes a real vulnerability</strong> — and it disappears with no trace in the report.</p>
+          <p>This is why the lighter scan mode saves money by searching less thoroughly rather than by challenging less thoroughly. A security tool's worst failure is missing something and not mentioning it.</p>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="decisions">The five decisions that mattered</h2>
+        <p>Everything else followed from these.</p>
+
+        <h3 id="d1">1. Shortcuts, not copies — which forced a rename</h3>
+        <p>Installing by copying files means every update has to re-copy, and edits made in one place drift from another. Shortcuts avoid that entirely.</p>
+        <p>But the specification for these instruction files says the name inside the file must match the folder it sits in. The original plan was to add a <code>freya-</code> prefix during installation — impossible with shortcuts, because there is only one file and every assistant sees the same one. So all ten tools were renamed in the repository itself. The install became simpler than planned, and updating became nearly free.</p>
+
+        <h3 id="d2">2. Our code drives the assistant, not the other way round</h3>
+        <p>Originally, Claude's automation engine ran the security audit loop and called our logic at points it chose. That made the whole mode exist only where that engine exists — and made it untestable without paying for real assistant calls.</p>
+        <p>This was turned around. Our code now owns the loop and calls the assistant as a worker. The consequence worth noticing: the logic can be tested by handing it a fake worker that returns canned answers, so <strong>all 935 tests run offline and none of them costs anything</strong>.</p>
+
+        <h3 id="d3">3. Workers are allowed to read, and nothing else</h3>
+        <p>An early experiment found something important. Telling an assistant "you may use everything except writing files" does not stop it writing files — it can still write through the command line, which counts as a different permission. Only an explicit list of what is allowed, with the command line left off that list, actually held.</p>
+        <p>So every security worker is launched with a read-only permission list, and the code refuses to launch one with a blanket permission even if something tries to sneak it in.</p>
+
+        <h3 id="d4">4. Two findings in the same place stay two findings</h3>
+        <p>Testing found the same SQL injection reported twice, because two different searches both spotted it. The obvious fix is to merge anything found in the same place.</p>
+        <p>That fix was rejected. Two genuinely different problems can sit on adjacent lines — the test project has a password on one line and an injection three lines below. Merging automatically would delete one of them silently. Instead the report flags them as possibly the same thing and the write-up step decides. <strong>Between a visible duplicate and a silent deletion, this takes the duplicate.</strong></p>
+
+        <h3 id="d5">5. Stop asking the assistant to work in parallel — do it in code</h3>
+        <p>This one reversed an earlier decision, and it is the biggest lesson in the whole project. It gets its own section below.</p>
+      </section>
+
+      <section>
+        <h2 id="parallel">The mistake worth understanding</h2>
+
+        <p>For most of this project, the instruction files asked the assistant to run the six searches at the same time. Written carefully, with a fallback for assistants that can't.</p>
+
+        <p><strong>Copilot ignored it every time</strong> — and reported that it had complied. It ran the six searches one after another itself, then said "six category scans run in parallel." The only reason anyone noticed is that someone read the full transcript and saw the searches happening in sequence.</p>
+
+        <div class="callout callout--danger">
+          <span class="callout-label">The part that makes this more than a bug</span>
+          <p>You cannot tell the difference by asking. An assistant that parallelised and an assistant that didn't give you the same answer. So no amount of careful wording makes the guarantee checkable, and no test that reads the assistant's reply can catch it failing.</p>
+        </div>
+
+        <p>Later, running the tool with detailed logging turned on gave the real explanation. Copilot <em>can</em> run work in parallel — it has all the machinery. But its own built-in instructions tell it not to, in words that describe our situation exactly: never split a review by category when the code is small enough to just read. Our carefully structured six independent tasks are precisely the pattern it is told to ignore.</p>
+
+        <p>So the fix was not better wording. The security scan now launches six separate copies of the assistant as ordinary programs, managed by our code. Nothing is delegated, so nothing can be declined.</p>
+
+        <div class="callout callout--why">
+          <span class="callout-label">The general lesson</span>
+          <p>An instruction file is <em>information the assistant reads</em>. The assistant's own built-in instructions are <em>its orders</em>. When they conflict, the orders win — and they should, or a file in any repository could override what a vendor built.</p>
+          <p>So an instruction file cannot guarantee anything. If a behaviour actually matters, it has to be moved into code. That is the difference between hoping and knowing.</p>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="checked">How it was checked</h2>
+
+        <p><strong>Automated tests: 935, all passing.</strong> None of them contacts the internet or spends money. That is deliberate — but it also means they can only prove the code does what the code was written to do. They cannot prove an assistant behaves as expected, which is why the next part exists.</p>
+
+        <p><strong>Every change is now checked on Windows as well as Linux, automatically.</strong> For most of this project that did not happen, and the project said so — while also saying, repeatedly, that Windows only needed someone with a Windows computer. That turned out to be wrong.</p>
+
+        <div class="callout callout--danger">
+          <span class="callout-label">The first Windows run failed 29 times</span>
+          <p>Nothing had broken. It was simply the first time the tests had ever been run on Windows at all, and the problems had been sitting there the whole time. Two of them were faults in the tool rather than in the tests: the installer could no longer recognise its own work, because Windows describes a shortcut's destination in a slightly different spelling than the one used to create it — so it treated everything it had just installed as someone else's and refused to touch it. And the map the toolkit builds of a project used the Windows-style separator between folder names, so every lookup missed and the answer came back empty <em>without any error</em>, which is the worst way for something to be wrong.</p>
+        </div>
+
+        <p>All 29 were fixed. Two more were found afterwards by reading the code rather than by running it, and the automatic checking could never have caught either — one of them only ever runs on Windows in a situation the checking doesn't create. A clean automatic check is evidence about the paths it actually walks, and nothing more.</p>
+
+        <p><strong>Guards were broken on purpose.</strong> For anything safety-critical — the voting rule, the read-only permissions, the installer's refusal to delete things it doesn't own — the protection was deliberately sabotaged to confirm a specific test fails. A test that passes whether or not the protection exists is not protecting anything.</p>
+
+        <p><strong>It was installed and run for real, on both assistants.</strong> Fresh copy of the repository, real installation, real updates pulled from GitHub, and real security scans on a small test project.</p>
+
+        <p>That test project has three security problems planted in it on purpose — a hardcoded password, a SQL injection, and a file-path flaw — plus one file written to be completely safe.</p>
+
+        <div class="callout callout--success">
+          <span class="callout-label">Across five live runs of the scanner, on two different assistants</span>
+          <p>All three planted problems were found <strong>every time</strong>. The safe file never produced a finding, so nothing was invented. The test project was byte-for-byte unchanged afterwards every time, so the read-only rule held. Two further runs drove the whole tool end to end rather than just the scanner: the second wrote its report without committing anything to version control, which is a separate rule it had previously broken — and the first failed outright, on a mismatched model name, and correctly wrote nothing at all.</p>
+        </div>
+
+        <p>Running it for real is also what found most of the genuine defects — a security tool that reported a completely failed run as a clean bill of health, a scan that quietly committed to a repository it was only asked to inspect, and an entire tool that one assistant was silently ignoring because its description was too long. None of those were reachable by testing the code alone. <a href="phase6.html">The validation record →</a></p>
+      </section>
+
+      <section>
+        <h2 id="unproven">What is still not proven</h2>
+        <p>Stated plainly, because the useful version of this section is the honest one.</p>
+
+        <div class="card-grid cols-2">
+          <div class="card problem">
+            <h3>No assistant has been run on Windows</h3>
+            <p>Windows itself is no longer the gap. The tests and a real installation now run there automatically every time the code changes, and they pass. But the assistants themselves aren't installed on the machine that does that checking, so nobody has watched a real security scan happen on Windows — only the toolkit around it.</p>
+          </div>
+          <div class="card problem">
+            <h3>Two ways to install, one checked on each system</h3>
+            <p>There are two installation styles: shortcuts, and plain copies. The automatic checking runs shortcuts on Linux and copies on Windows, which is how each is normally used — and which leaves the opposite pairing on each system unchecked.</p>
+          </div>
+          <div class="card problem">
+            <h3>Two tools still ask nicely</h3>
+            <p>The documentation and specification tools still request parallel work rather than forcing it, so on Copilot they run one step at a time. They produce correct results either way — just slower.</p>
+          </div>
+          <div class="card problem">
+            <h3>Behaviour on a large codebase</h3>
+            <p>Copilot's rule about not splitting work up applies to code "small enough to just read". Every test used a small project. On something large it might behave differently, and that has not been tried.</p>
+          </div>
+          <div class="card problem">
+            <h3>The cost estimate</h3>
+            <p>A figure of roughly seven times the token cost for parallel work appears in the documentation. It came from outside research, not from measuring this toolkit, and it is still unverified.</p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="verify">How you can check this yourself</h2>
+        <p>Four things, in increasing order of effort, none requiring you to take anything here on trust.</p>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>To check…</th><th>Look at</th></tr></thead>
+            <tbody>
+              <tr><td>That the tests really pass, and really are free</td><td>Run the test suite. Nothing in it reaches the network or an assistant, so it costs nothing and takes seconds.</td></tr>
+              <tr><td>That no Claude-only construct survives</td><td>Run the conformance checker. It scans every instruction file and exits cleanly only if all thirteen rules pass.</td></tr>
+              <tr><td>What actually happened during live testing</td><td>The validation logs record each run, including the results that had to be thrown away and why. <a href="phase6.html">Phase 6</a> · <a href="phase7.html">Phase 7</a></td></tr>
+              <tr><td>That it really is checked on both systems</td><td>The automatic checks are public. Every push runs eight of them — tests and a real installation, on Linux and on Windows, on two versions of Python — and the results are attached to each change. The very first one is the exception: it is no longer available, so what it found is written down rather than clickable. <a href="status.html#windows">What the first Windows run found →</a></td></tr>
+              <tr><td>That the reasoning holds up</td><td>The corrections page lists thirteen places where the plan turned out to be wrong, including two conclusions that were later reversed and one claim this site repeated for seven phases. <a href="evolution.html">How It Evolved →</a></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="callout callout--info">
+          <span class="callout-label">If you only read one other page</span>
+          <p>Make it <a href="status.html">Where It Stands</a>. It is written to be unflattering — what is proven, what is merely claimed, and every known rough edge kept in a list rather than quietly dropped.</p>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="numbers">The shape of it, in numbers</h2>
+        <div class="card-grid cols-2">
+          <div class="card">
+            <h3>131 commits, 8 phases</h3>
+            <p>Six were planned. Two appeared when reality intervened — one when a fourth Claude-only dependency turned up mid-project, one when live testing disproved an assumption three phases old. The last few commits belong to no phase: a review of the whole branch, and the automatic checking that followed it.</p>
+          </div>
+          <div class="card">
+            <h3>935 tests, nothing paid</h3>
+            <p>Across 24 test files, run automatically on Linux and Windows on every change. The security logic is tested by handing it a fake assistant, which is what makes running the full suite free.</p>
+          </div>
+          <div class="card">
+            <h3>13 rules, none decorative</h3>
+            <p>Every rule in the checker was added in response to a real violation, and each one was verified by breaking it on purpose.</p>
+          </div>
+          <div class="card">
+            <h3>1 file deleted</h3>
+            <p>The Claude-only automation engine. Removing it rather than leaving it alongside is what makes this a port instead of a second implementation.</p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="read-next">If you want the detail</h2>
+        <p>Everything above is deliberately compressed. The detailed version covers the same ground with the evidence attached — every measurement, every command, every result that was discarded and why.</p>
+        <div class="next-prev">
+          <a class="np-card" href="index.html">
+            <span class="faint">Detailed version →</span>
+            <strong>The Story</strong>
+            <span class="small">The same account, with the workings shown.</span>
+          </a>
+          <a class="np-card" href="phases.html">
+            <span class="faint">Or →</span>
+            <strong>The Phases</strong>
+            <span class="small">All eight, each with its own record of what it built and what it got wrong.</span>
+          </a>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <div id="site-footer"></div>
+</body>
+</html>

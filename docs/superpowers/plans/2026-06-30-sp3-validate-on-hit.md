@@ -17,7 +17,7 @@
 - **Entry-less proposed are not surfaced** on hit (worklist-only — SP4).
 - **Re-inference is bounded + skippable** — only the affected subset is ever re-inferred, and the whole validate step is skippable, so a large change cannot trigger an unbounded agent fan-out.
 - **Confirm bumps `proposed → confirmed`** (SP1 state) in the spec frontmatter; never auto-accept (tests stay owed). A newly-confirmed spec edit stages as an **artifact** (wrap-up commit 2).
-- **Production webapp `/Users/main/Documents/areas/viva-croatia/webapp/` is OFF-LIMITS.** The dogfood uses only the testbed `/Users/main/Documents/projects/viva-croatia-testbed`.
+- **Production webapp `<production-webapp>/` is OFF-LIMITS.** The dogfood uses only the testbed `<testbed>`.
 
 ---
 
@@ -321,7 +321,7 @@ Expected: PASS — the new `SurfaceTest` and all existing classes (`DirectionATe
 Run:
 ```bash
 cd /Users/main/Documents/projects/freya-devkit
-python skills/behavior-graph/scripts/behavior_graph.py --surface --base HEAD --project /Users/main/Documents/projects/viva-croatia-testbed
+python skills/behavior-graph/scripts/behavior_graph.py --surface --base HEAD --project <testbed>
 ```
 Expected: valid JSON with the three buckets (likely empty `validate_candidates`/`recall_gaps` with `base HEAD` since there is no diff, and a `note` about no changed files). Confirms the CLI wiring and that it never errors. Do not modify/commit testbed state.
 

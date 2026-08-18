@@ -38,7 +38,7 @@ The 10 skills present under `skills/`: `behavior-graph`, `behavior-runner`, `cod
   "name": "freya-devkit",
   "version": "0.1.0",
   "description": "An integrated AI-assisted development toolkit: dependency graphs, documentation, feature specs, security scanning/resolution, and a post-implementation wrap-up workflow that keeps them all in sync.",
-  "author": { "name": "Alex", "email": "dev+github@alexsendula.com" },
+  "author": { "name": "Alex", "email": "github@alexsendula.com" },
   "license": "MIT",
   "keywords": ["skills", "code-graph", "dependencies", "documentation", "specs", "security", "workflow", "wrap-up"]
 }
@@ -49,7 +49,7 @@ Key fields for mechanics: `name` (`freya-devkit`) and `version` (`0.1.0`, semver
 ```json
 {
   "name": "freya-devkit",
-  "owner": { "name": "Alex", "email": "dev+github@alexsendula.com" },
+  "owner": { "name": "Alex", "email": "github@alexsendula.com" },
   "description": "Freya devkit marketplace — the freya-devkit AI-assisted development plugin.",
   "plugins": [
     {

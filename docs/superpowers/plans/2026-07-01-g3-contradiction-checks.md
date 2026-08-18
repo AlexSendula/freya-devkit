@@ -615,7 +615,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ## Dogfood (after all tasks, on the testbed — not part of the plan's commits)
 
-On the testbed (`/Users/main/Documents/projects/viva-croatia-testbed`), on a throwaway branch: ensure `principles.md` has a sharp rule and there are ≥2 same-category specs with decisions. (1) Add/adjust a spec decision that contradicts a principle → run the G3 procedure → confirm it surfaces the `principle:N` finding + resolve-to-proceed. (2) Refute it (`resolve --verdict refuted`) → confirm logged; re-run unchanged → confirm the agent would auto-clear from `prior`. (3) Supersede it and confirm `prior` drops it while the file keeps both lines. (4) Two same-category specs with conflicting decisions → confirm a peer (`SPEC-NNN`) finding surfaces as reconcile. Restore the testbed to `main` and delete the branch. Production webapp off-limits.
+On the testbed (`<testbed>`), on a throwaway branch: ensure `principles.md` has a sharp rule and there are ≥2 same-category specs with decisions. (1) Add/adjust a spec decision that contradicts a principle → run the G3 procedure → confirm it surfaces the `principle:N` finding + resolve-to-proceed. (2) Refute it (`resolve --verdict refuted`) → confirm logged; re-run unchanged → confirm the agent would auto-clear from `prior`. (3) Supersede it and confirm `prior` drops it while the file keeps both lines. (4) Two same-category specs with conflicting decisions → confirm a peer (`SPEC-NNN`) finding surfaces as reconcile. Restore the testbed to `main` and delete the branch. Production webapp off-limits.
 
 ---
 

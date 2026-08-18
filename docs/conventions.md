@@ -10,18 +10,26 @@ While the official skill-development guide covers general structure, here are ec
 
 ```yaml
 ---
-name: my-skill
+name: freya-my-skill
 description: |
   Clear description of what this skill does.
 
   TRIGGER when: user says "X", "Y", "Z" or mentions specific keywords.
 
-  INTEGRATION: Uses /other-skill (when available) for purpose.
-  Used by: /wrapper-skill for orchestration.
+  INTEGRATION: Uses freya-other-skill (when available) for purpose.
+  Used by: freya-wrapper-skill for orchestration.
 ---
 ```
 
 The `INTEGRATION` and `Used by` lines help AI agents understand relationships.
+
+Note the cross-reference form: `freya-<skill>`, no leading slash and no
+`/freya-devkit:` namespace. A slash form is a Claude Code invocation and does not
+resolve on a portable install; the namespaced form is Claude's alone. See
+[CONTRIBUTING.md](../CONTRIBUTING.md) — "Cross-references use the prefixed skill
+name". `name:` must also equal the skill's directory name, so a skill in
+`skills/freya-my-skill/` declares `name: freya-my-skill`
+(`bin/check_skill_conformance.py` rule R8).
 
 ### Integration Section in Body
 
@@ -30,14 +38,34 @@ The `INTEGRATION` and `Used by` lines help AI agents understand relationships.
 
 ### Dependencies
 - **Required**: None (or list required skills)
-- **Optional**: /freya-devkit:code-graph for impact analysis
+- **Optional**: freya-code-graph for impact analysis
 
 ### Used By
-- /freya-devkit:wrap-up includes this skill in its workflow
+- freya-wrap-up includes this skill in its workflow
 
 ### Fallback Behavior
-If /freya-devkit:code-graph is not available, falls back to git diff analysis.
+If freya-code-graph is not available, falls back to git diff analysis.
 ```
+
+## Invoking Bundled Scripts
+
+A SKILL.md never spells out a path to its own scripts. It calls the launcher:
+
+```markdown
+Build the graph:
+
+    freya code-graph --build --dir <project>
+```
+
+`freya` self-locates from its own `__file__`, resolves the command through
+`bin/commands.json`, and runs the target with `sys.executable` — so no `python` needs
+to be on `PATH` and no agent-specific path variable is involved. Register any new
+`__main__`-bearing script under `skills/*/scripts/` in `bin/commands.json` or it is
+unreachable through `freya` (rule R3 flags a `freya <command>` with no manifest entry;
+`bin/test_freya_cli.py` fails if a script has no entry at all).
+
+Mind the one-character distinction: `freya <command>` (space) is the CLI;
+`freya-<skill>` (hyphen) is a skill name. They are never interchangeable.
 
 ## Command Patterns
 
@@ -65,7 +93,7 @@ Example:
 Always include a help command:
 
 ```markdown
-### `/my-skill help`
+### `freya-my-skill help`
 
 Display usage information including:
 - What the skill does
@@ -110,8 +138,8 @@ Skills that benefit from dependency awareness should:
 ### Check Availability
 
 ```markdown
-**If `/freya-devkit:code-graph` skill is available:**
-- Call `/freya-devkit:code-graph impact <changed-files>` for blast radius
+**If `freya-code-graph` skill is available:**
+- Call `freya-code-graph impact <changed-files>` for blast radius
 - Include dependent files in processing
 
 **If code-graph is not available (fallback):**
@@ -125,8 +153,8 @@ Skills that benefit from dependency awareness should:
 ### Phase 2: Impact Analysis
 
 1. Get changed files from git diff
-2. **If `/freya-devkit:code-graph` available:**
-   - `/freya-devkit:code-graph impact <changed-files>` → blast radius
+2. **If `freya-code-graph` available:**
+   - `freya-code-graph impact <changed-files>` → blast radius
    - Process all files in blast radius
 3. **Fallback:**
    - Process only directly changed files
@@ -137,7 +165,7 @@ Skills that benefit from dependency awareness should:
 ```markdown
 ## Code-Graph Integration
 
-When available, this skill uses /freya-devkit:code-graph for:
+When available, this skill uses freya-code-graph for:
 - Impact analysis in update mode
 - Understanding dependency chains
 
@@ -248,7 +276,7 @@ Beyond the official skill-development guidelines:
 
 ```markdown
 # Good
-This skill uses /freya-devkit:code-graph for impact analysis when available.
+This skill uses freya-code-graph for impact analysis when available.
 
 # Avoid
 This skill requires the code-graph skill (install from...).
@@ -268,32 +296,50 @@ This is definitely how it works.
 
 ```markdown
 # Good
-If /freya-devkit:code-graph unavailable, falls back to git diff.
+If freya-code-graph unavailable, falls back to git diff.
 This provides reduced coverage but remains functional.
 
 # Avoid
 Requires code-graph to work.
 ```
 
+## Artifacts, Not Commits
+
+A skill **writes** its artifacts and stops. Staging and committing them is
+`freya-wrap-up`'s job and nobody else's — that separation is what makes the
+[two-commit pattern](patterns.md#pattern-two-commit-separation) hold.
+
+Say so explicitly in the skill body. Five skills already carry a short
+"Artifacts, not commits" paragraph, and the reason is empirical: phase-6 validation
+watched an agent with broad tool permissions infer a `git commit` that no skill had
+asked for. An agent will fill in the step you left implicit, so leave none. No
+conformance rule can check this — prose is the only lever a skill has — which is why
+it is a checklist item below rather than something the gate catches for you.
+
 ## Creating New Skills
 
 When creating a skill for this ecosystem:
 
 1. **Check existing skills** - Can you extend an existing one?
-2. **Consider integration** - Would this benefit from code-graph? spec-manager?
+2. **Consider integration** - Would this benefit from freya-code-graph? freya-spec-manager?
 3. **Follow patterns** - Coordinator+workers? Incremental updates?
 4. **Document integration** - Add INTEGRATION section to frontmatter
 5. **Provide fallbacks** - What happens if dependencies are missing?
 6. **Place artifacts correctly** - Follow the knowledge-base/ structure
+7. **Stay agent-neutral** - `python3 bin/check_skill_conformance.py` must exit 0
 
 ## Integration Checklist
 
 Before considering a skill complete for this ecosystem:
 
 - [ ] Frontmatter includes TRIGGER phrases
+- [ ] `name:` equals the directory name, and both carry the `freya-` prefix
 - [ ] INTEGRATION section documents dependencies
 - [ ] Fallback behavior described if dependencies missing
 - [ ] Artifacts placed in appropriate knowledge-base/ subdirectory
+- [ ] **The skill writes artifacts and does not stage or commit them — and says so**
 - [ ] Tracking file convention followed (if incremental)
 - [ ] Help command included
-- [ ] Cross-references to related skills where appropriate
+- [ ] Cross-references to related skills where appropriate, as `freya-<skill>`
+- [ ] Any fan-out carries the scheduling clause (see [CONTRIBUTING.md](../CONTRIBUTING.md))
+- [ ] `python3 bin/check_skill_conformance.py` exits 0

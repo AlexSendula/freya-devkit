@@ -149,7 +149,9 @@ knowledge-base/security/.../2026-07-12.md</code></pre>
           <div class="card">
             <h3>Worker specialization</h3>
             <p class="muted">Spawn domain-specialized agents rather than generic ones — one per doc type,
-            one per security category. Sharper than a single do-everything pass.</p>
+            one per security category. Sharper than a single do-everything pass. Who <em>schedules</em>
+            them differs: docs and specs ask the agent, the security scan
+            <a href="portability.html">does it in code</a>.</p>
           </div>
         </div>
       </section>
@@ -163,11 +165,12 @@ knowledge-base/security/.../2026-07-12.md</code></pre>
           <tbody>
             <tr><td>Frontmatter declarations</td><td><code>TRIGGER</code> phrases, an <code>INTEGRATION</code> line ("uses X when available"), and a <code>Used by</code> line let agents understand relationships.</td></tr>
             <tr><td>scan vs update</td><td><code>scan</code>/<code>build</code>/<code>init</code> = full, first-time or complete refresh. <code>update</code> = git-aware incremental (the day-to-day default).</td></tr>
-            <tr><td>Namespaced cross-references</td><td>Skills call each other as <code>/freya-devkit:&lt;skill&gt;</code> — the bare <code>/&lt;skill&gt;</code> form only resolves for loose <code>~/.claude/skills/</code> installs.</td></tr>
+            <tr><td>Cross-references by name</td><td>Skills call each other by their installed name, <code>freya-&lt;skill&gt;</code> — never by a host-specific namespace or a path. (A marketplace install prefixes them, which is why the plain name is what the prose says.)</td></tr>
             <tr><td>Artifact locations</td><td>Output goes to the right <code>knowledge-base/</code> subdirectory for its type — docs to <code>reference/</code>, specs to <code>specs/</code>, findings to <code>security/</code>.</td></tr>
             <tr><td>Dated-report idempotency</td><td>Reports are written to <code>&lt;type&gt;/YYYY-MM-DD.md</code>; same date = same file (git provides history).</td></tr>
             <tr><td>Tracking files</td><td><code>.&lt;skill&gt;-last-&lt;action&gt;</code> with a <code>commit</code> + <code>timestamp</code>, next to the skill's primary output.</td></tr>
-            <tr><td>Bundled script paths</td><td>Scripts are referenced via <code>${CLAUDE_PLUGIN_ROOT}</code> and always quoted (install paths can contain spaces).</td></tr>
+            <tr><td>Commands, not paths</td><td>Scripts are invoked as <code>freya &lt;command&gt;</code> through the launcher, which resolves both the suite's location and the Python interpreter. No <code>SKILL.md</code> names a filesystem path. <a href="portability.html">Why →</a></td></tr>
+            <tr><td>Fan-out carries a fallback</td><td>Any flow that asks for parallel workers states what to do if the agent won't delegate — or, for the security scan, doesn't ask at all and schedules the work itself. Enforced by conformance rule <code>R9</code>.</td></tr>
           </tbody>
         </table></div>
       </section>
@@ -180,12 +183,11 @@ knowledge-base/security/.../2026-07-12.md</code></pre>
         <div class="callout callout--warn">
           <span class="callout-label">Prose vs. implementation</span>
           <ul style="margin:0;">
-            <li><strong>"Seven skills"</strong> — the README tagline predates the behavior layer; <strong>ten</strong> skills ship.</li>
             <li><strong>Artifact root</strong> — a few templates/evals still write to the old <code>docs/</code> layout; <code>knowledge-base/</code> is authoritative (there's a documented migration).</li>
             <li><strong><code>.graph/</code> version control</strong> — some prose calls the graph "version-controlled," but the code auto-ignores the whole cache dir. It's a regenerable local cache by default.</li>
             <li><strong>Certainty wording</strong> — the action column differs between two docs ("Trust it" vs "Accept automatically"); same bands, different phrasing.</li>
-            <li><strong><code>behavior-graph</code> CLI</strong> — its SKILL.md documents 3 modes; the script implements 7 (the rest are used by wrap-up, status, and the security scan).</li>
-            <li><strong>Portability</strong> — several steps (≈13 in <code>spec-manager</code>, 2 in <code>wrap-up</code>) hardcode an absolute install path instead of <code>${CLAUDE_PLUGIN_ROOT}</code>; the portable form is canonical (a known parking-lot item).</li>
+            <li><strong>Portability</strong> — <em>closed.</em> Hardcoded install paths and Claude-only invocations are gone from the skill layer, and a <a href="portability.html">conformance checker with no exemptions</a> fails the build if one comes back — "fails the build" is now literal: CI runs both gates on Linux and Windows on every push. The first Windows run found <a href="portability.html">29 pre-existing failures</a>, all since fixed. What remains untested is a <em>live agent run</em> on Windows — the runner has no agent CLI — and fan-out behaviour on a large codebase.</li>
+            <li><strong>Older docs still say <code>${CLAUDE_PLUGIN_ROOT}</code></strong> — 200-odd references survive in <code>docs/design</code>, past implementation plans and these explainers. Those are deliberately left as a record of what was true when written; the shipped skill layer is the ground truth, and rule <code>R1</code> fails the build if one comes back into it.</li>
           </ul>
         </div>
       </section>

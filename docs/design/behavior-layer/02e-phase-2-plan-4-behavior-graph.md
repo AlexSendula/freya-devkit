@@ -6,7 +6,7 @@
 
 **Architecture:** A new stdlib-only Python skill `skills/behavior-graph/`. It is the pure, deterministic graph layer that sits *above* `code-graph` (queried for blast radius) and `behavior-runner` (shelled out to for fingerprints), per the two-skill split in `02-phase-2.md` §5b. `behavior.json` lives at `<project>/knowledge-base/.graph/behavior.json` (sibling to `graph.json`, in the git-ignored `.graph/` dir). Merge-by-trust: `observed > static`; a `test-failed` run **invalidates** a behavior's edges; any other `unknown` (`level-deferred`/`no-entry`/`no-graph`/`no-coverage`/`entry-missing`/`not-run`) **preserves** the prior fingerprint. Incremental re-run selection, freshness staleness, wrap-up wiring, F5/F3, and measurement are **Plan 5** (out of scope here).
 
-**Tech Stack:** Python 3 (stdlib only). Consumes `behavior-runner/scripts/run_behaviors.py --emit-fingerprints` and `code-graph/scripts/graph_ops.py --impact`. Proven on the **testbed** (`/Users/main/Documents/projects/viva-croatia-testbed`).
+**Tech Stack:** Python 3 (stdlib only). Consumes `behavior-runner/scripts/run_behaviors.py --emit-fingerprints` and `code-graph/scripts/graph_ops.py --impact`. Proven on the **testbed** (`<testbed>`).
 
 ## Global Constraints
 
@@ -24,7 +24,7 @@
 - `skills/behavior-graph/scripts/test_behavior_graph.py` — stdlib `unittest` tests (new).
 - `skills/behavior-graph/SKILL.md` — skill definition + commands (new).
 
-**viva-croatia-testbed:** no source changes — used as the proving ground (build `behavior.json`, query both directions). `behavior.json` is written under the git-ignored `.graph/`.
+**testbed:** no source changes — used as the proving ground (build `behavior.json`, query both directions). `behavior.json` is written under the git-ignored `.graph/`.
 
 ---
 
@@ -630,16 +630,16 @@ Then the real end-to-end (the testbed has accepted BEH-002 unit + BEH-003 integr
 ```bash
 # Build the behavior graph for the testbed:
 python /Users/main/Documents/projects/freya-devkit/skills/behavior-graph/scripts/behavior_graph.py \
-  --build --project /Users/main/Documents/projects/viva-croatia-testbed
+  --build --project <testbed>
 ```
 Expected: JSON with `behaviors.BEH-002.coverage == "observed"` (exercises `lib/webauthn.ts`) and `behaviors.BEH-003.coverage == "static"` (exercises the route + `lib/prisma.ts` + `lib/webauthn.ts`).
 ```bash
 # Direction A — change lib/webauthn.ts → both behaviors are affected:
-python …/behavior_graph.py --affected lib/webauthn.ts --project /Users/main/Documents/projects/viva-croatia-testbed
+python …/behavior_graph.py --affected lib/webauthn.ts --project <testbed>
 # Expected: {"affected": ["BEH-002", "BEH-003"]}
 
 # Direction B — BEH-003 → its implementing code:
-python …/behavior_graph.py --implements BEH-003 --project /Users/main/Documents/projects/viva-croatia-testbed
+python …/behavior_graph.py --implements BEH-003 --project <testbed>
 # Expected: {"implements": ["app/api/auth/passkey/authenticate/start/route.ts", "lib/prisma.ts", "lib/webauthn.ts"]}
 ```
 (If the runner emits BEH-003 as `unknown` because the testbed code-graph is stale, refresh it: `graph_ops.py --update --dir <testbed> --non-interactive`, then rebuild.)

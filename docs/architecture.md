@@ -62,6 +62,38 @@ These skills maintain structured knowledge about the codebase. `behavior-graph` 
 
 Security analysis benefits from impact awareness (code-graph) and from understanding intentional design — both declarative specs and **accepted, test-backed behaviors** (the strongest "intentional" evidence).
 
+#### The audit driver
+
+`codebase-security-scan` is the one skill whose fan-out is **not** prose. Its `scan` and
+`audit` modes call `freya security <mode>`, a driver that owns the control flow itself:
+
+```
+freya security scan|audit
+    │
+    ├─ one context call, then N category finders on a bounded process pool
+    │     each an independent headless agent CLI (`claude -p` / `copilot -p`)
+    │     under an explicit read-only tool allowlist — no writes, no shell
+    ├─ dedup by file + line-window + category, across rounds
+    ├─ three adversarial lenses per surviving finding, majority vote
+    └─ a JSON array of verified findings on stdout; the skill formats the report
+```
+
+The two modes are presets of one engine and differ **only** in discovery rounds — `scan`
+runs one, `audit` loops until dry (max 5). Verification is never cut, because a single
+lens's refutation is unanimous and would drop a real finding silently.
+
+Why a driver rather than the prose fan-out every other skill uses: validation watched a
+host agent run a six-way fan-out itself, sequentially, and then report it as parallel —
+and an agent's own account of its work cannot distinguish the two. The workers here are
+separate OS processes, so no agent gets a vote. The trade is that the driver needs an
+agent CLI on `PATH`; without one it exits `1` and the skill falls back to an in-loop
+scan. It also spends real money, which is why it refuses to run unconfirmed and why
+`wrap-up` uses `update`, never `audit`.
+
+The other two fan-outs (`docs-manager`, `spec-manager scan`) stay prose deliberately —
+their workers *write files*, which inverts the read-only property the driver's guarantee
+rests on. See [patterns.md](patterns.md#pattern-coordinator--independent-tasks).
+
 ### Tier 4: Orchestration
 
 | Skill | Purpose | Dependencies |
@@ -187,7 +219,7 @@ Skills gracefully degrade when dependencies are missing:
 ```yaml
 # Example from docs-manager
 if code-graph available:
-    blast_radius = /freya-devkit:code-graph impact <changed-files>
+    blast_radius = freya-code-graph impact <changed-files>
     update docs for affected files
 else:
     # Fallback to simple git diff
@@ -198,19 +230,39 @@ This means skills work standalone but work better together. The behavior layer d
 
 ## Directory Structure
 
-Skills live at the plugin repo's `skills/` directory (scripts are referenced at runtime via `${CLAUDE_PLUGIN_ROOT}/skills/<skill>/scripts/…`):
+The checkout is the **canonical store**. It has two layers: `bin/` (the launcher and the
+install/update machinery, agent-independent) and `skills/` (the ten skills). Installing
+links a `freya-<skill>` directory into an agent's skills directory; nothing is rewritten
+on the way in.
+
+```
+bin/
+├── freya                       # executable shim — the only thing that lands on PATH
+├── freya_cli.py                # dispatch, `doctor`, `help`; logic lives here, importable
+├── commands.json               # command -> skills/<skill>/scripts/<script>.py manifest
+├── installer.py                # install.sh / install.ps1 back end: link, --copy, uninstall
+├── updater.py                  # `freya update` (fast-forward + re-link) + the update notice
+├── agents_md.py                # `freya init` — the managed AGENTS.md block
+└── check_skill_conformance.py  # the agent-neutrality gate (R1–R13)
+```
+
+`freya <command> …` resolves through `bin/commands.json` and runs the target with
+`sys.executable`, so a SKILL.md never names an interpreter or a path. `bin/freya`
+self-locates via `Path(__file__).resolve()`, and because `.resolve()` follows symlinks, a
+skill linked into an agent's directory still resolves back to the store where its
+siblings live.
 
 ```
 skills/
-├── code-graph/
+├── freya-code-graph/
 │   ├── SKILL.md
 │   └── scripts/
 │       └── graph_ops.py
-├── docs-manager/
+├── freya-docs-manager/
 │   ├── SKILL.md
 │   └── scripts/
 │       └── detect_project.py
-├── spec-manager/
+├── freya-spec-manager/
 │   ├── SKILL.md
 │   ├── scripts/
 │   │   ├── search_specs.py       # spec CRUD / search
@@ -219,31 +271,41 @@ skills/
 │   │   ├── principles.py         # G2 principle checkpoint
 │   │   ├── contradictions.py     # G3 contradiction check
 │   │   ├── drift.py              # P4b declarative-drift check
+│   │   ├── intent.py             # INTENT-NNN records
 │   │   ├── verify_intent.py      # G1 declared-intent gate
 │   │   ├── verify_links.py       # link integrity
+│   │   ├── adapters.py           # test-adapter detection
+│   │   ├── project_shape.py      # greenfield / brownfield detection for `bootstrap`
 │   │   └── resolution_log.py     # shared append-only resolution log
 │   └── references/
 │       ├── spec-template.md
-│       └── categories.md
-├── behavior-graph/
+│       ├── categories.md
+│       └── ...
+├── freya-behavior-graph/
 │   ├── SKILL.md
 │   └── scripts/
 │       └── behavior_graph.py
-├── behavior-runner/
+├── freya-behavior-runner/
 │   ├── SKILL.md
 │   └── scripts/
 │       └── run_behaviors.py
-├── codebase-security-scan/
+├── freya-codebase-security-scan/
+│   ├── SKILL.md
+│   ├── scripts/                    # the audit driver (see below)
+│   │   ├── audit.py                # CLI, budget guard, confirmation, exit codes
+│   │   ├── audit_engine.py         # discovery loop, dedup, skeptic voting, disposition
+│   │   ├── audit_adapter.py        # per-agent argv (claude / copilot) + read-only flags
+│   │   └── audit_io.py             # categories, lenses, JSON schemas, extract + validate
+│   └── references/
+├── freya-codebase-security-resolver/
 │   └── SKILL.md
-├── codebase-security-resolver/
+├── freya-dependency-vulnerability-check/
 │   └── SKILL.md
-├── dependency-vulnerability-check/
-│   └── SKILL.md
-├── status/
+├── freya-status/
 │   ├── SKILL.md
 │   └── scripts/
 │       └── collect_status.py
-└── wrap-up/
+└── freya-wrap-up/
     └── SKILL.md
 ```
 

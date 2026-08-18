@@ -2,7 +2,7 @@
 
 Quick reference for all ten skills, grouped by the five tiers of the ecosystem.
 
-> **Invocation & namespacing.** These skills ship as the `freya-devkit` plugin, so they are invoked with the plugin namespace: `/freya-devkit:<skill> [args]` (e.g. `/freya-devkit:code-graph build`). The bare `/code-graph` form only works for skills installed loose in `~/.claude/skills/`, not for plugin-installed skills.
+> **Invocation & namespacing.** Skill names are `freya-<skill>` (e.g. `freya-code-graph`). Installed portably via `install.sh` (any agent), a skill is invoked as `/freya-<skill> [args]` (e.g. `/freya-code-graph build`). Installed via the Claude marketplace plugin, it's namespaced instead: `/freya-devkit:freya-<skill> [args]` (e.g. `/freya-devkit:freya-code-graph build`). See the [README](../README.md#installation) for both install paths.
 
 ## Core Skills
 
@@ -126,18 +126,38 @@ Quick reference for all ten skills, grouped by the five tiers of the ecosystem.
 
 ### codebase-security-scan
 
-**Purpose**: Comprehensive security audit using parallel subagents.
+**Purpose**: Comprehensive security audit, scanning each category as an independent task (run in parallel where the agent supports it).
 
 **Triggers**: "scan codebase for security", "security audit", "code security check"
 
 **Commands**:
 | Command | Description |
 |---------|-------------|
-| `scan` | Full codebase scan |
-| `update` | Incremental scan (changed files only) |
+| `scan` | Full codebase scan, run by the `freya security scan` driver (one discovery round, three verification lenses). **Paid** — drives a real agent CLI. |
+| `update` | Incremental scan (changed files only); stays in the main loop, since the driver cannot express a git-diff scope. Free, and what `wrap-up` runs. Its first run on a repo with no tracker does a full **in-loop** pass rather than falling into the paid driver. |
 | `impact <file>` | Security implications for a file |
 | `check-specs` | Cross-reference findings against specs |
-| `audit` | Exhaustive discovery + adversarial verification (Workflow-powered); on-demand / pre-release, not part of wrap-up |
+| `audit` | Same driver, exhaustive discovery (`freya security audit`); on-demand / pre-release, **not** part of wrap-up |
+
+`scan` and `audit` are two presets of one driver — it owns the fan-out over the six
+categories rather than asking the agent to schedule it. `--agent` picks the worker CLI
+and `--model` names a model **of that CLI**; pass both or neither. `--max-calls` is the
+cost ceiling, `--concurrency` the pool width, `--dry-run` prints the cost plan and spends
+nothing, and `--yes` answers the spend confirmation up front — without it a run with no
+tty declines rather than blocking.
+
+Its exit code is the first thing to read, and only one value means "fall back":
+
+| Exit | Meaning |
+|---|---|
+| `0` | Complete — the JSON array on stdout is the whole result |
+| `1` | **No agent CLI on PATH, and nothing else** — the only case where the skill runs the scan in its own loop instead |
+| `2` | Failed — bad project path, no usable answers, or a ceiling too low to verify one finding |
+| `3` | Incomplete — the ceiling stopped it early, tasks went unanswered, or discovery was truncated. Report the findings, never call the run clean |
+| `4` | Declined — confirmation refused, or non-interactive without `--yes`. Nothing ran, nothing was spent; re-run with `--yes` |
+
+An empty array with exit `0` means clean. An empty array with any other code means the
+scan did not run.
 
 **Output**: `knowledge-base/security/codebase-security/YYYY-MM-DD.md`
 
@@ -175,11 +195,11 @@ Quick reference for all ten skills, grouped by the five tiers of the ecosystem.
 
 **Workflow**:
 1. Commit code changes (if any)
-2. `/freya-devkit:code-graph update`
-3. `/freya-devkit:docs-manager update`
-4. `/freya-devkit:spec-manager update`
+2. `freya-code-graph update`
+3. `freya-docs-manager update`
+4. `freya-spec-manager update`
 5. Behavior integrity & accepted-behavior run (Phase 3.5) — deterministic link/ADR/declared-intent gates + `behavior-graph --check`, then the G2/G3/P4b resolve-to-proceed checkpoints
-6. `/freya-devkit:codebase-security-scan update`
+6. `freya-codebase-security-scan update`
 7. Commit artifacts
 
 **Uses**: All core skills (orchestrates them)
@@ -227,18 +247,23 @@ Tier 5  codebase-security-resolver
 
 | I want to... | Use this skill |
 |--------------|----------------|
-| Understand code dependencies | `/freya-devkit:code-graph query <file>` |
-| See what's affected by a change | `/freya-devkit:code-graph impact <file>` |
-| Set up project docs | `/freya-devkit:docs-manager init` |
-| Update docs after changes | `/freya-devkit:docs-manager update` |
-| Create a feature spec | `/freya-devkit:spec-manager create <name>` |
-| Generate specs from code | `/freya-devkit:spec-manager scan` |
-| Check for security issues | `/freya-devkit:codebase-security-scan scan` |
-| Fix security issues | `/freya-devkit:codebase-security-resolver` |
-| Check dependencies for vulnerabilities | `/freya-devkit:dependency-vulnerability-check` |
-| See which behaviors a change affects | `/freya-devkit:behavior-graph --affected <file>` |
-| Finish implementing a feature | `/freya-devkit:wrap-up` |
-| Check what intent / tests / findings are outstanding | `/freya-devkit:status` |
+| Understand code dependencies | `freya-code-graph query <file>` |
+| See what's affected by a change | `freya-code-graph impact <file>` |
+| Set up project docs | `freya-docs-manager init` |
+| Update docs after changes | `freya-docs-manager update` |
+| Create a feature spec | `freya-spec-manager create <name>` |
+| Generate specs from code | `freya-spec-manager scan` |
+| Check for security issues | `freya-codebase-security-scan scan` |
+| Fix security issues | `freya-codebase-security-resolver` |
+| Check dependencies for vulnerabilities | `freya-dependency-vulnerability-check` |
+| See which behaviors a change affects | `freya-behavior-graph --affected <file>` |
+| Finish implementing a feature | `freya-wrap-up` |
+| Check what intent / tests / findings are outstanding | `freya-status` |
+| Refresh the toolkit itself | `freya update` |
+| Preview an update without applying it | `freya update --dry-run` |
+| Pick the update up in a session already open | Claude Code `/reload-skills`, Copilot `/skills` |
+| Introduce the toolkit in a project's AGENTS.md | `freya init` |
+| Check the installation is healthy | `freya doctor` |
 
 ## File Locations
 
@@ -255,3 +280,5 @@ Tier 5  codebase-security-resolver
 | Security reports | `knowledge-base/security/codebase-security/YYYY-MM-DD.md` |
 | Spec tracking | `knowledge-base/specs/.spec-last-update` |
 | Security tracking | `knowledge-base/security/.security-last-scan` |
+| Update-check throttle | `~/.freya/update-check.json` |
+| Project agent primer | `AGENTS.md` (managed block only) |

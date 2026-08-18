@@ -11,3 +11,7 @@ docs/.code-graph/
 
 # Plugin runtime marker (created when this repo is symlinked as a local-dev plugin install)
 .in_use/
+
+# Local agent settings: contains absolute paths from whoever ran it.
+# Ignored globally on the author's machine; pinned here so a fresh clone is safe too.
+.claude/settings.local.json

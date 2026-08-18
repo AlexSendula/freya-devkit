@@ -2,23 +2,65 @@
 
 Reusable patterns that appear across multiple skills. These are conventions, not requirements - use them when they fit.
 
-## Pattern: Coordinator + Parallel Workers
+## Pattern: Coordinator + Independent Tasks
 
-**Problem**: Processing a large codebase is slow if done sequentially.
+**Problem**: Processing a large codebase is slow if done one task at a time — but
+not every agent can run tasks concurrently, so the pattern can't assume it will.
 
-**Solution**: One coordinator plans, multiple workers execute in parallel.
+**Two solutions, and the second one replaced the first where it mattered most.**
+
+*Prose fan-out (`freya-docs-manager`, `freya-spec-manager`).* One coordinator plans,
+then presents N independent, self-contained tasks and schedules them with the canonical
+block, copied byte-for-byte between the two skills. It says three things: run them **in
+parallel — the default — if your agent supports subagents**; if it cannot, run them **one
+at a time, all of them, in order**; and on a large project a sequential run accumulates
+every task's reading context into a single window and may not fit, so narrow the scope
+rather than let it truncate. It also names the awkward case explicitly — Copilot *does*
+have subagents, but its own instructions tell it not to split a small-enough scope, so by
+default it runs the tasks itself and may still describe them as parallel.
+`bin/check_skill_conformance.py` rule R9 enforces the floor: any fan-out language must be
+accompanied by the sentinel phrase *and* a sequential fallback. Nothing mechanical checks
+the rest, so copy the block rather than paraphrasing it.
+
+*Driver-owned fan-out (`freya-codebase-security-scan`).* Phase 6 validation asked
+Copilot to run a six-way fan-out this way. It ran the six tasks itself, as a sequence
+of greps, and reported them as parallel — and the agent's own account of its work is
+the one thing that cannot tell you which happened. Phase 7 instrumented it: across a
+twelve-way fan-out, `task` and `explore` were invoked **zero** times, and Copilot's own
+sub-agent instructions say why — *"never delegate parts of a codebase that is small
+enough to read directly, regardless of how it divides into separate areas"*.
+
+Copilot **does** support subagents (`task`, `/fleet`, `/subagents`); it is simply
+instructed not to use them for this shape of work at small scope, and `/fleet` is an
+interactive toggle a headless `-p` run cannot set. So where the guarantee is
+load-bearing, the skill now calls a driver (`freya security scan`) that schedules the
+work on its own worker pool — separate OS processes, not subagents, so no agent gets a
+vote. A guarantee that lives in a sentence is a suggestion.
+
+The prose form is still right for the two skills above, and *not* because they are
+smaller — `docs-manager` fans out to twelve workers, twice the security scan's six.
+It is because **their workers write files.** The driver's whole security model is a
+read-only allowlist, and the phase-4b spike showed a blanket grant lets a worker write
+through the shell regardless of `--deny-tool=write`. A docs driver needs workers that
+produce documents, which inverts the property the driver exists to guarantee. Nor is
+there a compact contract to return: the audit driver hands back schema-validated JSON
+for the skill to format, whereas a doc worker's output *is* the artifact.
+
+Neither flow is security-critical, which is why a non-guaranteed fan-out is an
+acceptable residual risk there. A doc written sequentially is the same doc; a
+vulnerability missed sequentially is missed.
 
 ```
 ┌─────────────┐
 │ Coordinator │  ← Analyzes structure, plans work
 └─────────────┘
        │
-       │ spawns
+       │ presents
        ▼
 ┌──────────────────────────────────────────────┐
-│              Parallel Workers                 │
+│              Independent Tasks                │
 ├──────────┬──────────┬──────────┬─────────────┤
-│ Worker 1 │ Worker 2 │ Worker 3 │ Worker N    │
+│ Task 1   │ Task 2   │ Task 3   │ Task N      │
 │ (auth)   │ (api)    │ (data)   │ (features)  │
 └──────────┴──────────┴──────────┴─────────────┘
        │
@@ -29,18 +71,21 @@ Reusable patterns that appear across multiple skills. These are conventions, not
 └─────────────┘
 ```
 
-**Used by**: docs-manager, spec-manager (scan mode), codebase-security-scan
+**Used by**: `freya-docs-manager` and `freya-spec-manager` (scan mode) in the prose form;
+`freya-codebase-security-scan` in the driver-owned form.
 
 **When to use**: When work can be partitioned by area/category and combined at the end.
+Reach for the driver form only when the *guarantee* matters and the workers are read-only
+with a small structured result; otherwise the prose form is right.
 
 **Example from docs-manager**:
 ```
 Coordinator: Detect project type, ask user about business context
     ↓
-Worker 1: Generate ARCHITECTURE.md
-Worker 2: Generate API.md
-Worker 3: Generate DATABASE.md
-... (parallel)
+Task 1: Generate ARCHITECTURE.md
+Task 2: Generate API.md
+Task 3: Generate DATABASE.md
+... (in parallel if the agent supports subagents; otherwise one at a time, all of them, in order)
     ↓
 Combine: Create README.md index
 ```
@@ -71,6 +116,13 @@ Commit 2 (artifacts):
 
 **Used by**: wrap-up
 
+**The rule that makes it hold: only `freya-wrap-up` stages or commits.** Every other
+skill writes its artifacts and stops. This is stated in the body of each
+artifact-writing skill because it has to be — phase-6 validation watched an agent with
+broad tool permissions infer a `git commit` no skill had asked for, and prose is the only
+lever a skill has against that. A new artifact-writing skill needs its own
+"Artifacts, not commits" paragraph; no conformance rule can check for one.
+
 **Behavior-aware refinement**: a behavior's commit class follows its **lifecycle `state`, not its file location**. A `.feature` scaffold lives under the code tree, but until it is `accepted` and authored (its `TODO(scaffold)` marker gone) it is *intent under review* → it rides the **artifacts** commit (commit 2). Once `accepted`, its test joins the **code** commit (commit 1). `wrap-up` stages accordingly — a `proposed` scaffold is a draft proposal, not a verified guarantee.
 
 **When to use**: When generating artifacts that reference or describe code changes.
@@ -85,7 +137,7 @@ Commit 2 (artifacts):
 1. Read tracking file → get last_commit: abc123
 2. Run git diff abc123..HEAD → changed_files
 3. If code-graph available:
-     blast_radius = /freya-devkit:code-graph impact changed_files
+     blast_radius = freya-code-graph impact changed_files
    else:
      blast_radius = changed_files
 4. Process only blast_radius files
@@ -166,8 +218,8 @@ intentional_decisions:
 
 ```yaml
 # In SKILL.md
-if /freya-devkit:code-graph skill available:
-    impact = /freya-devkit:code-graph impact <files>
+if freya-code-graph skill available:
+    impact = freya-code-graph impact <files>
     process impact files
 else:
     # Fallback: simple git diff
@@ -257,7 +309,7 @@ Worker 3: DATABASE (schema, models)
 Worker 4: API (endpoints, formats)
 ...
 
-# security-scan workers:
+# security-scan workers (scheduled by the driver, not by the agent):
 Worker 1: Authentication & Authorization
 Worker 2: Input Validation & Injection
 Worker 3: Secrets & Sensitive Data
@@ -265,7 +317,8 @@ Worker 4: API & Network Security
 ...
 ```
 
-**Used by**: docs-manager, codebase-security-scan
+**Used by**: docs-manager (agent-scheduled), codebase-security-scan (driver-scheduled —
+each worker is a separate headless agent process under a read-only tool allowlist)
 
 **When to use**: When work can be partitioned by domain expertise.
 

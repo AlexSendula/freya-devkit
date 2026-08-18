@@ -6,7 +6,7 @@
 
 **Architecture:** Encapsulate the Phase-3.5 regression logic in a testable `behavior-graph --check --base <commit>` command: it diffs `base..HEAD`, runs **Direction A** to find affected accepted behaviors, re-runs *only those* via a new `behavior-runner --only` filter, merges the results back into `behavior.json` (incremental update), and exits non-zero if any affected behavior is `test-failed`. wrap-up's Phase 3.5 then just calls this command and blocks on its exit code (keeping the SKILL.md prose thin). F5 (never-synced guard) and F3 (`init` `.gitkeep`) are SKILL.md changes; measurement is an empirical write-up.
 
-**Tech Stack:** Python 3 (stdlib only). Builds on `behavior-runner` and `behavior-graph` (Plans 2–4). Proven on the **testbed** (`/Users/main/Documents/projects/viva-croatia-testbed`).
+**Tech Stack:** Python 3 (stdlib only). Builds on `behavior-runner` and `behavior-graph` (Plans 2–4). Proven on the **testbed** (`<testbed>`).
 
 ## Global Constraints
 
@@ -90,7 +90,7 @@ Run: `cd skills/behavior-runner/scripts && python -m unittest test_run_behaviors
 Expected: PASS (all prior + 2 new). Spot-check the wiring against the testbed:
 ```bash
 python skills/behavior-runner/scripts/run_behaviors.py \
-  --project /Users/main/Documents/projects/viva-croatia-testbed --emit-fingerprints --only BEH-002
+  --project <testbed> --emit-fingerprints --only BEH-002
 ```
 Expected: `fingerprints` contains only `BEH-002` (observed), not BEH-003.
 
@@ -249,12 +249,12 @@ Expected: PASS (15 prior + 3 new = 18).
 
 Then prove the pass-path end-to-end on the testbed (build the graph first, then check a change that touches `lib/webauthn.ts`):
 ```bash
-cd /Users/main/Documents/projects/viva-croatia-testbed
+cd <testbed>
 PRIOR=$(git rev-parse HEAD~1)   # a commit before the most recent change
 python /Users/main/Documents/projects/freya-devkit/skills/behavior-graph/scripts/behavior_graph.py \
-  --build --project /Users/main/Documents/projects/viva-croatia-testbed >/dev/null
+  --build --project <testbed> >/dev/null
 python /Users/main/Documents/projects/freya-devkit/skills/behavior-graph/scripts/behavior_graph.py \
-  --check --base "$PRIOR" --project /Users/main/Documents/projects/viva-croatia-testbed
+  --check --base "$PRIOR" --project <testbed>
 echo "exit: $?"
 ```
 Expected: a JSON report listing `affected` (the accepted behaviors whose exercised code intersects the diff) with `failed: []` and **exit 0** (the behaviors re-run green). The blocking path (`exit 1` on a `test-failed` affected behavior) is covered by the unit test `test_affected_failing_blocks`.
@@ -378,7 +378,7 @@ git commit -m "fix(spec-manager): init drops .gitkeep in spec category dirs (F3)
 
 Run and record the raw outputs:
 ```bash
-cd /Users/main/Documents/projects/viva-croatia-testbed
+cd <testbed>
 # Fingerprint breadth (files per behavior):
 python /Users/main/Documents/projects/freya-devkit/skills/behavior-graph/scripts/behavior_graph.py --build --project . \
   | python3 -c "import sys,json; d=json.load(sys.stdin); [print(b, len(v.get('exercises',[])), v.get('coverage')) for b,v in d['behaviors'].items()]"

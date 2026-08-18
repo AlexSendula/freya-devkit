@@ -6,13 +6,13 @@
 
 **Architecture:** A new plugin skill `skills/behavior-runner/` with a stdlib-only Python entry `run_behaviors.py`. It reads accepted behaviors from a project's specs (reusing spec-manager's `frontmatter.py`), and for a `level: unit` / `adapter: vitest` behavior it shells out to the project's vitest runner with V8 coverage, parses the coverage report, maps executed files to project-relative graph keys, and emits a per-behavior fingerprint as JSON. The runner is a **producer**: it emits fingerprints; it does **not** own `behavior.json` (that is `behavior-graph`, a later plan). The unit level is built first because in-process vitest coverage is source-mapped reliably — no bundler remap unknown (that risk is isolated to the integration plan).
 
-**Tech Stack:** Python 3 (stdlib only) for the skill; the **testbed** (`/Users/main/Documents/projects/viva-croatia-testbed`) provides the proving ground with vitest + `@vitest/coverage-v8` + `vite-tsconfig-paths`.
+**Tech Stack:** Python 3 (stdlib only) for the skill; the **testbed** (`<testbed>`) provides the proving ground with vitest + `@vitest/coverage-v8` + `vite-tsconfig-paths`.
 
 ## Global Constraints
 
 - Plugin scripts are **stdlib-only** (zero-install) — no PyYAML, no pip deps. Reuse `skills/spec-manager/scripts/frontmatter.py` for parsing.
 - Plugin code (the `behavior-runner` skill) is committed to the **freya-devkit** repo on branch `feat/behavior-layer` (normal `git`, user already `Alex`).
-- Testbed changes are committed to the **testbed** repo with `git -c user.name="Alex" -c user.email="claude.stifle198@simplelogin.com"`. Never touch `/Users/main/Documents/areas/viva-croatia/webapp` (production).
+- Testbed changes are committed to the **testbed** repo with `git -c user.name="Alex" -c user.email="github@alexsendula.com"`. Never touch `<production-webapp>` (production).
 - The runner is a **producer only**: it emits fingerprints (`{BEH-NNN: {coverage, exercises}}`); it never writes `behavior.json`.
 - Only **accepted, non-quarantined** behaviors matching the requested `level` are run.
 - A behavior with no usable coverage is emitted as `coverage: "unknown"` with `exercises: []` — never falsely empty-as-observed.
@@ -27,7 +27,7 @@
 - `skills/behavior-runner/scripts/run_behaviors.py` — the runner (new).
 - `skills/behavior-runner/scripts/test_run_behaviors.py` — stdlib `unittest` tests for the pure logic (new).
 
-**viva-croatia-testbed (proving ground):**
+**testbed (proving ground):**
 - `package.json`, `pnpm-lock.yaml` — add vitest tooling + `test:unit` script (modify).
 - `vitest.config.ts` — vitest + coverage config (new).
 - `lib/webauthn.test.ts` — BEH-002 unit test (new).
@@ -396,7 +396,7 @@ git commit -m "feat(behavior-runner): coverage->keys mapping + fingerprint shapi
 
 ### Task 3: Testbed — make BEH-002 a real unit behavior (vitest)
 
-**Repo:** viva-croatia-testbed.
+**Repo:** testbed.
 
 **Files:**
 - Modify: `package.json` (devDeps + `test:unit` script)
@@ -413,7 +413,7 @@ git commit -m "feat(behavior-runner): coverage->keys mapping + fingerprint shapi
 
 Run:
 ```bash
-cd /Users/main/Documents/projects/viva-croatia-testbed
+cd <testbed>
 pnpm add -D vitest @vitest/coverage-v8 vite-tsconfig-paths
 ```
 Expected: install completes; `node_modules/.bin/vitest` exists.
@@ -495,7 +495,7 @@ describe('verifyChallenge', () => {
 
 - [ ] **Step 5: Run to verify it passes (real behavior already works)**
 
-Run: `cd /Users/main/Documents/projects/viva-croatia-testbed && pnpm test:unit`
+Run: `cd <testbed> && pnpm test:unit`
 Expected: 1 test passes (`verifyChallenge > rejects an expired challenge`). The behavior already exists in the code, so this is GREEN immediately — the test documents and locks it. (If it errors on module resolution, confirm `vite-tsconfig-paths` is installed; the only imports in play are `./webauthn`, the mocked `./prisma`, and `@simplewebauthn/server`.)
 
 - [ ] **Step 6: Re-point BEH-002 in the spec to the vitest test**
@@ -532,17 +532,17 @@ In `features/auth/passkey-login.feature`, delete the `@BEH-002` scenario block (
 Run:
 ```bash
 python "/Users/main/.claude/plugins/cache/freya-devkit/freya-devkit/0.1.0/skills/spec-manager/scripts/verify_links.py" \
-  --dir /Users/main/Documents/projects/viva-croatia-testbed/knowledge-base/specs --format text
+  --dir <testbed>/knowledge-base/specs --format text
 ```
 Expected: `OK — all behavior links pass Tier-1 integrity checks.` (exit 0). BEH-002's locator resolves to a real file (`lib/webauthn.test.ts`), it has no `TODO(scaffold)` marker, and the feature file no longer carries an orphan `@BEH-002`.
 
 - [ ] **Step 9: Commit (testbed)**
 
 ```bash
-cd /Users/main/Documents/projects/viva-croatia-testbed
+cd <testbed>
 git add package.json pnpm-lock.yaml vitest.config.ts lib/webauthn.test.ts \
   knowledge-base/specs/auth/SPEC-001-passkey-login.md features/auth/passkey-login.feature
-git -c user.name="Alex" -c user.email="claude.stifle198@simplelogin.com" \
+git -c user.name="Alex" -c user.email="github@alexsendula.com" \
   commit -m "test(unit): BEH-002 expired-challenge as vitest behavior (native adapter)"
 ```
 
@@ -665,7 +665,7 @@ Expected: PASS (7 tests).
 Then the real end-to-end emit:
 ```bash
 python skills/behavior-runner/scripts/run_behaviors.py \
-  --project /Users/main/Documents/projects/viva-croatia-testbed --level unit --emit-fingerprints
+  --project <testbed> --level unit --emit-fingerprints
 ```
 Expected JSON: `fingerprints.BEH-002.coverage == "observed"` and `exercises` contains `{"path": "lib/webauthn.ts", "source": "observed", "confidence": 0.8, "freshness": "<commit>"}`. (`lib/webauthn.test.ts` itself is excluded; `node_modules` dropped.)
 

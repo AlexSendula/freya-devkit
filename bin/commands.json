@@ -1,0 +1,18 @@
+{
+  "code-graph": "freya-code-graph/scripts/graph_ops.py",
+  "behavior-graph": "freya-behavior-graph/scripts/behavior_graph.py",
+  "behavior-runner": "freya-behavior-runner/scripts/run_behaviors.py",
+  "status": "freya-status/scripts/collect_status.py",
+  "detect-project": "freya-docs-manager/scripts/detect_project.py",
+  "spec": "freya-spec-manager/scripts/search_specs.py",
+  "adapters": "freya-spec-manager/scripts/adapters.py",
+  "adr": "freya-spec-manager/scripts/adr.py",
+  "contradictions": "freya-spec-manager/scripts/contradictions.py",
+  "drift": "freya-spec-manager/scripts/drift.py",
+  "intent": "freya-spec-manager/scripts/intent.py",
+  "principles": "freya-spec-manager/scripts/principles.py",
+  "project-shape": "freya-spec-manager/scripts/project_shape.py",
+  "verify-intent": "freya-spec-manager/scripts/verify_intent.py",
+  "verify-links": "freya-spec-manager/scripts/verify_links.py",
+  "security": "freya-codebase-security-scan/scripts/audit.py"
+}

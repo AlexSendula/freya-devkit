@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Phase 1 — the launcher, and one word that decides every install</title>
+  <meta name="description" content="Phase 1 of the portability track: a self-locating freya launcher replaces Claude's plugin-root variable, with a checked-in command manifest, dispatch via sys.executable, and a doctor that had to be taught not to crash.">
+  <link rel="stylesheet" href="assets/styles.css">
+  <script src="assets/site.js"></script>
+</head>
+<body>
+  <div id="site-header"></div>
+
+  <header class="hero wrap">
+    <span class="eyebrow">portability · phase 1 · 27–28 Jul 2026</span>
+    <h1>Everything else assumes this works.</h1>
+    <p class="lead">Ten skills invoked their scripts through <code>${CLAUDE_PLUGIN_ROOT}</code> — a variable only one host sets — and through a bare <code>python</code> that may not exist. Phase 1 replaced both with a single command that finds itself. It is the smallest phase in the track and the one every later phase is built on.</p>
+  </header>
+
+  <div class="doc">
+    <aside class="toc" id="toc"></aside>
+    <main class="doc-body">
+
+      <section>
+        <h2 id="problem">The problem, in one line</h2>
+
+        <div class="code-block"><pre><span class="tok-c"># before — a Claude-only variable, and an interpreter that may not exist</span>
+python <span class="tok-s">"${CLAUDE_PLUGIN_ROOT}/skills/spec-manager/scripts/drift.py"</span> --project .
+
+<span class="tok-c"># after</span>
+freya drift --project .</pre></div>
+
+        <p>Two separate failures in that first line. <code>${CLAUDE_PLUGIN_ROOT}</code> is set by Claude Code and nothing else, so on any other agent it expands to nothing and the path is garbage. And <code>python</code> is not <code>python3</code> on a great many machines — on some it is Python 2, on others it does not exist at all.</p>
+      </section>
+
+      <section>
+        <h2 id="design">Three pieces, deliberately boring</h2>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Piece</th><th>Job</th></tr></thead>
+            <tbody>
+              <tr><td><code>bin/freya</code></td><td>An executable shim. Almost empty on purpose — it exists to put the real module on the import path.</td></tr>
+              <tr><td><code>bin/freya_cli.py</code></td><td>All the logic, importable and therefore unit-testable without spawning anything.</td></tr>
+              <tr><td><code>bin/commands.json</code></td><td>A checked-in manifest mapping a friendly name to a script path. Sixteen commands today.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p>The suite locates itself from its own <code>__file__</code>, looks the command up in the manifest, and dispatches with <code>sys.executable</code> — the interpreter already running, which is by definition present and correct.</p>
+
+        <div class="callout callout--why">
+          <span class="callout-label">The manifest is enforced in both directions</span>
+          <p>One test fails if a manifest entry points at a script that does not exist. A second fails if a script with a <code>__main__</code> block is <em>not</em> registered. So a new CLI cannot be added and silently left unreachable, and a deleted script cannot leave a dangling command behind. Cheap, and it has caught real drift since.</p>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="realpath">One word that decides every install</h2>
+        <p>The shim uses <code>os.path.realpath</code>, not <code>os.path.abspath</code>. That looks like a stylistic nit and is not.</p>
+
+        <div class="code-block"><pre>sys.path.insert(0, os.path.dirname(os.path.<span class="tok-k">realpath</span>(__file__)))</pre></div>
+
+        <div class="callout callout--danger">
+          <span class="callout-label">Why abspath would have broken everything, two phases later</span>
+          <p>Phase 3 makes every installation a <strong>symlink</strong> — <code>~/.local/bin/freya</code> points into the store. <code>abspath</code> resolves to the symlink's own directory; <code>realpath</code> follows it to the real one.</p>
+          <p>Ordinarily CPython papers over this by inserting a resolved <code>sys.path[0]</code> for you. Under <code>-P</code>, <code>PYTHONSAFEPATH</code> or isolated mode it does not — and then <code>import freya_cli</code> fails, from a directory that visibly contains <code>freya_cli.py</code>. A bug that appears only under an interpreter flag most people never set, on an install method that did not exist yet when the line was written.</p>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="doctor">The health check that crashed</h2>
+        <p><code>freya doctor</code> was added in this phase to answer "is this installation sane?". Its first version had two defects, and they are worth recording because they are the same defect twice, in opposite directions.</p>
+
+        <div class="card-grid cols-2">
+          <div class="card problem">
+            <h3>It reported OK when it knew nothing</h3>
+            <p>If the manifest failed to load, <code>doctor</code> still printed <em>"all scripts present"</em>. It had checked nothing and said everything was fine — the exact failure mode the whole track keeps rediscovering in bigger forms: <strong>a tool must never report absence of evidence as evidence of absence.</strong></p>
+          </div>
+          <div class="card problem">
+            <h3>It crashed on what it existed to diagnose</h3>
+            <p>Given structurally valid but semantically wrong JSON — an empty array, a null, a number where a path belongs — it dumped a traceback. The command whose entire job is diagnosing a broken manifest could not survive one.</p>
+          </div>
+        </div>
+
+        <p>Both were fixed with four regression tests, and a follow-up commit <em>strengthened</em> the guard after review pointed out the first version tested the symptom rather than the branch. That pattern — fix, then a second commit hardening the guard the fix relies on — repeats through the whole track.</p>
+      </section>
+
+      <section>
+        <h2 id="cost">What it cost</h2>
+        <div class="card-grid cols-2">
+          <div class="card">
+            <h3>13 commits</h3>
+            <p>Five building, three fixing, and five amending the plan mid-flight — including one that reordered tasks because <code>doctor</code> was scheduled to be wired in before the thing it checks existed.</p>
+          </div>
+          <div class="card">
+            <h3>16 commands</h3>
+            <p>Registered in the manifest today, up from the handful phase 1 shipped. Every one reachable as <code>freya &lt;name&gt;</code> on any host with Python 3.</p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="read-next">Read next</h2>
+        <div class="next-prev">
+          <a class="np-card" href="phase2.html">
+            <span class="faint">Next →</span>
+            <strong>Phase 2</strong>
+            <span class="small">80 invocations and 177 references rewritten — with the gate built first, deliberately red.</span>
+          </a>
+          <a class="np-card" href="phases.html">
+            <span class="faint">Back →</span>
+            <strong>The Phases</strong>
+            <span class="small">All eight, and what each one got wrong.</span>
+          </a>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <div id="site-footer"></div>
+</body>
+</html>

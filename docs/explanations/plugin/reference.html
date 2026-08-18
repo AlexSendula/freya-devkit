@@ -22,8 +22,8 @@
       <section>
         <h2>Command reference</h2>
         <div class="legend">
-          <span><i style="background:var(--accent)"></i> slash-command skill: <code>/freya-devkit:&lt;skill&gt;</code></span>
-          <span><i style="background:var(--teal)"></i> python script: <code>python "$CLAUDE_PLUGIN_ROOT/…"</code></span>
+          <span><i style="background:var(--accent)"></i> skill: <code>freya-&lt;skill&gt;</code> <span class="faint">(marketplace install: <code>/freya-devkit:freya-&lt;skill&gt;</code>)</span></span>
+          <span><i style="background:var(--teal)"></i> CLI command: <code>freya &lt;command&gt;</code></span>
         </div>
         <input class="filter-input" id="cli-filter" type="text" placeholder="Filter commands… (e.g. impact, scan, behavior, --no-)" aria-label="Filter commands">
         <div class="table-wrap">
@@ -44,28 +44,109 @@
               <tr><td>spec-manager</td><td><code>adr create</code> · <code>adr list</code> · <code>adr verify</code></td><td>Cross-cutting ADRs + deterministic ADR integrity.</td></tr>
               <tr><td>spec-manager</td><td><code>search</code> · <code>by-tag</code> · <code>get</code> · <code>review</code> · <code>principles</code> · <code>drift gaps</code></td><td>Find, load, review low-certainty specs, print constitution, list drift-blind items.</td></tr>
               <tr><td>codebase-security-scan</td><td><code>scan</code> · <code>update</code></td><td>Full / incremental app-code security scan (update is used by wrap-up).</td></tr>
-              <tr><td>codebase-security-scan</td><td><code>audit</code></td><td>Exhaustive Workflow-powered deep audit — on-demand, not in wrap-up.</td></tr>
+              <tr><td>codebase-security-scan</td><td><code>audit</code></td><td>Exhaustive deep audit — driver-owned, on-demand, not in wrap-up.</td></tr>
               <tr><td>codebase-security-scan</td><td><code>impact &lt;file&gt;</code> · <code>check-specs</code></td><td>Per-file security blast radius / cross-reference findings against specs.</td></tr>
               <tr><td>codebase-security-resolver</td><td><code>(default)</code> · <code>list</code></td><td>Interactive fix workflow / show findings (optionally by severity).</td></tr>
               <tr><td>codebase-security-resolver</td><td><code>fix &lt;ids&gt;</code> · <code>fix --critical|--high</code> · <code>fix --dry-run</code></td><td>Fix by ID, by cumulative severity, or preview.</td></tr>
               <tr><td>dependency-vulnerability-check</td><td><code>(default)</code></td><td>Detect package manager, run <code>&lt;pm&gt; audit --json</code>, enrich via WebSearch.</td></tr>
               <tr><td>wrap-up</td><td><code>wrap-up ["msg"]</code></td><td>Post-implementation orchestrator; two-commit pattern.</td></tr>
               <tr><td>wrap-up</td><td><code>--no-graph</code> · <code>--no-docs</code> · <code>--no-specs</code> · <code>--no-security</code></td><td>Skip individual steps (combinable).</td></tr>
-              <tr><td>behavior-graph</td><td><code>behavior_graph.py --build --project .</code></td><td>Refresh <code>behavior.json</code>.</td></tr>
+              <tr><td>behavior-graph</td><td><code>freya behavior-graph --build --project .</code></td><td>Refresh <code>behavior.json</code>.</td></tr>
               <tr><td>behavior-graph</td><td><code>--affected &lt;file…&gt;</code> · <code>--implements &lt;BEH&gt;</code></td><td>Direction A (code→behaviors) / Direction B (behavior→code).</td></tr>
               <tr><td>behavior-graph</td><td><code>--check --base &lt;c&gt;</code> · <code>--surface --base &lt;c&gt;</code> · <code>--gaps</code> · <code>--covering &lt;file&gt;</code></td><td>Regression gate / validate-on-hit / coverage audit / security cross-ref.</td></tr>
-              <tr><td>behavior-runner</td><td><code>run_behaviors.py --project . --emit-fingerprints</code></td><td>Run accepted behaviors, print coverage fingerprints (JSON). <code>--list</code> to list.</td></tr>
+              <tr><td>behavior-runner</td><td><code>freya behavior-runner --project . --emit-fingerprints</code></td><td>Run accepted behaviors, print coverage fingerprints (JSON). <code>--list</code> to list.</td></tr>
               <tr><td>behavior-runner</td><td><code>--level</code> · <code>--states</code> · <code>--only</code> · <code>--specs-dir</code></td><td>Filter which behaviors run.</td></tr>
-              <tr><td>status</td><td><code>collect_status.py --project . --write-backlog</code></td><td>Aggregate outstanding work; regenerate <code>BACKLOG.md</code> (<code>--format json|text</code>).</td></tr>
+              <tr><td>status</td><td><code>freya status --project . --write-backlog</code></td><td>Aggregate outstanding work; regenerate <code>BACKLOG.md</code> (<code>--format json|text</code>).</td></tr>
               <tr><td>status</td><td><code>review intent</code> · <code>review tests</code> · <code>gaps</code></td><td>Agent-driven worklists: confirm proposals, land tests, list uncovered code.</td></tr>
             </tbody>
           </table>
         </div>
         <p class="filter-empty hide" id="cli-empty">No commands match that filter.</p>
         <p class="small muted"><code>behavior-graph</code>, <code>behavior-runner</code>, and
-        <code>status</code> are slash-command skills whose key operations are driven by their Python
-        scripts under <code>${CLAUDE_PLUGIN_ROOT}</code>; the others are invoked purely as slash
-        commands. See <a href="skills.html">The Skills</a> for full flags and behavior.</p>
+        <code>status</code> are skills whose key operations are driven through the <code>freya</code>
+        launcher; the others are invoked purely as skills. See <a href="skills.html">The Skills</a> for
+        full flags and behavior.</p>
+      </section>
+
+      <section>
+        <h2>The <code>freya</code> launcher</h2>
+        <p>One self-locating entry point. It resolves the suite from its own location, looks the command
+        up in a checked-in manifest, and runs the target with <code>sys.executable</code> — so nothing in
+        the skill layer names a path or an interpreter. <a href="portability.html">Why →</a></p>
+
+        <h3>Lifecycle</h3>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Command</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td><code>./install.sh</code><br><span class="faint">or <code>freya install</code></span></td><td>Symlink each skill into your agent's skills directory; place the <code>freya</code> launcher in <code>~/.local/bin</code> and print the <code>PATH</code> line if that directory isn't on it yet. <code>--agent</code> · <code>--copy</code> · <code>--dry-run</code> · <code>--force</code> · <code>--uninstall</code>.</td></tr>
+            <tr><td><code>freya update</code></td><td>Fast-forward the store, then re-link. Refuses on a dirty tree, no upstream, an unreachable remote, or a diverged store. <code>--dry-run</code> reports and writes nothing.</td></tr>
+            <tr><td><code>freya init [path]</code></td><td>Write the marker-delimited freya-devkit section into a project's <code>AGENTS.md</code>. Idempotent; never touches a byte outside its markers.</td></tr>
+            <tr><td><code>freya doctor</code></td><td>What's installed where, plus warnings for orphaned links and double registration.</td></tr>
+            <tr><td><code>freya help</code></td><td>The registered command list.</td></tr>
+          </tbody>
+        </table></div>
+
+        <h3>The sixteen registered commands</h3>
+        <div class="tag-row">
+          <span class="pill">adapters</span>
+          <span class="pill">adr</span>
+          <span class="pill">behavior-graph</span>
+          <span class="pill">behavior-runner</span>
+          <span class="pill">code-graph</span>
+          <span class="pill">contradictions</span>
+          <span class="pill">detect-project</span>
+          <span class="pill">drift</span>
+          <span class="pill">intent</span>
+          <span class="pill">principles</span>
+          <span class="pill">project-shape</span>
+          <span class="pill">security</span>
+          <span class="pill">spec</span>
+          <span class="pill">status</span>
+          <span class="pill">verify-intent</span>
+          <span class="pill">verify-links</span>
+        </div>
+        <p class="small muted">Enforced in both directions: a test fails if a manifest entry points at a
+        missing script, and another fails if a script with a <code>__main__</code> block isn't registered.
+        Mind the one-character distinction — <code>freya code-graph</code> (space) is a CLI command;
+        <code>freya-code-graph</code> (hyphen) is a skill name.</p>
+
+        <h3>Security scan modes</h3>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Command</th><th>Rounds</th><th>Lenses</th><th>When</th></tr></thead>
+          <tbody>
+            <tr><td><code>freya security scan --yes</code></td><td>1</td><td>3</td><td>full assessment, on request — <strong>paid</strong>, spawns headless agent workers</td></tr>
+            <tr><td><code>freya security audit --yes</code></td><td>up to 5</td><td>3</td><td>on demand, pre-release — paid, and the expensive one</td></tr>
+            <tr><td><span class="faint">no driver —</span> <code>freya-codebase-security-scan update</code></td><td>—</td><td>in-loop</td><td>what <code>wrap-up</code> runs: git-diff scoped, main loop, <strong>spends nothing</strong></td></tr>
+          </tbody>
+        </table></div>
+        <p class="small muted">Both driver modes cost real money, so both confirm before spending unless
+        <code>--yes</code> is passed — and an agent shell has no tty to answer the prompt with, which is why
+        the skill's prescribed invocations carry <code>--yes</code> and move the money gate into the
+        conversation instead. <code>wrap-up</code> never reaches the driver at all: its security step is the
+        skill's <code>update</code> mode, scoped to a git diff and its blast radius, and that stays true on
+        the first run of a project as well as the fiftieth.</p>
+        <h3>Read the exit code before the findings</h3>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Exit</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td><code>0</code></td><td>Complete — the result is the whole result.</td></tr>
+            <tr><td><code>3</code></td><td><strong>Incomplete</strong> — the call ceiling stopped the run early, some tasks got no usable answer, or discovery found more than <code>--max-findings</code> and discarded the rest. The banner names how many. Findings are kept; coverage was truncated. Never described as clean.</td></tr>
+            <tr><td><code>2</code></td><td>Failed — bad project path, no usable answers, the context call failed, or the ceiling is too low to verify even one finding. No report is written.</td></tr>
+            <tr><td><code>4</code></td><td><strong>Declined</strong> — confirmation was refused, or there was no tty and no <code>--yes</code>. Nothing ran and nothing was spent. Re-run with <code>--yes</code>; do <em>not</em> fall back to the in-loop scan.</td></tr>
+            <tr><td><code>1</code></td><td>No agent CLI on <code>PATH</code> — <strong>this and nothing else</strong>. Only here is the in-loop fallback correct.</td></tr>
+          </tbody>
+        </table></div>
+        <p class="small muted">An empty result with exit <code>0</code> means clean; an empty result with
+        <em>any</em> other exit code means the scan did not run. The driver refuses to exit <code>0</code>
+        when no task got a usable answer, precisely so a broken run can't be mistaken for a clean codebase.
+        <code>4</code> exists because <code>1</code> used to mean three things at once, and the reading that
+        sends an agent back to the prose fan-out is the one thing it must never be guessed at.
+        <code>--max-calls</code> (default 200 attempts) is the single cost knob and <code>--max-findings</code>
+        is derived from it; set it too low and the driver refuses to start (exit <code>2</code>) rather than
+        run a scan whose only possible output is a false clean.
+        <code>--concurrency</code> sets the pool width; <code>--dry-run</code> prints the plan and spends
+        nothing. <code>--agent</code> and <code>--model</code> must be passed together or not at all — the
+        two CLIs' model vocabularies don't overlap.</p>
       </section>
 
       <section>
@@ -174,6 +255,10 @@
           <dt>Principle</dt><dd>A project-wide rule in <code>principles.md</code> — the constitution, highest authority.</dd>
           <dt>Resolution log</dt><dd>An append-only JSONL recording how a resolve-to-proceed finding was settled, so it isn't re-litigated.</dd>
           <dt>Two-commit pattern</dt><dd>Code changes in one commit, generated artifacts in a second — clean history, stable references.</dd>
+          <dt>Store</dt><dd>The git checkout the skills are symlinked <em>from</em>. There's no separate installed copy, so the checkout is what <code>freya update</code> fast-forwards.</dd>
+          <dt>Launcher</dt><dd><code>bin/freya</code> — the one entry point that resolves the suite's location and the Python interpreter, so no <code>SKILL.md</code> names either.</dd>
+          <dt>Conformance rule (R1–R13)</dt><dd>A check over the skill layer that fails the build on host-specific prose, an unregistered command, a Claude-only path, a frontmatter value outside the Agent Skills spec's keys, grammar or length limits, or fan-out language with no portability clause.</dd>
+          <dt>Driver-owned fan-out</dt><dd>Parallel work scheduled by our Python worker pool rather than requested of the agent in prose — so whether it happened is a fact, not a claim.</dd>
           <dt>Validate-on-hit</dt><dd>wrap-up surfacing the proposed/confirmed behaviors a change touched (and uncovered code) — advisory, skippable.</dd>
           <dt>Never-synced guard</dt><dd>wrap-up's refusal to let incremental <code>update</code> silently full-generate on a project that was never synced.</dd>
         </dl>

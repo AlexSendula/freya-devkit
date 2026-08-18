@@ -16,7 +16,7 @@
 - **`confirmed` is advisory / non-gating** — it must never appear in a regression-check `failed` list and never cause a non-zero exit.
 - **`confirmed` allows an entry-less record** (decided for SP1): a confirmed behavior needs neither adapter nor locator; an `entry` is optional. With an `entry` it gets a static fingerprint; without one it is `unknown`/`no-entry` (worklist-only, surfaced later in SP4).
 - **Tests run per-file:** `cd` into the script directory and run `python test_<name>.py`. Each test module already puts its own dir on `sys.path`.
-- **Production webapp `/Users/main/Documents/areas/viva-croatia/webapp/` is OFF-LIMITS.** The dogfooding pass uses only the testbed at `/Users/main/Documents/projects/viva-croatia-testbed`.
+- **Production webapp `<production-webapp>/` is OFF-LIMITS.** The dogfooding pass uses only the testbed at `<testbed>`.
 
 ---
 
@@ -767,7 +767,7 @@ git commit -m "feat(behavior-graph): project confirmed behaviors (advisory, non-
 
 ## Dogfooding pass (manual — run after Task 4, not a TDD task)
 
-Prove the mechanism end-to-end on the **testbed** (`/Users/main/Documents/projects/viva-croatia-testbed`). The production webapp stays untouched.
+Prove the mechanism end-to-end on the **testbed** (`<testbed>`). The production webapp stays untouched.
 
 - [ ] **D1:** In the testbed spec `knowledge-base/specs/auth/SPEC-001-passkey-login.md`, add a `confirmed` behavior with a real, currently-untested intent and an `entry` pointing at an existing route, e.g.:
   ```yaml
@@ -779,17 +779,17 @@ Prove the mechanism end-to-end on the **testbed** (`/Users/main/Documents/projec
   ```
 - [ ] **D2:** Verify links pass (confirmed needs no test):
   ```bash
-  python skills/spec-manager/scripts/verify_links.py --dir /Users/main/Documents/projects/viva-croatia-testbed/knowledge-base/specs --format json
+  python skills/spec-manager/scripts/verify_links.py --dir <testbed>/knowledge-base/specs --format json
   ```
   Expected: exit 0, `[]` (no `missing-locator` for BEH-004; if the `entry` path is wrong you get `entry-unresolved`).
 - [ ] **D3:** Build the behavior graph and confirm BEH-004 appears with an advisory static fingerprint:
   ```bash
-  python skills/behavior-graph/scripts/behavior_graph.py --build --project /Users/main/Documents/projects/viva-croatia-testbed
+  python skills/behavior-graph/scripts/behavior_graph.py --build --project <testbed>
   ```
   Expected: `behaviors["BEH-004"]` present with `"state": "confirmed"` and `"coverage": "static"` (assuming the testbed has a built code-graph; otherwise `"coverage": "unknown"`, `"reason": "no-graph"` — run `code-graph build` first).
 - [ ] **D4:** Make a no-op edit to the `entry` route in the testbed, commit it, then run the regression check and confirm it does **not** block on the confirmed behavior:
   ```bash
-  python skills/behavior-graph/scripts/behavior_graph.py --check --base HEAD~1 --project /Users/main/Documents/projects/viva-croatia-testbed
+  python skills/behavior-graph/scripts/behavior_graph.py --check --base HEAD~1 --project <testbed>
   ```
   Expected: BEH-004 in `affected`, empty `failed`, exit 0 (advisory, non-gating).
 - [ ] **D5:** Log any friction in `docs/design/behavior-layer/dogfooding-notes.md` (new F-entry), and revert the testbed no-op edit if it was only for D4.

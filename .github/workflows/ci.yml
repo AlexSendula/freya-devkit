@@ -1,0 +1,204 @@
+name: CI
+
+# Runs the test suite, the skill-conformance gate, and a real end-to-end
+# install on every push and pull request, on Linux and on Windows.
+#
+# Until this file existed, the portability contract was enforced by prose
+# alone — CONTRIBUTING.md: "run it before you commit". A review measured what
+# that is worth: four textbook violations injected into a shipped SKILL.md left
+# `pytest bin/ skills/` completely green, because only
+# bin/check_skill_conformance.py scans the shipped tree. The two gates below
+# are complementary, not redundant; neither substitutes for the other.
+#
+# The Windows leg is the other half of the gap. install.ps1, the `--copy`
+# install mode and the launcher shim are documented, shipped, and had never
+# once been executed on the platform they exist for. This is where that starts
+# happening.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+# Read-only. Nothing here builds, publishes or deploys; pages.yml is the only
+# workflow in this repo that needs write scopes.
+permissions:
+  contents: read
+
+# One run per branch. A superseded run has nothing left to say.
+#
+# head_ref-or-ref, not ref: on a `pull_request` event github.ref is
+# refs/pull/N/merge while the `push` for the same commit is refs/heads/<branch>,
+# so keying on ref alone puts them in different groups and every push to a
+# branch with an open PR runs the whole 8-job matrix twice.
+concurrency:
+  group: ci-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
+
+env:
+  # `freya doctor`'s `updates` check — and anything else that shells out to
+  # git — must never stop at a credential prompt on a runner: that hangs the
+  # step until its timeout instead of failing it.
+  GIT_TERMINAL_PROMPT: '0'
+
+jobs:
+  test:
+    name: tests · ${{ matrix.os }} · python ${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      # A Windows failure must not cancel the Linux legs, or the reverse: the
+      # point of the matrix is to learn every platform's answer, not the first
+      # one to come back.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        # 3.9 is the floor the code actually has, not the 3.8 that
+        # freya_cli.MIN_PYTHON reports: skills/freya-spec-manager/scripts/search_specs.py
+        # annotates `-> list[Spec]` and carries no `from __future__ import
+        # annotations`, and PEP 585 builtin generics only became subscriptable
+        # at runtime in 3.9 — so importing it is a TypeError on 3.8. 3.13 is
+        # the current stable release.
+        python-version: ['3.9', '3.13']
+    steps:
+      - name: Check out the store
+        uses: actions/checkout@v7
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      # `python`, never `python3`: setup-python puts `python` on PATH on every
+      # runner OS, while the Windows image has no `python3` at all. pytest is
+      # the only thing installed anywhere in this workflow — the suite, both
+      # gates and the installer are stdlib-only, and stay that way. Left
+      # unpinned on purpose: pytest 9 requires 3.10+, and pip's Requires-Python
+      # resolution is what hands the 3.9 legs the 8.x line instead.
+      - name: Install the test runner
+        run: python -m pip install --disable-pip-version-check --quiet pytest
+
+      - name: Test suite
+        run: python -m pytest bin/ skills/ -q
+
+      # Independent of the suite above, which passes with an R1 violation live
+      # in a shipped SKILL.md. Exit 1 here is the entire gate.
+      - name: Skill conformance gate
+        run: python bin/check_skill_conformance.py
+
+  install:
+    # Deliberately a separate job, not more steps on `test`: a failing test
+    # would otherwise stop the run before the install ever executed, and the
+    # install is the only thing that exercises install.sh / install.ps1 and the
+    # launcher. Both signals have to be visible at once.
+    name: install · ${{ matrix.os }} · python ${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ['3.9', '3.13']
+    steps:
+      - name: Check out the store
+        uses: actions/checkout@v7
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: End-to-end install, launcher, uninstall (symlink mode)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          root="$RUNNER_TEMP/e2e"
+          rm -rf "$root"
+          mkdir -p "$root"
+
+          # Drive the documented entry point, not bin/installer.py directly:
+          # install.sh is what README tells a new user to run, and nothing else
+          # in the repo executes it. --target-dir/--bin-dir are the installer's
+          # own hidden test hooks, and they are what keeps this off the
+          # runner's real ~/.claude and ~/.local/bin.
+          ./install.sh --agent claude --target-dir "$root/skills" --bin-dir "$root/bin"
+
+          # An install is only real if a skill resolves through the link.
+          test -f "$root/skills/freya-wrap-up/SKILL.md"
+
+          # Resolve the launcher the way a user does: by name, off PATH.
+          export PATH="$root/bin:$PATH"
+          freya help
+
+          # doctor's exit code is not what this asserts — no agent home exists
+          # on a runner, so its `agents` check warns by design. What is being
+          # asserted is that the installed launcher found its suite and ran.
+          set +e
+          freya doctor | tee "$root/doctor.txt"
+          set -e
+          grep -q "suite root" "$root/doctor.txt"
+
+          # Uninstall must take back everything it put down.
+          ./install.sh --agent claude --uninstall \
+            --target-dir "$root/skills" --bin-dir "$root/bin"
+          test ! -e "$root/bin/freya"
+          test -z "$(ls -A "$root/skills")"
+
+      - name: End-to-end install, launcher, uninstall (--copy mode)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          # PowerShell does not raise on a native command's non-zero exit, and
+          # the runner's pwsh wrapper only inspects the *last* exit code of the
+          # script, so every external call that must succeed is checked by hand.
+          function Assert-LastExitCode($what) {
+            if ($LASTEXITCODE -ne 0) { throw "$what exited $LASTEXITCODE" }
+          }
+
+          $root = Join-Path $env:RUNNER_TEMP 'e2e'
+          if (Test-Path $root) { Remove-Item -Recurse -Force $root }
+          New-Item -ItemType Directory -Path $root | Out-Null
+
+          # --copy is the documented Windows mode: creating a symlink needs
+          # Developer Mode or an elevated shell, which a user may not have.
+          .\install.ps1 --agent claude --copy `
+            --target-dir "$root\skills" --bin-dir "$root\bin"
+          Assert-LastExitCode 'install.ps1'
+
+          if (-not (Test-Path "$root\skills\freya-wrap-up\SKILL.md")) {
+            throw 'the --copy install did not land freya-wrap-up'
+          }
+          # Diagnostics never fail the step — if the launcher is missing, the
+          # informative failure is `freya help` below, not an empty directory
+          # listing raising first.
+          Get-ChildItem "$root\bin" -ErrorAction SilentlyContinue |
+            Format-Table Name, Length
+
+          # Resolve the launcher the way a Windows user does: by name, off PATH,
+          # through PATHEXT. An extensionless `bin/freya` is not executable on
+          # Windows at all, so this step is what proves the .cmd shim exists
+          # and runs. (The shim is landing in the same wave as this file; until
+          # it does, this step failing is the finding, not a broken job.)
+          $env:PATH = "$root\bin;$env:PATH"
+          Get-Command freya -ErrorAction SilentlyContinue | Format-List Name, Source
+          freya help
+          Assert-LastExitCode 'freya help'
+
+          # As on Linux: doctor's exit code is not the subject, its running is.
+          $doctor = freya doctor | Out-String
+          Write-Host $doctor
+          if ($doctor -notmatch 'suite root') { throw 'freya doctor produced no report' }
+
+          # Skills must all come back out. The launcher is only reported, not
+          # asserted: uninstall removes a launcher it can prove is ours, and
+          # what a copied one looks like is the installer's decision to make.
+          .\install.ps1 --agent claude --uninstall `
+            --target-dir "$root\skills" --bin-dir "$root\bin"
+          Assert-LastExitCode 'install.ps1 --uninstall'
+          $left = Get-ChildItem "$root\skills" -Filter 'freya-*' -ErrorAction SilentlyContinue
+          if ($left) { throw "uninstall left $($left.Count) skill(s) behind" }
+          Get-ChildItem "$root\bin" -ErrorAction SilentlyContinue |
+            Format-Table Name, Length

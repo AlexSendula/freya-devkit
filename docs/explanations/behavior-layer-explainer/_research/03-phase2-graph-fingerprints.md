@@ -403,7 +403,7 @@ BEH-003 integration/static). **Illustrative, not statistically significant — 2
 ## 10. The testbed close-the-loop (two levels, two adapters, two mechanisms)
 
 To validate the level-agnostic claim, Phase 2 proves **two levels** on the testbed
-(`viva-croatia-testbed`, a throwaway Next.js sandbox — production untouched):
+(`testbed`, a throwaway Next.js sandbox — production untouched):
 
 - **`integration` — BEH-003** ("unknown email → generic options"): a cucumber-js scenario driving
   `POST /api/auth/passkey/authenticate/start` over **real HTTP** against a running `next dev`

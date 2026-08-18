@@ -5,36 +5,144 @@
 <h1 align="center">freya-devkit</h1>
 
 <p align="center">
-An integrated, AI-assisted development toolkit for Claude Code. Ten skills that work together to keep your dependency graph, documentation, feature specs, intended behavior, and security posture in sync as you build — plus a one-command wrap-up workflow that runs them all.
+An integrated, AI-assisted development toolkit for <strong>any coding agent</strong> — Claude Code, GitHub Copilot, and the ~30 others that read the Agent Skills standard. Ten skills that work together to keep your dependency graph, documentation, feature specs, intended behavior, and security posture in sync as you build — plus a one-command wrap-up workflow that runs them all.
 </p>
 
-> 📖 **New here? Read the visual explainers → [alexsendula.github.io/freya-devkit](https://alexsendula.github.io/freya-devkit/)** — no-install webapps covering the whole plugin, the behavior layer, and governance.
+> 📖 **New here? Read the visual explainers → [alexsendula.github.io/freya-devkit](https://alexsendula.github.io/freya-devkit/)** — no-install webapps covering the whole plugin, the behavior layer, governance, and the portability track.
 
-## Install
+> ⚠️ **Upgrading from 0.1.0?** Every skill was renamed: `/freya-devkit:wrap-up` is now
+> `/freya-devkit:freya-wrap-up`, and so on for all ten. See
+> [`docs/migrations/skill-rename.md`](docs/migrations/skill-rename.md) and the
+> [CHANGELOG](CHANGELOG.md).
 
-```text
+## Installation
+
+### Any agent (Claude Code, GitHub Copilot, …)
+
+```bash
+git clone https://github.com/AlexSendula/freya-devkit.git
+cd freya-devkit
+./install.sh
+```
+
+The checkout is the store: `install.sh` symlinks each skill into your agent's
+skills directory and places the `freya` launcher at **`~/.local/bin/freya`**. Pick
+agents explicitly with `--agent claude --agent copilot`; use `--copy` where symlinks
+are awkward, `--dry-run` to preview, and `--uninstall` to remove.
+
+**Python 3.9 or newer** is the only requirement — nothing else is installed, and every
+script here is stdlib-only. Both installers look for a suitable interpreter and refuse
+with a plain message rather than starting and failing partway through.
+
+**One manual step: `~/.local/bin` has to be on your `PATH`.** The installer never edits
+your shell profile; it prints the line to add when that directory is missing from `PATH`.
+Expect that note — a stock macOS never has `~/.local/bin` on `PATH`, and on
+Debian/Ubuntu `~/.profile` only adds it if the directory already existed when you logged
+in, which it may not have until the installer just created it. Make it stick:
+
+```bash
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc   # or ~/.bashrc
+exec $SHELL -l
+```
+
+Then verify with `freya doctor`, whose "freya on PATH" row answers this exactly. If
+`freya doctor` answers `command not found`, this is the step that was skipped.
+
+Skills install as `freya-code-graph`, `freya-wrap-up`, and so on.
+
+**Windows.** Use `install.ps1`. Creating a symlink there needs Developer Mode or an
+elevated shell, so the installer probes for the privilege up front and falls back to
+`--copy` on its own rather than failing — you can also pass `--copy` explicitly. It
+writes a `freya.cmd` beside the launcher, because Windows resolves a bare command name
+through `PATHEXT` and an extensionless file is not in it. The `PATH` line it prints is
+the PowerShell form, session and permanent.
+
+### Keeping it current
+
+```bash
+freya update
+```
+
+Fast-forwards the checkout and re-links: a skill added upstream gets a link, one
+removed loses its stale one, and a `--copy` install is re-copied. Before it
+fetches anything, it refuses if git isn't on PATH, the store isn't a git
+checkout, the branch has no upstream, or the tree is dirty — each says which.
+It also refuses if the remote can't be reached, or if the store has diverged
+from its upstream once it does fetch — either way, nothing is merged. A
+re-link that fails partway exits differently: the fetch and merge already
+succeeded, so it reports which agent failed rather than describing the store
+itself as broken. `--dry-run` reports what would happen and writes nothing.
+
+**Reload your session afterwards.** Agents read their skill list once, when a
+session starts, so an update applied mid-task is invisible to that session until
+it reloads — a skill added upstream will not appear, and one renamed or removed
+keeps being offered and then fails on use. Run your agent's skill reload
+(Claude Code: `/reload-skills`, GitHub Copilot: `/skills`) or start a new
+session. `freya update` prints this reminder whenever it actually moves the
+store.
+
+Roughly once a day an ordinary `freya` command may print `an update is
+available` to stderr — never for `help`, `update`, `install`, `uninstall` or
+`doctor`, which either act on the notice directly or, for `doctor`, ask the
+question themselves. It is a notice and nothing else — nothing is ever
+downloaded or applied on its own. Set `FREYA_NO_UPDATE_CHECK=1` to turn it off.
+
+### Telling a project's agent about the toolkit
+
+```bash
+freya init            # or: freya init path/to/project
+```
+
+Writes a short freya-devkit section into that project's `AGENTS.md` — the file ~30
+agents read — listing the installed skills and the `freya` command surface. The
+section is delimited by HTML comment markers: re-running replaces it in place and
+leaves every other byte of the file alone, so it is safe on an `AGENTS.md` you already
+maintain by hand. If those markers turn up missing, reversed, or duplicated, it
+refuses without touching the file rather than guess where the block ends.
+
+### Claude Code, via the plugin marketplace
+
+```
 /plugin marketplace add AlexSendula/freya-devkit
 /plugin install freya-devkit@freya-devkit
 ```
 
-(For local development, see [CONTRIBUTING.md](CONTRIBUTING.md).)
+Skills appear as `/freya-devkit:freya-code-graph`. No `PATH` step is needed on this
+path: Claude Code adds each installed plugin's own `bin/` directory to the session
+`PATH`, so the `freya` launcher the skills invoke resolves from the plugin cache.
+That behaviour is the host's, not ours, and it is undocumented — if a future Claude
+Code release drops it, `freya <command>` stops resolving and the fix is to run
+`install.sh` from a checkout as above. On **Windows**, prefer `install.ps1` regardless:
+the store ships `bin/freya` without an extension, and only the installer writes the
+`freya.cmd` shim that Windows needs to run it by name.
 
-Skills are invoked with the plugin namespace: **`/freya-devkit:<skill>`**.
+**Upgrading from 0.1.0 on this path,** `/plugin marketplace update freya-devkit`
+renames all ten skills — see [`docs/migrations/skill-rename.md`](docs/migrations/skill-rename.md).
+Reload the session afterwards, or the old names keep being offered and then fail.
+
+> Use one path or the other. With both, Claude registers every skill twice —
+> once namespaced by the plugin and once from your personal directory.
+> `freya doctor` warns when it sees this. It does **not** compare versions: if the
+> two are different checkouts, a SKILL.md from one can invoke a `freya` command the
+> other's `bin/commands.json` does not have, and the only symptom is
+> `freya: unknown command`.
+
+(For local development, see [CONTRIBUTING.md](CONTRIBUTING.md).)
 
 ## The skills
 
 | Skill | Purpose | Example |
 |-------|---------|---------|
-| `code-graph` | Dependency graphs, impact analysis, blast radius | `/freya-devkit:code-graph impact src/auth.ts` |
-| `docs-manager` | Standardized project documentation | `/freya-devkit:docs-manager update` |
-| `spec-manager` | Feature specs + intentional design decisions, ADRs, principles, and the behavior lifecycle | `/freya-devkit:spec-manager scan` |
-| `behavior-graph` | Behavior graph: intended behavior as first-class records; blast radius code→behavior and behavior→code | `/freya-devkit:behavior-graph --affected src/auth.ts` |
-| `behavior-runner` | Runs accepted behaviors, captures observed TEST→CODE coverage | `/freya-devkit:behavior-runner run` |
-| `codebase-security-scan` | Security auditing (with adversarial verification + deep `audit` mode) | `/freya-devkit:codebase-security-scan update` |
-| `codebase-security-resolver` | Interactive fixing of security findings | `/freya-devkit:codebase-security-resolver` |
-| `dependency-vulnerability-check` | Supply-chain / dependency CVE auditing | `/freya-devkit:dependency-vulnerability-check` |
-| `wrap-up` | Post-implementation orchestrator (runs the above in sequence) | `/freya-devkit:wrap-up` |
-| `status` | Read-only census of outstanding intent, tests owed, coverage gaps, and findings; refreshes `BACKLOG.md` | `/freya-devkit:status` |
+| `freya-code-graph` | Dependency graphs, impact analysis, blast radius | `freya-code-graph impact src/auth.ts` |
+| `freya-docs-manager` | Standardized project documentation | `freya-docs-manager update` |
+| `freya-spec-manager` | Feature specs + intentional design decisions, ADRs, principles, and the behavior lifecycle | `freya-spec-manager scan` |
+| `freya-behavior-graph` | Behavior graph: intended behavior as first-class records; blast radius code→behavior and behavior→code | `freya-behavior-graph --affected src/auth.ts` |
+| `freya-behavior-runner` | Runs accepted behaviors, captures observed TEST→CODE coverage | `freya-behavior-runner run` |
+| `freya-codebase-security-scan` | Security auditing (with adversarial verification + deep `audit` mode) | `freya-codebase-security-scan update` |
+| `freya-codebase-security-resolver` | Interactive fixing of security findings | `freya-codebase-security-resolver` |
+| `freya-dependency-vulnerability-check` | Supply-chain / dependency CVE auditing | `freya-dependency-vulnerability-check` |
+| `freya-wrap-up` | Post-implementation orchestrator (runs the above in sequence) | `/freya-wrap-up` |
+| `freya-status` | Read-only census of outstanding intent, tests owed, coverage gaps, and findings; refreshes `BACKLOG.md` | `freya-status` |
 
 ## How they fit together
 
@@ -61,7 +169,7 @@ status   ── read-only counterpart of wrap-up: what intent / tests / coverage
 
 1. **Two-commit pattern** — code changes land in one commit; generated artifacts (graph, docs, specs, security reports) in a second.
 2. **Incremental updates** — git-aware; only process what changed.
-3. **Coordinator + parallel workers** — one agent plans, parallel workers execute.
+3. **Coordinator + independent tasks** — one agent plans, then N independent tasks run in parallel if the agent supports subagents, else one at a time. Where the guarantee is load-bearing (the security scan) a driver schedules the work on its own process pool instead, because an agent's account of whether it parallelized cannot be checked.
 4. **Certainty scoring** — AI-generated specs carry a 0–100 confidence score.
 
 ## Typical workflow
@@ -69,7 +177,7 @@ status   ── read-only counterpart of wrap-up: what intent / tests / coverage
 After implementing a feature:
 
 ```text
-/freya-devkit:wrap-up
+/freya-wrap-up
 ```
 
 This runs `code-graph update` → `docs-manager update` → `spec-manager update` → **behavior integrity & accepted-behavior run** (Phase 3.5) → `codebase-security-scan update`, then makes the two commits. Skip steps with `--no-security`, `--no-docs`, `--no-specs`, `--no-graph`.
@@ -77,8 +185,14 @@ This runs `code-graph update` → `docs-manager update` → `spec-manager update
 For a deep, exhaustive security pass before a release:
 
 ```text
-/freya-devkit:codebase-security-scan audit
+freya-codebase-security-scan audit
 ```
+
+`audit` and `scan` both drive a real agent CLI (`claude` or `copilot`) as a pool of
+headless workers, so they **cost money** — `audit` can reach tens of dollars on a large
+repo. The driver prints a cost plan and refuses to spend without confirmation; ask it for
+the plan first (the skill runs `freya security audit --dry-run`, which spends nothing).
+`wrap-up` never uses `audit`.
 
 ## Documentation
 
@@ -87,6 +201,7 @@ For a deep, exhaustive security pass before a release:
 - **[The whole plugin](https://alexsendula.github.io/freya-devkit/plugin/)** — philosophy, architecture, all ten skills, patterns, the behavior layer, governance, and adoption. Start here.
 - **[The behavior layer](https://alexsendula.github.io/freya-devkit/behavior-layer-explainer/)** — intended behavior as a first-class, executable, blast-radius-aware artifact (five-page deep dive).
 - **[Governance](https://alexsendula.github.io/freya-devkit/governance-explainer/)** — block-on-facts vs resolve-to-proceed, and the wrap-up checkpoints.
+- **[Portability](https://alexsendula.github.io/freya-devkit/portability-explainer/)** — how a Claude Code plugin became an any-agent toolkit: the launcher, the installer, the audit driver, and what was validated live on each agent.
 
 Design rationale and architecture live in [`docs/`](docs/):
 
@@ -95,6 +210,10 @@ Design rationale and architecture live in [`docs/`](docs/):
 - [`patterns.md`](docs/patterns.md) — reusable patterns across skills
 - [`conventions.md`](docs/conventions.md) — integration guidelines
 - [`skill-reference.md`](docs/skill-reference.md) — quick command reference
+- [`migrations/`](docs/migrations/) — one-time moves between versions
+- [`design/portability/`](docs/design/portability/) — the dated design record for this track, corrections appended in place
+
+Release history: [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 

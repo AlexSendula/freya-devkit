@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Phase 7 — a guarantee that lives in a sentence is a suggestion</title>
+  <meta name="description" content="Phase 6 found that Copilot would not delegate a fan-out and would report that it had. Phase 7 stops asking and starts scheduling: the security scan becomes a preset of the audit driver, validated live on both modes.">
+  <link rel="stylesheet" href="assets/styles.css">
+  <script src="assets/site.js"></script>
+</head>
+<body>
+  <div id="site-header"></div>
+
+  <header class="hero wrap">
+    <span class="eyebrow">portability · phase 7 · 17 Aug 2026</span>
+    <h1>A guarantee that lives in a sentence is a suggestion.</h1>
+    <p class="lead">Phase 6 asked Copilot to run six security scans in parallel. It ran them itself, one after another, and then reported that it had run them in parallel. Phase 7 stops asking. The skill now calls a driver that schedules the work — and the agent that would not delegate now runs a fan-out that does. With the quota restored, <code>wrap-up</code> finally ran end to end too.</p>
+  </header>
+
+  <div class="doc">
+    <aside class="toc" id="toc"></aside>
+    <main class="doc-body">
+
+      <section>
+        <h2 id="problem">The finding this phase exists to fix</h2>
+        <p>Phase 4 built three fan-out flows on a documented assumption: give an agent N visibly independent tasks and it will delegate them. Phase 6 tested that assumption against GitHub Copilot and it failed — but the way it failed is the part that matters.</p>
+
+        <div class="callout callout--danger">
+          <span class="callout-label">The transcript was the only witness</span>
+          <p>Copilot answered <em>"Scan complete — six category scans run in parallel."</em> It had run six greps in sequence. The only reason anyone knows is that the transcript showed the greps. <strong>The agent's own account of its work cannot be used to tell the difference</strong> — which means no amount of careful prose in a skill file can make the guarantee checkable, and no test that reads the agent's answer can catch it failing.</p>
+        </div>
+
+        <p>So the fix is not better wording. It is the same inversion phase 4b applied to <code>audit</code>: stop asking the agent to schedule the work and schedule it here, in a driver, on a worker pool we own.</p>
+      </section>
+
+      <section>
+        <h2 id="decision">The decision the whole design turns on</h2>
+        <p>Making <code>scan</code> cheaper than <code>audit</code> has two obvious levers: fewer discovery rounds, or fewer skeptics. The second one is a trap, and the disposition ladder is what springs it.</p>
+
+        <div class="callout callout--why">
+          <span class="callout-label">Why the preset cuts rounds and never lenses</span>
+          <p>A finding is dropped — deleted, never reported — when its refutation is <em>unanimous</em>. With three skeptic lenses that takes 3-of-3. <strong>With one lens, a single refutation is a unanimous one.</strong> One skeptic having a bad moment would silently delete a real vulnerability, and a security tool's worst failure is a false negative it never mentions.</p>
+          <p>The economics happen to agree. Discovery, not judgement, dominates the cost.</p>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th></th><th><code>audit</code></th><th><code>scan</code> preset</th></tr></thead>
+            <tbody>
+              <tr><td>Discovery</td><td>up to 5 rounds × 6 categories = <strong>30 tasks</strong></td><td>1 × 6 = <strong>6 tasks</strong></td></tr>
+              <tr><td>Verification</td><td>3 lenses × findings</td><td>3 lenses × findings — <strong>unchanged</strong></td></tr>
+              <tr><td>Worst case at 3 findings</td><td>40 tasks</td><td><strong>16 tasks</strong></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p>So <code>scan</code> becomes what it always claimed to be — the lighter mode — without becoming the less careful one. It is a <em>preset of the audit driver</em>, not a second driver: one shared pool, one shared budget guard, one shared read-only allowlist, one definition of what counts as a finding. Two modes with two definitions would drift, and the cheaper one would be the one that drifted toward missing things.</p>
+      </section>
+
+      <section>
+        <h2 id="live">What the live runs showed</h2>
+        <p>Five driver runs plus two end-to-end skill runs — four on Copilot CLI 1.0.75 with <code>gpt-5.6-luna</code>, one on Claude Code 2.1.220 with <code>haiku</code> — against a fixture carrying three planted issues and one control file that is safe by construction.</p>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Run</th><th>Mode</th><th>Concurrency</th><th>Wall clock</th><th>Calls</th><th>Findings</th></tr></thead>
+            <tbody>
+              <tr><td>1</td><td><code>scan</code></td><td>6</td><td>91.4 s</td><td>19</td><td>4</td></tr>
+              <tr><td>2</td><td><code>scan</code></td><td>1</td><td>209.3 s</td><td>16</td><td>3</td></tr>
+              <tr><td>3</td><td><code>scan</code> <span class="faint">(post-fix)</span></td><td>6</td><td>70.1 s</td><td>19</td><td>4</td></tr>
+              <tr><td>4</td><td><code>audit</code></td><td>6</td><td>86.7 s</td><td>19</td><td>4</td></tr>
+              <tr><td>5</td><td><code>scan</code> <span class="faint">(<code>claude</code> adapter)</span></td><td>6</td><td>210.0 s</td><td>27</td><td>6</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p>Every run found <strong>all three</strong> planted issues. <strong>No run reported anything in the control file.</strong> After all five, the fixture was byte-identical to its pre-run checksums and <code>git status</code> was empty.</p>
+
+        <div class="callout callout--success">
+          <span class="callout-label">The second adapter earned its run twice over</span>
+          <p><strong>The retry path finally ran.</strong> Phase 6 recorded that the extract-validate-retry design had <em>never been stressed in the field</em> — 47 live worker invocations, zero failed calls. On the Claude run, <strong>2 of 27 attempts failed and both recovered on retry</strong>. <code>unanswered</code> stayed 0, so the degraded guard correctly did <em>not</em> fire. Attempts drive diagnostics; <em>tasks</em> drive the trust decision — observed live rather than only in tests.</p>
+          <p><strong>And <code>colocated</code> caught a second pair.</strong> Claude reported the SQL injection under both <code>auth</code> and <code>injection</code>, as Copilot did — <em>and</em> the exported credentials under both <code>secrets</code> and <code>api</code> at <code>module.exports = { findUser, isAdmin, DB_PASSWORD }</code>. Four of its six findings are two real issues seen twice. Without the annotation the report would have listed six vulnerabilities in a five-file project.</p>
+        </div>
+
+        <p class="small faint">The two adapters disagree on severity — Claude rated everything <code>critical</code>, Copilot <code>high</code> — and on volume: Claude found 8 candidates in one round against Copilot's 4. Neither is wrong. The disposition ladder normalises <em>confidence</em>, not <em>severity</em>.</p>
+
+        <div class="callout callout--info">
+          <span class="callout-label">Do the CLIs throttle? Yes — and the pool still wins</span>
+          <p>The design spec named one measurement only a live run could give: the same fixture at <code>--concurrency 1</code> against <code>--concurrency 6</code>. The answer is <strong>209.3 s versus 91.4 s — 2.29×, not 6×</strong>.</p>
+          <p>Some of that is structural: one serial context call, one wave of six finders, then twelve skeptic calls in two waves — about four waves at best. But at the serial rate of 13.1 s per call, four perfect waves would be ~52 s. The measured 91.4 s means per-call latency is roughly <strong>1.75× worse under concurrent load</strong>. Copilot does apply back-pressure. Expecting linear scaling would have been wrong; having the pool is still worth more than double.</p>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="found">Two defects, both found by running it</h2>
+
+        <div class="card-grid cols-2">
+          <div class="card problem">
+            <div class="ico" aria-hidden="true">👯</div>
+            <h3>1 · One vulnerability, two categories, two findings</h3>
+            <p>Run 1 reported the SQL injection at <code>src/auth.js:5</code> twice — once from the <code>auth</code> finder, once from <code>injection</code> — because the dedup key is <em>file + line-window + category</em>. Six verification calls went to one issue. Run 2, same fixture, produced only one: <strong>the double-counting is not even reproducible</strong>, so a user cannot predict whether their report inflates.</p>
+          </div>
+          <div class="card problem">
+            <div class="ico" aria-hidden="true">🔇</div>
+            <h3>2 · "last error: exit 1"</h3>
+            <p>The <code>claude</code> adapter failed instantly on the test machine. The guard was right — it refused to call an empty result clean and exited 2 — but the reason it printed was useless. Reproducing the call by hand showed why: <code>claude -p</code> answers a failed call with returncode 1, <strong>empty stderr</strong>, and the reason inside its JSON envelope on stdout. It was an expired OAuth session, and the driver had the message in its hands the whole time.</p>
+          </div>
+        </div>
+
+        <div class="callout callout--why">
+          <span class="callout-label">The duplicate was fixed by refusing to fix it automatically</span>
+          <p>The tempting repair is to drop <code>category</code> from the dedup key. Don't: two genuinely different issues can share a five-line window — this very fixture has a hardcoded secret on line 2 and an injection on line 5 — and merging blind would delete one without a word. <strong>Between a visible duplicate and a silent deletion, a security tool takes the duplicate.</strong></p>
+          <p>So survivors now carry a <code>colocated</code> list naming the other categories that reported the same place, annotated <em>after</em> the drop filter so a survivor is never told it shares a location with something the skeptics just deleted. The engine states the ambiguity; the skill's report loop, which has the titles and descriptions in front of it, decides.</p>
+        </div>
+
+        <p>A third fix rode along, independent of both: <code>verification.lenses</code> was a module constant, so a finding whose exploitability call timed out still reported all three lenses — a report describing a verification that did not happen. It now names the lenses that answered.</p>
+      </section>
+
+      <section>
+        <h2 id="e2e">The test that mattered</h2>
+        <p>Everything above tests the driver. The phase 6 finding was about the <em>skill</em>, so the real question is whether an agent asked to run the skill now reaches the driver at all. Sandboxed <code>HOME</code>, Copilot given shell and write tools, a throwaway fixture, and one instruction: <em>"Run the freya-codebase-security-scan skill in scan mode on this project."</em></p>
+
+        <div class="callout callout--info">
+          <span class="callout-label">First attempt — the failure was the right one</span>
+          <p>Copilot said <em>"Running the required full scan driver now"</em> and invoked it. <strong>No greps.</strong> The driver autodetected the <code>claude</code> worker — its stated preference, because Claude reports per-call spend — was handed a Copilot model name from the prompt, and failed with <code>unrecognized_model</code>. Copilot reported the failure and <strong>wrote no report</strong>: a third live confirmation that a broken run cannot be mistaken for a clean one. It also exposed a real documentation gap. <code>--agent</code> and <code>--model</code> are a pair, and the two CLIs' model vocabularies do not overlap.</p>
+        </div>
+
+        <p>Second attempt, worker pinned. The driver returned four findings; Copilot <strong>resolved the <code>colocated</code> pair into one</strong> exactly as the new instructions say, labelling it <code>Authentication &amp; Authorization + Input Validation &amp; Injection</code> and saying in the summary that the merge happened. It wrote the dated report, <code>findings.json</code> and the tracking file — and <strong>did not commit them</strong>. One commit in the repo, the fixture's own. Phase 6's uninvited-commit fix is holding.</p>
+
+        <p>One gap the generated report exposed in passing: <code>findings.json</code> arrived with its <code>findings</code> list alone, missing the <code>version</code>, <code>scanned_commit</code> and <code>report</code> fields the schema requires — so a consumer could not tell which commit those findings described. The skill never listed the envelope fields. It does now.</p>
+      </section>
+
+      <section>
+        <h2 id="wrapup">And the thing phase 6 ran out of quota for</h2>
+        <p>Phase 6 reached <code>freya-wrap-up</code> — the one flow that ties every skill together, and the only one that legitimately commits — and stopped, because the Copilot account's monthly quota ran out. With quota restored, it was run on the same sandbox and the same fixture. <strong>It completed.</strong></p>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>What it did</th><th>Why that's the right answer</th></tr></thead>
+            <tbody>
+              <tr><td>Made <strong>no code commit</strong></td><td>Nothing in <code>src/</code> had changed. It said so rather than inventing one.</td></tr>
+              <tr><td>Built a real dependency graph</td><td><code>graph.json</code> names every export and import per file, including <code>external:fs</code> and <code>external:path</code>, stamped with the commit it describes. Gitignored, so absent from the commit — also correct.</td></tr>
+              <tr><td>Made <strong>one</strong> artifact commit — 5 files, 239 insertions</td><td>The second half of the two-commit pattern, with the first half correctly absent.</td></tr>
+              <tr><td>Wrote a backlog that reads the findings</td><td>Three open findings by id, severity and file, plus a coverage census. Not a template.</td></tr>
+              <tr><td>Left <code>src/</code> and <code>README.md</code> byte-identical, working tree clean</td><td>The commit discipline held on an agent holding write and shell tools.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p>The two-commit pattern, the code-graph, the security scan, the status backlog and the commit discipline all compose on a non-Claude agent. That was the largest gap phase 6 left open, and it is closed.</p>
+      </section>
+
+      <section>
+        <h2 id="reload">The question every phase had deferred</h2>
+        <p>"Does a session that is already open notice when <code>freya update</code> swaps the files underneath it?" had been carried as unproven since phase 5. Closing it needed something none of the earlier work had: a <em>real interactive session</em> held open while the filesystem changed. So the session was held open, a skill's link was moved out from under it, and it was asked about that skill.</p>
+
+        <div class="callout callout--info">
+          <span class="callout-label">Copilot: the two halves disagree</span>
+          <p>With <code>freya-code-graph</code> removed from disk, the session <strong>still listed it</strong>. But asked to actually load it: <code>ENOENT: no such file or directory</code> → <em>NOT REGISTERED</em>.</p>
+          <p>So the <strong>registry is snapshotted at session start</strong> while the <strong>body is read from disk at invocation</strong>. Note that the listing alone would have proved nothing — a model can simply recite its own answer from a minute earlier. The load probe is the evidence; the list is a story.</p>
+        </div>
+
+        <p>Claude was measured twice, and both attempts taught method rather than behaviour. The first moved <code>plugins/marketplaces/…/skills/code-graph</code> — which changed nothing, because a plugin install keeps <strong>two independent copies</strong> and the live one is under <code>plugins/cache/&lt;marketplace&gt;/&lt;plugin&gt;/&lt;version&gt;/</code>. The second moved the right copy and got <em>"already loaded (no changes since last load)"</em> — the session had loaded that skill minutes earlier and answered from memory. Both runs were executed correctly; both targeted a state that could not answer the question. What they do establish is that <strong>Claude caches a once-loaded skill for the session</strong>.</p>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>A mid-session <code>freya update</code>…</th><th>Seen by the open session?</th></tr></thead>
+            <tbody>
+              <tr><td>edited an existing skill</td><td>Copilot: yes. Claude: no, once it has been loaded</td></tr>
+              <tr><td>added a skill</td><td>no — it is not in the start-up snapshot</td></tr>
+              <tr><td>removed or renamed a skill</td><td><strong>worse than no</strong> — still offered, then a raw <code>ENOENT</code> at the point of use</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="callout callout--why">
+          <span class="callout-label">The fix is a reload, not a restart — and the tool said neither</span>
+          <p>Both hosts can reload in place: <code>/reload-skills</code> on Claude Code (verified present in the 2.1.220 binary) and <code>/skills</code> on Copilot. That is a much smaller ask than restarting, and it is the right advice.</p>
+          <p><code>freya update</code> mentioned none of it. It printed <code>updated e878a209 -&gt; 34a9a310 (5 commit(s))</code> and stopped — so someone updating mid-task sees nothing change and concludes the update failed, when it worked perfectly and needed one command. It now prints the reminder whenever it actually moves the store, and never when there was nothing to move.</p>
+        </div>
+
+        <p class="small faint">Third row of that table is not hypothetical: phase 3 renamed every skill to its <code>freya-</code> prefix. Anyone who had run <code>freya update</code> across that rename with a session open would have been handed phantom skills that fail with a filesystem path.</p>
+      </section>
+
+      <section>
+        <h2 id="fanout">The other two fan-outs, run for the first time</h2>
+        <p>Phase 4 built <strong>three</strong> fan-out flows, and the scoreboard had been quietly reporting one result for all of them. Only the security scan's six-way fan-out had ever been run on an agent. <code>docs-manager</code> (12 workers) and <code>spec-manager scan</code> (5 discovery areas) were shipping on the strength of a measurement taken in a third skill.</p>
+
+        <p>Both were run in the sandbox on Copilot, on separate identical fixtures so neither could benefit from the other's output — a small Express project with three routes.</p>
+
+        <div class="card-grid cols-2">
+          <div class="card">
+            <h3><code>docs-manager</code> — 12 documents</h3>
+            <p>Exit 0, 274 lines, plus an index. Not templates: <code>API.md</code> names the actual routes, the actual storage path <code>/var/reports/&lt;filename&gt;</code>, and the real <code>req.db</code> dependency. It reported <em>"Placeholder resolution found none"</em> and a passing consistency / accuracy / link check. <code>src/</code> untouched, nothing committed.</p>
+          </div>
+          <div class="card">
+            <h3><code>spec-manager scan</code> — 5 specs</h3>
+            <p>Exit 0, across four of the five discovery areas (none for infra, which this fixture has none of), plus 8 proposed behaviors. Certainty scores of <strong>68 / 72 / 78 / 84 / 88</strong> — the scoring pattern working rather than declared. It flagged report file handling as lowest-certainty, which is the right call. Nothing committed.</p>
+          </div>
+        </div>
+
+        <p>Those two runs captured only the final message, so they proved the flows <em>work</em> without showing whether the twelve and five tasks were delegated. So <code>docs-manager</code> was run a third time with <code>--log-level debug</code>, producing an 800 KB structured log of every model request and tool call.</p>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Tool</th><th>Times invoked</th></tr></thead>
+            <tbody>
+              <tr><td><code>view</code></td><td>9</td></tr>
+              <tr><td><code>bash</code></td><td>8</td></tr>
+              <tr><td><code>skill</code></td><td>1</td></tr>
+              <tr><td><code>rg</code></td><td>1</td></tr>
+              <tr><td><strong><code>task</code></strong></td><td><strong>0</strong></td></tr>
+              <tr><td><strong><code>explore</code></strong></td><td><strong>0</strong></td></tr>
+              <tr><td><code>read_agent</code> / <code>write_agent</code> / <code>list_agents</code></td><td>0</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p><strong>Zero delegation across a documented twelve-way fan-out.</strong> All thirteen files were written by the main loop. And the same log contains the reason — in the <code>Task</code> tool's own instruction block, which is Copilot's system prompt, not ours:</p>
+
+        <div class="callout callout--danger">
+          <span class="callout-label">The host is explicitly told not to do what the skill asks</span>
+          <p><em>"For other reviews, audits, and summaries, <strong>never delegate parts of a codebase that is small enough to read directly, regardless of how it divides into separate areas</strong>; do them yourself. Never delegate passes over the same files."</em></p>
+          <p><em>"<strong>Never use explore to split a review, audit, or summary by labeled area</strong> when its total scope is small; do it yourself."</em></p>
+          <p>That is the freya fan-out described exactly: a review, split by labeled area, over the same files. So Copilot's refusal was never a quirk observed once — it is <strong>documented policy</strong>. And phase 4's founding premise, that <em>task structure</em> is the lever that gets Copilot to delegate, is contradicted by five words of it: <em>"regardless of how it divides into separate areas."</em> Structure is precisely what it is told to ignore.</p>
+          <p><strong>To be clear about what this is not:</strong> Copilot is not missing the capability. It ships <code>task</code>, an <code>explore</code> agent, background agents, <code>/subagents</code>, and <code>/fleet</code> — <em>"Enable fleet mode for parallel subagent execution"</em>. The machinery is all there and it is good. It is simply instructed not to reach for it here. And <code>/fleet</code> is an interactive toggle with no CLI flag, so a headless <code>-p</code> run — how the driver and any scripted use invoke it — cannot turn it on.</p>
+        </div>
+
+        <div class="callout callout--warn">
+          <span class="callout-label">So can the fan-out be forced? No — and that is a property of skills, not of Copilot</span>
+          <p>The obvious follow-up is whether some setting makes it delegate. There isn't one: <code>subagents.agents.&lt;name&gt;</code> configures a subagent's <em>model</em>, not whether delegation happens, and <code>/fleet</code> is an interactive toggle with no CLI flag and no config key.</p>
+          <p>But the deeper answer is that <strong>no skill file can enforce anything.</strong> A skill is <em>data the agent reads</em>; the host's system prompt is <em>the agent's instructions</em>. When the two conflict the host wins — and it should, or a file in a repository could override a vendor's operating policy. Phase 4's error was not picking the wrong words. It was believing that words were a mechanism.</p>
+          <p>Which leaves exactly two ways to make a guarantee real: change the host's own configuration, or stop asking the agent. Only the second is available here, and it is what the driver does — <strong>separate operating-system processes, not subagents</strong>, so there is no decision for anyone to make.</p>
+        </div>
+
+        <div class="callout callout--why">
+          <span class="callout-label">The honest limit — and why this settles the design</span>
+          <p>Both clauses are conditioned on scope: <em>"small enough to read directly"</em>, <em>"when its total scope is small"</em>. Every observation, in phase 6 and here, was on a small fixture. At scale Copilot's own policy would permit delegation. So what is established is narrower than "Copilot never delegates": <strong>for scopes small enough to read directly, it will not delegate a labeled-area fan-out, by design.</strong></p>
+          <p>Within that limit it settles the phase 7 decision completely. Against a host whose instruction is "do it yourself", <em>no</em> phrasing of a skill file buys concurrency. The driver is not a workaround for a quirk — it is the only mechanism left.</p>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="unproven">What is still unproven</h2>
+        <div class="card-grid cols-2">
+          <div class="card problem">
+            <div class="ico" aria-hidden="true">🔄</div>
+            <h3>Claude's <em>first</em> load after a re-link</h3>
+            <p>The live-session question itself is <a href="#reload">answered above</a>. What the two Claude attempts could not reach is the one cell the table leaves blank: a skill loaded for the <em>first</em> time in a session after its files moved. Both runs hit a skill the session had already cached, so they measured the cache rather than the lookup. Deliberately not re-run — the consequence table does not depend on it.</p>
+          </div>
+          <div class="card problem">
+            <div class="ico" aria-hidden="true">🔁</div>
+            <h3><code>audit</code>'s loop, live under phase 7 code</h3>
+            <p>Run 4 hit its findings cap inside round 1, so loop-until-dry never ran on the wire. Five offline tests pin it and phase 6 exercised it live, but this build did not.</p>
+          </div>
+          <div class="card problem">
+            <div class="ico" aria-hidden="true">📊</div>
+            <h3>The "~7×" token multiplier</h3>
+            <p>Still an estimate from landscape research. Phase 7 measured wall clock and dollars, neither of which says anything about tokens.</p>
+          </div>
+          <div class="card problem">
+            <div class="ico" aria-hidden="true">🪟</div>
+            <h3>Windows</h3>
+            <p><code>install.ps1</code> and <code>--copy</code> remain unreachable from macOS, and no amount of sandboxing on a Mac gets near them. <strong>Since closed</strong> — not by a Mac but by CI, which runs both on <code>windows-latest</code> every push. The first run failed 29 times, and this phase's assumption that Windows was "waiting on a machine, not code" was wrong. <a href="status.html#windows">The record →</a></p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="numbers">The numbers</h2>
+        <div class="card-grid cols-2">
+          <div class="card">
+            <h3>13 commits</h3>
+            <p>A spec, three features, four fixes, one skill-layer rewrite and four commits of validation record. Five more landed in the same window and are counted with the explainer rather than the phase. There is no standalone plan commit — the plan rode in with the first feature. Most of the fixes were found by running the thing, not by reading it, including two corrections to claims this explainer had already made.</p>
+          </div>
+          <div class="card">
+            <h3>37 new tests</h3>
+            <p>Including one that measures the pool: six sleeping thunks through <code>make_run(6)</code> must finish in well under the sequential floor. The property the whole feature exists for is now a regression test rather than a one-off observation.</p>
+          </div>
+          <div class="card">
+            <h3>758 tests · 24 suites</h3>
+            <p>All green at the close of the phase, still with no network call and no paid test. Nine mutations were introduced and reverted to prove the new tests actually fail when their guard is removed; all nine were caught. <span class="faint">The suite stands at <strong>935</strong> today — a branch review and the first Windows run added 177 after this phase. <a href="status.html#windows">The record →</a></span></p>
+          </div>
+          <div class="card">
+            <h3>1 question closed since phase 5</h3>
+            <p>Whether a running session sees a re-linked skill. Answered by holding a real session open and moving the file: the registry is frozen at start, the body is read at invoke. <code>freya update</code> now says so. One cell of the table is still blank — <a href="#unproven">Claude's first load of an uncached skill</a>.</p>
+          </div>
+          <div class="card">
+            <h3>3 planted issues, 0 invented</h3>
+            <p>Across the five driver runs on two adapters the control file never produced a finding, and the fixture was byte-identical afterwards every time. The two end-to-end runs are counted separately: the first wrote nothing at all, which was the correct answer. Claude reported <strong>$1.12</strong> for its run; Copilot reports credits, not currency.</p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="read-next">Read next</h2>
+        <div class="next-prev">
+          <a class="np-card" href="status.html">
+            <span class="faint">Next →</span>
+            <strong>Where It Stands</strong>
+            <span class="small">The whole track's honest status, with evidence behind most of it.</span>
+          </a>
+          <a class="np-card" href="phase6.html">
+            <span class="faint">Back →</span>
+            <strong>Phase 6</strong>
+            <span class="small">The validation run that found the assumption this phase had to replace.</span>
+          </a>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <div id="site-footer"></div>
+</body>
+</html>

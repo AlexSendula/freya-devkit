@@ -238,11 +238,11 @@
          '<p>Start from changed files; find every accepted or confirmed behavior whose exercised code the ' +
          'change reaches (transitively, via code-graph impact). This is what <code>wrap-up</code> re-runs to ' +
          'catch regressions.</p>' +
-         '<pre class="code"><code>behavior_graph.py --affected lib/example.ts --project .</code></pre>',
+         '<pre class="code"><code>freya behavior-graph --affected lib/example.ts --project .</code></pre>',
       b: '<h4 style="margin:0 0 6px;">Direction B — behavior → code <span class="pill">planning</span></h4>' +
          '<p>Start from a behavior; list the code it exercises. Useful when planning a change: "if I touch ' +
          'this behavior, what code is in play?"</p>' +
-         '<pre class="code"><code>behavior_graph.py --implements BEH-003 --project .</code></pre>'
+         '<pre class="code"><code>freya behavior-graph --implements BEH-003 --project .</code></pre>'
     };
     var dirPanel = document.getElementById("dir-panel");
     var dirBtns = document.querySelectorAll("#dir-seg button");

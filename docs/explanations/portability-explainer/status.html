@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Where It Stands — portability</title>
+  <meta name="description" content="The honest status of the freya-devkit portability track: what's done, what's unreviewed, what has never been validated live, and what happens next.">
+  <link rel="stylesheet" href="assets/styles.css">
+  <script src="assets/site.js"></script>
+</head>
+<body>
+  <div id="site-header"></div>
+
+  <header class="hero wrap">
+    <span class="eyebrow">portability · status · 18 Aug 2026</span>
+    <h1>Windows finally ran it. The first run failed 29 times.</h1>
+    <p class="lead">This page is deliberately unflattering, and for the first time most of it is evidence rather than claim. The toolkit has been installed from a clean clone, updated from a real remote, and driven through both Claude Code and GitHub Copilot — which immediately found the security scanner missing on Copilot, silently, for five phases. Phase 6's worst finding, that Copilot will not delegate a fan-out and will say it did, was fixed in phase 7 by taking the scheduling away from the agent. The line every previous version of this page ended on — <em>what remains untested is Windows</em> — is now out of date: CI runs the suite, the conformance gate and a real install on Windows and Linux on every push, and all eight jobs are green. Getting there cost 29 test failures and four root causes, two of them product bugs rather than test bugs. What is still not covered is listed below, and it is no longer the platform itself.</p>
+  </header>
+
+  <div class="doc">
+    <aside class="toc" id="toc"></aside>
+    <main class="doc-body">
+
+      <section>
+        <h2 id="scoreboard">The scoreboard</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Phase</th><th>Built</th><th>Reviewed</th><th>Validated live</th></tr></thead>
+            <tbody>
+              <tr><td><strong>1</strong> — <code>freya</code> launcher</td><td>✅</td><td>✅</td><td>✅ <span class="faint">both agents</span></td></tr>
+              <tr><td><strong>2</strong> — skill layer</td><td>✅</td><td>✅</td><td>✅ <span class="faint">both agents — and Copilot was dropping one skill</span></td></tr>
+              <tr><td><strong>3</strong> — installer</td><td>✅</td><td>✅</td><td>✅ <span class="faint">clean clone, both agents — and on CI a real <code>install.sh</code> / <code>install.ps1</code> run, launcher resolved off <code>PATH</code>, then uninstalled, on <strong>Linux and Windows</strong></span></td></tr>
+              <tr><td><strong>4</strong> — portable fan-out</td><td>✅</td><td>✅</td><td>⚠️ <span class="faint"><strong>3 of 3 flows run</strong>, and delegation instrumented: <code>task</code>/<code>explore</code> invoked <strong>zero</strong> times on a twelve-way fan-out. Copilot's own prompt forbids it for small scopes. The flows work; the parallelism does not happen.</span></td></tr>
+              <tr><td><strong>4b</strong> — audit driver</td><td>✅</td><td>✅ <span class="faint">5 findings, all fixed</span></td><td>✅ <span class="faint">live on both adapters</span></td></tr>
+              <tr><td><strong>5</strong> — <code>update</code> / <code>init</code></td><td>✅</td><td>✅ <span class="faint">8 of 10 tasks took findings</span></td><td>✅ <span class="faint">real remote, real repos</span></td></tr>
+              <tr><td><strong>6</strong> — validation</td><td>✅</td><td>4 defects found + fixed</td><td>⚠️ <span class="faint">mechanics + both agents; the agent CLIs are not installed on the CI runner, so no live agent run has happened on Windows</span></td></tr>
+              <tr><td><strong>7</strong> — driver-owned fan-out</td><td>✅</td><td>2 defects found + fixed</td><td>✅ <span class="faint">7 live runs <strong>(5 driver + 2 end to end)</strong>; both modes; <strong>both adapters</strong>; end to end through Copilot</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout callout--success">
+          <span class="callout-label">The review that was outstanding has now run</span>
+          <p>Phase 4b was the only phase that skipped its whole-phase review, and the case for doing it was that a silent defect there is the most expensive kind — it drives paid agent CLIs with tool permissions and it changed security-finding logic. That turned out to be right, though not where expected. The <em>engine</em> was clean: every constant, the dedup key, the vote arithmetic and the disposition ladder survived scrutiny, exactly as the six mutation checks claimed. Both serious findings were at the driver's <em>edges</em> — and neither was an edge case.</p>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>#</th><th>Finding</th><th>Severity</th></tr></thead>
+            <tbody>
+              <tr><td>1</td><td>A run in which every agent call failed exited <strong>0</strong> with <code>[]</code>, and the skill wrote a report saying the codebase was clean.</td><td>high</td></tr>
+              <tr><td>2</td><td>The default caps could not finish a run, were in mismatched units, and discarded everything on exhaustion.</td><td>high</td></tr>
+              <tr><td>3</td><td>Three <code>Workflow-powered</code> references survived the retirement; R4's pattern couldn't see them.</td><td>medium</td></tr>
+              <tr><td>4</td><td>Verification lost the JS's cross-finding parallelism — N sequential batches of 3.</td><td>low</td></tr>
+              <tr><td>5</td><td>A second, undocumented divergence from the JS (intra-round dedup).</td><td>low</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>All five are fixed across two commits, with ten mutations verified killed. Audit-driver tests went from 84 to 109. <a href="evolution.html#nine">The full account →</a></p>
+
+        <div class="callout callout--info">
+          <span class="callout-label">Three questions this page asked, now answered</span>
+          <p><strong>Is the permission guard reachable on every argv path?</strong> Yes — both adapters return through <code>_guard</code>, and <code>make_ask</code> is the only place a subprocess is spawned. No bypass.<br>
+          <strong>Does the unlocked <code>Budget</code> matter?</strong> Measurably, no: 40 trials × 16 threads at a 1&nbsp;µs switch interval produced zero overrun, and in production every thread sits in <code>subprocess.run</code> for seconds between spends. It took a lock anyway, because the cost is one line.<br>
+          <strong>Is the Python a faithful port?</strong> Almost — one undocumented divergence (finding 5) and one lost property (finding 4), both now closed.</p>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="windows">Windows, run at last — and it was waiting on code after all</h2>
+        <p>Every previous version of this page said Windows needed a machine and no code. That was wrong, and it was wrong in the way this page exists to catch: an untested claim reads exactly like a tested one until something runs it.</p>
+
+        <p>There is now a CI workflow. It runs <strong>8 jobs</strong> — the test suite plus the conformance gate, and a separate end-to-end install, each on <code>ubuntu-latest</code> and <code>windows-latest</code>, on Python <strong>3.9</strong> and <strong>3.13</strong> — on every push. All eight pass. The install job is not a smoke test: it drives the documented entry point, asserts a skill resolved through the link, resolves <code>freya</code> by name off <code>PATH</code>, runs <code>doctor</code>, then uninstalls and checks nothing was left behind.</p>
+
+        <div class="callout callout--danger">
+          <span class="callout-label">The first Windows run: 29 failures, all pre-existing</span>
+          <p>Nothing regressed. This was simply the first time the suite had ever executed on the platform, and the failures had been sitting in the tree for the whole track. Four root causes account for all 29 — and <strong>two of them were product bugs, not test bugs</strong>.</p>
+          <p class="small muted">A caveat this page owes you: that run is no longer available. The earliest CI run you can reach is <code>b629a46</code>, which is already <em>after</em> the first batch of fixes — so the 29 is sourced from the commit body of <code>b629a46</code> and from this page, not from anything you can click. Every figure below it, and the eight green jobs, are still checkable.</p>
+          <p>Worth noting which jobs failed. On that first run <em>both</em> Windows install jobs passed; only the two Windows test jobs went red. The thing this site had spent seven phases apologising for — <code>install.ps1</code>, never once executed — worked first time, because phase 3 deliberately left no logic in it. The breakage was in the Python that had been reviewed repeatedly and read correctly every time.</p>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Root cause</th><th>What it actually broke</th><th>Kind</th></tr></thead>
+            <tbody>
+              <tr>
+                <td><strong>Extended-length paths.</strong> Windows hands back a symlink target as <code>\\?\C:\…</code> while the source is spelled <code>C:\…</code>, and the installer proved ownership by comparing those two strings.</td>
+                <td>Every link the installer had just created classified as <strong>foreign</strong>. So <code>freya install</code> refused to manage its own install, and <code>relink</code> skipped every agent. <strong>17 of the 29</strong> were downstream of this one comparison.</td>
+                <td><strong>product bug</strong></td>
+              </tr>
+              <tr>
+                <td><strong>Backslash graph keys.</strong> The code graph keyed <code>weirddir\x.ts</code>, so every forward-slash lookup missed.</td>
+                <td>Wider than one skill: <code>behavior-graph</code> and <code>behavior-runner</code> read those keys expecting forward slashes, so blast radius came back <em>silently empty</em> on Windows — the failure mode with no error attached.</td>
+                <td><strong>product bug</strong></td>
+              </tr>
+              <tr>
+                <td><code>remove_link</code> retried a failed <code>unlink</code> as <code>rmdir</code>, unconditionally.</td>
+                <td>On Windows the fallback <em>succeeded</em>, so a failed removal was counted as a successful one and <code>relink</code> reported <code>failed=0</code> while nothing had been removed. The fallback is now gated on Windows, where <code>DeleteFileW</code> genuinely refuses a directory reparse point.</td>
+                <td>reporting</td>
+              </tr>
+              <tr>
+                <td>The manifest escape guard used <code>os.path.isabs</code>.</td>
+                <td>Python 3.13 changed <code>ntpath.isabs</code>, so a rooted path with no drive is no longer absolute on Windows: <code>/etc/passwd</code> was <em>rejected on 3.9 and accepted on 3.13</em>. A guard on a trust boundary that held by accident of the interpreter. It now judges every value with both path flavours on every host.</td>
+                <td>trust boundary</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="callout callout--warn">
+          <span class="callout-label">And two that CI structurally could not have caught</span>
+          <p>Both were found by review, not by the runner, and neither could ever have turned a leg red. <code>cmd_shim_plan</code> is <strong>Windows-exclusive</strong> — no POSIX run reaches it at all — and <code>is_git_store</code> was latent. They would have shipped broken behind a green build. That is the part worth keeping: a green matrix is evidence about the paths the matrix executes, and adding the platform did not make it evidence about everything on that platform.</p>
+        </div>
+
+        <p>The suite went from <strong>758 to 935</strong> passing across the same 24 files over this work and the branch review that preceded it. On CI, Ubuntu reports <strong>934 passed / 1 skipped</strong> and Windows <strong>931 passed / 4 skipped</strong>. Both skip the one test that needs macOS/BSD file flags; Windows skips three more, two for POSIX mode bits and one for POSIX signal semantics, none of which exist on the platform. Every skip names a capability the host lacks, not a test that was switched off to get a green tick.</p>
+      </section>
+
+      <section>
+        <h2 id="unverified">What has never been proven</h2>
+        <p>Phase 6 retired three of the five claims that stood here and answered a fourth in the negative, and CI has now retired the Windows claim that outlived them all. What is left is listed as risk, not reassurance.</p>
+
+        <div class="card-grid cols-2">
+          <div class="card problem">
+            <div class="ico" aria-hidden="true">🪟</div>
+            <h3>No agent has ever run on Windows</h3>
+            <p>CI proves the toolkit installs there and that its tests pass there. It does not prove a scan works there: the agent CLIs are not installed on the runner, so no live <code>freya security scan</code>, no <code>wrap-up</code>, nothing that spends money has executed on the platform. Every live-agent claim on this page is a claim about macOS. The two Windows-only paths that had never executed <em>have</em> now — <code>install.ps1</code>, the <code>freya.cmd</code> shim resolved by name off <code>PATH</code>, and the symlink probe — but the shim proving the launcher runs is a long way from an agent driving the suite through it.</p>
+          </div>
+          <div class="card problem">
+            <div class="ico" aria-hidden="true">🔀</div>
+            <h3>Two install modes, each untested on one platform</h3>
+            <p>CI runs symlink mode on Linux and <code>--copy</code> mode on Windows, which mirrors how each platform is actually used — and therefore leaves the other diagonal blank. Linux <code>--copy</code> and Windows-<em>with</em>-Developer-Mode symlink installs are both uncovered. The second is the more interesting gap: <code>--copy</code> is not the Windows default, it is the fallback the installer switches to itself when the platform refuses a symlink, so the path a Developer-Mode machine actually takes is the one nothing has run.</p>
+          </div>
+          <div class="card problem">
+            <div class="ico" aria-hidden="true">📄</div>
+            <h3>Whether Copilot delegates at <em>scale</em></h3>
+            <p>Instrumented in phase 7: a twelve-way <code>docs-manager</code> fan-out invoked <code>task</code> and <code>explore</code> <strong>zero</strong> times. Copilot's own sub-agent instructions say why — never delegate a review "small enough to read directly, regardless of how it divides into separate areas". But both clauses are conditioned on <em>small</em> scope, and every fixture used has been small. On a large codebase its policy would permit delegation. Untested, and it is the only version of this question left open.</p>
+          </div>
+          <div class="card problem">
+            <div class="ico" aria-hidden="true">🔁</div>
+            <h3><code>audit</code>'s loop-until-dry, live under phase 7 code</h3>
+            <p>Phase 7's single <code>audit</code> run hit its findings cap inside round 1, so the multi-round path never ran on the wire in this build. Five offline tests pin it and phase 6 exercised it live, but that is inference across a code change, not evidence.</p>
+          </div>
+          <div class="card problem">
+            <div class="ico" aria-hidden="true">📊</div>
+            <h3>The "~7×" cost figure is unmeasured</h3>
+            <p>It comes from landscape research, not from this suite. It survives in two skills that still fan out through prose, and in the security scan it now describes real concurrent workers rather than a delegation that never happened. Phase 7 measured <em>wall clock</em>, not tokens, so the multiplier itself remains unverified.</p>
+          </div>
+        </div>
+
+        <div class="callout callout--success">
+          <span class="callout-label">Retired by phase 6 — these are now evidence</span>
+          <p><strong><code>freya update</code> has reached a real remote:</strong> <code>updated e878a209 -&gt; 34a9a310 (5 commit(s))</code> against GitHub, with every refusal observed in the field including the offline case that must say <em>could not fetch</em> and never "already up to date".</p>
+          <p><strong>The audit driver has called real agents:</strong> live workers on both adapters returned schema-valid findings, found every planted issue, invented nothing in the clean control file, and wrote no file. Phase 6 saw zero failed calls across 47 invocations, which left the retry path unexercised; <strong>phase 7 closed that too</strong> — 2 of 27 attempts failed on a Claude run and both recovered, with <code>unanswered</code> correctly staying 0.</p>
+          <p><strong>Copilot's parallelism is answered — in the negative.</strong> It runs the six category scans itself, sequentially, and then reports that it ran them in parallel. <a href="phase6.html#agents">The transcript →</a></p>
+        </div>
+
+        <div class="callout callout--success">
+          <span class="callout-label">Retired by phase 7 — the fan-out no longer depends on the agent</span>
+          <p><strong>The security scan schedules its own workers.</strong> Asked to run the skill, Copilot now invokes <code>freya security scan</code> instead of grepping — verified end to end, including the report merge and the refusal to commit. Across the <strong>five driver runs</strong> all three planted issues were found every time, nothing was invented in the control file, and the fixture was byte-identical afterwards. Two further runs drove the skill end to end; the first of those failed on a model-name mismatch and correctly wrote nothing at all.</p>
+          <p><strong>Concurrency is measured, not assumed:</strong> 209.3 s at <code>--concurrency 1</code> against 91.4 s at 6 on the same fixture. Copilot <em>does</em> throttle — per-call latency is about 1.75× worse under load — so the win is <strong>2.29×</strong>, not 6×. <a href="phase7.html#live">The numbers →</a></p>
+          <p><strong>Both adapters run the phase 7 driver.</strong> Copilot on <code>gpt-5.6-luna</code> and Claude on <code>haiku</code> ($1.12 reported for one scan). Claude's run also showed <code>colocated</code> catching a <em>second</em> duplicate pair the Copilot runs never produced.</p>
+          <p><strong>A running session does not see a re-link.</strong> Carried as unproven since phase 5 and closed by holding a real interactive session open while a skill's link moved: the registry is snapshotted at session start, the body is read from disk at invocation. So a removed or renamed skill is <em>worse</em> than invisible — still offered, then a raw <code>ENOENT</code>. The remedy is a reload, not a restart, and <code>freya update</code> now says so whenever it moves the store. What is <em>not</em> measured is Claude's first load of a skill it has not already cached; both attempts there hit the cache, and it is not worth further spend. <a href="phase7.html#reload">The record →</a></p>
+          <p><strong><code>freya-wrap-up</code> has run end to end on Copilot.</strong> The item phase 6 ran out of quota for. No code commit (nothing had changed, and it said so), a real dependency graph, one artifact commit of 5 files, a backlog that reads the actual findings, and <code>src/</code> byte-identical afterwards. The two-commit pattern composes on a non-Claude agent. <a href="phase7.html#wrapup">The record →</a></p>
+        </div>
+
+        <div class="callout callout--info">
+          <span class="callout-label">One more, with a shelf life</span>
+          <p>The read-only security boundary was proven against Copilot CLI <strong>1.0.75</strong>, and phase 6 ran against that same version — so the guard is still matched to the behaviour it was measured on. It held on every live run, including one over a real 299-file repository where not a single file changed. It remains only as good as the last time someone checked, and the bypass probe should be re-run whenever the CLI version moves.</p>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="left">What's left</h2>
+
+        <h3 id="phase5">Phase 5 — <code>update</code>, <code>init</code>, and the notify check <span class="faint">— shipped and validated</span></h3>
+        <p>All three exist, <code>doctor</code> reports the orphaned links phase 3 left it able to see but unable to say, and phase 6 ran every one of them against a real remote and real repositories. The phase cost 24 commits and 147 tests, and eight of its ten tasks came back from review with something. <a href="phase5.html">The full phase-5 record →</a></p>
+
+        <h3 id="phase6">Phase 6 — validation <span class="faint">— done, and it found four defects</span></h3>
+        <p>The mechanics were validated under a redirected <code>HOME</code>, with the real home diffed before and after to prove nothing escaped. Both agents were then driven live. Four defects surfaced that no offline suite could have found — a security skill silently dropped by Copilot, duplicate findings from one file spelled two ways, a scan that committed to a repository it was only asked to read, and a mostly-failed audit reporting itself as a normal one. All four are fixed. <a href="phase6.html">The full phase-6 record →</a></p>
+        <p>It also found the thing phase 7 had to fix: Copilot will not delegate a fan-out, and its own report of its work cannot tell you so.</p>
+
+        <h3 id="phase7">Phase 7 — driver-owned fan-out <span class="faint">— shipped and validated live</span></h3>
+        <p><code>scan</code> stopped asking and started scheduling. It is now a preset of the same driver <code>audit</code> uses — one round of discovery instead of five, the same three verification lenses, because with one lens a single refutation is a unanimous one and the ladder <em>drops</em> on unanimous. Seven live runs — five of the driver, two of the whole skill end to end — two defects found by running it, 37 new tests. <a href="phase7.html">The full phase-7 record →</a></p>
+        <p>It also closed the question every phase had deferred: <strong>a running session does not see a re-link.</strong> A real interactive session was held open while a skill's link moved out from under it — Copilot kept offering the skill from its start-up snapshot and then failed with a raw <code>ENOENT</code> at the point of use. <code>freya update</code> now prints the reload reminder whenever it actually moves the store. <a href="phase7.html#reload">The record →</a></p>
+        <h3 id="after7">After phase 7 — the branch review, and CI <span class="faint">— not a phase, and it closed the phase-long gap anyway</span></h3>
+        <p>Five commits, none of them planned as a phase and none carrying a plan document — which is why there is no phase-8 page. An independent review of the branch went first and found, among others, two defects of the shape this toolkit exists to prevent: discovery truncation that hit its cap, discarded findings already paid for, and still exited 0 into what <code>SKILL.md</code> defines verbatim as "clean"; and a confirmation gate whose non-tty exit code collided with "no agent CLI on <code>PATH</code>", so an agent silently degraded to the prose fan-out phase 7 had just removed, and reported a false cause for doing it. Conformance grew from R1–R10 to <strong>R1–R13</strong>.</p>
+        <p>Then CI, because the portability contract was enforced by prose alone — <code>CONTRIBUTING.md</code> said "run it before you commit", and a review measured what that is worth: four textbook violations injected into a shipped <code>SKILL.md</code> left <code>pytest</code> completely green, because only the conformance checker scans the shipped tree. Both gates now run on both platforms. <a href="#windows">What the Windows leg found →</a></p>
+        <p><strong>The item every previous version of this page called open is closed.</strong> It said Windows needed a machine and no code. It needed both: 29 failures, four root causes, two of them product bugs. The correction is recorded in full. <a href="evolution.html#thirteen">§13 →</a></p>
+      </section>
+
+      <section>
+        <h2 id="known">Known imperfections, recorded rather than hidden</h2>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Issue</th><th>Status</th></tr></thead>
+            <tbody>
+              <tr><td><code>mitigated</code> is an unreachable disposition. The skill's table maps it to a report status, but neither the JavaScript nor the port ever emits it.</td><td>Pre-existing; faithfully preserved. Either a lens should emit it or it should leave the table.</td></tr>
+              <tr><td><s>A multi-agent install is partial on failure.</s></td><td><strong>Fixed in phase 5</strong> — every agent is planned and every blocker collected before the first mutation, and the launcher's own blocker was hoisted into that pre-flight after review found it could install ten skills and then exit 2.</td></tr>
+              <tr><td><s><code>doctor</code> is blind to a <code>--copy</code> install.</s></td><td><strong>Fixed in phase 5</strong> — it reports the mode per agent (<code>claude (10, copy)</code>). The original claim was also wrong: the marker already identified copies; only the wording called them absent.</td></tr>
+              <tr><td><code>freya_cli.main</code>'s catch-all reports any <code>OSError</code> or <code>ValueError</code> as <em>"cannot read the command manifest"</em>. Three unrelated failures fell into it in phase 5 alone.</td><td>Each was fixed at its source. The catch-all itself remains, and will keep collecting others.</td></tr>
+              <tr><td><code>head()</code> can return <code>None</code>, which would make <code>update</code>'s report line raise a <code>TypeError</code> on an unborn branch.</td><td>Carried. Git will not produce an unborn branch <em>with</em> an upstream, so it is unreachable today — but it would be the suite's only traceback.</td></tr>
+              <tr><td><code>relink</code>'s widened <code>except (OSError, RuntimeError)</code> also catches genuine programming faults and reports them as "relink failed".</td><td>Carried. It is the backstop, not the fix — the real guard skips blocked plans before they reach <code>apply_plan</code>.</td></tr>
+              <tr><td>R9 is file-scoped, so a <em>second</em> fan-out added to a file that already carries the clause won't be caught.</td><td>Deliberate; the trade-off is documented in <code>CONTRIBUTING.md</code>.</td></tr>
+              <tr><td><strong>Copilot does not delegate a fan-out</strong> — it runs the tasks itself, sequentially, and then reports that it ran them in parallel.</td><td>Found in phase 6; phase 7 found the cause in Copilot's own sub-agent instructions — it <em>supports</em> subagents (<code>task</code>, <code>/fleet</code>, <code>/subagents</code>) but is told never to split a review by labeled area at a scope small enough to read directly. <strong>Fixed where it mattered:</strong> the security scan calls a driver that schedules OS processes, not subagents, so no agent gets a vote. <code>docs-manager</code> and <code>spec-manager</code> keep prose fan-out — not because they are smaller (<code>docs-manager</code> has twelve workers to the scan's six) but because their workers <em>write files</em>, which is exactly what the driver's read-only allowlist forbids. Neither is security-critical. They no longer claim Copilot will delegate.</td></tr>
+              <tr><td>Two findings can share a file and a five-line window under different categories, and both are reported.</td><td>Deliberate as of phase 7. Collapsing them in the dedup key would sometimes delete a real second finding silently; survivors carry <code>colocated</code> instead and the report loop decides. Between a visible duplicate and a silent deletion, this suite takes the duplicate.</td></tr>
+              <tr><td>An agent with broad tool permissions may infer actions no skill asked for — Copilot ran <code>git commit</code> after a scan.</td><td>Mitigated in phase 6: four artifact-writing skills now state that committing belongs to <code>wrap-up</code>, and the fix was re-tested live. Prose is the only lever a skill has; it is not a guarantee.</td></tr>
+              <tr><td>Concurrent installs race between classify and link; the loser gets an error with some links created.</td><td>Non-destructive. No locking. Known.</td></tr>
+              <tr><td>A green CI matrix says nothing about <strong>platform-exclusive</strong> code. <code>cmd_shim_plan</code> only executes on Windows and <code>is_git_store</code> was latent; both were broken and both legs were green.</td><td>Carried, and structural rather than fixable by adding jobs. Review found both. <code>PathKeyTest</code> now drives the call sites rather than the helper alone, which is the specific gap that let the first one through.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="decisions">Waiting on a human</h2>
+        <div class="card-grid cols-2">
+          <div class="card">
+            <div class="ico" aria-hidden="true">📤</div>
+            <h3>Pushed, not merged</h3>
+            <p>The branch was pushed on 14 Aug with explicit approval — the first off-machine copy the track has ever had, and the thing that finally made <code>freya update</code> testable, since it had no upstream to fetch from before. It is <strong>not</strong> merged: 131 commits still sit on <code>feat/polyglot-portability</code>, and merging is a separate decision. <code>main</code> still carries the pre-redaction content in its own history, which is a thing to know about before the merge rather than after it.</p>
+          </div>
+          <div class="card">
+            <div class="ico" aria-hidden="true">🔀</div>
+            <h3><code>main</code> has moved on</h3>
+            <p>One commit — the README hero banner — landed on <code>main</code> after this branch was cut. Merging keeps both; nothing is lost. Worth knowing before the merge rather than during it.</p>
+          </div>
+          <div class="card">
+            <div class="ico" aria-hidden="true">🏷️</div>
+            <h3>The plugin name still stutters</h3>
+            <p>Under the Claude marketplace install, skills now read <code>/freya-devkit:freya-code-graph</code>. Cosmetic, correct, and consciously accepted rather than bundled into a portability phase as a breaking rename.</p>
+          </div>
+          <div class="card">
+            <div class="ico" aria-hidden="true">💸</div>
+            <h3>Validation ran out of quota once, and it mattered</h3>
+            <p>Phase 6's Copilot quota ran out mid-phase — which blocked <code>wrap-up</code> and, before that, silently degraded an audit into 22 failed calls out of 27. A Copilot Pro month bought for phase 7 unblocked both. Claude's adapter reported <strong>$0.58</strong> for a full fixture audit; Copilot reports AI credits rather than currency, so no dollar total is claimed for it.</p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="next">What happens next</h2>
+        <p>In the order that de-risks fastest:</p>
+        <ol class="principle-list">
+          <li><s>Review phase 4b.</s> <strong>Done</strong> — five findings, all fixed.</li>
+          <li><s>Build phase 5.</s> <strong>Done</strong> — 24 commits, 147 tests, and eight of ten tasks returning findings. <a href="phase5.html">The record →</a></li>
+          <li><s>Run phase 6.</s> <strong>Done</strong> — the mechanics and both agents, four defects found and fixed. <a href="phase6.html">The record →</a></li>
+          <li><s>Fix the fan-out finding.</s> <strong>Done in phase 7</strong> — the scan schedules its own workers, and <code>wrap-up</code> finally ran end to end. <a href="phase7.html">The record →</a></li>
+          <li><s>Run the two fan-out flows live.</s> <strong>Done in phase 7</strong> — 12 documents and 5 specs, both grounded in the real code, neither committed. <a href="phase7.html#fanout">The record →</a></li>
+          <li><s>Then Windows, which needs a Windows machine and no code.</s> <strong>Done — and the second half of that sentence was wrong.</strong> It needed a machine <em>and</em> code: CI now runs the suite, the conformance gate and a real install on Windows on every push, and the first run cost 29 failures and four root causes. <a href="#windows">The record →</a></li>
+          <li><strong>Then a live agent run on Windows</strong>, which is the part CI cannot buy — it proves the toolkit installs and its tests pass there, not that a scan works there.</li>
+          <li><strong>Optional, and a phase of its own:</strong> give <code>docs-manager</code> and <code>spec-manager</code> drivers too. The obstacle is that their workers write files while the driver's safety model is read-only workers — solvable by having workers <em>return document content</em> and letting the driver do every write. That buys a real fan-out on Copilot, at the cost of a new schema, a new preset, tests and live validation. Not urgent: sequential docs are slow, not wrong.</li>
+          <li><strong>Then decide about merging</strong>, and about the marketplace release. The published plugin predates this entire track, so its version had to move before it ships — every skill was renamed, which is a breaking change for anyone who learned the old names; <code>.claude-plugin/plugin.json</code> now reads <strong>0.2.0</strong>. The launcher is <em>not</em> a blocker: Claude Code adds each installed plugin's <code>bin/</code> to <code>PATH</code> automatically, so a published version carrying <code>bin/freya</code> supplies the command the skill layer needs. The design's "first-run bootstrap" open item rested on a false premise and has been retracted — see the dated correction in <code>01-design.md</code>. What remains is that the behaviour is undocumented by the host and untested here, and that Windows still needs the installer for its <code>.cmd</code> shim — which CI now at least proves the installer generates and that <code>freya</code> resolves through it.</li>
+        </ol>
+        <div class="callout callout--why">
+          <span class="callout-label">The honest summary</span>
+          <p>The port was structurally complete before phase 6: nothing in the shipped skill layer names a Claude-only construct, the conformance gate has no exemptions left, and the Workflow engine is deleted rather than bypassed. What it lacked was evidence. It now has most of it — installed from a clean clone, updated from a real remote, and driven live through both agents.</p>
+          <p>And the evidence immediately earned its cost. The first question put to Copilot returned nine skills instead of ten, and the missing one was the security scanner — installed, linked, and silently dropped for a description 227 characters over a limit Claude Code doesn't enforce. Five phases of work, 700-odd passing tests and a nine-rule conformance gate had all failed to notice, because none of them had ever asked the agent. R10 — the rule that catches it — exists <em>because</em> of that question; it was not there to miss it.</p>
+          <p>That is the shape of the whole track's lesson, stated five times now. Phase 4b: the defects were at the driver's edges, not in its logic. Phase 5: the defects were in guards misfiring at the people they protect. Phase 6: the defects were in what the host does with a correct artefact. Phase 7: the defect was in believing what the host <em>said</em> it did — which is why the fan-out stopped being a request and became a worker pool. And now Windows: the defects were on the platform nobody had run, in code that had been reviewed repeatedly and read correctly every time, because reading cannot tell you that <code>os.readlink</code> returns a different spelling of the path you gave it. Everything above the line is verified. Everything below it is still a claim — and there is less below the line than there has ever been.</p>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="read-next">Read next</h2>
+        <div class="next-prev">
+          <a class="np-card" href="index.html">
+            <span class="faint">Back to →</span>
+            <strong>The Story</strong>
+            <span class="small">Why a Claude-only plugin had to become agent-neutral, and what the port actually touched.</span>
+          </a>
+          <a class="np-card" href="../index.html">
+            <span class="faint">Or →</span>
+            <strong>All explainers</strong>
+            <span class="small">The whole plugin, the behavior layer, and governance.</span>
+          </a>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <div id="site-footer"></div>
+</body>
+</html>

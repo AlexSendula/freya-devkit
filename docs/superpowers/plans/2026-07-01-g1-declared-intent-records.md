@@ -18,7 +18,7 @@
 - **Exit non-zero when blocking; consumers must NOT use `check=True`** — they read the JSON on a non-zero exit (the discipline `verify_links` established).
 - **Two-commit staging:** `INTENT-NNN.md` and the `.intent-last-verified` marker are **artifacts** (commit 2); the test edit + `Intent:` trailer are **code** (commit 1).
 - **No-baseline / git-error behavior is fail-open** (skip, never falsely block) — a fresh repo or a corrupt baseline yields no block; the next successful wrap-up re-advances the marker.
-- **Never touch the production webapp** (`/Users/main/Documents/areas/viva-croatia/webapp/`); dogfood on the testbed only.
+- **Never touch the production webapp** (`<production-webapp>/`); dogfood on the testbed only.
 - Commit messages end with: `Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>`.
 
 ---
@@ -940,7 +940,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 
 ## Dogfood (after all tasks, on the testbed — not part of the plan's commits)
 
-On the testbed (`/Users/main/Documents/projects/viva-croatia-testbed`), on a throwaway branch, with an `accepted` behavior present (BEH-002/BEH-003 in `SPEC-001-passkey-login.md`): write the `.intent-last-verified` marker at HEAD, edit an accepted behavior's linked test so it *stays green*, run `verify_intent.py` → confirm it blocks naming that behavior; run `intent.py new --behavior <BEH>` → confirm it passes; edit a `proposed` behavior's test → confirm it never blocks. Restore the testbed to `main` and delete the branch afterward. Production webapp off-limits.
+On the testbed (`<testbed>`), on a throwaway branch, with an `accepted` behavior present (BEH-002/BEH-003 in `SPEC-001-passkey-login.md`): write the `.intent-last-verified` marker at HEAD, edit an accepted behavior's linked test so it *stays green*, run `verify_intent.py` → confirm it blocks naming that behavior; run `intent.py new --behavior <BEH>` → confirm it passes; edit a `proposed` behavior's test → confirm it never blocks. Restore the testbed to `main` and delete the branch afterward. Production webapp off-limits.
 
 ---
 

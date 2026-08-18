@@ -246,6 +246,42 @@
         <a href="governance.html">Governance</a> pages.</p>
       </section>
 
+      <section>
+        <h2>Beneath the tiers: the runtime layer</h2>
+        <p>The five tiers describe how the skills relate to each other. Underneath all of them sits a
+        thin layer that answers a different question — <em>where am I, and how do I run?</em> — and it's
+        the reason the same suite works on more than one agent.</p>
+
+        <figure class="diagram">
+          <div class="flow">
+            <div class="node intent">SKILL.md<span class="sub">names a command</span></div>
+            <span class="arrow">→</span>
+            <div class="node beh">freya<span class="sub">launcher on PATH</span></div>
+            <span class="arrow">→</span>
+            <div class="node test">manifest<span class="sub">name → script</span></div>
+            <span class="arrow">→</span>
+            <div class="node code">the script<span class="sub">run via sys.executable</span></div>
+          </div>
+          <figcaption>No <code>SKILL.md</code> names a filesystem path or an interpreter. One launcher
+          owns both, and sixteen commands are the whole public surface.</figcaption>
+        </figure>
+
+        <div class="table-wrap"><table>
+          <thead><tr><th>Piece</th><th>Responsibility</th></tr></thead>
+          <tbody>
+            <tr><td><code>bin/freya</code></td><td>Self-locating entry point. Resolves the suite from its own location (through symlinks), dispatches through a checked-in manifest, runs with <code>sys.executable</code>.</td></tr>
+            <tr><td><code>install.sh</code> / <code>install.ps1</code></td><td>Symlinks each skill into the agent's skills directory. Classifies every target before touching anything; a real file or directory is never removed.</td></tr>
+            <tr><td>The conformance checker</td><td>Thirteen rules over the skill layer, with no exemptions — host-specific prose, a Claude-only path, an unregistered command, frontmatter outside the Agent Skills spec, or fan-out language without a fallback fails the build.</td></tr>
+            <tr><td>The audit driver</td><td>A Python worker pool that spawns agent CLIs headless for the security scan's fan-out, so parallelism is a fact rather than a request.</td></tr>
+          </tbody>
+        </table></div>
+
+        <p class="muted">This layer is also where "graceful degradation" stops being about skills and
+        starts being about hosts: with no agent CLI on <code>PATH</code> the driver exits with a code
+        that says so and points at the in-loop fallback — nothing in the core workflow depends on it.
+        The full account is on the <a href="portability.html">Portability</a> page.</p>
+      </section>
+
       <div class="next-prev">
         <a class="np-card" href="index.html"><div class="np-dir">← Back</div><div class="np-title">Overview</div></a>
         <a class="np-card" href="skills.html" style="text-align:right;"><div class="np-dir">Next →</div><div class="np-title">The Skills</div></a>

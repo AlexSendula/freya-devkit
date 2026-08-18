@@ -4,13 +4,13 @@
 
 **Goal:** Make SPEC-001's guard behavior **BEH-003** ("unknown email → generic options; no user enumeration") a real, passing, instrumentable cucumber-js test driven at the HTTP layer, then mark it `accepted` — giving Phase 2 its first observed-coverage target and closing the Phase-1 loop.
 
-**Architecture:** Add cucumber-js (+ tsx, already a devDep) to the **testbed** (`/Users/main/Documents/projects/viva-croatia-testbed`, a throwaway Next.js sandbox — production is untouched). Author real Gherkin steps that invoke the Next.js route handler `app/api/auth/passkey/authenticate/start/route.ts` **in-process** (no browser), asserting the unknown-email response is a valid generic options payload. Flip BEH-003 `proposed → accepted` and confirm deterministic `verify` stays green.
+**Architecture:** Add cucumber-js (+ tsx, already a devDep) to the **testbed** (`<testbed>`, a throwaway Next.js sandbox — production is untouched). Author real Gherkin steps that invoke the Next.js route handler `app/api/auth/passkey/authenticate/start/route.ts` **in-process** (no browser), asserting the unknown-email response is a valid generic options payload. Flip BEH-003 `proposed → accepted` and confirm deterministic `verify` stays green.
 
 **Tech Stack:** Next.js 16 / TypeScript, Prisma 7 (SQLite `dev.db`), pnpm, `@cucumber/cucumber`, `tsx` (TS loader for step defs), V8 coverage via `c8` (installed here, *used* in Plan 2).
 
 ## Global Constraints
 
-- Work ONLY in the testbed `/Users/main/Documents/projects/viva-croatia-testbed`. Never touch `/Users/main/Documents/areas/viva-croatia/webapp` (production).
+- Work ONLY in the testbed `<testbed>`. Never touch `<production-webapp>` (production).
 - The freya-devkit plugin is the **symlinked local-dev install**; scripts are invoked by absolute path under `${CLAUDE_PLUGIN_ROOT}` (the repo).
 - Behavior lifecycle: a Gherkin behavior is `accepted` ONLY when its scenario has real steps and **no `TODO(scaffold)` marker** — `verify_links.py` hard-errors otherwise.
 - Adapter stays runner-agnostic at the model level: `adapter: cucumber`, `locator: features/auth/passkey-login.feature#<scenario-slug>`.
@@ -32,7 +32,7 @@
 
 Run:
 ```bash
-cd /Users/main/Documents/projects/viva-croatia-testbed
+cd <testbed>
 pnpm install
 pnpm add -D @cucumber/cucumber c8
 pnpm prisma generate
@@ -67,7 +67,7 @@ Expected: cucumber runs, reports the 3 BEH scaffolds with **undefined steps** (p
 
 ```bash
 git add package.json pnpm-lock.yaml cucumber.mjs
-git -c user.name="Alex" -c user.email="claude.stifle198@simplelogin.com" commit -m "test(bdd): add cucumber-js + tsx + c8 tooling"
+git -c user.name="Alex" -c user.email="github@alexsendula.com" commit -m "test(bdd): add cucumber-js + tsx + c8 tooling"
 ```
 
 ---
@@ -109,7 +109,7 @@ import assert from 'node:assert/strict'
 
 // Env the route + webauthn config + prisma need when run outside `next`.
 process.env.WEBAUTHN_RP_ID ??= 'localhost'
-process.env.WEBAUTHN_RP_NAME ??= 'Viva Croatia CMS'
+process.env.WEBAUTHN_RP_NAME ??= 'Example CMS'
 process.env.DATABASE_URL ??= 'file:./dev.db'
 
 let response: Response
@@ -160,7 +160,7 @@ Expected: the `@BEH-003` scenario **passes** (4 steps green). If it errors on Pr
 
 ```bash
 git add features/auth/passkey-login.feature features/steps/passkey_auth_steps.ts
-git -c user.name="Alex" -c user.email="claude.stifle198@simplelogin.com" commit -m "test(bdd): real BEH-003 scenario (no user enumeration) via HTTP layer"
+git -c user.name="Alex" -c user.email="github@alexsendula.com" commit -m "test(bdd): real BEH-003 scenario (no user enumeration) via HTTP layer"
 ```
 
 ---
@@ -182,7 +182,7 @@ In `knowledge-base/specs/auth/SPEC-001-passkey-login.md` frontmatter, change BEH
 
 Run:
 ```bash
-python "/Users/main/.claude/plugins/cache/freya-devkit/freya-devkit/0.1.0/skills/spec-manager/scripts/verify_links.py" --dir /Users/main/Documents/projects/viva-croatia-testbed/knowledge-base/specs --format text
+python "/Users/main/.claude/plugins/cache/freya-devkit/freya-devkit/0.1.0/skills/spec-manager/scripts/verify_links.py" --dir <testbed>/knowledge-base/specs --format text
 ```
 Expected: `OK — all behavior links pass Tier-1 integrity checks.` (exit 0). BEH-003 is accepted AND its scenario has real steps (no `TODO(scaffold)`), so the `accepted-but-scaffold` gate does not fire; BEH-001/002 remain proposed scaffolds (allowed).
 
@@ -195,7 +195,7 @@ Expected: `@BEH-003` passes.
 
 ```bash
 git add knowledge-base/specs/auth/SPEC-001-passkey-login.md
-git -c user.name="Alex" -c user.email="claude.stifle198@simplelogin.com" commit -m "spec(SPEC-001): accept BEH-003 (real cucumber test in place)"
+git -c user.name="Alex" -c user.email="github@alexsendula.com" commit -m "spec(SPEC-001): accept BEH-003 (real cucumber test in place)"
 ```
 
 ---

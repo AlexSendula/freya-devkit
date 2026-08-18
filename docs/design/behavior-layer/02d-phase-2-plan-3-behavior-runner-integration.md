@@ -6,13 +6,13 @@
 
 **Architecture:** Observed coverage is not capturable at the integration level on Next.js without a framework-specific V8+CDP adapter (dogfooding **F11**; deferred — see `parking-lot.md`). So integration uses the **framework-agnostic static fallback**: `entry` file → `code-graph --dependencies` (transitive closure) → `exercises` edges tagged `source: static`, `coverage: "static"`. Static over-approximates, which is the **safe** direction for blast radius (a false "might be affected" only runs an extra test; a false "not affected" misses a regression). Unit-level observed coverage (Plan 2) is unchanged and remains the precise source.
 
-**Tech Stack:** Python 3 (stdlib only); reuses `code-graph/scripts/graph_ops.py --dependencies` (already fixed for alias/closure resolution). Proven on the **testbed** (`/Users/main/Documents/projects/viva-croatia-testbed`).
+**Tech Stack:** Python 3 (stdlib only); reuses `code-graph/scripts/graph_ops.py --dependencies` (already fixed for alias/closure resolution). Proven on the **testbed** (`<testbed>`).
 
 ## Global Constraints
 
 - Plugin scripts are **stdlib-only**; the runner shells out to `graph_ops.py` by path.
 - Plugin code → **freya-devkit** repo, branch `feat/behavior-layer` (normal `git`, user `Alex`).
-- Testbed changes → **testbed** repo with `git -c user.name="Alex" -c user.email="claude.stifle198@simplelogin.com"`. Never touch `/Users/main/Documents/areas/viva-croatia/webapp`.
+- Testbed changes → **testbed** repo with `git -c user.name="Alex" -c user.email="github@alexsendula.com"`. Never touch `<production-webapp>`.
 - Producer only: emit fingerprints to stdout; never write `behavior.json`.
 - Coverage-unknown, never silent: an integration behavior with no `entry`, a missing `entry` file, or no graph edges yields `coverage: "unknown"` with a `reason` — never a fabricated edge.
 - The `coverage` field gains a third value: **`observed | static | unknown`**. Each `exercises` edge keeps its own `source` (`observed | static`). Static confidence is lower than observed.
@@ -25,7 +25,7 @@
 - `skills/behavior-runner/SKILL.md` — document the integration/static path + coverage enum (modify).
 - `docs/design/behavior-layer/02-phase-2.md` — §3 coverage enum note (modify).
 
-**viva-croatia-testbed:**
+**testbed:**
 - `knowledge-base/specs/auth/SPEC-001-passkey-login.md` — add `entry` to BEH-003 (modify).
 
 ---
@@ -261,7 +261,7 @@ git commit -m "feat(behavior-runner): static integration fingerprint via code-gr
 
 ### Task 3: Declare BEH-003 `entry` on the testbed and prove the static fingerprint
 
-**Repo:** viva-croatia-testbed (proving ground); the runner is invoked from the plugin by path.
+**Repo:** testbed (proving ground); the runner is invoked from the plugin by path.
 
 **Files:**
 - Modify: `knowledge-base/specs/auth/SPEC-001-passkey-login.md` (add `entry` to BEH-003)
@@ -288,7 +288,7 @@ In `knowledge-base/specs/auth/SPEC-001-passkey-login.md`, in the BEH-003 behavio
 Run (non-interactive; the graph cache is git-ignored):
 ```bash
 python "/Users/main/.claude/plugins/cache/freya-devkit/freya-devkit/0.1.0/skills/code-graph/scripts/graph_ops.py" \
-  --update --dir /Users/main/Documents/projects/viva-croatia-testbed --non-interactive
+  --update --dir <testbed> --non-interactive
 ```
 Expected: graph updates without prompting. (Sanity check the entry resolves:
 `… --dependencies app/api/auth/passkey/authenticate/start/route.ts --dir <testbed> --format json` → `["lib/prisma.ts","lib/webauthn.ts"]`.)
@@ -298,7 +298,7 @@ Expected: graph updates without prompting. (Sanity check the entry resolves:
 Run:
 ```bash
 python /Users/main/Documents/projects/freya-devkit/skills/behavior-runner/scripts/run_behaviors.py \
-  --project /Users/main/Documents/projects/viva-croatia-testbed --emit-fingerprints
+  --project <testbed> --emit-fingerprints
 ```
 Expected JSON: `fingerprints.BEH-003.coverage == "static"`, with `exercises` paths exactly `["app/api/auth/passkey/authenticate/start/route.ts", "lib/prisma.ts", "lib/webauthn.ts"]`, each `source: "static"`, `confidence: 0.5`. (BEH-002 stays `observed`; BEH-001 stays `unknown`/`level-deferred`.)
 
@@ -307,16 +307,16 @@ Expected JSON: `fingerprints.BEH-003.coverage == "static"`, with `exercises` pat
 Run:
 ```bash
 python "/Users/main/.claude/plugins/cache/freya-devkit/freya-devkit/0.1.0/skills/spec-manager/scripts/verify_links.py" \
-  --dir /Users/main/Documents/projects/viva-croatia-testbed/knowledge-base/specs --format text
+  --dir <testbed>/knowledge-base/specs --format text
 ```
 Expected: `OK …` (exit 0). The added `entry` field is preserved/ignored by the parser (unknown fields are non-fatal); locator integrity is unchanged.
 
 - [ ] **Step 5: Commit (testbed)**
 
 ```bash
-cd /Users/main/Documents/projects/viva-croatia-testbed
+cd <testbed>
 git add knowledge-base/specs/auth/SPEC-001-passkey-login.md
-git -c user.name="Alex" -c user.email="claude.stifle198@simplelogin.com" \
+git -c user.name="Alex" -c user.email="github@alexsendula.com" \
   commit -m "spec(SPEC-001): declare BEH-003 entry point for static integration fingerprint"
 ```
 

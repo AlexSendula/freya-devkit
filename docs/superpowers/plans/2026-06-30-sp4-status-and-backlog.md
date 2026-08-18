@@ -18,7 +18,7 @@
 - **`verify_links.py` exits non-zero when it finds errors** — `collect_status` must capture its stdout JSON WITHOUT `check=True` (else a normal "errors found" run is lost as a CalledProcessError).
 - **Worklists reuse the SP1 state bumps** (`proposed → confirmed → accepted`) and never auto-author a test.
 - **`findings.json`** lives at `knowledge-base/security/codebase-security/findings.json`; schema in §Task 2. It is the substrate SP5 enriches — do not add cross-reference logic here.
-- **Production webapp `/Users/main/Documents/areas/viva-croatia/webapp/` is OFF-LIMITS.** The dogfood uses only the testbed `/Users/main/Documents/projects/viva-croatia-testbed`.
+- **Production webapp `<production-webapp>/` is OFF-LIMITS.** The dogfood uses only the testbed `<testbed>`.
 
 ---
 
@@ -729,7 +729,7 @@ Note: the test mocks `gaps_bucket`/`verify_bucket`/`stale_bucket`/`security_buck
 Run:
 ```bash
 cd /Users/main/Documents/projects/freya-devkit
-python skills/status/scripts/collect_status.py --project /Users/main/Documents/projects/viva-croatia-testbed --format text
+python skills/status/scripts/collect_status.py --project <testbed> --format text
 ```
 Expected: a status summary with non-zero accepted count (testbed has accepted BEH-002/003) and any notes (e.g. no findings.json yet). Read-only; do not commit testbed state.
 

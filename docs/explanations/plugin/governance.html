@@ -83,50 +83,50 @@
             <p>Deterministic checks: every <code>locator</code> resolves, Gherkin tags are present, no
             <code>accepted</code>-but-<code>TODO(scaffold)</code>, no duplicate <code>BEH-NNN</code>, and
             ADR frontmatter/links are valid. A non-zero exit blocks wrap-up.</p>
-            <pre class="code"><code>verify_links.py --format json   &amp;&amp;   adr.py verify --project .</code></pre>
+            <pre class="code"><code>freya verify-links --format json   &amp;&amp;   freya adr verify --project .</code></pre>
           </div>
           <div class="step-panel" data-i="1">
             <h3 style="margin-top:0;">2 · Declared-intent gate (G1) <span class="badge badge--block">hard-block</span></h3>
             <p>If an <code>accepted</code> behavior's linked test was modified or deleted in this change-set
             <em>without</em> a new <code>INTENT-NNN</code> record naming it, this blocks — a bare accepted-test
             change is a regression. With no baseline yet, the gate skips.</p>
-            <pre class="code"><code>verify_intent.py --project . --format json   <span class="tok-c"># read the JSON on non-zero</span></code></pre>
+            <pre class="code"><code>freya verify-intent --project . --format json   <span class="tok-c"># read the JSON on non-zero</span></code></pre>
           </div>
           <div class="step-panel" data-i="2">
             <h3 style="margin-top:0;">3 · Run affected accepted behaviors <span class="badge badge--block">hard-block</span></h3>
             <p>Refresh the behavior graph, then re-run <em>only</em> the accepted behaviors whose exercised
             code the change touched (Direction A). A <code>test-failed</code> blocks until you fix the code,
             record an intended change, or quarantine an infra failure.</p>
-            <pre class="code"><code>behavior_graph.py --build --project . &amp;&amp; \
-behavior_graph.py --check --base "$BASE" --project .</code></pre>
+            <pre class="code"><code>freya behavior-graph --build --project . &amp;&amp; \
+freya behavior-graph --check --base "$BASE" --project .</code></pre>
           </div>
           <div class="step-panel" data-i="3">
             <h3 style="margin-top:0;">4 · Validate-on-hit <span class="badge badge--advisory">advisory</span></h3>
             <p>Read-only. Surfaces the proposed/confirmed behaviors this change touched (offer to confirm
             them) and any touched code no behavior covers (offer to capture one). Bounded to the affected
             subset and fully skippable — it never changes the exit code.</p>
-            <pre class="code"><code>behavior_graph.py --surface --base "$BASE" --project .</code></pre>
+            <pre class="code"><code>freya behavior-graph --surface --base "$BASE" --project .</code></pre>
           </div>
           <div class="step-panel" data-i="4">
             <h3 style="margin-top:0;">5 · Principle checkpoint (G2) <span class="badge badge--quarantined">resolve-to-proceed</span></h3>
             <p>Judge the diff against each principle in the constitution. Model judgment, so it's a
             procedural gate, not a script exit — but wrap-up must not complete while a finding is
             unresolved (fix / refute / amend). Prior resolutions auto-clear when still valid.</p>
-            <pre class="code"><code>principles.py list   ·   principles.py prior/resolve …</code></pre>
+            <pre class="code"><code>freya principles list   ·   freya principles prior/resolve …</code></pre>
           </div>
           <div class="step-panel" data-i="5">
             <h3 style="margin-top:0;">6 · Contradiction check (G3) <span class="badge badge--quarantined">resolve-to-proceed</span></h3>
             <p>For each spec or ADR changed this cycle, check it doesn't contradict higher-authority intent
             (<strong>principle &gt; ADR &gt; spec</strong>). ADRs are compared always-global. Resolve each
             escalated finding before completing.</p>
-            <pre class="code"><code>contradictions.py context --spec &lt;ID&gt;   ·   adr-context --adr &lt;ID&gt;</code></pre>
+            <pre class="code"><code>freya contradictions context --spec &lt;ID&gt;   ·   freya contradictions adr-context --adr &lt;ID&gt;</code></pre>
           </div>
           <div class="step-panel" data-i="6">
             <h3 style="margin-top:0;">7 · Declarative-drift check (P4b) <span class="badge badge--quarantined">resolve-to-proceed</span></h3>
             <p>Does the changed code contradict a <em>declared</em> decision (a spec's intentional decisions
             or an ADR body)? Scoped by blast radius — deliberately <em>not</em> always-global like G3. Degrades
             to changed-files-only when code-graph is absent (never a silent empty set).</p>
-            <pre class="code"><code>drift.py context --base "$BASE" --project .</code></pre>
+            <pre class="code"><code>freya drift context --base "$BASE" --project .</code></pre>
           </div>
 
           <div class="stepper-nav">
@@ -149,7 +149,7 @@ behavior_graph.py --check --base "$BASE" --project .</code></pre>
           <li><strong>Temporal self-scoping:</strong> the record must be new in the change-set; a past record can't bless a future edit.</li>
           <li>The gate verifies a record <em>exists</em>, not that its rationale is honest — honesty is a separate, model-judgment track.</li>
         </ul>
-        <pre class="code"><code>/freya-devkit:spec-manager intent new BEH-003
+        <pre class="code"><code>/freya-spec-manager intent new BEH-003
 <span class="tok-c"># … then edit the test; wrap-up's G1 gate now passes.</span></code></pre>
       </section>
 
@@ -215,7 +215,7 @@ behavior_graph.py --check --base "$BASE" --project .</code></pre>
 
       <div class="next-prev">
         <a class="np-card" href="behavior-layer.html"><div class="np-dir">← Back</div><div class="np-title">The Behavior Layer</div></a>
-        <a class="np-card" href="getting-started.html" style="text-align:right;"><div class="np-dir">Next →</div><div class="np-title">Get Started</div></a>
+        <a class="np-card" href="portability.html" style="text-align:right;"><div class="np-dir">Next →</div><div class="np-title">Portability</div></a>
       </div>
     </div>
   </div>

@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>How It Evolved — portability</title>
+  <meta name="description" content="Thirteen places where reality contradicted the portability plan: a spec rule that made the install design impossible, a security bypass, hollow tests, a security tool that called a broken run clean, a skill the target agent could not see, a conclusion that had to be reversed, and a platform that turned out to be waiting on code.">
+  <link rel="stylesheet" href="assets/styles.css">
+  <script src="assets/site.js"></script>
+</head>
+<body>
+  <div id="site-header"></div>
+
+  <header class="hero wrap">
+    <span class="eyebrow">portability · the course corrections</span>
+    <h1>Every one of these was a plan that turned out to be wrong.</h1>
+    <p class="lead">The design document was written before any code, and most of it held. But thirteen things were discovered only by building, or by finally running it — a specification rule that made the install architecture impossible, a security control that didn't control anything, a promise that this repo's own data refuted, three tests that proved nothing, a security tool that reported a totally failed run as a clean codebase, a whole phase in which every serious defect was a guard misfiring at the person it protected, once it was run for real a security skill the target agent could not see at all, a conclusion of "unfixable from this side" that turned out to be a failure of nerve, and finally a platform this site had spent seven phases calling untested-but-fine, which failed 29 times the first time anything ran on it. Each is recorded here because the correction is more useful than the original plan.</p>
+  </header>
+
+  <div class="doc">
+    <aside class="toc" id="toc"></aside>
+    <main class="doc-body">
+
+      <section>
+        <h2 id="one">1 · A fourth Claude surface, found by re-reading</h2>
+        <p><span class="badge badge--proposed">design phase</span></p>
+        <p>The first design pass identified three Claude-specific surfaces: the path variable, the slash references, and the fan-out prose. A review pass before implementation found a fourth — the <code>audit</code> mode's dependency on the <strong>Workflow tool</strong>, an entire orchestration runtime that had no equivalent anywhere else.</p>
+        <div class="callout callout--info">
+          <span class="callout-label">Why it mattered</span>
+          <p>Missing it would have meant shipping a "portable" toolkit with one mode that silently didn't work off Claude. It also turned out to be the single largest piece of work in the track — the other three surfaces were substitutions; this one was an architectural inversion.</p>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="two">2 · The install design was impossible</h2>
+        <p><span class="badge badge--block">architecture change</span></p>
+        <p>This is the big one. The design said the installer would apply a <code>freya-</code> prefix at install time to both the directory name <em>and</em> the <code>name:</code> field inside each <code>SKILL.md</code>. Checking the Agent Skills specification before writing the installer turned up a rule that makes that impossible:</p>
+
+        <div class="callout callout--danger">
+          <span class="callout-label">agentskills.io/specification</span>
+          <p>The <code>name</code> field <strong>"Must match the parent directory name."</strong> Claude Code's own docs say it from the other side: <em>"The directory name becomes the command you type."</em></p>
+        </div>
+
+        <p>Installation is symlinking. A symlink from <code>~/.claude/skills/freya-code-graph</code> to <code>&lt;store&gt;/skills/code-graph</code> produces a <code>SKILL.md</code> saying <code>name: code-graph</code> inside a directory called <code>freya-code-graph</code> — a spec violation that <code>skills-ref validate</code> rejects. You cannot rewrite the file, because there is only one file and every agent shares it.</p>
+
+        <div class="grid-2">
+          <div class="panel">
+            <h3>Planned</h3>
+            <p class="small">Repo keeps <code>skills/code-graph/</code>. Installer prefixes at install time.</p>
+            <p class="small"><strong>Fails:</strong> requires rewriting a shared file, or shipping an invalid skill.</p>
+          </div>
+          <div class="panel">
+            <h3>Built instead</h3>
+            <p class="small">Repo renames to <code>skills/freya-code-graph/</code>, <code>name:</code> and all. Installer becomes a pure symlink.</p>
+            <p class="small"><strong>Bonus:</strong> <code>freya update</code> becomes nothing but a <code>git pull</code> — symlinks propagate on their own.</p>
+          </div>
+        </div>
+
+        <p>The rename touched ten directories, ten <code>name:</code> fields, fifteen manifest paths, and ten hard-coded sibling paths in five scripts. A naive sweep would have found nine of those ten: one used <code>os.path.join</code> with a textual <code>../..</code> instead of the <code>parents[2]</code> idiom the others used, and was invisible to the obvious grep.</p>
+      </section>
+
+      <section>
+        <h2 id="three">3 · A "non-standard" field that was in the standard</h2>
+        <p><span class="badge badge--advisory">correction</span></p>
+        <p>The design described <code>compatibility:</code> frontmatter as non-standard and had it removed. The specification lists it as a standard <em>optional</em> field, alongside <code>license</code>, <code>metadata</code> and <code>allowed-tools</code>.</p>
+        <p>That error had already propagated: the conformance checker's allow-list was <code>{name, description}</code>, so it was rejecting four legitimate fields. Removing those two particular lines was still right — they enumerated Claude tool names — but the stated reason was wrong, and the rule built on it was wrong.</p>
+        <div class="callout callout--why">
+          <span class="callout-label">The lesson that stuck</span>
+          <p>A guard built from a remembered fact inherits the memory's error and then enforces it on everyone. Read the spec before encoding it.</p>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="four">4 · Copilot cannot be told to parallelise</h2>
+        <p><span class="badge badge--confirmed">design change</span></p>
+        <p>The plan for the three fan-out flows was to say "run these in parallel if your agent supports subagents." Checking the VS&nbsp;Code documentation showed that instruction means something quite different on the target host:</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th></th><th>Claude Code</th><th>GitHub Copilot</th></tr></thead>
+            <tbody>
+              <tr><td>"run these in parallel"</td><td><strong>a directive</strong> — the Task tool does it</td><td><strong>a hint</strong> the model may ignore</td></tr>
+              <tr><td>Who decides</td><td>you</td><td>the agent — delegation is agent-initiated</td></tr>
+              <tr><td>What actually influences it</td><td>—</td><td><strong>task structure:</strong> N visibly independent units</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>Copilot's docs say the main agent "decides execution strategy autonomously based on task structure." So the lever isn't the sentence — it's the shape of what precedes it. Every scheduling block in the three flows is therefore placed <strong>after</strong> its task list, so the list is read first.</p>
+        <div class="callout callout--info">
+          <span class="callout-label">Reframe</span>
+          <p>The portable phrasing stopped being a compromise for weaker hosts and became the only thing that works on the primary target.</p>
+        </div>
+
+        <div class="callout callout--danger">
+          <span class="callout-label">Overtaken by evidence — phase 6</span>
+          <p>This section's conclusion was that task <em>structure</em> is the lever that gets Copilot to delegate. Run for real, it isn't: Copilot performed all six category scans itself, sequentially, and then reported that it had run them in parallel. <a href="#eleven">§11 →</a>, and in phase 7 the security scan stopped relying on the lever at all. <a href="#twelve">§12 →</a></p>
+          <p><strong>Phase 7 then found the reason, written down.</strong> A debug-logged run surfaced Copilot's own sub-agent instructions: <em>"never delegate parts of a codebase that is small enough to read directly, <strong>regardless of how it divides into separate areas</strong>"</em>. The lever this section identified is the exact thing the host is told to ignore. The public documentation said what it said; the system prompt says the opposite.</p>
+          <p><strong>The heading stays as written, and is worth reading precisely.</strong> Copilot <em>can</em> parallelise — it ships <code>task</code>, an <code>explore</code> agent, background agents and <code>/fleet</code>, "enable fleet mode for parallel subagent execution". What it cannot be is <em>told</em>, by a file in your project. A skill is data the agent reads; the system prompt is the agent's instructions, and the host wins every time. The capability was never the problem.</p>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="five">5 · A security control that controlled nothing</h2>
+        <p><span class="badge badge--block">security</span></p>
+        <p>Before designing the audit driver, a spike ran both CLIs against a deliberately vulnerable fixture to establish how to enforce "this worker may read, but never write."</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Configuration</th><th>Result</th></tr></thead>
+            <tbody>
+              <tr><td>Claude <code>--allowedTools "Read Grep Glob"</code> + <code>--disallowedTools "Write Edit"</code></td><td><strong>Held.</strong> It tried <code>Bash</code> three times; all denied.</td></tr>
+              <tr><td>Copilot <code>--allow-tool=read</code> + <code>--deny-tool=write</code></td><td><strong>Held.</strong> Write tool and an explicit shell redirect both failed.</td></tr>
+              <tr><td>Copilot <code>--allow-all-tools</code> + <code>--deny-tool=write</code></td><td><strong>Bypassed.</strong> The worker created a file through a shell command.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout callout--danger">
+          <span class="callout-label">The actual rule</span>
+          <p>"Deny beats allow" applies to the <em>write tool</em> — not to writes performed <em>through the shell</em>. Only an explicit allowlist that excludes the shell holds. <code>--allow-all-tools</code> must never appear in an audit invocation.</p>
+        </div>
+        <p>That finding is now enforced in code rather than remembered as a convention: a <code>_guard</code> function refuses to emit a blanket permission flag even if one is smuggled in through a prompt, and a test asserts no adapter can ever produce one.</p>
+      </section>
+
+      <section>
+        <h2 id="six">6 · A promise refuted by our own measurements</h2>
+        <p><span class="badge badge--block">correctness</span></p>
+        <p>The portable scheduling block — the paragraph copied verbatim into all three fan-out flows — originally ended:</p>
+        <div class="callout callout--warn">
+          <span class="callout-label">Original wording</span>
+          <p>"If it does not, run them one at a time: <strong>the result is identical, only slower.</strong>"</p>
+        </div>
+        <p>The whole-phase review refuted this using a file already in the repository. The behaviour-layer dogfooding notes record a real <code>spec-manager scan</code>: <strong>7 parallel discovery agents, ~260k subagent tokens.</strong> Running those tasks inline collapses seven isolated context windows into one — each worker's file-reading context is retained, not discarded. On a 200k-context agent that run does not produce an identical result; it does not complete.</p>
+        <p>Worse, the block's <em>own next paragraph</em> explained why, by noting that each subagent carries its own context window. The claim contradicted the sentence beneath it.</p>
+        <div class="callout callout--success">
+          <span class="callout-label">Now reads</span>
+          <p>"On a small project the result is the same, only slower; on a large one a sequential run accumulates every task's reading context in a single window and may not fit, so narrow the scope — fewer files, or fewer tasks per run — rather than letting it truncate."</p>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="seven">7 · <code>--dry-run</code> deleted your installation</h2>
+        <p><span class="badge badge--block">critical</span></p>
+        <p>The installer's uninstall path returned before it ever consulted <code>args.dry_run</code>. So <code>freya uninstall --dry-run</code> — a flag whose help text reads "print the plan, change nothing", advertised in the README as a preview — removed all ten symlinks.</p>
+        <p>Bounded damage: only our own links, recreatable by re-installing. But a safety flag that performs the destructive operation is the exact failure the phase's constraints existed to prevent. The same review found uninstall never removed the launcher either, so deleting the checkout afterwards left a dangling <code>freya</code> on <code>PATH</code>.</p>
+        <div class="callout callout--why">
+          <span class="callout-label">Why the review caught it and the tests didn't</span>
+          <p>Every unit test exercised <code>uninstall_agent()</code> directly. Nothing tested the <em>flag wiring</em> in <code>main()</code>. The tests were green and the feature was broken — which is the argument for a review that runs the thing end to end rather than reading the diff.</p>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="eight">8 · Three tests that proved nothing</h2>
+        <p><span class="badge badge--quarantined">hollow guards</span></p>
+        <p>The audit engine's vote arithmetic is the part of the port where a silent error changes security findings. Its tests all passed. Mutation testing — deliberately breaking the code to confirm a test fails — showed three of them were hollow:</p>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Mutation</th><th>Why the test missed it</th></tr></thead>
+            <tbody>
+              <tr><td><code>upheld * 2 &gt; total</code> → <code>&gt;=</code></td><td>Only a <strong>1-of-2 split</strong> distinguishes them. Every test used 1-of-3 or 2-of-3, where both operators agree.</td></tr>
+              <tr><td><code>K_EMPTY = 2</code> → <code>3</code></td><td>The test asserted against <code>audit_engine.K_EMPTY</code> itself — so it adapted to the mutation and stayed green.</td></tr>
+              <tr><td>Delete the <code>dry = 0</code> reset</td><td>The test counted <em>findings</em>; both paths yield one. Only the <em>round count</em> differs.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>All three now have tests that distinguish, and all six engine mutations are verified to be killed by a specifically named test.</p>
+        <div class="callout callout--info">
+          <span class="callout-label">A trap worth knowing</span>
+          <p>Mutation runs land within the same filesystem timestamp tick, so Python happily reuses cached bytecode and reports the <em>previous</em> mutation's result. Two mutations looked "killed" when they had never been loaded. Clear <code>__pycache__</code> between runs, or use <code>python3 -B</code>.</p>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="nine">9 · Two numbers that were never multiplied together</h2>
+        <p><span class="badge badge--quarantined">found by review</span></p>
+        <p>Phase 4b was the one phase that skipped its whole-phase review. When the review finally ran, the engine logic held up — every constant, the dedup key, the vote arithmetic, the disposition ladder. Nothing was wrong with the port. Both serious findings were at the driver's <em>edges</em>, and neither was an edge case.</p>
+
+        <div class="card-grid cols-2">
+          <div class="card problem">
+            <div class="ico" aria-hidden="true">🚨</div>
+            <h3>A failed audit reported a clean codebase</h3>
+            <p>Every failure path in <code>ask</code> was a bare <code>continue</code>. With an expired login, all 26 calls failed, the driver printed <em>"done: 0 findings"</em>, exited <strong>0</strong>, and emitted <code>[]</code> — from which the skill wrote a report saying the codebase was clean. The captured <code>stderr</code> was discarded unread. For a security tool that is the worst available failure mode, and it is the <em>likely</em> first run.</p>
+          </div>
+          <div class="card problem">
+            <div class="ico" aria-hidden="true">🧮</div>
+            <h3>The defaults could not finish a run</h3>
+            <p><code>--max-findings 40</code> needs 151 tasks. <code>--max-calls</code> was 80. The two were chosen in the same sitting and never multiplied out — even though <code>estimate()</code>, the function that does exactly that multiplication, sits 25 lines below them. And they were in different units: the budget counts <em>attempts</em>, and each task may retry once.</p>
+          </div>
+        </div>
+
+        <p>The second compounded the first: exhausting the budget discarded everything, including findings already fully verified. A real run would spend its entire ceiling and return an empty array with exit 2.</p>
+
+        <div class="callout callout--why">
+          <span class="callout-label">The fix that mattered most wasn't the arithmetic</span>
+          <p>Refusing to return a partial audit that could be mistaken for a complete one is the right instinct. But the answer is to <em>label</em> truncation, not delete the evidence of it. Verification now settles in batches, a halt keeps the completed ones, and exit&nbsp;3 marks the result incomplete. With that in place the exact cap values stop being load-bearing — and <code>--max-calls</code> became the single cost knob, with <code>--max-findings</code> derived from it so the two cannot disagree again.</p>
+        </div>
+
+        <p>A third finding falsified this track's own completeness proof. Retiring the engine claimed that R1 and R4 having no exemptions left meant a single leftover reference would fail the gate. R4's pattern required the literal word <code>tool</code> — and <strong>three</strong> "Workflow-powered" references had shipped straight past it, two of them in the skill layer, describing an engine that had been deleted. The proof was sound in structure; the detector was too narrow.</p>
+
+        <div class="callout callout--info">
+          <span class="callout-label">And one hollow guard, again</span>
+          <p>The review's own fix for the unlocked <code>Budget</code> shipped with a test that passed with the lock removed — the window between check and increment is a few bytecodes wide, so a hammer loop never loses the race. Replaced with one that widens the window deliberately and fails every time without the lock. Ten mutations, ten killed. <a href="#eight">The same lesson as §8</a>, one phase later.</p>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="ten">10 · Every guard, misfiring at the person it protects</h2>
+        <p><span class="badge badge--quarantined">found by review</span></p>
+        <p>Phase 5 was reviewed harder than any before it — for the first time, its riskiest choices went to a reviewer <em>before</em> a line was written, and every task was reviewed again after. Eight of ten tasks came back with findings. Not one of them was in the feature logic. Every serious defect was in code written specifically to keep the user safe, doing damage in a case its author hadn't pictured.</p>
+
+        <div class="card-grid cols-2">
+          <div class="card problem">
+            <div class="ico" aria-hidden="true">🚧</div>
+            <h3>The barrier that half-installed</h3>
+            <p>Added because <code>--agent claude --agent copilot</code> with a blocker under the second left the first fully installed while exiting 2. The fix planned every agent before applying any — which made each plan's status a snapshot of the disk <em>before</em> anything moved. Two agents pointed at one directory both planned "create"; the first installed, the second raised <code>FileExistsError</code>. A partial install and an error, by a new route.</p>
+          </div>
+          <div class="card problem">
+            <div class="ico" aria-hidden="true">🔒</div>
+            <h3>The rule that locked you out of your own file</h3>
+            <p><code>freya init</code>'s markers had to be unambiguous, because a stray one could delete a user's prose. So the fix demanded each marker appear exactly once — counting occurrences <em>anywhere</em>, including mid-sentence. A user who merely wrote <em>about</em> freya-devkit in their <code>AGENTS.md</code> could then never run <code>init</code> again. Being over-strict about a file you don't own is its own kind of damage.</p>
+          </div>
+          <div class="card problem">
+            <div class="ico" aria-hidden="true">🏠</div>
+            <h3>The check that could not break a command</h3>
+            <p>The update notice is wrapped so nothing escapes it — it cannot change an exit code or print a traceback. Wiring it in front of <code>main</code> silently turned four existing tests into ones that wrote the real <code>~/.freya</code> and called the network. The reviewer found the file on disk, timestamped to the test run.</p>
+          </div>
+          <div class="card problem">
+            <div class="ico" aria-hidden="true">♻️</div>
+            <h3>The crash that could not heal</h3>
+            <p><code>relink</code> asked <code>apply_plan</code> to act on an occupied target, which raises <code>RuntimeError</code> — caught by nothing, so it surfaced as a traceback <em>after</em> orphan removals had run. Worse, it was self-sustaining: a copy interrupted partway leaves a directory with no marker, which audits as occupied forever, so every future <code>freya update</code> crashed at the same line.</p>
+          </div>
+        </div>
+
+        <div class="callout callout--why">
+          <span class="callout-label">The review that ran before the code</span>
+          <p>Three plan-mandated choices were sent to a reviewer before implementation. Two were wrong — and one of those was not a style disagreement. The plan had left the failed-<code>fetch</code> branch untested on the grounds that an offline remote can't be simulated honestly. But delete that guard and the flow compares against the <em>stale local ref</em>, which succeeds: an offline machine prints <strong>"already up to date"</strong> and exits 0 over a store that isn't. The mutation check later reproduced exactly that. The lesson is narrow and worth keeping: "this error path can't be tested honestly" is a claim about the <em>test</em>, and it says nothing about whether the branch's absence is visible to the user.</p>
+        </div>
+
+        <div class="callout callout--info">
+          <span class="callout-label">And one error message, three times</span>
+          <p><code>freya_cli.main</code> catches <code>(OSError, ValueError)</code> and reports <em>"cannot read the command manifest"</em>. In one phase, three unrelated failures fell into it: a throttle-file write after a <em>successful</em> update, an unreadable <code>SKILL.md</code> during <code>init</code>, and a half-written install during <code>relink</code>. Each was fixed where it arose, which is right and also not a fix: a catch-all naming one cause will keep collecting others. <a href="phase5.html">The full phase-5 record →</a></p>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="eleven">11 · The artefact was correct. The host disagreed.</h2>
+        <p><span class="badge badge--quarantined">found by running it</span></p>
+        <p>Ten corrections found by building. This one could only be found by <em>running</em> — and it went straight to the thing the whole track exists for.</p>
+
+        <p>Phase 6 asked Copilot to list its installed skills. It returned <strong>nine</strong>. The missing one was <code>freya-codebase-security-scan</code> — the security scanner, absent on the agent this port was built to reach. Installed. Correctly symlinked. Silently dropped.</p>
+
+        <div class="callout callout--danger">
+          <span class="callout-label">227 characters</span>
+          <p>The Agent Skills spec caps <code>description</code> at 1024 characters. That one had grown to <strong>1251</strong>, the only skill in the suite past the line — the next largest is 910. Copilot enforces the limit and drops the skill without a word. <strong>Claude Code ignores it and loads the skill anyway</strong>, which is precisely why five phases of work done mostly against Claude never saw it. Nothing raised an error: not the CLI, not <code>doctor</code>, not the conformance gate, whose R5 had always checked <em>which</em> frontmatter keys were present and never how long their values were.</p>
+        </div>
+
+        <p>Three more followed, each needing a live agent: the same SQL injection deduped as two findings because one worker wrote <code>./src/auth.js</code> and another wrote <code>src/auth.js</code>; a security <em>scan</em> that ran <code>git commit</code> against a repository it had only been asked to read; and an audit in which 22 of 27 calls failed and the run printed its three findings exactly the way a complete audit prints them.</p>
+
+        <div class="callout callout--info">
+          <span class="callout-label">And one that looked unfixable from this side</span>
+          <p>Asked to run the six category scans the way the skill instructs, Copilot ran them itself — a sequence of greps — and then reported: <em>"six category scans run in parallel."</em> Phase 4 designed the fan-out flows around the documented assumption that N visibly independent tasks get delegated. They do not, and <strong>the agent's own account of its work cannot be used to tell the difference</strong>. This was recorded as unfixable, because the skills already carried the sequential fallback. <a href="#twelve">§12 corrects that →</a></p>
+        </div>
+
+        <div class="callout callout--why">
+          <span class="callout-label">The pattern, stated three times</span>
+          <p>Phase 4b's defects were at the driver's edges, not in its logic. Phase 5's were in guards misfiring at the people they protect. Phase 6's are in what a <em>host</em> does with an artefact that is entirely correct by its own lights — enforce a limit the other host ignores, decline to delegate, infer a commit nobody asked for. A test suite can only ever check the artefact. <a href="phase6.html">The full phase-6 record →</a></p>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="twelve">12 · "Unfixable from this side" was the wrong conclusion</h2>
+        <p><span class="badge badge--quarantined">found by running it</span></p>
+        <p>§11 recorded Copilot's refusal to delegate as a fact to live with: the skills carried a sequential fallback, so the work was still correct, only slower. That reasoning has a hole in it, and phase 7 is the hole.</p>
+
+        <div class="callout callout--danger">
+          <span class="callout-label">The fallback was never the problem</span>
+          <p>The problem is that <strong>nothing can tell you which mode ran.</strong> A skill that says "run these in parallel if you can" gets the same answer from an agent that did and an agent that didn't — the phase 6 finding was only visible because someone read the transcript and saw six greps. A correctness property you cannot observe is not a property. It is a hope.</p>
+        </div>
+
+        <p>So the fix was not to accept the sequential mode, and not to word the instruction more firmly. It was to stop issuing an instruction at all. The security scan now calls <code>freya security scan</code> — a driver that owns a worker pool, makes the six calls itself, and returns verified findings. The agent's cooperation is no longer part of the guarantee.</p>
+
+        <div class="callout callout--why">
+          <span class="callout-label">What made it affordable — and what nearly made it dangerous</span>
+          <p><code>scan</code> is a <em>preset</em> of the driver <code>audit</code> already used, not a second driver. The obvious way to make the preset cheap is fewer skeptic lenses. That is a trap: a finding is deleted on a <em>unanimous</em> refutation, so with one lens a single sceptic having a bad moment silently deletes a real vulnerability. The saving came out of discovery instead — one round rather than five, 40 tasks down to 16 — leaving verification exactly where it was.</p>
+        </div>
+
+        <p>Running it then found two more things no test had: the same SQL injection reported twice under two different categories, <em>non-reproducibly</em>; and a failed run whose real reason ("OAuth session expired") sat unread inside the agent's JSON envelope while the driver printed <code>exit 1</code>. <a href="phase7.html">The full phase-7 record →</a></p>
+
+        <div class="callout callout--info">
+          <span class="callout-label">The correction to the correction</span>
+          <p>§11 was right about the observation and wrong about the remedy. When an agent's behaviour cannot be verified, the answer is not to document the uncertainty more carefully — it is to remove the agent from the part of the design that needed to be certain.</p>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="thirteen">13 · Windows was not waiting on a machine. It was waiting on code.</h2>
+        <p><span class="badge badge--quarantined">found by running it</span></p>
+        <p>Every page of this explainer, for the whole track, carried the same sentence in some form: Windows is untested, it needs a Windows machine, <strong>and no code</strong>. The first half was true. The second half was an assumption that had been restated so many times it had started to read like a finding.</p>
+
+        <p>A CI workflow now runs the suite, the conformance gate and a real end-to-end install on <code>ubuntu-latest</code> and <code>windows-latest</code>, across Python 3.9 and 3.13. The Windows leg came back <strong>29 failed</strong> against a green Linux leg. None of it was a regression — it was simply the first time the suite had ever executed there.</p>
+
+        <div class="callout callout--danger">
+          <span class="callout-label">Two of the four root causes were product bugs</span>
+          <p>The installer proved it owned a link by comparing the target it read back against the source it wrote. On Windows <code>os.readlink</code> returns <code>\\?\C:\…</code> where the source is spelled <code>C:\…</code>, so <strong>every link the installer had just created classified as foreign</strong> — <code>freya install</code> refused to manage its own install, and <code>relink</code> skipped every agent. And the code graph keyed <code>weirddir\x.ts</code>, so every forward-slash lookup missed: <code>behavior-graph</code> and <code>behavior-runner</code> both read those keys expecting forward slashes, so blast radius came back <em>empty and silent</em>.</p>
+        </div>
+
+        <p>The third was a fallback that masked the failure it was catching — <code>remove_link</code> retried a failed <code>unlink</code> as <code>rmdir</code>, and on Windows the retry <em>succeeded</em>, so a removal that had not happened was counted as one that had. The fourth is the one worth keeping: a manifest escape guard written as <code>os.path.isabs(rel)</code>, on a path that reaches the filesystem. Python 3.13 changed <code>ntpath.isabs</code> so that a rooted path with no drive is no longer absolute on Windows — so <code>/etc/passwd</code> was <strong>rejected on 3.9 and accepted on 3.13</strong>. The guard was correct on three of the four legs by accident of which interpreter was running it.</p>
+
+        <div class="callout callout--info">
+          <span class="callout-label">The correction, stated plainly</span>
+          <p>"Untested" and "fine" are not the same word, and repeating an untested claim does not move it toward the second one. What made this one durable is that the claim was <em>specific</em> and sounded like a measurement — <em>needs a machine, not code</em> — when nobody had ever been in a position to know. The cost of finding out was one workflow file.</p>
+          <p>And a green matrix is not the end of it. Two further defects were found by review rather than by the runner, and CI could not have caught either: <code>cmd_shim_plan</code> is Windows-exclusive, so no POSIX run reaches it, and <code>is_git_store</code> was latent. Both would have shipped broken behind eight green jobs. <a href="status.html#windows">The full record →</a></p>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="meta">What the plans got wrong about themselves</h2>
+        <p>Beyond the thirteen above, the implementation plans were amended <strong>fifteen times</strong> mid-execution as standalone commits — and nine more times inside phase 5's fix commits, which carried their plan corrections with them rather than leaving the plan describing code that no longer existed. Two are worth naming because they were caught by refusing to proceed rather than by testing:</p>
+
+        <div class="card-grid cols-2">
+          <div class="card problem">
+            <h3>A plan that violated its own rule</h3>
+            <p>The canonical scheduling block said "Claude Code's <strong>Task tool</strong>" — a phrase rule&nbsp;R4 had forbidden since phase&nbsp;2 as a Claude-only tool name. The plan mandated text the gate rejects. Fixed by naming the agents rather than their internals; the rule stayed intact.</p>
+          </div>
+          <div class="card problem">
+            <h3>A definition of done that couldn't be met</h3>
+            <p>Phase 4b's exit criteria demanded no <code>${CLAUDE_PLUGIN_ROOT}</code> anywhere — including <code>CONTRIBUTING.md</code>'s bullet that cites it as the anti-pattern <em>not</em> to write. The mention is the point of the bullet. The criterion was wrong, not the file.</p>
+          </div>
+        </div>
+
+        <div class="callout callout--success">
+          <span class="callout-label">The pattern across all of them</span>
+          <p>In both cases the right move was to stop and report the contradiction rather than quietly weaken a guard or edit the evidence. The plan is a hypothesis; the code and the specification are the facts.</p>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="read-next">Read next</h2>
+        <div class="next-prev">
+          <a class="np-card" href="shipped.html">
+            <span class="faint">Next →</span>
+            <strong>What Shipped</strong>
+            <span class="small">The seven phases, and the thirteen conformance rules that keep them from regressing.</span>
+          </a>
+          <a class="np-card" href="status.html">
+            <span class="faint">Or →</span>
+            <strong>Where It Stands</strong>
+            <span class="small">What's done, what's unreviewed, what's unverified, and what happens next.</span>
+          </a>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <div id="site-footer"></div>
+</body>
+</html>

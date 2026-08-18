@@ -13,6 +13,7 @@
     { href: "patterns.html",        label: "Patterns" },
     { href: "behavior-layer.html",  label: "Behavior Layer" },
     { href: "governance.html",      label: "Governance" },
+    { href: "portability.html",     label: "Portability" },
     { href: "getting-started.html", label: "Get Started" },
     { href: "reference.html",       label: "Reference" }
   ];
@@ -88,13 +89,14 @@
     host.innerHTML =
       '<footer class="site-footer"><div class="footer-inner">' +
         '<div>An explainer for <strong>freya-devkit</strong> — an integrated, AI-assisted ' +
-        'development toolkit for Claude Code. Ten composable skills that keep your graph, docs, ' +
-        'specs, behaviors, and security posture in sync.</div>' +
+        'development toolkit for any coding agent that runs skills. Ten composable skills that keep ' +
+        'your graph, docs, specs, behaviors, and security posture in sync.</div>' +
         '<div class="footer-links">' +
           '<a href="index.html">Overview</a>' +
           '<a href="architecture.html">Architecture</a>' +
           '<a href="skills.html">Skills</a>' +
           '<a href="behavior-layer.html">Behavior Layer</a>' +
+          '<a href="portability.html">Portability</a>' +
           '<a href="getting-started.html">Get Started</a>' +
           '<a href="reference.html">Reference</a>' +
         "</div>" +

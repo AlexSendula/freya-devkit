@@ -1,0 +1,33 @@
+#!/usr/bin/env python3
+"""Executable entry point for the freya-devkit launcher.
+
+Deliberately thin: all logic lives in freya_cli.py so it stays importable and
+unit-testable. Uses realpath, not abspath: under `-P` / `PYTHONSAFEPATH` /
+isolated mode CPython does not auto-insert a resolved `sys.path[0]`, so abspath
+would point at the symlink's directory and the import would fail.
+"""
+import os
+import sys
+
+# Checked here, before any suite module is imported, and written without an
+# f-string so an interpreter too old to run the toolkit can still print this.
+# installer.py and updater.py both open with `from __future__ import
+# annotations`, so an older Python dies with a SyntaxError from a file the
+# user never named — including `freya doctor`, the one command whose job is to
+# say "your Python is too old". Must stay in step with freya_cli.MIN_PYTHON,
+# which cannot be imported yet.
+if sys.version_info < (3, 9):
+    sys.stderr.write(
+        "freya needs Python 3.9 or newer (found %d.%d at %s).\n"
+        % (sys.version_info[0], sys.version_info[1], sys.executable))
+    raise SystemExit(2)
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+
+from freya_cli import main  # noqa: E402
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main(sys.argv[1:]))
+    except KeyboardInterrupt:
+        raise SystemExit(130)

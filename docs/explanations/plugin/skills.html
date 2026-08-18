@@ -28,9 +28,12 @@
         work (<code>code-graph</code>, <code>spec-manager</code>, <code>behavior-graph</code>,
         <code>behavior-runner</code>, <code>status</code>; <code>docs-manager</code> has one detection
         helper). Others are <strong>prose-driven</strong> — the skill is instructions the agent follows,
-        with no binary (<code>codebase-security-scan</code> aside from its audit workflow,
-        <code>codebase-security-resolver</code>, <code>dependency-vulnerability-check</code>,
-        <code>wrap-up</code>). The badge on each card tells you which.</p>
+        with no binary (<code>codebase-security-resolver</code>,
+        <code>dependency-vulnerability-check</code>, <code>wrap-up</code>).
+        <code>codebase-security-scan</code> sits between: prose for the report, a Python driver for the
+        fan-out. The badge on each card tells you which.</p>
+        <p class="small muted">Every engine is reached the same way — <code>freya &lt;command&gt;</code>
+        through the launcher, never a filesystem path. <a href="portability.html">Why →</a></p>
       </div>
 
       <!-- ============================ TIER 1 ============================ -->
@@ -50,12 +53,12 @@
             this?" so consumers can process a change's whole blast radius, not just the file that
             changed.</p>
             <h4>Key commands</h4>
-            <pre class="code"><code>/freya-devkit:code-graph build          <span class="tok-c"># full scan → graph.json</span>
-/freya-devkit:code-graph update         <span class="tok-c"># incremental via git diff</span>
-/freya-devkit:code-graph impact &lt;file&gt;   <span class="tok-c"># blast radius (accepts many files)</span>
-/freya-devkit:code-graph query &lt;file&gt;    <span class="tok-c"># dependencies + usages</span>
-/freya-devkit:code-graph dependents &lt;file&gt;
-/freya-devkit:code-graph dependencies &lt;file&gt;</code></pre>
+            <pre class="code"><code>/freya-code-graph build          <span class="tok-c"># full scan → graph.json</span>
+/freya-code-graph update         <span class="tok-c"># incremental via git diff</span>
+/freya-code-graph impact &lt;file&gt;   <span class="tok-c"># blast radius (accepts many files)</span>
+/freya-code-graph query &lt;file&gt;    <span class="tok-c"># dependencies + usages</span>
+/freya-code-graph dependents &lt;file&gt;
+/freya-code-graph dependencies &lt;file&gt;</code></pre>
             <h4>Reads / writes</h4>
             <p>Reads your source + git. Writes <code>knowledge-base/.graph/graph.json</code> and
             <code>classifications.json</code> — a regenerable, git-ignored cache. On <code>build</code> it
@@ -94,10 +97,10 @@
             parallel. Undetectable details become <code>[TODO:]</code> placeholders resolved later in
             batched questions.</p>
             <h4>Key commands</h4>
-            <pre class="code"><code>/freya-devkit:docs-manager init            <span class="tok-c"># create the doc set</span>
-/freya-devkit:docs-manager update          <span class="tok-c"># impact-aware refresh</span>
-/freya-devkit:docs-manager update api      <span class="tok-c"># one doc</span>
-/freya-devkit:docs-manager review | sync | resolve | upgrade-diagrams</code></pre>
+            <pre class="code"><code>/freya-docs-manager init            <span class="tok-c"># create the doc set</span>
+/freya-docs-manager update          <span class="tok-c"># impact-aware refresh</span>
+/freya-docs-manager update api      <span class="tok-c"># one doc</span>
+/freya-docs-manager review | sync | resolve | upgrade-diagrams</code></pre>
             <h4>Reads / writes</h4>
             <p>Reads code + <code>code-graph impact</code>. <strong>Owns</strong>
             <code>knowledge-base/README.md</code> (the index) and <code>reference/*.md</code>. Its only
@@ -134,12 +137,12 @@
               flagging missing password auth should be ignored").</p>
             </div>
             <h4>Key commands</h4>
-            <pre class="code"><code>/freya-devkit:spec-manager bootstrap       <span class="tok-c"># one-time onboarding (see Get Started)</span>
-/freya-devkit:spec-manager create &lt;name&gt;   <span class="tok-c"># author intent forward (certainty 100)</span>
-/freya-devkit:spec-manager scan            <span class="tok-c"># infer proposed candidates (brownfield)</span>
-/freya-devkit:spec-manager update          <span class="tok-c"># git-aware incremental sync</span>
-/freya-devkit:spec-manager verify          <span class="tok-c"># deterministic integrity checks</span>
-/freya-devkit:spec-manager intent new &lt;BEH&gt;  ·  adr create|list|verify</code></pre>
+            <pre class="code"><code>/freya-spec-manager bootstrap       <span class="tok-c"># one-time onboarding (see Get Started)</span>
+/freya-spec-manager create &lt;name&gt;   <span class="tok-c"># author intent forward (certainty 100)</span>
+/freya-spec-manager scan            <span class="tok-c"># infer proposed candidates (brownfield)</span>
+/freya-spec-manager update          <span class="tok-c"># git-aware incremental sync</span>
+/freya-spec-manager verify          <span class="tok-c"># deterministic integrity checks</span>
+/freya-spec-manager intent new &lt;BEH&gt;  ·  adr create|list|verify</code></pre>
             <h4>Reads / writes</h4>
             <p>Reads <code>code-graph</code> impact + <code>reference/</code> docs. Writes
             <code>specs/</code> (by category), <code>principles.md</code> (the constitution),
@@ -170,7 +173,7 @@
             in coverage from <code>behavior-runner</code> to build <code>behavior.json</code> — the
             <code>BEHAVIOR → TEST → CODE</code> projection — then answers impact questions both ways.</p>
             <h4>Key commands</h4>
-            <pre class="code"><code>python "$CLAUDE_PLUGIN_ROOT/skills/behavior-graph/scripts/behavior_graph.py" \
+            <pre class="code"><code>freya behavior-graph \
   --build --project .                    <span class="tok-c"># refresh behavior.json</span>
   --affected &lt;file...&gt;                    <span class="tok-c"># Direction A: code → behaviors</span>
   --implements &lt;BEH-NNN&gt;                  <span class="tok-c"># Direction B: behavior → code</span>
@@ -190,7 +193,7 @@
             <ul>
               <li>Only <code>accepted</code> + <code>confirmed</code> behaviors are projected; <code>proposed</code> lives only in specs. (See the <a href="behavior-layer.html">Behavior Layer</a> for the lifecycle.)</li>
               <li>Only <code>accepted</code> behaviors can gate a regression check.</li>
-              <li>Queries reflect the last <code>--build</code> snapshot — re-build after spec/code changes. (Its SKILL.md documents 3 modes; the script implements 7.)</li>
+              <li>Queries reflect the last <code>--build</code> snapshot — re-build after spec/code changes.</li>
             </ul>
           </div>
         </details>
@@ -207,7 +210,7 @@
             adapter and prints <code>TEST → CODE</code> coverage fingerprints as JSON. It never writes
             <code>behavior.json</code> — that's <code>behavior-graph</code>'s job.</p>
             <h4>Key commands</h4>
-            <pre class="code"><code>python "$CLAUDE_PLUGIN_ROOT/skills/behavior-runner/scripts/run_behaviors.py" \
+            <pre class="code"><code>freya behavior-runner \
   --project . --level unit --emit-fingerprints
   --states accepted confirmed            <span class="tok-c"># default: accepted only</span>
   --list                                 <span class="tok-c"># list matching behaviors, don't run</span></code></pre>
@@ -238,19 +241,21 @@
           <summary>
             <span class="s-name">codebase-security-scan</span>
             <span class="tier-badge tier-3">Analysis</span>
-            <span class="badge badge--prose">Prose + audit workflow</span>
+            <span class="badge badge--script">Prose + Python driver</span>
             <span class="s-purpose">Six parallel finders + adversarial verification; specs cut false positives.</span>
           </summary>
           <div class="s-body">
             <p>Application-code security auditing. Six specialized agents scan in parallel (Auth/Authz;
             Injection; Secrets; API/Network; Config/Deps; File/Resource), findings are validated online
             and <strong>adversarially refuted</strong> to kill false positives, and each finding's
-            lifecycle is tracked across scans.</p>
+            lifecycle is tracked across scans. Both <code>scan</code> and <code>audit</code> are
+            <strong>driver-owned</strong>: a Python worker pool spawns the finders itself rather than
+            asking the agent to. <a href="portability.html">Why that changed →</a></p>
             <h4>Key commands</h4>
-            <pre class="code"><code>/freya-devkit:codebase-security-scan scan       <span class="tok-c"># full</span>
-/freya-devkit:codebase-security-scan update     <span class="tok-c"># incremental (used by wrap-up)</span>
-/freya-devkit:codebase-security-scan audit      <span class="tok-c"># exhaustive, Workflow-powered, on-demand</span>
-/freya-devkit:codebase-security-scan check-specs · impact &lt;file&gt;</code></pre>
+            <pre class="code"><code>/freya-codebase-security-scan scan       <span class="tok-c"># full → freya security scan --yes (paid)</span>
+/freya-codebase-security-scan update     <span class="tok-c"># incremental, in-loop, free (used by wrap-up)</span>
+/freya-codebase-security-scan audit      <span class="tok-c"># exhaustive deep audit, on-demand (paid)</span>
+/freya-codebase-security-scan check-specs · impact &lt;file&gt;</code></pre>
             <h4>Reads / writes</h4>
             <p>Reads <code>reference/</code> docs + <code>specs/</code> + accepted behaviors +
             <code>code-graph</code>. Writes a dated prose report
@@ -260,7 +265,9 @@
             <ul>
               <li><strong>Only <code>accepted</code> behaviors downgrade a finding</strong> — a verified guarantee beats a prose spec; proposed/confirmed add only an advisory note.</li>
               <li>Standard verification runs 2–3 refutation lenses per finding; only a <em>unanimous</em> refute drops one. A split stays <em>needs review</em>.</li>
-              <li><code>audit</code> is deliberately <strong>not</strong> wired into <code>wrap-up</code> — it's a background multi-agent Workflow for pre-release.</li>
+              <li>Neither driver mode is wired into <code>wrap-up</code>. <code>scan</code> and <code>audit</code> both spawn headless agent workers and cost real money; <code>wrap-up</code>'s security step is <code>update</code>, which stays in the agent's own loop and spends nothing — including on a project's first wrap-up, where there is no previous scan to diff against.</li>
+              <li><code>scan</code> and <code>audit</code> share one engine and one definition of "a finding". The only difference is discovery rounds — 1 vs up to 5. Verification lenses are never cut, because a finding is dropped on a <em>unanimous</em> refutation and one lens makes any refutation unanimous.</li>
+              <li>Read the exit code before the findings: an empty result with exit <code>0</code> means clean, an empty result with any other code means the scan didn't run. Both driver modes take <code>--yes</code> in a skill, because the confirmation prompt has no tty to answer it and a declined run (exit <code>4</code>) must never be read as a missing CLI (exit <code>1</code>). <a href="reference.html">The full exit table →</a></li>
             </ul>
           </div>
         </details>
@@ -277,9 +284,9 @@
             the package manager from the lock file, runs <code>&lt;pm&gt; audit --json</code>, then enriches
             and validates each finding with web searches to strip false positives and note applicability.</p>
             <h4>Key commands</h4>
-            <pre class="code"><code>/freya-devkit:dependency-vulnerability-check
-<span class="tok-c"># schedule it:</span>
-/loop 1w /freya-devkit:dependency-vulnerability-check</code></pre>
+            <pre class="code"><code>/freya-dependency-vulnerability-check
+<span class="tok-c"># schedule it with whatever your agent offers</span>
+<span class="tok-c"># (Claude Code: /loop 1w /freya-dependency-vulnerability-check)</span></code></pre>
             <h4>Reads / writes</h4>
             <p>Reads lock files + <code>package.json</code> + WebSearch. Writes dated reports to
             <code>knowledge-base/security/dependency-vulnerabilities/YYYY-MM-DD.md</code> (preserved per
@@ -318,9 +325,9 @@
 4.  codebase-security-scan update            <span class="tok-c"># never audit</span>
 5.  commit artifacts (+ refresh BACKLOG.md)</code></pre>
             <h4>Key commands</h4>
-            <pre class="code"><code>/freya-devkit:wrap-up
-/freya-devkit:wrap-up "feat: add passkey login"
-/freya-devkit:wrap-up --no-security --no-docs   <span class="tok-c"># skip steps</span></code></pre>
+            <pre class="code"><code>/freya-wrap-up
+/freya-wrap-up "feat: add passkey login"
+/freya-wrap-up --no-security --no-docs   <span class="tok-c"># skip steps</span></code></pre>
             <h4>Good to know</h4>
             <ul>
               <li>A behavior scaffold's commit class follows its <strong>lifecycle state, not its file location</strong> — a proposed <code>.feature</code> scaffold (a placeholder test with no real steps yet) rides the <em>artifacts</em> commit; an accepted test rides the <em>code</em> commit.</li>
@@ -343,7 +350,7 @@
             security work into one summary and, on request, regenerates the git-tracked
             <code>BACKLOG.md</code>.</p>
             <h4>Key commands</h4>
-            <pre class="code"><code>python "$CLAUDE_PLUGIN_ROOT/skills/status/scripts/collect_status.py" \
+            <pre class="code"><code>freya status \
   --project . --format text --write-backlog
 <span class="tok-c"># agent-driven worklists:</span>
 status review intent   <span class="tok-c"># proposed → confirm, one at a time</span>
@@ -380,10 +387,10 @@ status gaps            <span class="tok-c"># whole-repo uncovered code</span></c
             <code>wrap-up</code>. Its signature feature is <strong>metadata cleanup</strong>: every
             <em>skipped</em> finding still gets routed to a terminal state, so skipping is never a no-op.</p>
             <h4>Key commands</h4>
-            <pre class="code"><code>/freya-devkit:codebase-security-resolver            <span class="tok-c"># interactive</span>
-/freya-devkit:codebase-security-resolver fix SEC-001 SEC-003
-/freya-devkit:codebase-security-resolver fix --critical   <span class="tok-c"># --high, --medium are cumulative</span>
-/freya-devkit:codebase-security-resolver fix --dry-run</code></pre>
+            <pre class="code"><code>/freya-codebase-security-resolver            <span class="tok-c"># interactive</span>
+/freya-codebase-security-resolver fix SEC-001 SEC-003
+/freya-codebase-security-resolver fix --critical   <span class="tok-c"># --high, --medium are cumulative</span>
+/freya-codebase-security-resolver fix --dry-run</code></pre>
             <h4>Terminal states for a skipped finding</h4>
             <div class="table-wrap"><table>
               <thead><tr><th>Category</th><th>Becomes</th></tr></thead>

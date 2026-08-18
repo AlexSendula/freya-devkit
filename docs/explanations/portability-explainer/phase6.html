@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Phase 6 — validation, and what only a live agent could tell us</title>
+  <meta name="description" content="The final phase of the portability track: the toolkit run for real on Claude Code and GitHub Copilot, the four defects that only live agents revealed, and the parts that remain unproven.">
+  <link rel="stylesheet" href="assets/styles.css">
+  <script src="assets/site.js"></script>
+</head>
+<body>
+  <div id="site-header"></div>
+
+  <header class="hero wrap">
+    <span class="eyebrow">portability · phase 6 · 16 Aug 2026</span>
+    <h1>The security scanner was missing on the agent this whole track was built for.</h1>
+    <p class="lead">Five phases made the toolkit portable. This one ran it — on a real machine, against a real remote, through Claude Code and GitHub Copilot. It took one question to find something five phases of tests could not: Copilot listed nine skills, not ten, and the missing one was the security scanner.</p>
+  </header>
+
+  <div class="doc">
+    <aside class="toc" id="toc"></aside>
+    <main class="doc-body">
+
+      <section>
+        <h2 id="shape">How it was run</h2>
+        <p>Two parts, gated separately. <strong>Part A</strong> exercised the whole install / update / init / doctor surface under a redirected <code>HOME</code> — free, and unable to touch the working machine. <strong>Part B</strong> drove the real agent CLIs, which costs money and needed credentials.</p>
+
+        <div class="callout callout--why">
+          <span class="callout-label">The isolation, described honestly</span>
+          <p>Every path the toolkit writes derives from <code>Path.home()</code> — verified at all six call sites — and <code>Path.home()</code> follows <code>$HOME</code>, as does Node's <code>os.homedir()</code>, which matters because both agent CLIs are Node programs. So <code>HOME=/tmp/…</code> relocates the entire install.</p>
+          <p>That is isolation <em>by convention, verified by inspection</em> — not an enforced boundary. A program calling <code>getpwuid()</code> would still find the real home. So the four real paths were checksummed before the run and diffed after: <strong>no differences</strong>. An escape would have been detected, not assumed away.</p>
+        </div>
+
+        <p>One limit surfaced immediately: <strong>redirecting <code>HOME</code> breaks macOS Keychain access.</strong> Only the System keychain remains visible, so Claude Code's login fails with "keychain not found", and copying the old <code>.credentials.json</code> does not help — 2.1.233 ignores it. The only route was symlinking the real keychain into the sandbox, which widens the very boundary the sandbox exists to hold. It was done with explicit approval, kept only for Claude-side work, and removed before Copilot ran with expanded tool permissions.</p>
+      </section>
+
+      <section>
+        <h2 id="parta">Part A — the mechanics held</h2>
+        <p>A clean <code>git clone</code> plus <code>./install.sh</code> — the path the README actually tells a user to take — linked ten skills per agent and put the launcher in place. <code>doctor</code> exited 0 with every check green.</p>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Claim</th><th>What happened</th></tr></thead>
+            <tbody>
+              <tr><td><code>freya update</code> against a real remote</td><td><code>updated e878a209 -&gt; 34a9a310 (5 commit(s))</code>, then re-linked. The first time that line has ever been produced against GitHub.</td></tr>
+              <tr><td>An unreachable remote</td><td><code>could not fetch origin</code>, exit 2 — <strong>never</strong> "already up to date", which is what the missing guard would have produced.</td></tr>
+              <tr><td>Dirty tree / no upstream / not a checkout / diverged</td><td>Each refused with its own message and exit 2. The diverged case turned up by accident during Part B, when a local commit put the sandbox store ahead of origin.</td></tr>
+              <tr><td>A moved checkout</td><td><code>20 pointing at a different store</code> — ten symlinks plus ten copy markers — each named with the path it pointed at and the remedy. <code>--force</code> repaired it both directions.</td></tr>
+              <tr><td>The notify check</td><td>On <em>stderr</em> only (streams separated and checked), <strong>0.551 s</strong> with the network call and <strong>0.083 s</strong> from cache. Silenced by the opt-out, cleared by an update.</td></tr>
+              <tr><td><code>freya init</code></td><td>Ten table rows with real summaries, no empty cells. Byte-identical on a second run. On a CRLF file that mentions the marker in prose: line endings preserved, the user's bytes an unmodified prefix.</td></tr>
+              <tr><td>Uninstall</td><td>Removed its own twenty entries and the launcher; left a planted foreign directory and its contents alone.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p>Two details worth keeping. Links resolved through <code>/tmp</code> → <code>/private/tmp</code> without tripping the orphan check — the exact path-resolution class that caused a real bug in <code>uninstall_agent</code> earlier in the track. And <code>init</code>'s ten populated rows are the payoff of phase 5's block-scalar frontmatter reader; without it the table ships ten bare <code>|</code> values.</p>
+      </section>
+
+      <section>
+        <h2 id="found">Four defects, none of which a test suite could have found</h2>
+        <p>Every one of these needed a live agent. They are listed in the order they were discovered.</p>
+
+        <div class="card-grid cols-2">
+          <div class="card problem">
+            <div class="ico" aria-hidden="true">🕳️</div>
+            <h3>1 · The security scanner was invisible to Copilot</h3>
+            <p>Asked to list its skills, Copilot returned <strong>nine</strong>. A direct yes/no confirmed <code>freya-codebase-security-scan</code> was genuinely absent — installed, correctly linked, and silently dropped. Its <code>description</code> ran to <strong>1251 characters</strong> against the spec's 1024 limit, the only skill in the suite over the line. Claude Code ignores the limit and loads it anyway, which is exactly why five phases of Claude-side work never saw it. The fix cut it to 840 characters; phase 7's driver instructions took it back to <strong>959</strong>, still inside the limit but with only 65 characters of headroom left. Rule <strong>R10</strong> is what makes that a number anyone can see — R5 had always checked <em>which</em> keys existed and never how long their values were.</p>
+          </div>
+          <div class="card problem">
+            <div class="ico" aria-hidden="true">👯</div>
+            <h3>2 · One file, two spellings, two findings</h3>
+            <p>A live run reported the same SQL injection twice — once as <code>./src/auth.js</code>, once as <code>src/auth.js</code>. The dedup key was built from whatever string a worker happened to write, so both survived, and one of only three verification slots was spent sending three skeptics after an issue already being judged. Paths are normalized at intake now, which fixes the key and the report together.</p>
+          </div>
+          <div class="card problem">
+            <div class="ico" aria-hidden="true">📝</div>
+            <h3>3 · A scan committed to the repository</h3>
+            <p>Running the security scan with broad tool permissions, Copilot wrote the report and then ran <code>git commit</code> — adding three files to the history of a repo it had only been asked to <em>scan</em>, with a literal <code>\n\n</code> mangling the subject line. Nothing in the skill asked for that. Nothing forbade it either, and an agent holding write tools filled the gap with an inference. Four artifact-writing skills now say plainly that committing belongs to <code>wrap-up</code>. Re-tested live: the report is written and left uncommitted.</p>
+          </div>
+          <div class="card problem">
+            <div class="ico" aria-hidden="true">📉</div>
+            <h3>4 · A mostly-failed audit reported as a normal one</h3>
+            <p>On a real 299-file codebase: <strong>27 calls, 22 failed</strong>, three findings — printed exactly the way a complete audit prints its results. No failure count in view, no <code>last error</code>, exit 0. Phase 4b had fixed the all-or-nothing shapes; this is the shape between them, and it is the likelier one, because a run degrades long before it dies. Any unanswered task now makes the run INCOMPLETE, names the counts, surfaces the error and exits 3.</p>
+          </div>
+        </div>
+
+        <div class="callout callout--info">
+          <span class="callout-label">What was actually failing</span>
+          <p>The 22 failures had a mundane cause that only a live run could reveal: <strong>the Copilot account's monthly quota was exhausted</strong>. A later run confirmed it — <code>You have exceeded your monthly quota</code> — and this time the phase 4b guard did its job, stopping at the context call rather than spending on finders, exiting 2 with an empty stdout and the reason on stderr. The same underlying condition produced a silent degradation in one run and a correct refusal in the other. That gap is what defect 4 closes.</p>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="agents">What the agents actually did</h2>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th></th><th>Claude Code 2.1.233</th><th>Copilot CLI 1.0.75</th></tr></thead>
+            <tbody>
+              <tr><td>Skills resolve, prefixed and un-namespaced</td><td>✅ 10/10</td><td>✅ 10/10 <span class="faint">(9/10 before the fix)</span></td></tr>
+              <tr><td>Fresh session tracks a re-linked skill</td><td>✅</td><td>✅</td></tr>
+              <tr><td>Live audit on the fixture</td><td>3 findings, 22 calls, 0 failed</td><td>2 findings / 25 calls, then 3 / 16 on a clean fixture — 0 failed</td></tr>
+              <tr><td>Cost reported by the driver</td><td>$0.58</td><td><strong>nothing — no telemetry</strong></td></tr>
+              <tr><td>Both planted issues found</td><td>✅</td><td>✅</td></tr>
+              <tr><td>Invented findings in the clean control file</td><td>none</td><td>none</td></tr>
+              <tr><td>Read-only guard</td><td>held</td><td>held, including on a real 299-file repo</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p><strong>Schema-valid findings from live workers: yes, on both.</strong> Zero failed calls across 47 fixture-run worker invocations — which also means the extract-validate-retry design was never stressed, so its retry path stays unexercised in the field.</p>
+
+        <div class="callout callout--danger">
+          <span class="callout-label">Copilot does not delegate the fan-out — and says it does</span>
+          <p>Asked to run the six category scans as the skill instructs, Copilot ran them <em>itself</em>, as a sequence of greps, then reported: <em>"Scan complete — six category scans run in parallel."</em> Phase 4 built the three fan-out flows around the assumption that giving Copilot N visibly independent tasks would get them delegated. It does not, and the agent's own account of its work cannot be used to tell the difference. The design's sequential fallback is not a fallback on Copilot; it is the only mode.</p>
+          <p><strong>This is the finding phase 7 exists to answer.</strong> The security scan now calls a driver that schedules its own workers, so the guarantee no longer depends on the agent agreeing to delegate. <a href="phase7.html">Phase 7 →</a></p>
+        </div>
+
+        <div class="callout callout--why">
+          <span class="callout-label">One result had to be thrown away, and the fixture was to blame</span>
+          <p>The first Copilot audit marked both planted issues <code>intentional-design</code>, where Claude had marked them <code>confirmed</code> and <code>needs-review</code>. Before reading that as an adapter defect: the fixture's README announced that it existed to validate the audit driver. A skeptic lens reading that could quite reasonably decide the vulnerabilities were deliberate test data. Re-run against a fixture that says nothing about itself, Copilot marked both <strong>confirmed critical</strong>. The control had contaminated itself; the disposition ladder was fine.</p>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="unproven">What is still unproven</h2>
+        <p>The phase is not finished, and this is the part that says so.</p>
+
+        <div class="card-grid cols-2">
+          <div class="card problem">
+            <div class="ico" aria-hidden="true">🪟</div>
+            <h3>Windows — never reachable</h3>
+            <p><code>install.ps1</code>, symlink privilege, and <code>--copy</code> under Windows. No amount of sandboxing on a Mac gets near them, and <code>--copy</code> is the mode a Windows install falls back to when the platform refuses to create a symlink. <strong>Since resolved</strong> — CI now runs the suite and a real <code>--copy</code> install on <code>windows-latest</code> every push. The first run failed 29 times, so this card understated it: the platform was not only unreachable, it was broken. <a href="status.html#windows">The record →</a></p>
+          </div>
+          <div class="card problem">
+            <div class="ico" aria-hidden="true">🔄</div>
+            <h3>Whether a <em>live</em> session notices a re-link</h3>
+            <p>Fresh sessions track the filesystem on both agents — proven. Whether a session already running picks up a re-linked skill needed an interactive session held open while the link changed. <strong>Since resolved</strong> — phase 7 held one open and moved the file: the registry is snapshotted at session start, the body is read from disk at invocation, so a removed skill is still offered and then fails with a raw <code>ENOENT</code>. The remedy is a reload, not a restart, and <code>freya update</code> now says so. <a href="phase7.html#reload">The record →</a></p>
+          </div>
+          <div class="card problem">
+            <div class="ico" aria-hidden="true">🧾</div>
+            <h3><code>wrap-up</code>, end to end</h3>
+            <p>The one flow that ties every skill together, and the only one that legitimately commits. Blocked when the Copilot quota ran out. <strong>Since resolved</strong> — it ran end to end on Copilot in phase 7, once quota was restored. <a href="phase7.html#wrapup">The record →</a></p>
+          </div>
+          <div class="card problem">
+            <div class="ico" aria-hidden="true">⏱️</div>
+            <h3>The hang paths</h3>
+            <p>The 2 s <code>ls-remote</code> bound and the 60 s fetch bound. The unreachable-remote test failed in <strong>0.13 s</strong> — a refused connection is not a hang, and nothing produces one honestly.</p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="numbers">The numbers</h2>
+        <div class="card-grid cols-2">
+          <div class="card">
+            <h3>7 commits</h3>
+            <p>A plan, two validation logs, and four fixes — every one of the four found by running the thing rather than by reading it.</p>
+          </div>
+          <div class="card">
+            <h3>10 conformance rules</h3>
+            <p>R10 is new, and it is the one that would have caught the missing security scanner. Restoring the old description makes it fire and the gate exit 1.</p>
+          </div>
+          <div class="card">
+            <h3>721 tests · 24 suites</h3>
+            <p>All green, still with no network call and no paid test. Twelve are new in this phase, each pinned to something a live agent did.</p>
+          </div>
+          <div class="card">
+            <h3>$0.58 + about 6 credits</h3>
+            <p>The Claude adapter reports spend and printed $0.58 for a full fixture audit. Copilot reports <em>AI Credits</em>, not currency — about six across the runs that showed a figure, and nothing at all for the audits, which is why its budget guard counts calls. No dollar total is given for Copilot because none was measured.</p>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2 id="read-next">Read next</h2>
+        <div class="next-prev">
+          <a class="np-card" href="phase7.html">
+            <span class="faint">Next →</span>
+            <strong>Phase 7</strong>
+            <span class="small">The answer to the finding above: the fan-out stops being a request.</span>
+          </a>
+          <a class="np-card" href="phase5.html">
+            <span class="faint">Back →</span>
+            <strong>Phase 5</strong>
+            <span class="small">The commands this phase validated, and the eight of ten tasks that took review findings.</span>
+          </a>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <div id="site-footer"></div>
+</body>
+</html>

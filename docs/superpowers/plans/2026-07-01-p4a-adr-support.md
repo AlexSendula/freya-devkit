@@ -969,6 +969,6 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 ## Post-plan: dogfood + final review
 
 After Task 9, before considering P4a done:
-1. **Dogfood on the testbed** (`viva-croatia-testbed`, throwaway branch; restore `main` after): `adr new` an ADR; run `adr verify`/`adr list`; author a spec decision that contradicts it → confirm G3 `context` surfaces the ADR and the resolve-to-proceed flow logs `--against ADR-NNN`; author an ADR that contradicts a principle → confirm `adr-context` surfaces it (fix-the-ADR); re-run unchanged → auto-cleared; confirm a no-ADR project is unchanged.
+1. **Dogfood on the testbed** (`testbed`, throwaway branch; restore `main` after): `adr new` an ADR; run `adr verify`/`adr list`; author a spec decision that contradicts it → confirm G3 `context` surfaces the ADR and the resolve-to-proceed flow logs `--against ADR-NNN`; author an ADR that contradicts a principle → confirm `adr-context` surfaces it (fix-the-ADR); re-run unchanged → auto-cleared; confirm a no-ADR project is unchanged.
 2. **Final whole-branch review** — dispatch the code-reviewer on the full P4a range (`git merge-base` of the P4a work to HEAD) on the most capable model, per subagent-driven-development.
 3. Record P4a completion in the SDD ledger + parking-lot; do **not** merge `feat/behavior-layer` (standing decision).

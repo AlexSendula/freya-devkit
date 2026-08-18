@@ -128,12 +128,34 @@ Tests are usually written *from* the code, so they verify "what the code does," 
 
 This turns specs from inert prose that nothing runs into executable, governed guarantees.
 
+### 7. Agent-Neutral by Construction
+
+The toolkit began as a Claude Code plugin and is now meant to run on any agent that reads
+the Agent Skills standard. That is not a compatibility layer bolted on the side; it is a
+constraint on how skills are written:
+
+- **No host-specific construct in a skill.** No `${CLAUDE_PLUGIN_ROOT}`, no
+  `/freya-devkit:` slash names, no host tool names, no `~/.claude` paths. Every script is
+  invoked as `freya <command>`, through one self-locating launcher.
+- **Capabilities are asked for, not assumed.** Where a skill wants parallelism it says
+  *"in parallel if your agent supports subagents, one at a time otherwise"* — and says
+  what the sequential path costs, so degrading is a choice rather than a surprise.
+- **A guarantee that lives in a sentence is a suggestion.** Where the property actually
+  matters, prose is not enough: validation caught a host running a six-way fan-out
+  sequentially and reporting it as parallel. The security scan therefore drives its own
+  worker processes, because the one thing an agent cannot be asked is whether it did what
+  it said.
+
+The last point generalizes: *prefer the mechanism that cannot be misreported.* Prose
+where the cost of being wrong is slower; code where the cost of being wrong is a missed
+vulnerability.
+
 ## What This Enables
 
 ### For Development
 
 1. Implement a feature
-2. Run `/freya-devkit:wrap-up`
+2. Run `freya-wrap-up`
 3. Get: updated docs, specs, security scan, all committed
 
 ### For Understanding
@@ -155,6 +177,14 @@ This turns specs from inert prose that nothing runs into executable, governed gu
 - **Not prescriptive**: Skills don't have to follow every pattern
 - **Not complete**: The ecosystem grows over time
 - **Not perfect**: Certainty scores acknowledge uncertainty
-- **Not enforced**: Conventions guide, they don't restrict
+- **Mostly not enforced**: Conventions guide, they don't restrict
 
 The goal is coherence and collaboration, not rigid compliance.
+
+**One exception, and it is deliberate.** Agent-neutrality is *not* a convention — it is a
+gate. `bin/check_skill_conformance.py` fails the build on a Claude-only construct in any
+skill, and CI runs it on every push. The reason is that this class of mistake is
+invisible where it is made: a `${CLAUDE_PLUGIN_ROOT}` path works perfectly on Claude and
+breaks silently everywhere else, and an over-long `description` had one skill loading on
+Claude and being dropped without a word by Copilot for five phases. Guidance cannot catch
+a defect whose symptom never appears on the author's own machine.

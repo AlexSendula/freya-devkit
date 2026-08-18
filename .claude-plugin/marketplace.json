@@ -2,7 +2,7 @@
   "name": "freya-devkit",
   "owner": {
     "name": "Alex",
-    "email": "dev+github@alexsendula.com"
+    "email": "github@alexsendula.com"
   },
   "description": "Freya devkit marketplace — the freya-devkit AI-assisted development plugin.",
   "plugins": [

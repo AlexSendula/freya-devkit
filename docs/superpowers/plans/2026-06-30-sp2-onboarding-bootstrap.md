@@ -18,7 +18,7 @@
 - **No `.feature` scaffolds written by bootstrap** — inference produces only `proposed` behavior records in `knowledge-base/specs/`; scaffolds in the code tree appear only on acceptance.
 - **`bootstrap` lives in spec-manager** (a new command), not a new top-level skill.
 - **An internal edge = a resolved import** — an entry in a file's `imports` list NOT prefixed `external:` or `unresolved:`. Internal-edge count (real wiring), not raw file count, is the brownfield signal.
-- **Production webapp `/Users/main/Documents/areas/viva-croatia/webapp/` is OFF-LIMITS.** The dogfooding pass uses only the testbed `/Users/main/Documents/projects/viva-croatia-testbed`.
+- **Production webapp `<production-webapp>/` is OFF-LIMITS.** The dogfooding pass uses only the testbed `<testbed>`.
 
 ---
 
@@ -275,7 +275,7 @@ Expected: PASS — all tests (6 + the detect-project failure test), output prist
 
 - [ ] **Step 5: Smoke-test the CLI against the testbed (real graph)**
 
-Run: `cd skills/spec-manager/scripts && python project_shape.py --project /Users/main/Documents/projects/viva-croatia-testbed --format text`
+Run: `cd skills/spec-manager/scripts && python project_shape.py --project <testbed> --format text`
 Expected: `Recommendation: brownfield` with a non-zero `internal edges` count and a `stack` line showing `runtime=nodejs framework=...` (the testbed is a real Next.js app with a built code-graph). This is a read-only smoke check — no commit of testbed state.
 
 - [ ] **Step 6: Commit**
@@ -349,9 +349,9 @@ git commit -m "feat(spec-manager): bootstrap command — unified greenfield-awar
 
 ## Dogfooding pass (manual — run after Task 2, not a TDD task)
 
-Validate on the **testbed** (`/Users/main/Documents/projects/viva-croatia-testbed`). The production webapp stays untouched. This is the long-flagged real test of the brownfield `scan` import path.
+Validate on the **testbed** (`<testbed>`). The production webapp stays untouched. This is the long-flagged real test of the brownfield `scan` import path.
 
-- [ ] **D1 — Detector on a real brownfield repo.** `python skills/spec-manager/scripts/project_shape.py --project /Users/main/Documents/projects/viva-croatia-testbed --format text`. Expect `brownfield`, non-zero internal edges, `runtime=nodejs`. (Read-only.)
+- [ ] **D1 — Detector on a real brownfield repo.** `python skills/spec-manager/scripts/project_shape.py --project <testbed> --format text`. Expect `brownfield`, non-zero internal edges, `runtime=nodejs`. (Read-only.)
 - [ ] **D2 — Greenfield + unknown branches.** In a throwaway temp dir: (a) with no `knowledge-base/.graph/graph.json` → expect `unknown`; (b) write a minimal `graph.json` whose only imports are `external:` → expect `greenfield`. Confirms graceful degradation without touching any real repo.
 - [ ] **D3 — Additive brownfield scan (bounded).** On a testbed branch (`git checkout -b dogfood/sp2-bootstrap` in the testbed; keep `main` clean), run the brownfield branch of `bootstrap` scoped to **one currently-unspecced feature area** (not the whole 224-file repo — the mechanism is identical, the cost is not). Verify: (a) it produces `proposed` behavior records at the per-observable-behavior grain that read as a *manageable* queue; (b) it writes **no** `.feature` files into the code tree; (c) the existing `SPEC-001` passkey spec is **untouched** (additive/no-clobber). Judge queue manageability — this is the parking-lot question ("flood vs manageable").
 - [ ] **D4 — Log friction.** Record findings in `docs/design/behavior-layer/dogfooding-notes.md` (new SP2 entry): detector accuracy, queue manageability at the chosen grain, any additive/no-clobber issues. Restore the testbed to `main`; retain the dogfood branch for reference.

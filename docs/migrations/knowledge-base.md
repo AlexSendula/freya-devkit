@@ -1,5 +1,9 @@
 # Migration: `docs/` → `knowledge-base/`
 
+> This recipe is live — it is meant to be run, not read as history — so its commands are
+> kept current. As of 0.2.0 that means the `freya-` skill names and the `freya` launcher;
+> see [`skill-rename.md`](skill-rename.md) if you are also coming from 0.1.0.
+
 The freya-devkit skills now read and write their generated artifacts under a single
 `knowledge-base/` root instead of scattering them under `docs/`. This changes **where** skills
 read/write, never **what** they do.
@@ -24,20 +28,21 @@ no-op if already done, so the recipe is safe to re-run:
 [ -d docs/specs ]            && git mv docs/specs knowledge-base/specs
 [ -d docs/project ]          && git mv docs/project knowledge-base/reference
 [ -d docs/security-reports ] && git mv docs/security-reports knowledge-base/security
-[ -d docs/README.md ]        || true   # if you keep a generated index, move it to knowledge-base/README.md
+# If you kept a generated index at docs/README.md, move it to knowledge-base/README.md
+# by hand — only you can tell it apart from your own docs/README.md.
 
 # The dependency graph is a regenerable cache — delete the old one and rebuild:
 rm -rf docs/.code-graph
-/freya-devkit:code-graph build
+freya code-graph --build
 ```
 
-Then seed the two new homes (or just run `/freya-devkit:spec-manager init`, which creates them
-if absent):
+Then seed the two new homes (or just ask your agent for `freya-spec-manager init`, which
+creates them if absent):
 
 - `knowledge-base/principles.md` — the project constitution (template:
-  `skills/spec-manager/references/principles-template.md`).
+  `skills/freya-spec-manager/references/principles-template.md`).
 - `knowledge-base/decisions/` — home for cross-cutting ADRs (README:
-  `skills/spec-manager/references/decisions-readme.md`).
+  `skills/freya-spec-manager/references/decisions-readme.md`).
 
 ## Notes
 

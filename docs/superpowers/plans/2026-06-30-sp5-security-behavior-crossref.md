@@ -16,7 +16,7 @@
 - **Evidence ranking:** an accepted-behavior match is the strongest evidence — it stands even when no declarative spec covers the finding (verified > declarative).
 - **`--covering` is read-only** and returns an empty `covering` list (with the file echoed) when there is no graph / no accepted behavior covers the file; never raises.
 - **No discovery change** — SP5 only changes how findings are *cross-referenced*, not how they are found.
-- **Production webapp `/Users/main/Documents/areas/viva-croatia/webapp/` is OFF-LIMITS.** The dogfood uses only the testbed `/Users/main/Documents/projects/viva-croatia-testbed`.
+- **Production webapp `<production-webapp>/` is OFF-LIMITS.** The dogfood uses only the testbed `<testbed>`.
 
 ---
 

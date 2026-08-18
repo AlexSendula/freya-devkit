@@ -326,5 +326,5 @@ the false-positive rate is measured on a real project); wiring the third-party s
 ### Sanitization note
 The `app/api/health/route.ts` + `"intentional public health check"` example and the
 `abc1234` / `SPEC-007` values are illustrative examples drawn verbatim from the design spec
-and template — they are not proprietary viva-croatia content. No secrets, credentials,
+and template — they are not proprietary testbed content. No secrets, credentials,
 internal URLs, or customer data appear in any source read.
