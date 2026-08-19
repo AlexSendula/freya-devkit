@@ -303,8 +303,9 @@ brainstorm, 2026-08-19.
 
 ## Open defects
 
-Items 1–8 were re-verified against shipped code on 2026-08-19; items 7 and 9 have since been
-fixed. Items 9 and 10 were found the same day by the Track B Phase 0 spike.
+Items 1–8 were re-verified against shipped code on 2026-08-19, and 7 and 9 have since been
+fixed. Items 9–11 were found the same day: 9 and 10 by the Track B Phase 0 spike, 11 by the
+review of the repair it prompted.
 
 ### 1. A `--copy` install is re-copied on every `update`, even when nothing changed
 
@@ -465,11 +466,31 @@ phantom-edge direction is also the safe one: a spurious edge runs a test that wa
 where a missing one hides a regression. Worth revisiting only if the substrate contract keeps
 the homegrown backend as more than a floor.
 
-Two further known-wrong-but-narrow cases, both requiring real work for little gain: on a
-case-insensitive filesystem `import Foo` resolves to `foo.py` and emits a dangling key (needs a
-real-name `scandir` comparison — `is_file()` and `.resolve()` were both confirmed not to fix
-it); and a symlinked directory inside the project yields a lexical key. Only the first can be
-triggered by source Python itself rejects.
+The case-insensitive-filesystem case named here originally is **fixed** — `_is_real_file`
+compares against the on-disk name, so `import Foo` beside `foo.py` no longer emits a dangling
+key. A symlinked directory inside the project still yields a lexical key; narrow enough to
+leave.
+
+### 11. Classification cache hardening
+
+Four small defects in `classifications.json` handling, found by the read-only review of the
+Phase 1 resolver work (2026-08-19). None changes graph output today; all are about persisted
+state being wrong or unreachable.
+
+| # | Defect | Why it is deferred |
+|---|---|---|
+| a | The `RULES_VERSION` discard keeps everything except `rule`/`gitignore`, but the commonest label in a non-TTY run is `auto-source-default`, which is not a judgement either. Those entries survive every future rules bump | Cache-only. The label is hardcoded `type: source` and `_should_exclude` re-applies the rules per file, so an upgraded graph is byte-identical to a fresh clone's — verified. Costs a wrong console count and a wasted glob. Fix by inverting the test to keep only `user` and `ai` |
+| b | `_load_classifications` catches a `json.load` failure but not valid-JSON-that-is-not-an-object. A file containing `[]` raises `AttributeError` | Not a regression — the previous code crashed on the same input one frame later — and nothing in the toolkit can write a non-dict there, so it needs hand-corruption of a gitignored cache |
+| c | `_save_classifications` truncates in place rather than writing to a temp file and renaming | Same blast radius as (b): an interrupted write leaves invalid JSON, which *is* caught, so the cache resets rather than corrupting |
+| d | `--clear` unlinks `graph.json` but leaves `classifications.json` | Arguably correct — classifications include user judgements that a cache clear should not discard — but it is undocumented, and it is why a rules change needed `RULES_VERSION` in the first place |
+
+Do (a) and (b) together; they are both in `_load_classifications` and about ten lines total.
+
+**Adjacent, and the only path here that can shrink a graph.** With `non_interactive=False` and
+no stdin, `_ask_user_classification` swallows `EOFError` and persists
+`{'type': 'exclude', 'source': 'user'}` — a machine-forced verdict wearing a human's label,
+which then survives every rules bump by design. Worth a look whenever (a) is done, since
+inverting the discard set makes `user` strictly more powerful.
 
 ## Platform-blocked
 

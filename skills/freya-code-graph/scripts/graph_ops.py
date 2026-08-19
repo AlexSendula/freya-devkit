@@ -23,7 +23,7 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
-from typing import Dict, List, Optional, Set, Any
+from typing import Any, Dict, List, Optional, Sequence, Set
 
 
 # File patterns by language
@@ -144,38 +144,71 @@ IMPORT_SIGNALS = ('external:', 'unresolved:')
 RULES_VERSION = '2026-08-19'
 
 
-def gitignore_excludes(rel_path: str, patterns: List[str]) -> bool:
-    """Does any gitignore `pattern` exclude the project-relative `rel_path`?
+def _gitignore_pattern_matches(rel_path: str, parts: Sequence[str], pattern: str) -> bool:
+    """Does one already-de-negated gitignore pattern match `rel_path`?
 
-    One implementation, because there used to be two. `_should_exclude` filtered
-    files and `_classify_with_rules` filtered whole directories, each with its own
-    matching rules, and they disagreed — so a path could be classified one way and
-    filtered the other.
-
-    Both previously fell back to an unanchored substring test, which is what made a
-    `.next` entry exclude `app/api/auth/[...nextauth]/route.ts`: the directory name
-    contains the characters `.next`. Matching is therefore per path *component*, or
-    against the whole path when the pattern contains a separator.
-
-    This is a useful approximation of gitignore, not an implementation of it.
-    Negation (`!`) and the precise semantics of `**` are not modelled; on both, the
-    choice is to keep a file rather than drop one, since a spurious edge only runs a
-    test that was not needed while a missing one hides a regression.
+    Anchoring is the part that matters and the part that was missing. In git, a pattern
+    containing a slash anywhere but the end is relative to the `.gitignore` — `/lib` and
+    `lib/auth` mean the root's — while a bare name floats and matches at any depth. The
+    parser used to strip the leading slash before anything could tell the difference, so
+    `/lib` silently deleted `src/lib/` too.
     """
     from fnmatch import fnmatch
 
+    body = pattern.strip('/')
+    if not body:
+        return False
+
+    # A slash anywhere except a lone trailing one anchors the pattern to the root.
+    anchored = pattern.startswith('/') or '/' in pattern.rstrip('/')
+
+    if body.startswith('**/'):
+        # Explicitly floating, whatever else it contains.
+        tail = body[3:]
+        return any(fnmatch('/'.join(parts[i:]), tail)
+                   or fnmatch('/'.join(parts[i:]), tail + '/*')
+                   for i in range(len(parts)))
+
+    if anchored:
+        # The pattern itself, or anything beneath it when it names a directory.
+        return fnmatch(rel_path, body) or fnmatch(rel_path, body + '/*')
+
+    # Floating: any single path component.
+    return any(fnmatch(part, body) for part in parts)
+
+
+def gitignore_excludes(rel_path: str, patterns: List[str]) -> bool:
+    """Does `.gitignore` exclude the project-relative `rel_path`?
+
+    One implementation, because there used to be two. `_should_exclude` filtered files and
+    `_classify_with_rules` filtered whole directories, each with its own matching rules, and
+    they disagreed — so a path could be classified one way and filtered the other. Both also
+    fell back to an unanchored substring test, which is what made a `.next` entry exclude
+    `app/api/auth/[...nextauth]/route.ts`.
+
+    **Last match wins**, as in git, which is what makes `!` work: `config/*` followed by
+    `!config/default.ts` keeps `default.ts`. Discarding negations meant excluding files git
+    tracks — and then emitting dangling edges to them from files that import them.
+
+    An approximation, not an implementation. `fnmatch`'s `*` crosses `/` where git's does not,
+    so a wildcard pattern can match deeper than git would. That errs toward excluding, which is
+    the direction to be careful about, so patterns are kept narrow above: only an explicit
+    `**/` prefix floats a slash-bearing pattern.
+    """
     parts = PurePosixPath(rel_path).parts
-    for pattern in patterns:
-        pat = (pattern or '').strip().rstrip('/')
-        if not pat or pat.startswith('!'):
+    excluded = False
+    for raw in patterns:
+        pat = (raw or '').strip()
+        if not pat or pat.startswith('#'):
             continue
-        if '/' in pat:
-            anchored = pat.lstrip('/')
-            if fnmatch(rel_path, anchored) or fnmatch(rel_path, f'{anchored}/*'):
-                return True
-        elif any(fnmatch(part, pat) for part in parts):
-            return True
-    return False
+        negated = pat.startswith('!')
+        if negated:
+            pat = pat[1:].strip()
+            if not pat:
+                continue
+        if _gitignore_pattern_matches(rel_path, parts, pat):
+            excluded = not negated
+    return excluded
 
 
 # The regenerable files in knowledge-base/.graph/, ignored by name. Kept byte
@@ -297,6 +330,11 @@ class CodeGraph:
         self.classifications: Dict[str, Any] = {}
         self._alias_cache: Optional[List] = None
         self._alias_base: Path = self.project_dir
+        # parent dir -> its exact on-disk names, for the case check in _is_real_file.
+        # Per-instance rather than global: a long-lived process graphing two projects must
+        # not serve one's listing to the other, and a build is short enough that staleness
+        # within a single run is not a concern.
+        self._dir_listing_cache: Dict[Path, Any] = {}
 
     def _ensure_graph_dir(self) -> None:
         """Create the graph cache dir and write its `.gitignore` (F8).
@@ -476,11 +514,12 @@ class CodeGraph:
                 rel = candidate.relative_to(self.project_dir)
             except ValueError:
                 continue
-            # is_file(), not exists(): the bare path is the first candidate, and a
-            # directory satisfies exists(). `import { X } from './accessibility'`
-            # therefore resolved to the directory and never reached the index
-            # candidates below it, yielding an edge that names no file in the graph.
-            if candidate.is_file():
+            # A file, and spelled the way it is spelled on disk. Two separate traps:
+            # the bare path is the first candidate and a *directory* satisfies exists(),
+            # so `from './accessibility'` used to resolve to the folder and never reach
+            # its index; and on a case-insensitive filesystem `./Utils` matches utils.ts,
+            # producing an edge that names no node in the graph.
+            if self._is_real_file(candidate):
                 return normalize_key(rel)
         return None
 
@@ -503,6 +542,32 @@ class CodeGraph:
                         return hit
         return None
 
+    def _is_real_file(self, candidate: Path) -> bool:
+        """Is `candidate` a file whose on-disk name matches exactly, case included?
+
+        macOS and Windows filesystems are case-insensitive, so `Path('Utils.py').is_file()` is
+        true when the file on disk is `utils.py`. Trusting that resolves the import to a key
+        spelled the way the *import statement* spelled it — naming a node the graph does not
+        contain, and making the graph differ between a macOS dev host and Linux CI.
+
+        The directory listing is cached because this runs once per candidate per import, and
+        an uncached `listdir` would turn resolution into a per-import directory scan.
+        """
+        try:
+            if not candidate.is_file():
+                return False
+        except OSError:
+            return False
+        parent = candidate.parent
+        names = self._dir_listing_cache.get(parent)
+        if names is None:
+            try:
+                names = frozenset(os.listdir(parent))
+            except OSError:
+                names = frozenset()
+            self._dir_listing_cache[parent] = names
+        return candidate.name in names
+
     def _resolve_python_module(self, base: Path, parts: List[str]) -> Optional[str]:
         """Resolve dotted module `parts` beneath `base` to a real file, or None."""
         if not parts:
@@ -515,7 +580,7 @@ class CodeGraph:
                 rel = candidate.relative_to(self.project_dir)
             except ValueError:
                 continue  # escaped the project; not ours to resolve
-            if candidate.exists():
+            if self._is_real_file(candidate):
                 return normalize_key(rel)
         return None
 
@@ -544,11 +609,20 @@ class CodeGraph:
             package_root = package_root.parent
 
         in_package = package_root != from_dir
-        ordered = ([package_root, self.project_dir, from_dir] if in_package
+        # A package member deliberately does NOT get its own directory. Python 3 removed
+        # implicit relative imports, so a bare `import logging` inside a package is absolute
+        # and must not bind the sibling `logging.py`. Keeping from_dir as a last-resort base
+        # reinstated Python 2 semantics: measured on a 2,098-file stock-library corpus, 91 of
+        # 91 edges it produced were wrong, 24 of them files importing themselves.
+        ordered = ([package_root, self.project_dir] if in_package
                    else [from_dir, package_root, self.project_dir])
 
+        # `src/` is a source root only when Python packaging says so. Appending it on the
+        # strength of the directory existing fabricates edges in every JS, TS or Rust repo
+        # that happens to have one.
         src = self.project_dir / 'src'
-        if src.is_dir():
+        if src.is_dir() and any((self.project_dir / manifest).exists()
+                                for manifest in ('pyproject.toml', 'setup.cfg', 'setup.py')):
             ordered.append(src)
 
         seen, bases = set(), []
@@ -578,11 +652,19 @@ class CodeGraph:
 
         if import_path.startswith('.'):
             stripped = import_path.lstrip('.')
+            if not stripped:
+                # `from . import leaf` — the module name is in the import clause, which the
+                # patterns do not capture, so all that reached here is punctuation. The edge
+                # is genuinely missed (backlog item 10), but reporting `unresolved:.` would
+                # be worse than missing it: `unresolved:` means "meant something in this
+                # project and could not be found", and it feeds the coverage-unknown signal.
+                # A parser artifact must not masquerade as a coverage gap.
+                return None
             climb = len(import_path) - len(stripped)
             base = from_dir
             for _ in range(climb - 1):
                 base = base.parent
-            return self._resolve_python_module(base, stripped.split('.') if stripped else [])
+            return self._resolve_python_module(base, stripped.split('.'))
 
         parts = import_path.split('.')
         for base in self._python_search_bases(from_dir):
@@ -615,6 +697,13 @@ class CodeGraph:
         silently dropping it (vision §6, "coverage-unknown, never silent").
         """
         resolved = self._resolve_import_path(import_path, from_file, language)
+        if resolved == from_file:
+            # A file is never its own dependency. This happens honestly: `rich/abc.py` does
+            # `from abc import ABC`, meaning the stdlib, and with the package at the project
+            # root the local `abc.py` is the nearest match — itself. Shadowing a stdlib name
+            # with a *sibling* is real and stays resolved; a self-edge is not a dependency,
+            # and blast radius walks edges, so one would make a file its own dependent.
+            resolved = None
         if resolved:
             return resolved
         # A Python import that names no file on disk is a package. Only an explicitly
@@ -637,10 +726,16 @@ class CodeGraph:
             for match in matches:
                 if isinstance(match, tuple):
                     match = match[0] if match[0] else match[1] if len(match) > 1 else ''
-                if match:
-                    imports.append(match.strip())
+                match = (match or '').strip()
+                # `from . import leaf` leaves only the dots here: the module name lives in the
+                # import clause, which these patterns do not capture. Punctuation is not a
+                # module reference, and emitting it would later surface as `unresolved:.` — a
+                # parser artifact wearing the costume of a coverage gap. The edge is missed
+                # either way (backlog item 10); this keeps it from also being misreported.
+                if match and match.strip('.'):
+                    imports.append(match)
 
-        return list(set(imports))
+        return sorted(set(imports))
 
     def _parse_exports(self, content: str, language: str) -> List[str]:
         """Extract export names from file content."""
@@ -662,38 +757,36 @@ class CodeGraph:
                     if match not in exports:
                         exports.append(match)
 
-        return list(set(exports))
+        return sorted(set(exports))
 
     def _parse_gitignore(self) -> List[str]:
-        """Parse .gitignore and return list of patterns to exclude."""
+        """Read `.gitignore` into a list of patterns, **verbatim**.
+
+        Deliberately no normalisation. This used to strip both slashes and collapse `**`
+        before returning, which destroyed the two things a matcher needs:
+
+        - `line.strip('/')` turned the root-anchored `/lib` into the floating `lib`, so it
+          excluded `src/lib/` as well — git-tracked source, silently absent from the graph.
+        - `!` lines were dropped entirely, so `config/*` + `!config/default.ts` excluded a file
+          git tracks, and any import of it then dangled.
+
+        Interpretation belongs in `gitignore_excludes`, which can see the whole ordered list
+        and apply last-match-wins. A parser that pre-digests its input cannot.
+        """
         gitignore_path = self.project_dir / '.gitignore'
+        if not gitignore_path.exists():
+            return []
+        try:
+            content = gitignore_path.read_text(encoding='utf-8')
+        except OSError:
+            return []
+
         patterns = []
-
-        if gitignore_path.exists():
-            try:
-                content = gitignore_path.read_text(encoding='utf-8')
-                for line in content.splitlines():
-                    line = line.strip()
-                    # Skip empty lines and comments
-                    if not line or line.startswith('#'):
-                        continue
-                    # Skip negation patterns (we just want exclusions)
-                    if line.startswith('!'):
-                        continue
-                    # Clean up the pattern for simple matching
-                    # Remove leading/trailing slashes for directory matching
-                    pattern = line.strip('/')
-                    # Handle ** patterns - just use the base name
-                    if '**' in pattern:
-                        pattern = pattern.replace('**/', '').replace('/**', '')
-                    # Handle *.ext patterns - extract the extension part
-                    if pattern.startswith('*.'):
-                        patterns.append(pattern)
-                    else:
-                        patterns.append(pattern)
-            except Exception:
-                pass
-
+        for line in content.splitlines():
+            line = line.strip()
+            if not line or line.startswith('#'):
+                continue
+            patterns.append(line)
         return patterns
 
     def _get_exclusion_rules(self) -> Dict[str, Any]:
@@ -1284,13 +1377,26 @@ Respond with ONLY a JSON object, no markdown formatting:
                 # native `src\b.ts` the top-level split finds nothing, so on Windows
                 # every classified `exclude` directory was silently ignored here.
                 rel_path = normalize_key(f.relative_to(self.project_dir))
-                # Check if path is in an excluded directory
-                top_level_dir = rel_path.split('/')[0] if '/' in rel_path else None
 
-                # Skip if in an excluded directory (from classifications)
-                if top_level_dir and top_level_dir in classified_dirs:
-                    if classified_dirs[top_level_dir].get('type') == 'exclude':
-                        continue
+                # Walk every ancestor of this file, deepest first, and take the first
+                # classification found.
+                #
+                # This used to read only `rel_path.split('/')[0]`, so a verdict on anything
+                # nested was written to classifications.json and then never consulted. That
+                # made the delegation `top_level_exclude_dirs` relies on a fiction: the
+                # comment says judgement below the root "passes to classifications.json —
+                # per-project and overridable", and it did not. Deepest-first also lets a
+                # specific verdict override a broader one, so `packages/` can be source while
+                # `packages/legacy/` is not.
+                verdict = None
+                ancestors = rel_path.split('/')[:-1]
+                for depth in range(len(ancestors), 0, -1):
+                    prefix = '/'.join(ancestors[:depth])
+                    if prefix in classified_dirs:
+                        verdict = classified_dirs[prefix].get('type')
+                        break
+                if verdict == 'exclude':
+                    continue
 
                 # Also check standard exclusion rules
                 if not self._should_exclude(rel_path, gitignore_patterns):
@@ -1299,7 +1405,10 @@ Respond with ONLY a JSON object, no markdown formatting:
                 continue
 
         # Remove duplicates
-        return list(set(filtered))
+        # sorted, not list(set(...)): set iteration order varies per process, which
+        # made graph.json key order — and every dependents list built from it —
+        # differ between two builds of identical input.
+        return sorted(set(filtered))
 
     def _build_file_info(self, file_path: Path) -> Dict[str, Any]:
         """Build file info dict for a single file."""

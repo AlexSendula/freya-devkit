@@ -448,6 +448,54 @@ class TestStaleRuleClassificationsAreRefreshed(Base):
         self.assertIn("rules_version", self._classifications(proj))
 
 
+class TestNestedClassificationVerdicts(Base):
+    """A per-project verdict must be honoured wherever it sits.
+
+    `top_level_exclude_dirs` delegates judgement below the root to classifications.json, on the
+    grounds that it is per-project and overridable. That delegation only means something if a
+    nested verdict is actually read — and `_scan_files` was keying on the first path component
+    alone, so every nested `exclude` was recorded and then ignored.
+    """
+
+    def _seed(self, proj, entries):
+        gdir = Path(proj) / "knowledge-base" / ".graph"
+        gdir.mkdir(parents=True, exist_ok=True)
+        (gdir / "classifications.json").write_text(
+            json.dumps({"version": 1, "rules_version": "x", "directories": entries}),
+            encoding="utf-8")
+
+    def test_a_nested_exclude_verdict_is_honoured(self):
+        proj = self.mk({
+            "packages/app/src.ts": "export const a = 1\n",
+            "packages/legacy/old.ts": "export const o = 1\n",
+        })
+        self._seed(proj, {
+            "packages": {"type": "source", "confidence": 1.0, "source": "user"},
+            "packages/legacy": {"type": "exclude", "confidence": 1.0, "source": "user"},
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        files = set(g.graph["files"])
+        self.assertIn("packages/app/src.ts", files)
+        self.assertNotIn("packages/legacy/old.ts", files)
+
+    def test_a_deeper_verdict_wins_over_its_ancestor(self):
+        proj = self.mk({
+            "a/b/c/keep.ts": "export const k = 1\n",
+            "a/b/drop.ts": "export const d = 1\n",
+        })
+        self._seed(proj, {
+            "a": {"type": "source", "confidence": 1.0, "source": "user"},
+            "a/b": {"type": "exclude", "confidence": 1.0, "source": "user"},
+            "a/b/c": {"type": "source", "confidence": 1.0, "source": "user"},
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        files = set(g.graph["files"])
+        self.assertIn("a/b/c/keep.ts", files)
+        self.assertNotIn("a/b/drop.ts", files)
+
+
 class TestPythonImportResolution(Base):
     """Python's own resolution rules, which the resolver did not implement.
 
@@ -577,6 +625,163 @@ class TestPythonSourceRoots(Base):
         self.assertIn("tools/helpers.py", g.query("tools/run.py")["imports"])
 
 
+class TestPackageMembersDoNotSearchTheirOwnDirectory(Base):
+    """Python 3 removed implicit relative imports; the resolver must not reinstate them.
+
+    Keeping the importing file's own directory as a last-resort base inside a package makes
+    `import logging` bind the sibling `logging.py`. Measured on a 2,098-file stock-library
+    corpus: 91 of 91 such edges were wrong, 24 of them self-edges — a file importing itself.
+    """
+
+    def test_a_stdlib_name_is_not_captured_by_a_sibling_module(self):
+        proj = self.mk({
+            "app/__init__.py": "",
+            "app/logging.py": "handlers = None\n",
+            "app/magics/__init__.py": "",
+            "app/magics/auto.py": "import logging\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        imports = g.query("app/magics/auto.py")["imports"]
+        self.assertIn("external:logging", imports)
+        self.assertNotIn("app/magics/logging.py", imports)
+        self.assertNotIn("app/logging.py", imports)
+
+    def test_a_module_never_imports_itself(self):
+        proj = self.mk({
+            "app/__init__.py": "",
+            "app/hooks/__init__.py": "",
+            "app/hooks/wx.py": "import wx\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        self.assertNotIn("app/hooks/wx.py", g.query("app/hooks/wx.py")["imports"])
+
+    def test_no_self_edges_anywhere_in_a_built_graph(self):
+        proj = self.mk({
+            "pkg/__init__.py": "",
+            "pkg/json.py": "loads = None\n",
+            "pkg/io.py": "import json\nimport io\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        self_edges = [(f, i) for f, info in g.graph["files"].items()
+                      for i in info["imports"] if i == f]
+        self.assertEqual(self_edges, [])
+
+    def test_a_root_module_shadowing_a_stdlib_name_does_not_import_itself(self):
+        """`rich/abc.py` does `from abc import ABC`, meaning the stdlib.
+
+        With the package at the project root the local `abc.py` is the first thing on the
+        search path, so resolution finds the importing file itself. Shadowing a stdlib name
+        with a *sibling* is real and stays supported; a file depending on itself is not a
+        dependency, and it breaks blast radius, which walks edges.
+        """
+        proj = self.mk({
+            "__init__.py": "",
+            "abc.py": "from abc import ABC\n",
+            "json.py": "from json import loads\n",
+            "text.py": "T = 1\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        self.assertNotIn("abc.py", g.query("abc.py")["imports"])
+        self.assertNotIn("json.py", g.query("json.py")["imports"])
+
+    def test_no_file_is_its_own_dependent(self):
+        proj = self.mk({
+            "__init__.py": "",
+            "logging.py": "import logging\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        self.assertNotIn("logging.py", g.get_dependents("logging.py"))
+
+    def test_an_absolute_import_inside_a_package_still_reaches_the_package_root(self):
+        """The capability that must survive the fix."""
+        proj = self.mk({
+            "pkg/__init__.py": "",
+            "pkg/util.py": "V = 1\n",
+            "pkg/deep/__init__.py": "",
+            "pkg/deep/mod.py": "from pkg.util import V\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        self.assertIn("pkg/util.py", g.query("pkg/deep/mod.py")["imports"])
+
+
+class TestCaseSensitivityOfResolvedEdges(Base):
+    """An edge must name a file that is actually in the graph.
+
+    macOS and Windows filesystems are case-insensitive, so `Utils.py`.exists() is true when the
+    file is `utils.py`. Keying the edge from the import's spelling then produces a target no
+    node matches — and makes the graph differ between a macOS dev host and Linux CI.
+    """
+
+    def test_a_python_import_with_the_wrong_case_does_not_become_an_edge(self):
+        proj = self.mk({
+            "pkg/utils.py": "V = 1\n",
+            "pkg/main.py": "import Utils\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        imports = g.query("pkg/main.py")["imports"]
+        self.assertNotIn("pkg/Utils.py", imports)
+        self.assertIn("external:Utils", imports)
+
+    def test_a_ts_import_with_the_wrong_case_does_not_become_an_edge(self):
+        proj = self.mk({
+            "src/utils.ts": "export const v = 1\n",
+            "src/main.ts": "import { v } from './Utils'\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        self.assertNotIn("src/Utils.ts", g.query("src/main.ts")["imports"])
+
+    def test_correct_case_still_resolves(self):
+        proj = self.mk({
+            "pkg/utils.py": "V = 1\n",
+            "pkg/main.py": "import utils\n",
+            "src/utils.ts": "export const v = 1\n",
+            "src/main.ts": "import { v } from './utils'\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        self.assertIn("pkg/utils.py", g.query("pkg/main.py")["imports"])
+        self.assertIn("src/utils.ts", g.query("src/main.ts")["imports"])
+
+
+class TestSrcBaseIsGatedOnPythonPackaging(Base):
+    """`src/` is only a Python source root when Python packaging says so.
+
+    Appending it unconditionally fabricates edges in any repo that merely has a `src/` —
+    which is most JS, TS and Rust projects.
+    """
+
+    def test_a_js_repo_with_src_does_not_gain_python_edges(self):
+        proj = self.mk({
+            "package.json": '{"name":"web"}',
+            "src/utils.py": "V = 1\n",
+            "tools/gen.py": "import utils\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        imports = g.query("tools/gen.py")["imports"]
+        self.assertNotIn("src/utils.py", imports)
+        self.assertIn("external:utils", imports)
+
+    def test_a_python_src_layout_still_resolves_from_outside_the_package(self):
+        proj = self.mk({
+            "pyproject.toml": '[project]\nname = "myapp"\n',
+            "src/myapp/__init__.py": "",
+            "src/myapp/service.py": "V = 1\n",
+            "tests/test_service.py": "from myapp.service import V\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        self.assertIn("src/myapp/service.py", g.query("tests/test_service.py")["imports"])
+
+
 class TestNoPhantomPackagesFromImportSyntax(Base):
     """A regex that captures part of the statement's grammar invents dependencies.
 
@@ -597,6 +802,23 @@ class TestNoPhantomPackagesFromImportSyntax(Base):
         self.assertNotIn("external:import", imports)
         self.assertFalse([i for i in imports if i.rstrip().endswith(" import")],
                          f"specifier captured part of the statement grammar: {imports}")
+
+    def test_from_dot_import_does_not_emit_a_bare_unresolved_dot(self):
+        """`unresolved:` means "meant something in this project and could not be found".
+
+        A bare `unresolved:.` is not that — it is the parser capturing punctuation. Feeding it
+        into the coverage-unknown signal makes a healthy project look like it has gaps.
+        """
+        proj = self.mk({
+            "pkg/__init__.py": "",
+            "pkg/leaf.py": "V = 1\n",
+            "pkg/mod.py": "from . import leaf\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        imports = g.query("pkg/mod.py")["imports"]
+        self.assertNotIn("unresolved:.", imports)
+        self.assertNotIn("unresolved:..", imports)
 
     def test_no_specifier_anywhere_ends_in_the_import_keyword(self):
         proj = self.mk({
@@ -728,6 +950,55 @@ class TestGitignoreMatchingIsNotSubstring(Base):
         g.build(non_interactive=True)
         self.assertIn("src/a.ts", g.graph["files"])
         self.assertNotIn(".next/static/chunk.js", g.graph["files"])
+
+    def test_a_root_anchored_pattern_does_not_match_at_depth(self):
+        """`/lib` in .gitignore means the root `lib/`, not every `lib/` in the tree.
+
+        The parser stripped the leading slash before the matcher could honour it, so a
+        root-anchored entry silently deleted `src/lib/` — git-tracked source — from the graph.
+        """
+        proj = self.mk({
+            ".gitignore": "/lib\n/generated\n",
+            "lib/vendored.ts": "export const v = 1\n",
+            "src/lib/auth.ts": "export const a = 1\n",
+            "src/app.ts": "import { a } from './lib/auth'\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        files = set(g.graph["files"])
+        self.assertNotIn("lib/vendored.ts", files)
+        self.assertIn("src/lib/auth.ts", files)
+        self.assertIn("src/lib/auth.ts", g.query("src/app.ts")["imports"])
+
+    def test_an_unanchored_pattern_still_matches_at_any_depth(self):
+        proj = self.mk({
+            ".gitignore": "vendor\n",
+            "src/a.ts": "export const a = 1\n",
+            "vendor/x.ts": "export const x = 1\n",
+            "packages/ui/vendor/y.ts": "export const y = 1\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        self.assertEqual(set(g.graph["files"]), {"src/a.ts"})
+
+    def test_a_negation_re_includes_a_tracked_file(self):
+        """`config/*` plus `!config/default.ts` keeps default.ts, as git does.
+
+        Dropping `!` lines meant the resolver excluded a file git tracks — and then emitted a
+        dangling edge to it from a file that imports it.
+        """
+        proj = self.mk({
+            ".gitignore": "config/*\n!config/default.ts\n",
+            "config/default.ts": "export const d = 1\n",
+            "config/secret.ts": "export const s = 1\n",
+            "src/a.ts": "import { d } from '../config/default'\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        files = set(g.graph["files"])
+        self.assertIn("config/default.ts", files)
+        self.assertNotIn("config/secret.ts", files)
+        self.assertIn("config/default.ts", g.query("src/a.ts")["imports"])
 
     def test_a_gitignored_source_dir_is_still_excluded(self):
         proj = self.mk({
