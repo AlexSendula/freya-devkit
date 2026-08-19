@@ -590,6 +590,47 @@ class TestWorkspaceResolution(Base):
         g.build(non_interactive=True)
         self.assertIn("external:react", g.query("packages/domain/src/index.ts")["imports"])
 
+    def test_a_package_vendored_under_node_modules_is_not_a_workspace_member(self):
+        """`packages/**` matches node_modules too, and the damage is not just noise.
+
+        A vendored copy of `react` got adopted as a workspace package, so `import React from
+        'react'` — a genuine third-party dependency — resolved as internal and came back
+        `unresolved:react`. The graph then asserts a real dependency is a missing local file.
+        """
+        proj = self.mk({
+            "package.json": '{"name":"root","workspaces":["packages/**"]}',
+            "packages/a/package.json": '{"name":"@x/a","main":"i.ts"}',
+            "packages/a/i.ts": "export const i = 1\n",
+            "packages/a/node_modules/react/package.json": '{"name":"react","main":"i.js"}',
+            "packages/a/node_modules/react/i.js": "module.exports = 1\n",
+            "src/app.ts": "import React from 'react'\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        self.assertIn("external:react", g.query("src/app.ts")["imports"])
+
+    def test_an_absolute_workspace_pattern_does_not_break_the_build(self):
+        """Path.glob rejects an absolute pattern on the 3.9 floor CI runs."""
+        proj = self.mk({
+            "package.json": '{"name":"root","workspaces":["/abs/elsewhere/*","packages/*"]}',
+            "packages/a/package.json": '{"name":"@x/a","main":"i.ts"}',
+            "packages/a/i.ts": "export const i = 1\n",
+            "src/app.ts": "import { i } from '@x/a'\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        self.assertIn("packages/a/i.ts", g.query("src/app.ts")["imports"])
+
+    def test_a_pattern_escaping_the_project_is_ignored(self):
+        proj = self.mk({
+            "package.json": '{"name":"root","workspaces":["../outside/*","packages/*"]}',
+            "packages/a/package.json": '{"name":"@x/a","main":"i.ts"}',
+            "packages/a/i.ts": "export const i = 1\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        self.assertIn("packages/a/i.ts", g.graph["files"])
+
     def test_a_non_workspace_repo_is_unaffected(self):
         proj = self.mk({
             "package.json": '{"name":"solo"}',

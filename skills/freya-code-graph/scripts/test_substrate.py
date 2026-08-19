@@ -640,6 +640,127 @@ class TestBackendSelection(unittest.TestCase):
         self.assertEqual(census.get('.java'), 1)
 
 
+class TestUpgradePathForAlreadyOnboardedProjects(unittest.TestCase):
+    """A new artifact has to become ignored on projects that already have a .gitignore.
+
+    `_write_cache_gitignore` only rewrote the legacy blanket `*`, so every project that had
+    ever run a build kept its old list — and CD-17's `graph.<backend>.json`, added on top, was
+    left committable. Measured before the fix: `git add -A` staged graph.homegrown.json.
+    """
+
+    def mk(self, existing_gitignore=None):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        (Path(d) / 'src').mkdir(parents=True, exist_ok=True)
+        (Path(d) / 'src' / 'a.ts').write_text('export const a = 1\n', encoding='utf-8')
+        if existing_gitignore is not None:
+            gdir = Path(d) / 'knowledge-base' / '.graph'
+            gdir.mkdir(parents=True, exist_ok=True)
+            (gdir / '.gitignore').write_text(existing_gitignore, encoding='utf-8')
+        return d
+
+    def _lines(self, d):
+        text = (Path(d) / 'knowledge-base' / '.graph' / '.gitignore').read_text(encoding='utf-8')
+        return [ln.strip() for ln in text.splitlines()
+                if ln.strip() and not ln.startswith('#')]
+
+    def test_a_previous_version_of_our_own_file_is_upgraded(self):
+        from graph_ops import CodeGraph, CACHE_IGNORED
+        d = self.mk('# Generated code-graph cache — do not commit.\n'
+                    'graph.json\nclassifications.json\n')
+        CodeGraph(d).build(non_interactive=True)
+        self.assertEqual(self._lines(d), list(CACHE_IGNORED))
+
+    def test_the_intermediate_version_is_also_upgraded(self):
+        from graph_ops import CodeGraph, CACHE_IGNORED
+        d = self.mk('graph.json\ngraph.*.json\nclassifications.json\n')
+        CodeGraph(d).build(non_interactive=True)
+        self.assertEqual(self._lines(d), list(CACHE_IGNORED))
+
+    def test_the_legacy_blanket_is_still_upgraded(self):
+        from graph_ops import CodeGraph, CACHE_IGNORED
+        d = self.mk('# Generated code-graph cache — do not commit\n*\n')
+        CodeGraph(d).build(non_interactive=True)
+        self.assertEqual(self._lines(d), list(CACHE_IGNORED))
+
+    def test_a_hand_edited_file_is_still_left_alone(self):
+        """The property the early-return existed to protect, which must survive."""
+        from graph_ops import CodeGraph
+        d = self.mk('graph.json\nclassifications.json\nmy-own-thing.json\n')
+        CodeGraph(d).build(non_interactive=True)
+        self.assertIn('my-own-thing.json', self._lines(d))
+
+    def test_every_artifact_the_build_writes_is_ignored(self):
+        """The invariant behind all of the above, asserted against real git."""
+        import subprocess
+        from graph_ops import CodeGraph
+        d = self.mk('graph.json\nclassifications.json\n')
+        CodeGraph(d).build(non_interactive=True)
+        env = dict(os.environ, GIT_AUTHOR_NAME='t', GIT_AUTHOR_EMAIL='t@t',
+                   GIT_COMMITTER_NAME='t', GIT_COMMITTER_EMAIL='t@t')
+        subprocess.run(['git', 'init', '-q'], cwd=d, env=env, check=True, capture_output=True)
+        subprocess.run(['git', 'add', '-A'], cwd=d, env=env, check=True, capture_output=True)
+        staged = subprocess.run(['git', 'diff', '--cached', '--name-only'], cwd=d, env=env,
+                                capture_output=True, text=True).stdout.split()
+        leaked = [p for p in staged if p.startswith('knowledge-base/.graph/')
+                  and not p.endswith('.gitignore')]
+        self.assertEqual(leaked, [])
+
+
+class TestDegradationReachesTheArtifact(unittest.TestCase):
+    """Spec §2.2: selection is never silent. stderr is not the artifact.
+
+    A graph read a week later has to say it came from a fallback, or a thin graph is
+    indistinguishable from a thin repo — the exact confusion this initiative exists to remove.
+    """
+
+    def mk(self, settings_json):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        (Path(d) / 'src').mkdir(parents=True, exist_ok=True)
+        (Path(d) / 'src' / 'a.ts').write_text('export const a = 1\n', encoding='utf-8')
+        kb = Path(d) / 'knowledge-base'
+        kb.mkdir(parents=True, exist_ok=True)
+        (kb / 'settings.json').write_text(settings_json, encoding='utf-8')
+        return d
+
+    def test_a_degraded_build_records_it_in_the_graph(self):
+        from graph_ops import CodeGraph
+        d = self.mk('{"substrate": {"backend": "graphify"}}')
+        g = CodeGraph(d)
+        g.build(non_interactive=True,
+                selection_metadata={'degraded_from': 'graphify', 'degraded_reason': 'x'})
+        self.assertEqual(g.graph['substrate']['degraded_from'], 'graphify')
+
+    def test_an_undegraded_build_says_nothing(self):
+        from graph_ops import CodeGraph
+        d = self.mk('{"substrate": {"backend": "homegrown"}}')
+        g = CodeGraph(d)
+        g.build(non_interactive=True)
+        self.assertNotIn('degraded_from', g.graph['substrate'])
+
+
+class TestClearRemovesEveryArtifact(unittest.TestCase):
+    """CD-17 added a second file; --clear was not told about it.
+
+    A leftover graph.<backend>.json is worse than a stale graph.json, because nothing reports
+    it and it looks current.
+    """
+
+    def test_clear_removes_the_per_backend_copy_too(self):
+        from graph_ops import CodeGraph
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        (Path(d) / 'src').mkdir(parents=True, exist_ok=True)
+        (Path(d) / 'src' / 'a.ts').write_text('export const a = 1\n', encoding='utf-8')
+        CodeGraph(d).build(non_interactive=True)
+        gdir = Path(d) / 'knowledge-base' / '.graph'
+        self.assertTrue((gdir / 'graph.homegrown.json').exists())
+        CodeGraph(d).clear()
+        self.assertFalse((gdir / 'graph.json').exists())
+        self.assertFalse((gdir / 'graph.homegrown.json').exists())
+
+
 class TestTheTwoCacheGitignoreWritersAgree(unittest.TestCase):
     """`code-graph` and `behavior-graph` both write `.graph/.gitignore`.
 

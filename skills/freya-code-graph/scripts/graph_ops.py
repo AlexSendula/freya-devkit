@@ -229,6 +229,27 @@ CACHE_GITIGNORE = (
 )
 
 
+# Every entry this file has ever contained. A file listing only these was written by us and
+# can be upgraded in place; one containing anything else was edited by hand and is left alone.
+#
+# Without this history the upgrade only fired on the legacy `*`, so a project that had run a
+# single build kept its list forever — and every artifact added afterwards arrived un-ignored
+# and committable. CD-17's graph.<backend>.json did exactly that: `git add -A` staged it.
+_EVER_IGNORED = frozenset({'*', 'graph.json', 'graph.*.json',
+                          'classifications.json', 'docs.json'})
+
+# Directory names that can never contain a workspace member, however permissive the glob.
+_NEVER_A_WORKSPACE = frozenset({'node_modules', '.git', 'dist', 'build', '.next',
+                                'vendor', 'target', '__pycache__'})
+
+
+def _is_ours(text: str) -> bool:
+    """Did we write this file? True for any version of it we have ever produced."""
+    lines = [ln.strip() for ln in text.splitlines()
+             if ln.strip() and not ln.lstrip().startswith('#')]
+    return bool(lines) and all(line in _EVER_IGNORED for line in lines)
+
+
 def _is_legacy_blanket_ignore(text: str) -> bool:
     """True for the pre-0.2.1 `*` file, whichever skill wrote it.
 
@@ -245,7 +266,7 @@ def _is_legacy_blanket_ignore(text: str) -> bool:
 def _write_cache_gitignore(path: Any) -> None:
     """Write the cache .gitignore, upgrading a legacy blanket but never a custom one."""
     try:
-        if path.exists() and not _is_legacy_blanket_ignore(
+        if path.exists() and not _is_ours(
                 path.read_text(encoding='utf-8', errors='replace')):
             return
     except OSError:
@@ -591,12 +612,23 @@ class CodeGraph:
             pattern = pattern.strip().strip('"\'').rstrip('/')
             if not pattern or pattern.startswith('!'):
                 continue
+            if pattern.startswith('/') or pattern.startswith('..'):
+                # An absolute or escaping pattern cannot name a package in this repo.
+                # Skipping costs edges; letting it through costs the build, because
+                # Path.glob rejects an absolute pattern outright on the 3.9 floor.
+                continue
             try:
                 candidates = sorted(self.project_dir.glob(pattern))
-            except (ValueError, OSError):
+            except (ValueError, OSError, NotImplementedError):
                 continue
             for directory in candidates:
                 if not directory.is_dir():
+                    continue
+                # `packages/**` matches vendored trees too, and adopting one is not merely
+                # noise: a bundled copy of `react` became a workspace member, so a genuine
+                # third-party import resolved as internal and came back `unresolved:react` —
+                # the graph asserting that a real dependency is a missing local file.
+                if any(part in _NEVER_A_WORKSPACE for part in directory.parts):
                     continue
                 manifest = directory / 'package.json'
                 if not manifest.is_file():
@@ -1624,7 +1656,8 @@ Respond with ONLY a JSON object, no markdown formatting:
                 handle.write(payload)
 
     def build(self, ai_response: Optional[str] = None, non_interactive: bool = False,
-              exclusions: Optional[substrate.Exclusions] = None) -> Dict[str, Any]:
+              exclusions: Optional[substrate.Exclusions] = None,
+              selection_metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Build the dependency graph from scratch.
 
         Args:
@@ -1634,6 +1667,10 @@ Respond with ONLY a JSON object, no markdown formatting:
             exclusions: Contract obligation 6 — what the project has declared out of
                         scope. Omitted, the backend derives them from the project itself,
                         which is what every current caller relies on.
+            selection_metadata: `degraded_from`/`degraded_reason` from backend selection.
+                        Recorded in the graph so a fallback is visible in the artifact and
+                        not only on the stderr of the run that produced it — a thin graph
+                        must never be mistakable for a thin repo.
         """
         print(f'Scanning {self.project_dir}...')
 
@@ -1664,7 +1701,9 @@ Respond with ONLY a JSON object, no markdown formatting:
             'project_root': str(self.project_dir),
             'substrate': substrate.graph_metadata(
                 self.name, self.coverage(),
-                exclusions if exclusions is not None else self.project_exclusions()),
+                exclusions if exclusions is not None else self.project_exclusions(),
+                degraded_from=(selection_metadata or {}).get('degraded_from'),
+                degraded_reason=(selection_metadata or {}).get('degraded_reason')),
             'files': {},
         }
 
@@ -1702,17 +1741,20 @@ Respond with ONLY a JSON object, no markdown formatting:
         return None
 
     def update(self, non_interactive: bool = False,
-               exclusions: Optional[substrate.Exclusions] = None) -> Dict[str, Any]:
+               exclusions: Optional[substrate.Exclusions] = None,
+               selection_metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Incrementally update the graph."""
         graph = self.load()
         if not graph:
             print('No cached graph found. Running full build...')
-            return self.build(non_interactive=non_interactive, exclusions=exclusions)
+            return self.build(non_interactive=non_interactive, exclusions=exclusions,
+                              selection_metadata=selection_metadata)
 
         last_commit = graph.get('commit')
         if not last_commit:
             print('No commit info in cached graph. Running full build...')
-            return self.build(non_interactive=non_interactive, exclusions=exclusions)
+            return self.build(non_interactive=non_interactive, exclusions=exclusions,
+                              selection_metadata=selection_metadata)
 
         changed_files = self._get_changed_files(last_commit)
         if not changed_files:
@@ -1768,7 +1810,9 @@ Respond with ONLY a JSON object, no markdown formatting:
         graph['timestamp'] = datetime.now(timezone.utc).isoformat()
         graph['substrate'] = substrate.graph_metadata(
             self.name, self.coverage(),
-            exclusions if exclusions is not None else self.project_exclusions())
+            exclusions if exclusions is not None else self.project_exclusions(),
+            degraded_from=(selection_metadata or {}).get('degraded_from'),
+            degraded_reason=(selection_metadata or {}).get('degraded_reason'))
 
         self._write_graph(graph)
         self.graph = graph
@@ -1877,9 +1921,21 @@ Respond with ONLY a JSON object, no markdown formatting:
         }
 
     def clear(self) -> bool:
-        """Clear the cached graph."""
-        if self.graph_path.exists():
-            self.graph_path.unlink()
+        """Clear the cached graph, including every backend's copy.
+
+        CD-17 added `graph.<backend>.json` and this was not told about it, so a clear left a
+        complete, current-looking graph behind that nothing would ever report as stale. It is
+        the worse leftover of the two, because `graph.json` at least announces its absence.
+
+        `classifications.json` is deliberately kept: it holds user and model judgements about
+        which directories are source, which a cache clear has no business discarding.
+        """
+        removed = False
+        for path in [self.graph_path] + sorted(self.graph_dir.glob('graph.*.json')):
+            if path.exists():
+                path.unlink()
+                removed = True
+        if removed:
             # Try to remove empty directory
             try:
                 self.graph_dir.rmdir()
@@ -2009,18 +2065,36 @@ def main():
     # spec §2.2 requires the choice to be visible: a caller must be able to tell a thin graph
     # from a thin repo. Today there is one backend and this is plumbing; Phase 2 is what it
     # is plumbing for.
+    selection_metadata = None
     if args.build or args.update:
         try:
             import backends
-            selection = backends.select(
-                str(graph.project_dir),
-                present_extensions=backends.extension_census(
-                    str(graph.project_dir), graph.project_exclusions()))
+            # The census only matters when there is something to choose between. With a
+            # single installed backend it cannot change the answer, so walking the tree
+            # before every build and every update would be pure cost.
+            census = None
+            if len(backends.available_backends(str(graph.project_dir))) > 1:
+                census = backends.extension_census(
+                    str(graph.project_dir), graph.project_exclusions())
+            selection = backends.select(str(graph.project_dir), present_extensions=census)
             for warning in selection.warnings:
                 print(warning, file=sys.stderr)
-            if selection.degraded or selection.backend.name != CodeGraph.name:
-                print(selection.describe(), file=sys.stderr)
-            graph = selection.backend if hasattr(selection.backend, 'build') else graph
+
+            errors = substrate.conformance_errors(selection.backend)
+            if errors:
+                # Announced before it is used, not after: a backend that fails the contract
+                # must not be named as the one that ran.
+                print('code-graph: %r does not satisfy the substrate contract (%s); '
+                      'using %r' % (getattr(selection.backend, 'name', '?'),
+                                    '; '.join(errors), CodeGraph.name), file=sys.stderr)
+            else:
+                if selection.degraded or selection.backend.name != CodeGraph.name:
+                    print(selection.describe(), file=sys.stderr)
+                if selection.degraded:
+                    selection_metadata = {'degraded_from': selection.degraded_from,
+                                          'degraded_reason': selection.reason}
+                if hasattr(selection.backend, 'build'):
+                    graph = selection.backend
         except Exception as exc:
             # Selection is an optimisation over "run the floor". It must never be the reason
             # a build fails, because the floor is what the build would have used anyway.
@@ -2030,11 +2104,18 @@ def main():
     operation = None
 
     if args.build:
-        output = graph.build(non_interactive=non_interactive)
+        # Obligation 6: exclusions are passed in, not left for the backend to decide.
+        # Every other caller relied on the backend deriving them, which meant the only
+        # production path never exercised the obligation it documents.
+        output = graph.build(non_interactive=non_interactive,
+                             exclusions=graph.project_exclusions(),
+                             selection_metadata=selection_metadata)
         operation = 'build'
 
     elif args.update:
-        output = graph.update(non_interactive=non_interactive)
+        output = graph.update(non_interactive=non_interactive,
+                              exclusions=graph.project_exclusions(),
+                              selection_metadata=selection_metadata)
         operation = 'update'
 
     elif args.query:

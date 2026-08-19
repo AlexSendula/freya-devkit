@@ -124,6 +124,23 @@ CACHE_GITIGNORE = (
 )
 
 
+# Every entry this file has ever contained. A file listing only these was written by us and
+# can be upgraded in place; one containing anything else was edited by hand and is left alone.
+#
+# Without this history the upgrade only fired on the legacy `*`, so a project that had run a
+# single build kept its list forever — and every artifact added afterwards arrived un-ignored
+# and committable. CD-17's graph.<backend>.json did exactly that: `git add -A` staged it.
+_EVER_IGNORED = frozenset({"*", "graph.json", "graph.*.json",
+                          "classifications.json", "docs.json"})
+
+
+def _is_ours(text):
+    """Did we write this file? True for any version of it we have ever produced."""
+    lines = [ln.strip() for ln in text.splitlines()
+             if ln.strip() and not ln.lstrip().startswith("#")]
+    return bool(lines) and all(line in _EVER_IGNORED for line in lines)
+
+
 def _is_legacy_blanket_ignore(text):
     """True for the pre-0.2.1 `*` file, whichever skill wrote it."""
     lines = [ln.strip() for ln in text.splitlines()
@@ -136,7 +153,7 @@ def _write_cache_gitignore(path):
     try:
         if os.path.exists(path):
             with open(path, encoding="utf-8", errors="replace") as f:
-                if not _is_legacy_blanket_ignore(f.read()):
+                if not _is_ours(f.read()):
                     return
     except OSError:
         return
