@@ -240,17 +240,23 @@ erDiagram
 
 ## Migrations
 
-Migrations are located in `prisma/migrations/` (or `migrations/`).
+Migrations are located in `[migrations directory]`.
+
+> Fill this in from the project's actual migration tool. The commands below are the shape to
+> follow, not the commands to copy — substitute the real ones. Common equivalents:
+> Prisma `npx prisma migrate dev`, Alembic `alembic upgrade head`,
+> Flyway `mvn flyway:migrate`, Django `python manage.py migrate`,
+> Rails `bin/rails db:migrate`, golang-migrate `migrate -path ... up`.
 
 \`\`\`bash
 # Create a new migration
-npx prisma migrate dev --name describe_change
+[create command]
 
 # Apply migrations
-npx prisma migrate deploy
+[apply command]
 
 # Reset database (development only!)
-npx prisma migrate reset
+[reset command]
 \`\`\`
 
 ## Query Patterns
@@ -540,14 +546,14 @@ npm run dev
 
 ## Project Structure
 
+> Describe the layout this project actually has. The tree below is one example of the level
+> of detail wanted — a Java service, an Expo app or a Go CLI looks nothing like it.
+
 \`\`\`
 src/
-├── components/     # React components
-├── lib/           # Utility libraries
-├── pages/         # Next.js pages
-├── prisma/        # Database schema and migrations
-├── styles/        # Global styles
-└── types/         # TypeScript types
+├── [dir]/          # what lives here, and why it is separate
+├── [dir]/
+└── [dir]/
 \`\`\`
 
 ## Available Scripts
@@ -557,9 +563,9 @@ src/
 | `npm run dev` | Start development server |
 | `npm run build` | Build for production |
 | `npm run test` | Run tests |
-| `npm run lint` | Run ESLint |
+| `[lint command]` | Run the linter |
 | `npm run db:migrate` | Run database migrations |
-| `npm run db:studio` | Open Prisma Studio |
+| `[db inspection command]` | Open the database browser, if the stack has one |
 
 ## Development Workflow
 
@@ -613,8 +619,8 @@ npm run test:integration
 ### Create a Migration
 
 \`\`\`bash
-# After modifying schema.prisma
-npx prisma migrate dev --name describe_change
+# After modifying the schema
+[create-migration command]
 \`\`\`
 
 ### Seed Data
@@ -843,7 +849,7 @@ npm run lint:fix
 **Deployed Applications:**
 | App | Domain | Port | Notes |
 |-----|--------|------|-------|
-| frontend | app.example.com | 3000 | Next.js app |
+| frontend | app.example.com | 3000 | [framework] app |
 | api | api.example.com | 4000 | Node.js API |
 | database | - | 5432 | PostgreSQL |
 
@@ -1127,9 +1133,12 @@ nano .env
 
 | Variable | Description | Example | Where to get |
 |----------|-------------|---------|--------------|
-| `DATABASE_URL` | PostgreSQL connection string | `postgresql://user:pass@localhost:5432/db` | Local DB or hosting provider |
-| `NEXTAUTH_SECRET` | Secret for NextAuth.js | `random-32-char-string` | Generate with `openssl rand -base64 32` |
-| `NEXTAUTH_URL` | Base URL of your app | `http://localhost:3000` | Your app's URL |
+| `DATABASE_URL` | Database connection string | `postgresql://user:pass@localhost:5432/db` | Local DB or hosting provider |
+| `[AUTH_SECRET]` | Signing secret for sessions or tokens | `random-32-char-string` | Generate with `openssl rand -base64 32` |
+| `[APP_URL]` | Base URL of the app | `http://localhost:3000` | The app's own URL |
+
+> Use this project's real variable names. The rows above are placeholders — read them from
+> `.env.example`, the config loader, or wherever the app actually reads its environment.
 
 ### Optional Variables
 
@@ -1154,7 +1163,7 @@ Store secrets in `.env` (never commit this file):
 \`\`\`
 # .env
 DATABASE_URL=postgresql://...
-NEXTAUTH_SECRET=your-secret-here
+[AUTH_SECRET]=your-secret-here
 \`\`\`
 
 ### Production
@@ -1163,7 +1172,7 @@ Secrets are managed through [Dokploy environment variables / AWS Secrets Manager
 
 \`\`\`bash
 # Dokploy: Set via dashboard or CLI
-dokploy env set myapp NEXTAUTH_SECRET "value"
+dokploy env set myapp [AUTH_SECRET] "value"
 
 # Or use secrets file
 dokploy secrets:upload myapp ./secrets.txt
@@ -1442,7 +1451,7 @@ Tests run automatically in GitHub Actions:
 1. Check the import path is correct
 2. Verify `tsconfig.json` paths configuration
 3. Restart TypeScript server: `Cmd+Shift+P` → "TypeScript: Restart TS Server"
-4. Clear Next.js cache: `rm -rf .next`
+4. Clear the framework build cache (e.g. `.next`, `.nuxt`, `dist`, `target`)
 
 #### Database connection issues
 
@@ -1521,7 +1530,7 @@ NODE_OPTIONS="--max-old-space-size=4096" npm run build
 
 ### Runtime Errors
 
-#### "Hydration failed" (React/Next.js)
+#### Client/server render mismatch (SSR frameworks)
 
 **Symptoms:** `Hydration failed because the server rendered HTML didn't match the client`
 
@@ -1535,7 +1544,7 @@ NODE_OPTIONS="--max-old-space-size=4096" npm run build
 **Symptoms:** Login succeeds but redirects to wrong page
 
 **Solutions:**
-1. Check `NEXTAUTH_URL` matches your actual URL
+1. Check the configured base/callback URL matches the actual one
 2. Verify callback URLs in auth configuration
 3. Clear browser cookies and try again
 4. Check middleware isn't interfering
@@ -1559,13 +1568,13 @@ NODE_OPTIONS="--max-old-space-size=4096" npm run build
 **Solutions:**
 \`\`\`bash
 # Check migration status
-npx prisma migrate status
+[status command]
 
 # Force reset (development only!)
-npx prisma migrate reset
+[reset command]
 
-# Mark migration as applied (if already in DB)
-npx prisma migrate resolve --applied <migration_name>
+# Mark migration as applied (if already in the database)
+[resolve command]
 \`\`\`
 
 #### Slow queries
@@ -1588,10 +1597,10 @@ DEBUG=* npm run dev
 
 # Enable specific namespace
 DEBUG=app:* npm run dev
-
-# Next.js specific
-NEXT_DEBUG=1 npm run dev
 \`\`\`
+
+> Add whatever the project's framework offers on top — most have a verbose or debug flag of
+> their own.
 
 ### Check Logs
 
