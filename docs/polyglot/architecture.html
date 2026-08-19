@@ -108,6 +108,21 @@
   different enough (regex vs AST, zero-install vs dependency, 4 languages vs 37) that making both
   satisfy one contract proves the contract is real, which is what makes a third one cheap if it is ever wanted.</p>
 
+  <div class="warn">
+    <strong>Homegrown is not legacy baggage.</strong> freya is stdlib-only today; graphify needs
+    <code>uv</code>/pip and network access. The driving case for this whole initiative is a
+    <em>locked-down work laptop</em> — and if enterprise policy blocks installing a Python package,
+    graphify never runs in the one environment Track B exists to serve. The floor is what
+    guarantees freya degrades to <em>something</em> everywhere rather than to nothing.
+  </div>
+
+  <p><strong>Two distinct opt-ins.</strong> graphify-the-backend is opt-in because it is a
+  dependency you install. The semantic pass is opt-in because it costs money and needs a model.
+  Either can be on without the other. When the pass runs it uses your existing subscription
+  through the driver freya already owns — <code>claude -p</code>, <code>copilot -p</code>, never a
+  separate API key — defaulting to <code>gpt-5.6-luna</code> on Copilot and Sonnet 5 on Claude,
+  overridable with <code>--model</code>.</p>
+
   <h2>3. Three artifacts, not one store</h2>
   <p>There is more than one <em>kind</em> of relationship and they are not interchangeable — but
   fewer kinds than the first sketch claimed. The resource graph was dropped once we asked what
@@ -209,13 +224,13 @@
 
   <h2>7. Open questions</h2>
   <ul>
-    <li><strong>Which model for the semantic pass.</strong> Needs a cost/quality comparison on real
-      docs. Not blocking — the pass is opt-in and off by default.</li>
     <li><strong>Do docs edges anchor to symbols as well as files?</strong> Permitted, but most
       citations name a file or a concept, so the field would be mostly empty. Decide in Phase 4
       with real data.</li>
-    <li><strong>Does <code>classifications.json</code> survive?</strong> Directory source/exclude
-      classification may overlap with graphify's own file selection.</li>
+    <li><strong>How are exclusions handed to graphify?</strong> A CLI flag, a config file, or a
+      post-filter on its output. The <em>decision</em> is settled — exclusions are a project-level
+      input the contract owns, and both backends honour them, so a backend never decides for
+      itself what is out of scope. Only the plumbing is open.</li>
   </ul>
 
   <p class="foot">Scratch companion to <a href="spec.md"><code>spec.md</code></a>. See also <code>README.md</code> and <code>log.md</code> in this directory. Distilled into ADRs, the reference docs and the explainer site when Track B

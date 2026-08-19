@@ -65,6 +65,14 @@ A backend must:
 5. **Support incremental update, or decline it** — a backend that cannot correctly remove
    deleted nodes must say so, and the contract then forces a full rebuild for that backend
    rather than trusting a stale incremental (§9.2).
+6. **Honour the project's exclusions** — the caller passes the excluded directories in; the
+   backend does not decide for itself what is out of scope.
+
+Exclusions are a **project** concern, not a backend one: "`vendor/` is not mine" is true
+whichever parser runs. `classifications.json` — today an internal cache in `graph_ops.py` that
+stops the interactive classifier re-prompting — becomes the store behind this, read by the
+contract and passed to whichever backend is selected. Without it a backend will happily graph
+`vendor/` and generated output, and blast radius fills with noise nobody can switch off.
 
 Points 2, 4 and 5 exist because of specific past failures: F7 (path aliases producing a
 confidently-empty graph), F9 (cwd-sensitive resolution silently dropping edges), and the
@@ -82,6 +90,17 @@ it leaks the assumptions of its only caller and nobody notices until the second 
 Homegrown and graphify differ on every axis that matters (regex vs AST, zero-install vs
 dependency, 4 languages vs 37, file-level vs symbol-level), so satisfying both proves the
 contract is real.
+
+**Homegrown is not legacy baggage — it is the floor, and the floor is load-bearing.** freya is
+stdlib-only today; graphify needs `uv`/pip and network access. The driving case for this whole
+initiative is a **locked-down work laptop**, and if enterprise policy blocks installing a Python
+package then graphify never runs in the one environment Track B exists to serve. Keeping the
+homegrown resolver is what guarantees freya degrades to *something* everywhere rather than to
+nothing.
+
+**Two distinct opt-ins, not one.** graphify-the-backend is opt-in because it is a dependency you
+install. The semantic pass (§4.1) is opt-in because it costs money and needs a model. Either can
+be on without the other.
 
 **Selection.** Per project, in config. Default: graphify when installed and the project contains
 a language homegrown does not cover; homegrown otherwise. Never silent — the chosen backend and
@@ -145,6 +164,11 @@ and it runs through the driver pattern freya already owns (ADR-015): `--agent` s
 That means it uses the engineer's **existing subscription** — `claude -p`, `copilot -p` — not a
 separate API key. A cheap fast model is appropriate; this is extraction and classification, not
 reasoning.
+
+**Defaults are per-agent**, because model names belong to a CLI, not to freya: Copilot →
+`gpt-5.6-luna` (already validated live in Phase 7), Claude → Sonnet 5. `--model` overrides;
+passing `--model` without `--agent` remains an error, matching the security driver's existing
+rule.
 
 `--code-only` is the **default**. Everything the semantic pass produces is `inferred`, so it can
 never block a commit.
@@ -387,9 +411,12 @@ must be re-verified, not assumed.
 
 ## 12. Open questions
 
-1. **Which model for the semantic pass.** Needs a cost/quality comparison on real docs. Not
-   blocking — the pass is opt-in and off by default.
+1. ~~**Which model for the semantic pass.**~~ **Resolved:** the engineer chooses via `--model`;
+   defaults are per-agent (§4.1). A cost/quality comparison on real docs would refine the
+   defaults but does not block anything, since the pass is off unless asked for.
 2. **Do docs edges anchor to symbols as well as files?** §5 permits it. Most citations name a
    file or a concept, so the field would be mostly empty. Decide during Phase 4 with real data.
-3. **Does `classifications.json` survive graphify?** Directory source/exclude classification may
-   overlap with graphify's own file selection. Check in Phase 2.
+3. ~~**Does `classifications.json` survive graphify?**~~ **Resolved:** yes, promoted — exclusions
+   move into the contract as a project-level input (§2.1) and both backends honour them. What
+   remains to check in Phase 2 is narrower: whether graphify's own file selection needs
+   exclusions passed as a CLI flag, a config file, or a post-filter on its output.
