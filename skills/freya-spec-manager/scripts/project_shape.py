@@ -63,6 +63,62 @@ def run_detect_project(project_dir):
         return {}
 
 
+_CENSUS_SKIP = {
+    "node_modules", ".git", "dist", "build", "out", ".next", "__pycache__",
+    "venv", ".venv", "vendor", "target", "coverage", "knowledge-base",
+    # Backend output. Counting a substrate's own artifacts as files it failed to read would
+    # have every project report a blind spot in its own graph directory.
+    "graphify-out",
+}
+
+
+def unreadable_files(project_dir, limit=20000):
+    """Count files on disk, by extension, that the graph's backend does not read.
+
+    Returns `{}` when the graph predates the substrate block, so a graph built before
+    Track B Phase 1 keeps its old classification instead of suddenly reading as unknown.
+    """
+    path = _graph_path(project_dir)
+    try:
+        with open(path, encoding="utf-8") as f:
+            graph = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return {}
+    if not isinstance(graph, dict):
+        return {}
+    coverage = ((graph.get("substrate") or {}).get("coverage") or {})
+    extensions = coverage.get("extensions")
+    if not isinstance(extensions, list) or not extensions:
+        return {}
+
+    known = {str(e).lower() for e in extensions}
+    census = {}
+    seen = 0
+    for root, dirs, filenames in os.walk(project_dir):
+        dirs[:] = [d for d in dirs if d not in _CENSUS_SKIP and not d.startswith(".")]
+        for filename in filenames:
+            if filename.startswith("."):
+                continue  # dotfiles are configuration, not unread source
+            ext = os.path.splitext(filename)[1].lower()
+            if not ext or ext in known:
+                continue
+            census[ext] = census.get(ext, 0) + 1
+            seen += 1
+            if seen >= limit:
+                return census
+    return census
+
+
+# Extensions that are never source, so their presence says nothing about whether a repo is
+# empty. Without this every project looks "unreadable" because of its README and lockfile.
+_NOT_SOURCE = {
+    ".md", ".txt", ".json", ".yaml", ".yml", ".toml", ".lock", ".xml", ".ini", ".cfg",
+    ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico", ".pdf",
+    ".css", ".scss", ".sass", ".less", ".html", ".sh", ".env", ".gitignore",
+    ".sql", ".csv", ".log", ".map", ".woff", ".woff2", ".ttf", ".otf", ".eot",
+}
+
+
 def classify(project_dir):
     """Classify project shape. Returns {recommendation, evidence, reason}."""
     source_files, internal_edges, graph_present = count_graph(project_dir)
@@ -79,6 +135,24 @@ def classify(project_dir):
             "reason": "no code-graph at knowledge-base/.graph/graph.json — run code-graph build first",
         }
     if internal_edges == 0:
+        # Zero edges means one of two very different things: no wiring yet, or a backend that
+        # cannot read this language. Reporting *greenfield* for the second is how a large Java
+        # codebase — and freya-devkit itself, until its resolver was repaired — was mistaken
+        # for an empty scaffold, and it is the answer that then drives bootstrap.
+        blind = {ext: n for ext, n in unreadable_files(project_dir).items()
+                 if ext not in _NOT_SOURCE}
+        if blind:
+            evidence["blind_spots"] = blind
+            listed = ", ".join(f"{n} {ext}" for ext, n in
+                               sorted(blind.items(), key=lambda kv: (-kv[1], kv[0]))[:3])
+            return {
+                "recommendation": "unknown",
+                "evidence": evidence,
+                "reason": (f"0 internal import edges, but the code-graph backend does not read "
+                           f"{listed} — this may be an existing codebase the graph cannot see, "
+                           f"not a greenfield one. Check the substrate coverage before "
+                           f"bootstrapping."),
+            }
         return {
             "recommendation": "greenfield",
             "evidence": evidence,

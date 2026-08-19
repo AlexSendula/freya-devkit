@@ -52,7 +52,109 @@ def detect_package_manager(project_dir: str) -> dict:
         results["runtime"] = "php"
         results["package_manager"] = "composer"
 
+    # Check for JVM. Java is the language that prompted the polyglot work, and it was the
+    # one stack this detector could not see at all — a Maven or Gradle repo reported no
+    # runtime, so every downstream question had nothing to answer from.
+    elif os.path.exists(os.path.join(project_dir, "pom.xml")):
+        results["runtime"] = "jvm"
+        results["package_manager"] = "maven"
+    elif any(os.path.exists(os.path.join(project_dir, f))
+             for f in ("build.gradle", "build.gradle.kts", "settings.gradle",
+                       "settings.gradle.kts")):
+        results["runtime"] = "jvm"
+        results["package_manager"] = "gradle"
+
+    # No manifest anywhere. Fall back to counting source files, because "this project does
+    # not declare a manifest" is not the same as "this project has no language" — freya-devkit
+    # itself is fifty Python files with no pyproject.toml, and plenty of tool and plugin repos
+    # look the same. Flagged as `runtime_source` so a caller can tell an inference from a
+    # declaration.
+    if not results.get("runtime"):
+        inferred = infer_runtime_from_sources(project_dir)
+        if inferred:
+            results["runtime"] = inferred
+            results["runtime_source"] = "file-extensions"
+
+    workspace_tool = detect_workspace_tool(project_dir)
+    if workspace_tool:
+        results["monorepo"] = True
+        results["workspace_tool"] = workspace_tool
+
     return results
+
+
+_RUNTIME_BY_EXT = {
+    ".py": "python", ".ts": "nodejs", ".tsx": "nodejs", ".js": "nodejs", ".jsx": "nodejs",
+    ".go": "go", ".rs": "rust", ".java": "jvm", ".kt": "jvm", ".scala": "jvm",
+    ".rb": "ruby", ".php": "php", ".cs": "dotnet", ".swift": "swift",
+}
+
+_CENSUS_SKIP = {
+    "node_modules", ".git", "dist", "build", "out", ".next", "__pycache__", "venv", ".venv",
+    "vendor", "target", "coverage", "knowledge-base", "graphify-out",
+}
+
+
+def infer_runtime_from_sources(project_dir: str, limit: int = 5000):
+    """The runtime implied by the files actually present, or None."""
+    counts = {}
+    seen = 0
+    for root, dirs, filenames in os.walk(project_dir):
+        dirs[:] = [d for d in dirs if d not in _CENSUS_SKIP and not d.startswith(".")]
+        for filename in filenames:
+            runtime = _RUNTIME_BY_EXT.get(os.path.splitext(filename)[1].lower())
+            if not runtime:
+                continue
+            counts[runtime] = counts.get(runtime, 0) + 1
+            seen += 1
+            if seen >= limit:
+                break
+        if seen >= limit:
+            break
+    if not counts:
+        return None
+    # Sorted by name on a tie so the answer does not depend on walk order.
+    return max(sorted(counts), key=lambda r: counts[r])
+
+
+def detect_workspace_tool(project_dir: str):
+    """Which tool declares this repo's workspaces, or None if it is a single package.
+
+    Worth knowing on its own — docs for a monorepo describe a different thing — and it is the
+    same question code-graph answers to resolve cross-package imports.
+    """
+    package_json = os.path.join(project_dir, "package.json")
+    if os.path.exists(package_json):
+        try:
+            with open(package_json, 'r') as f:
+                declared = json.load(f).get("workspaces")
+        except (json.JSONDecodeError, OSError):
+            declared = None
+        if isinstance(declared, list) and declared:
+            return "npm"
+        if isinstance(declared, dict) and declared.get("packages"):
+            return "npm"
+
+    pnpm = os.path.join(project_dir, "pnpm-workspace.yaml")
+    if os.path.exists(pnpm):
+        try:
+            lines = open(pnpm, 'r', encoding="utf-8").read().splitlines()
+        except OSError:
+            lines = []
+        in_packages = False
+        for line in lines:
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if not line[:1].isspace():
+                # A pnpm-workspace.yaml declaring only build settings — which the testbed
+                # has — is not a workspace root.
+                in_packages = stripped.startswith("packages:")
+                continue
+            if in_packages and stripped.startswith("- "):
+                return "pnpm"
+
+    return None
 
 
 def detect_framework(project_dir: str, runtime: str) -> dict:
@@ -67,8 +169,14 @@ def detect_framework(project_dir: str, runtime: str) -> dict:
                     pkg = json.load(f)
                     deps = {**pkg.get("dependencies", {}), **pkg.get("devDependencies", {})}
 
-                    # Frontend frameworks
-                    if "next" in deps:
+                    # Frontend frameworks. Most specific first: an Expo app has expo,
+                    # react-native AND react in its dependencies, so checking react first
+                    # would call a mobile app a web app and pick web doc templates for it.
+                    if "expo" in deps:
+                        results["frontend"] = "expo"
+                    elif "react-native" in deps:
+                        results["frontend"] = "react-native"
+                    elif "next" in deps:
                         results["frontend"] = "nextjs"
                     elif "nuxt" in deps:
                         results["frontend"] = "nuxt"
@@ -117,6 +225,29 @@ def detect_framework(project_dir: str, runtime: str) -> dict:
             results["backend"] = "fastapi"
         elif "flask" in deps_text:
             results["backend"] = "flask"
+
+    elif runtime == "jvm":
+        # Read the build file as text rather than parsing XML or Groovy: the question is only
+        # which framework is on the classpath, and the same substring works for Maven, Gradle
+        # Groovy and Gradle Kotlin without three parsers.
+        deps_text = ""
+        for name in ("pom.xml", "build.gradle", "build.gradle.kts"):
+            path = os.path.join(project_dir, name)
+            if os.path.exists(path):
+                try:
+                    with open(path, 'r', encoding="utf-8", errors="replace") as f:
+                        deps_text += f.read().lower()
+                except OSError:
+                    pass
+
+        if "spring-boot" in deps_text or "springframework" in deps_text:
+            results["backend"] = "spring"
+        elif "quarkus" in deps_text:
+            results["backend"] = "quarkus"
+        elif "micronaut" in deps_text:
+            results["backend"] = "micronaut"
+        elif "io.ktor" in deps_text:
+            results["backend"] = "ktor"
 
     return results
 

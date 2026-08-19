@@ -19,6 +19,78 @@ def _write_graph(project_dir, files):
         json.dump({"version": 1, "files": files}, f)
 
 
+class BlindBackendIsNotGreenfieldTest(unittest.TestCase):
+    """Zero internal edges means one of two very different things.
+
+    Either the project genuinely has no wiring yet, or the backend that built the graph cannot
+    read the language it is written in. Calling both *greenfield* is what made a Java repo —
+    and, until the resolver was repaired, freya-devkit itself — look like an empty scaffold to
+    its own tooling. The `substrate` block added in Track B Phase 1 is what makes the two
+    distinguishable.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.proj = self.tmp.name
+
+    def _files(self, *rels):
+        for rel in rels:
+            p = os.path.join(self.proj, rel)
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            with open(p, "w", encoding="utf-8") as f:
+                f.write("x\n")
+
+    def _graph(self, files, extensions=(".ts", ".tsx")):
+        d = os.path.join(self.proj, "knowledge-base", ".graph")
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "graph.json"), "w", encoding="utf-8") as f:
+            json.dump({
+                "version": 1,
+                "substrate": {
+                    "backend": "homegrown",
+                    "coverage": {"languages": ["typescript"], "extensions": list(extensions),
+                                 "relations": ["imports"], "incremental": True},
+                },
+                "files": files,
+            }, f)
+
+    def test_a_java_repo_the_backend_cannot_read_is_not_greenfield(self):
+        self._files("src/Main.java", "src/Service.java", "src/Repo.java")
+        self._graph({})
+        result = project_shape.classify(self.proj)
+        self.assertEqual(result["recommendation"], "unknown")
+        self.assertIn(".java", result["reason"])
+        self.assertEqual(result["evidence"]["blind_spots"], {".java": 3})
+
+    def test_a_genuinely_empty_scaffold_is_still_greenfield(self):
+        """The capability that must survive: no wiring, and nothing unread."""
+        self._files("src/index.ts")
+        self._graph({"src/index.ts": {"imports": []}})
+        result = project_shape.classify(self.proj)
+        self.assertEqual(result["recommendation"], "greenfield")
+
+    def test_wiring_beats_blind_spots(self):
+        """Real edges mean brownfield even if some files went unread."""
+        self._files("src/a.ts", "src/b.ts", "Main.java")
+        self._graph({"src/a.ts": {"imports": ["src/b.ts"]}, "src/b.ts": {"imports": []}})
+        self.assertEqual(project_shape.classify(self.proj)["recommendation"], "brownfield")
+
+    def test_a_graph_without_a_substrate_block_keeps_the_old_answer(self):
+        """Graphs built before Phase 1 must not start reporting unknown."""
+        self._files("src/Main.java")
+        d = os.path.join(self.proj, "knowledge-base", ".graph")
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "graph.json"), "w", encoding="utf-8") as f:
+            json.dump({"version": 1, "files": {}}, f)
+        self.assertEqual(project_shape.classify(self.proj)["recommendation"], "greenfield")
+
+    def test_dependency_trees_do_not_count_as_blind_spots(self):
+        self._files("node_modules/pkg/Main.java", "src/index.ts")
+        self._graph({"src/index.ts": {"imports": []}})
+        self.assertEqual(project_shape.classify(self.proj)["recommendation"], "greenfield")
+
+
 class CountGraphTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
