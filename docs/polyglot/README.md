@@ -13,7 +13,7 @@ At the end of the feature, four things have to be updated, and each needs differ
 
 | Target | Needs |
 |---|---|
-| [`../decisions/`](../decisions/) | Every fork where a real alternative was rejected → one ADR each |
+| [`../decisions/`](../decisions/) | Every fork where a real alternative was rejected → one ADR each. Staged in [`decisions.md`](decisions.md), already in ADR shape |
 | [`../backlog.md`](../backlog.md) | What stayed deferred, what got discovered, what shipped |
 | `../*.md` | Factual changes: new commands, new paths, changed behaviour |
 | [`../explanations/`](../explanations/) | Narrative for the site, and one entry per reversal for `evolution.html` |
@@ -24,9 +24,11 @@ when the feature lands.
 
 ## The lifecycle, and why it is enforced
 
-0. **Orient:** [`architecture.html`](architecture.html) is the current working sketch of the
-   design — open it in a browser. It is scratch, not a spec, and it changes as the brainstorm does.
-1. **During:** append to [`log.md`](log.md) as decisions get made and things turn out wrong.
+0. **Orient:** [`spec.md`](spec.md) is the design; [`architecture.html`](architecture.html) is
+   the same thing with diagrams, readable in a browser.
+1. **During:** record decisions in [`decisions.md`](decisions.md) — already in ADR shape, so
+   closing the feature is transcription rather than archaeology. Record reversals and
+   measurements in [`log.md`](log.md) as they happen.
 2. **At the end:** distil into ADRs, update the markdown and the site, add the reversals to
    `evolution.html`.
 3. **Then delete this directory.** Git history keeps it.
