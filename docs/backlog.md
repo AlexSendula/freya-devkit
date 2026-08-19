@@ -275,6 +275,32 @@ inventory measurement already done), collapse per-field-validation behaviors int
 
 ---
 
+### Materialise the governance graph
+
+**What.** `SPEC → BEHAVIOR → TEST → CODE` is a four-hop typed chain, and there is more around
+it: `ADR supersedes ADR`, `INTENT → BEHAVIOR`, `finding → behavior_ref → BEHAVIOR`, and the
+`principle > ADR > spec` authority order. That is a graph. It is not stored as one — the links
+live denormalised in frontmatter and in `behavior.json`, and `verify_links.py`,
+`contradictions.py`, `drift.py` and the security cross-reference each re-read the files and
+walk it themselves.
+
+**Why deferred.** Nothing is broken. The links are already navigable, deterministic and small,
+and every consumer gets a correct answer today. Materialising them means adding **another
+derived cache to keep in sync**, which is the failure mode ADR-017 and the 2026-08-19 docs
+restructure were both cleaning up after. A cache that can go stale is worse than a walk that
+is merely slower, until the walk actually hurts.
+
+**Trigger to revisit.** Traversal becomes slow enough to notice, or a query needs multi-hop
+closure that is genuinely painful to compute by re-reading — for example "which specs' intent
+transitively covers this file", which today has no single caller that can answer it.
+
+**How to pick it up.** Through the substrate contract, like everything else — a governance
+graph is a fourth producer with its own artifact, its own confidence model and its own refresh
+cadence, joined on the same keys. Do not fold it into `graph.json`. Surfaced during the Track B
+brainstorm, 2026-08-19.
+
+---
+
 ## Open defects
 
 All eight were re-verified against shipped code on 2026-08-19; item 7 has since been fixed.

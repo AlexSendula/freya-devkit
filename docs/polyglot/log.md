@@ -64,22 +64,66 @@ reconstructed rather than recorded. Small, but it is exactly the shape that chap
 
 ---
 
-## Open questions carried into the vision
+## 2026-08-19 — the design brainstorm
 
-Not decisions yet — the things the Track B brainstorm has to answer first.
+**Outcome:** [`spec.md`](spec.md). This entry records what *changed* during the conversation,
+because the reversals are the part that will not be in any diff.
 
-1. **The substrate fork.** Homegrown per-language resolvers (keeps stdlib-only, zero-install)
-   vs adopting a dependency (graphify/tree-sitter). Recorded lean, 2026-07-12, not final:
-   graphify as the *standard* substrate, not a tiered opt-in.
-2. **Does unifying the code graph and behavior graph conflict with vision §6?** §6 keeps
-   `behavior.json` a sibling of `graph.json` precisely so the substrate choice stays decoupled
-   from the behavior layer. The graphify lean wants to unify them. The research must resolve
-   whether unification subsumes §6 or contradicts it — the lean is not settled until it has.
-   ADR-017 sits on the same seam.
-3. **One graph or two?** Config-as-code edges (Helm → manifests → images, Dockerfile `COPY`)
-   are reference and deployment edges, not import edges. Possibly a second graph rather than
-   more languages in the first.
-4. **What does the shape detector do on a Java repo?** `project_shape.classify()` calls a repo
-   greenfield at 0 internal edges. A Java or Helm repo produces exactly zero today, so a large
-   existing codebase is confidently misread as greenfield. The detector converts substrate
-   blindness into a wrong answer — fixing the substrate may fix this for free, or may not.
+### Reversals — each of these was my recommendation before it was overturned
+
+| First proposed | Landed on | Why it flipped |
+|---|---|---|
+| Four graphs (code, behavior, docs, resource) | **Two new + the existing one** | Config edges are one hop and never branch. A three-node chain that does not branch is a list; a graph earns its keep on transitive closure |
+| Resource graph for Docker/K8s, Helm deferred to v2 | **Config dropped entirely** | Asked what consumes it and there was no answer. The code graph already tells docs/specs/behaviors what to re-check |
+| A config identifier index instead | **Also dropped** | Invented to replace the resource graph, then graphify turned out to parse YAML/JSON/HCL deterministically. §9.4 confirms or refutes |
+| Use graphify `--code-only`, skip the semantic pass | **Semantic pass in, as a second trust tier** | The objection was that blast radius gates wrap-up. That argues for *labelling* inferred edges, not discarding them — and graphify already tags EXTRACTED vs INFERRED, which maps onto ADR-009's two tiers |
+| Semantic pass needs an API key | **Runs on the existing subscription** | freya already drives `claude -p` / `copilot -p` headlessly (ADR-015), and graphify ships as a skill that uses the host assistant's model |
+| Manifest parsers are extra work | **Free** | graphify already extracts package deps from `pom.xml`, `go.mod`, `pyproject.toml` |
+| Docs edges anchored at `path:line` | **Anchored at section** | Line numbers shift when anyone inserts a paragraph, and the real question is *which section is wrong* |
+| Fold graphify's symbol edges down to file level | **Symbol as an optional refinement on a file anchor** | Symbol-level is sharper, but names are not durable — vision §6 already learned this, which is why behaviors carry stable ids. Keeping the file anchor means the floor is current behaviour |
+| SCIP as a documented future backend | **Out of the design** | User call. It also requires a green build and each language's toolchain, which inverts the goal |
+| "Merging the graphs is mechanically impossible because ADR-017 commits one of them" | **Overstated** | `behavior.json` *is* reproducible — by rerunning the suite. The distinction is cost and preconditions, not possibility. The separate-files conclusion survives on producer isolation instead |
+
+### Corrections to earlier claims in this file
+
+- **The `.graph/`-ownership trigger looks unlikely to fire.** graphify writes to its own
+  `graphify-out/`, so it never touches `knowledge-base/.graph/`. ADR-017's revisit condition
+  stays on the books as a defensive check — §9.5 confirms it rather than assuming.
+- **graphify is not RAG.** No embeddings, no vector store. Deterministic tree-sitter AST plus
+  Leiden clustering on graph topology. It is the same category of thing as our resolver, which
+  is what makes the comparison in §9.1 meaningful.
+
+### Findings worth keeping
+
+- **The graph's per-file `category` field is dead.** Written by `_categorize_file`
+  (`graph_ops.py:309`) on every build, read by nothing. Three unrelated things in this repo are
+  called "category"; the other two are live. Removal is a pre-existing cleanup this work
+  surfaced, not something graphify causes.
+- **Our incremental update handles deletions correctly** (`graph_ops.py:1216-1218` removes the
+  entry and rebuilds all dependents). That is the bar graphify has to clear in §9.2.
+- **62 distinct `path:line` citations** already exist across `docs/` — the docs graph parses
+  what is written, it does not infer.
+- **The governance graph already exists, undeclared.** `SPEC → BEHAVIOR → TEST → CODE` plus ADR
+  supersession and the authority order is a typed graph walked ad hoc by re-reading frontmatter.
+  Filed in [`../backlog.md`](../backlog.md) rather than built — materialising it means another
+  derived cache to keep in sync.
+
+---
+
+## ~~Open questions carried into the vision~~ — ANSWERED by the brainstorm
+
+Kept for the record. All four are resolved in [`spec.md`](spec.md); the reasoning is in the
+reversal table above.
+
+1. ~~**The substrate fork.**~~ → **Neither branch.** A contract with two backends: homegrown
+   stays as the zero-install floor, graphify becomes the polyglot backend. The 2026-07-12 lean
+   toward graphify-as-*standard* is superseded — it is a backend, not the standard.
+2. ~~**Does unifying the graphs conflict with vision §6?**~~ → **Moot; unification is dropped.**
+   §6 keeps `behavior.json` a sibling so the substrate choice stays decoupled, and a contract
+   *reinforces* that rather than fighting it. Artifacts stay separate, joined on file path, and
+   a third (`docs.json`) joins them on the same terms.
+3. ~~**One graph or two for config-as-code?**~~ → **Neither.** No config graph at all. The
+   relationships are one hop and nothing consumes them.
+4. ~~**What does the shape detector do on a Java repo?**~~ → Still calls it *greenfield* at 0
+   internal edges, so still wrong today. Phase 2 should fix it for free by giving Java real
+   edges; spec §10 requires re-verifying rather than assuming that.

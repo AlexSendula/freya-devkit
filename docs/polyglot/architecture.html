@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Track B — the polyglot substrate (working sketch)</title>
+<title>Track B — the polyglot substrate (spec companion)</title>
 <style>
   :root{
     --bg:#0d0f14; --panel:#151922; --panel-2:#1b2029; --line:#262d3a;
@@ -40,6 +40,9 @@
   .tag.v1{color:var(--teal);border-color:color-mix(in srgb,var(--teal) 40%,transparent)}
   .tag.v2{color:var(--faint)}
   svg{width:100%;height:auto;display:block;margin:8px 0}
+  a{color:var(--accent);text-decoration-color:color-mix(in srgb,var(--accent) 45%,transparent);text-underline-offset:2px}
+  a:hover{text-decoration-color:var(--accent)}
+  a code{color:inherit;background:color-mix(in srgb,var(--accent) 14%,transparent)}
   .sub{color:var(--faint);font-size:.87rem}
   ul{margin:0 0 14px;padding-left:20px} li{margin:5px 0}
   .foot{margin-top:56px;padding-top:18px;border-top:1px solid var(--line);color:var(--faint);font-size:.86rem}
@@ -48,10 +51,10 @@
 <body>
 <main>
 
-  <p class="lede">Working sketch · 2026-08-19 · not published</p>
-  <h1>Track B: one contract, four graphs</h1>
-  <p class="sub">Scratch explainer for <code>docs/polyglot/</code>. Deleted when the feature ships —
-  the real version goes on the site. Reflects the brainstorm as it stands; nothing here is decided yet.</p>
+  <p class="lede">Spec companion · 2026-08-19 · not published</p>
+  <h1>Track B: one contract, three artifacts</h1>
+  <p class="sub">Visual companion to <a href="spec.md"><code>spec.md</code></a>, which is the authoritative
+  version. Scratch — deleted when the feature ships; the real version goes on the site.</p>
 
   <div class="warn">
     <strong>The one-sentence version.</strong> Stop maintaining a homemade parser, put a
@@ -70,7 +73,7 @@
   <p>The instinct is to pick a better tool. The problem with picking a tool is that you get to
   do it again in two years. So the tool is not the architecture — the socket it plugs into is.</p>
 
-  <svg viewBox="0 0 940 260" role="img" aria-label="Consumers depend on a substrate contract; three interchangeable backends plug in beneath it">
+  <svg viewBox="0 0 940 260" role="img" aria-label="Consumers depend on a substrate contract; two interchangeable backends plug in beneath it">
     <defs>
       <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
         <path d="M0 0 L10 5 L0 10 z" fill="var(--faint)"/>
@@ -86,42 +89,36 @@
     <text x="470" y="112" text-anchor="middle" fill="var(--accent)" font-size="14" font-weight="700">the substrate contract</text>
     <text x="470" y="132" text-anchor="middle" fill="var(--dim)" font-size="11">resolve · report what it could NOT resolve · per-edge confidence · incremental · declare coverage</text>
 
-    <line x1="300" y1="146" x2="230" y2="186" stroke="var(--faint)" stroke-width="1.5" marker-end="url(#a)"/>
-    <line x1="470" y1="146" x2="470" y2="186" stroke="var(--faint)" stroke-width="1.5" marker-end="url(#a)"/>
-    <line x1="640" y1="146" x2="710" y2="186" stroke="var(--faint)" stroke-width="1.5" marker-end="url(#a)"/>
+    <line x1="380" y1="146" x2="300" y2="186" stroke="var(--faint)" stroke-width="1.5" marker-end="url(#a)"/>
+    <line x1="560" y1="146" x2="640" y2="186" stroke="var(--faint)" stroke-width="1.5" marker-end="url(#a)"/>
 
-    <rect x="90" y="188" width="270" height="60" rx="9" fill="var(--panel)" stroke="var(--line)"/>
-    <text x="225" y="210" text-anchor="middle" fill="var(--ink)" font-size="12.5" font-weight="600">homegrown (today)</text>
-    <text x="225" y="228" text-anchor="middle" fill="var(--dim)" font-size="10.5">stdlib-only · zero install · 4 languages</text>
-    <text x="225" y="242" text-anchor="middle" fill="var(--green)" font-size="10">the floor — always works</text>
+    <rect x="165" y="188" width="270" height="60" rx="9" fill="var(--panel)" stroke="var(--line)"/>
+    <text x="300" y="210" text-anchor="middle" fill="var(--ink)" font-size="12.5" font-weight="600">homegrown (today)</text>
+    <text x="300" y="228" text-anchor="middle" fill="var(--dim)" font-size="10.5">stdlib-only · zero install · 4 languages</text>
+    <text x="300" y="242" text-anchor="middle" fill="var(--green)" font-size="10">the floor — always works</text>
 
-    <rect x="335" y="188" width="270" height="60" rx="9" fill="var(--panel)" stroke="var(--teal)" stroke-width="1.5"/>
-    <text x="470" y="210" text-anchor="middle" fill="var(--ink)" font-size="12.5" font-weight="600">graphify (tree-sitter)</text>
-    <text x="470" y="228" text-anchor="middle" fill="var(--dim)" font-size="10.5">~20–40 languages · a dependency</text>
-    <text x="470" y="242" text-anchor="middle" fill="var(--teal)" font-size="10">the default for polyglot</text>
-
-    <rect x="580" y="188" width="270" height="60" rx="9" fill="var(--panel)" stroke="var(--line)" stroke-dasharray="5 4"/>
-    <text x="715" y="210" text-anchor="middle" fill="var(--dim)" font-size="12.5" font-weight="600">SCIP (later, if ever)</text>
-    <text x="715" y="228" text-anchor="middle" fill="var(--faint)" font-size="10.5">compiler-grade · needs each toolchain</text>
-    <text x="715" y="242" text-anchor="middle" fill="var(--faint)" font-size="10">a seam, not a plan</text>
+    <rect x="505" y="188" width="270" height="60" rx="9" fill="var(--panel)" stroke="var(--teal)" stroke-width="1.5"/>
+    <text x="640" y="210" text-anchor="middle" fill="var(--ink)" font-size="12.5" font-weight="600">graphify (tree-sitter)</text>
+    <text x="640" y="228" text-anchor="middle" fill="var(--dim)" font-size="10.5">37 languages · a dependency</text>
+    <text x="640" y="242" text-anchor="middle" fill="var(--teal)" font-size="10">the polyglot backend</text>
   </svg>
 
   <p>Two backends, not one. <strong>An interface with a single implementation is fiction</strong> —
   you discover what leaked into it the day you add the second. Homegrown and graphify are
-  different enough (regex vs AST, zero-install vs dependency, 4 languages vs 40) that making both
-  satisfy one contract proves the contract is real, which is what makes a third one cheap.</p>
+  different enough (regex vs AST, zero-install vs dependency, 4 languages vs 37) that making both
+  satisfy one contract proves the contract is real, which is what makes a third one cheap if it is ever wanted.</p>
 
-  <h2>3. Why four graphs and not one</h2>
-  <p>The thing that keeps surfacing in this brainstorm is that there is more than one <em>kind</em>
-  of relationship, and they are not interchangeable.</p>
+  <h2>3. Three artifacts, not one store</h2>
+  <p>There is more than one <em>kind</em> of relationship and they are not interchangeable — but
+  fewer kinds than the first sketch claimed. The resource graph was dropped once we asked what
+  consumes it (§5).</p>
 
   <table>
     <thead><tr><th>Artifact</th><th>The edge it holds</th><th>Producer</th><th>Needs</th><th>Trust</th></tr></thead>
     <tbody>
-      <tr><td><code>graph.json</code></td><td><code>a.ts → b.ts</code><br><span class="sub">parsed import</span></td><td>graphify</td><td class="sub">nothing</td><td><span class="tag fact">fact</span></td></tr>
-      <tr><td><code>behavior.json</code><br><span class="sub">exists today</span></td><td><code>BEH-003 → route.ts</code><br><span class="sub">test run, or static closure</span></td><td>behavior-runner</td><td class="sub">a test runner</td><td><span class="tag fact">observed</span> <span class="tag guess">static</span></td></tr>
-      <tr><td><code>docs.json</code></td><td><code>architecture.md → graph_ops.py</code><br><span class="sub">citation in the prose</span></td><td>markdown parser</td><td class="sub">nothing</td><td><span class="tag fact">fact</span></td></tr>
-      <tr><td><code>resource.json</code></td><td><code>deployment.yaml → image → Dockerfile</code><br><span class="sub">manifest reference</span></td><td>Docker / K8s parsers</td><td class="sub"><code>helm</code>, for Helm only</td><td><span class="tag fact">fact</span></td></tr>
+      <tr><td><code>graph.json</code></td><td><code>a.ts → b.ts</code><br><span class="sub">parsed import, plus symbol-level calls</span></td><td>substrate backend</td><td class="sub">a backend</td><td><span class="tag fact">extracted</span> <span class="tag guess">inferred</span></td></tr>
+      <tr><td><code>behavior.json</code><br><span class="sub">exists today</span></td><td><code>BEH-003 → route.ts</code><br><span class="sub">test run, or static closure</span></td><td>behavior-runner</td><td class="sub">a green suite</td><td><span class="tag fact">observed</span> <span class="tag guess">static</span></td></tr>
+      <tr><td><code>docs.json</code><br><span class="sub">new</span></td><td><code>architecture.md#section → graph_ops.py</code><br><span class="sub">citation in the prose</span></td><td>markdown parser</td><td class="sub">nothing</td><td><span class="tag fact">extracted</span></td></tr>
     </tbody>
   </table>
 
@@ -169,44 +166,59 @@
 
   <h2>5. What "general" actually costs</h2>
   <p>The languages turn out to be the cheap part. graphify's grammar set already covers every
-  language across webapps, Java projects and freya-devkit itself.</p>
+  language across webapps, Java projects and freya-devkit itself, and it extracts package
+  dependencies from <code>pom.xml</code>, <code>go.mod</code> and <code>pyproject.toml</code> —
+  so the "manifest parsers" line item from the first sketch disappeared.</p>
 
   <table>
-    <thead><tr><th>Piece</th><th>What it takes</th><th>When</th></tr></thead>
+    <thead><tr><th>Piece</th><th>What it takes</th></tr></thead>
     <tbody>
-      <tr><td>Every language</td><td>one graphify adapter behind the contract</td><td><span class="tag v1">v1</span></td></tr>
-      <tr><td>Manifests — <code>pom.xml</code>, <code>package.json</code>, <code>go.mod</code></td><td>small deterministic parsers; feed module boundaries into the code graph. <code>pom.xml</code> is the load-bearing one — without it a Maven monorepo is one blob</td><td><span class="tag v1">v1</span></td></tr>
-      <tr><td>Docs graph</td><td>parse <code>path:line</code> citations and relative links. 62 already exist in this repo's own <code>docs/</code></td><td><span class="tag v1">v1</span></td></tr>
-      <tr><td>Docker, docker-compose, K8s manifests, CI workflows</td><td>plain parsing, no external binary</td><td><span class="tag v1">v1</span></td></tr>
-      <tr><td>Helm</td><td>shell out to <code>helm template</code>, then parse the rendered manifests. The only piece needing a tool that may not be installed</td><td><span class="tag v2">v2</span></td></tr>
+      <tr><td>Every language</td><td>one graphify adapter behind the contract</td></tr>
+      <tr><td>Manifests, module boundaries</td><td>free — graphify already extracts them</td></tr>
+      <tr><td>Symbol-level edges</td><td>thread an optional <code>symbol</code> through the edge shape; file anchor stays</td></tr>
+      <tr><td>Docs graph</td><td>parse <code>path:line</code> citations, links and <code>related_code</code>. 62 citations already exist in this repo</td></tr>
+      <tr><td>Agnosticism sweep</td><td>the Next/Prisma assumptions the graph does not fix: docs-manager templates, the Prisma check, the shape detector</td></tr>
     </tbody>
   </table>
 
-  <p>The split is drawn at Helm because Helm is the only item that changes the shape of the
-  problem — everything above it is parsing files that are already files.</p>
+  <div class="card">
+    <h3>What was cut, and why</h3>
+    <p style="margin:0 0 8px"><strong>Helm, Docker, K8s, the whole resource graph.</strong> Config
+    relationships are one hop and never branch — a three-node chain is a list, not a graph. Nothing
+    consumes the answer: if you change <code>lib/auth.ts</code>, knowing it eventually lands in a
+    container image does not change which docs are stale or which behaviours to re-run. The code
+    graph already answered.</p>
+    <p style="margin:0"><strong>Terraform</strong> is the one real DAG in that world — and it
+    already ships <code>terraform graph</code>, so it would be consumed, never parsed. Not now.</p>
+  </div>
 
-  <h2>6. Open questions</h2>
+  <h2>6. Phase 0 — the spike, before anything else</h2>
+  <p>The substrate choice gets <em>measured</em>, not argued. Five cheap tests against three repos:
+  the testbed (232 files, 609 known internal edges), freya-devkit itself, and a Java project.</p>
+
+  <table>
+    <thead><tr><th>Test</th><th>Why it could stop the feature</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Under-reporting</strong></td><td>Diff both backends' edge sets. A <em>missing</em> edge narrows a behaviour's closure, so it is not flagged as affected and a regression walks through the gate. A spurious edge only runs a test you did not need. <strong>Misses are the dangerous direction.</strong></td></tr>
+      <tr><td><strong>Deletion / staleness</strong></td><td>graphify's <code>--update</code> "preserves existing graph structure" — which could mean "does not rebuild untouched nodes" or "never removes anything". The second is fatal. Ours is already correct.</td></tr>
+      <tr><td><strong>Reproducibility</strong></td><td>Ours is content-stable but byte-unstable (measured: 10 of 10 differing entries were pure reordering). graphify unmeasured.</td></tr>
+      <tr><td><strong>Config coverage</strong></td><td>Does it give value-level YAML/JSON/HCL edges, or just structure? Either answer is fine — the point is to stop guessing.</td></tr>
+      <tr><td><strong>Degradation &amp; output location</strong></td><td>What happens with graphify absent, and confirm it writes to its own <code>graphify-out/</code> rather than into <code>.graph/</code>.</td></tr>
+    </tbody>
+  </table>
+
+  <h2>7. Open questions</h2>
   <ul>
-    <li><strong>Which graphify?</strong> At least three near-identically named projects exist
-      (<code>Graphify-Labs/graphify</code>, <code>vchain/graphifyy</code>, <code>Graf-J/Graphify</code>),
-      and reported language counts vary from 19 to 40+. Pin down and verify hands-on before this
-      reaches a spec.</li>
-    <li><strong>Does graphify degrade or hard-fail?</strong> If it is not installed, does freya
-      fall back to homegrown and say so, or refuse? The contract has to state this.</li>
-    <li><strong>Cross-language mis-wiring.</strong> Syntactic substrates fail by linking Python's
-      <code>sorted()</code> to a Swift <code>func sorted</code>. freya's rule is never to be
-      confidently wrong, so per-edge confidence stops being optional.</li>
-    <li><strong>Is the graph still reproducible?</strong> The homegrown one is content-stable but
-      byte-unstable (measured: 10 of 10 differing entries were pure reordering). Do not assume a
-      new backend inherits that — re-measure it.</li>
-    <li><strong>Does this settle or reopen vision §6?</strong> §6 keeps <code>behavior.json</code>
-      a sibling so the substrate choice stays decoupled. Putting the substrate behind a contract
-      appears to <em>reinforce</em> §6 rather than conflict with it — which would dissolve the
-      tension the 2026-07-12 "unify the graphs" lean created. Confirm that reading.</li>
+    <li><strong>Which model for the semantic pass.</strong> Needs a cost/quality comparison on real
+      docs. Not blocking — the pass is opt-in and off by default.</li>
+    <li><strong>Do docs edges anchor to symbols as well as files?</strong> Permitted, but most
+      citations name a file or a concept, so the field would be mostly empty. Decide in Phase 4
+      with real data.</li>
+    <li><strong>Does <code>classifications.json</code> survive?</strong> Directory source/exclude
+      classification may overlap with graphify's own file selection.</li>
   </ul>
 
-  <p class="foot">Scratch working document. See <code>README.md</code> and <code>log.md</code> in
-  this directory. Distilled into ADRs, the reference docs and the explainer site when Track B
+  <p class="foot">Scratch companion to <a href="spec.md"><code>spec.md</code></a>. See also <code>README.md</code> and <code>log.md</code> in this directory. Distilled into ADRs, the reference docs and the explainer site when Track B
   ships — then this directory is deleted.</p>
 
 </main>
