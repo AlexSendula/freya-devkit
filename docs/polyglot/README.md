@@ -24,6 +24,8 @@ when the feature lands.
 
 ## The lifecycle, and why it is enforced
 
+0. **Orient:** [`architecture.html`](architecture.html) is the current working sketch of the
+   design — open it in a browser. It is scratch, not a spec, and it changes as the brainstorm does.
 1. **During:** append to [`log.md`](log.md) as decisions get made and things turn out wrong.
 2. **At the end:** distil into ADRs, update the markdown and the site, add the reversals to
    `evolution.html`.
