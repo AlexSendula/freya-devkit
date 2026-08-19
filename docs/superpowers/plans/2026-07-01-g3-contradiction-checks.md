@@ -388,7 +388,7 @@ Run:
 cd /tmp && rm -rf ctest && mkdir -p ctest/knowledge-base/specs/auth
 printf '## Principles\n\n1. **Authenticated by default.** Endpoints need auth.\n' > ctest/knowledge-base/principles.md
 printf -- '---\nid: SPEC-001\ntitle: A\ncategory: auth\nstatus: implemented\ncertainty: 90\ncreated: 2026-07-01\nupdated: 2026-07-01\nintentional_decisions:\n  - No password fallback\n---\n# A\n' > ctest/knowledge-base/specs/auth/SPEC-001.md
-S=/Users/main/Documents/projects/freya-devkit/skills/spec-manager/scripts
+S=/Users/you/Documents/projects/freya-devkit/skills/spec-manager/scripts
 python "$S/contradictions.py" context --project ctest --spec SPEC-001
 python "$S/contradictions.py" resolve --project ctest --spec SPEC-001 --against principle:1 --verdict refuted --reason "start endpoint is public by design"
 python "$S/contradictions.py" prior --project ctest --spec SPEC-001
@@ -484,7 +484,7 @@ In `skills/wrap-up/SKILL.md`, the `> Scope:` blockquote currently ends with the 
 
 Run:
 ```bash
-cd /Users/main/Documents/projects/freya-devkit
+cd /Users/you/Documents/projects/freya-devkit
 grep -c "contradictions.py" skills/wrap-up/SKILL.md
 grep -n "Contradiction check (governance G3" skills/wrap-up/SKILL.md
 grep -n "contradiction-resolutions.jsonl" skills/wrap-up/SKILL.md
@@ -595,7 +595,7 @@ N. **Contradiction check (governance G3).** After updating the spec, run the G3
 
 Run:
 ```bash
-cd /Users/main/Documents/projects/freya-devkit
+cd /Users/you/Documents/projects/freya-devkit
 grep -c "contradictions.py" skills/spec-manager/SKILL.md
 grep -n "Contradiction Check (governance G3)" skills/spec-manager/SKILL.md
 (cd skills/spec-manager/scripts && python test_contradictions.py)

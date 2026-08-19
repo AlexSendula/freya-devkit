@@ -20,7 +20,7 @@
 The installed plugin was published GitHub `AlexSendula/freya-devkit` @ `ba8470b` (v0.1.0) — **pre-Phase-1**. All Phase 1 work is local-only on branch `feat/behavior-layer` (not pushed, not published). To dogfood the real invocation path:
 
 - Backed up `~/.claude/plugins/cache/freya-devkit/freya-devkit/0.1.0` → `0.1.0.pre-phase1-backup`.
-- Symlinked `…/0.1.0` → `/Users/main/Documents/projects/freya-devkit` (the repo root = plugin root).
+- Symlinked `…/0.1.0` → `/Users/you/Documents/projects/freya-devkit` (the repo root = plugin root).
 - Added `.in_use/` to the repo `.gitignore` (plugin runtime marker would otherwise pollute the working tree via the symlink).
 - **Reverse it with:** `rm` the symlink, `mv 0.1.0.pre-phase1-backup 0.1.0` (or reinstall from GitHub).
 

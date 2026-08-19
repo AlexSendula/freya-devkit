@@ -320,7 +320,7 @@ Expected: PASS — the new `SurfaceTest` and all existing classes (`DirectionATe
 
 Run:
 ```bash
-cd /Users/main/Documents/projects/freya-devkit
+cd /Users/you/Documents/projects/freya-devkit
 python skills/behavior-graph/scripts/behavior_graph.py --surface --base HEAD --project <testbed>
 ```
 Expected: valid JSON with the three buckets (likely empty `validate_candidates`/`recall_gaps` with `base HEAD` since there is no diff, and a `note` about no changed files). Confirms the CLI wiring and that it never errors. Do not modify/commit testbed state.
@@ -400,7 +400,7 @@ with:
 
 - [ ] **Step 3: Verify the edits**
 
-Run: `cd /Users/main/Documents/projects/freya-devkit && grep -n "surface\|Validate-on-hit\|recall_gaps" skills/wrap-up/SKILL.md`
+Run: `cd /Users/you/Documents/projects/freya-devkit && grep -n "surface\|Validate-on-hit\|recall_gaps" skills/wrap-up/SKILL.md`
 Expected: the new step 3 and its bucket references appear inside Phase 3.5; visually confirm step 3 sits between the `--check` step and the scope blockquote, and that the `$BASE` variable it uses is the same one defined in step 2.
 
 - [ ] **Step 4: Commit**

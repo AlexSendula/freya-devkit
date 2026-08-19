@@ -309,8 +309,9 @@ A skill **writes** its artifacts and stops. Staging and committing them is
 `freya-wrap-up`'s job and nobody else's — that separation is what makes the
 [two-commit pattern](patterns.md#pattern-two-commit-separation) hold.
 
-Say so explicitly in the skill body. Five skills already carry a short
-"Artifacts, not commits" paragraph, and the reason is empirical: phase-6 validation
+Say so explicitly in the skill body. Four of the six artifact-writing skills already carry a
+short "Artifacts, not commits" paragraph — `freya-codebase-security-scan` and `freya-status`
+still need one — and the reason is empirical: phase-6 validation
 watched an agent with broad tool permissions infer a `git commit` that no skill had
 asked for. An agent will fill in the step you left implicit, so leave none. No
 conformance rule can check this — prose is the only lever a skill has — which is why

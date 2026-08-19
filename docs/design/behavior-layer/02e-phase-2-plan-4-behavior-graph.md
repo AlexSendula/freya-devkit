@@ -629,7 +629,7 @@ Expected: PASS (11 + 2 = 13 tests).
 Then the real end-to-end (the testbed has accepted BEH-002 unit + BEH-003 integration, and a built code-graph):
 ```bash
 # Build the behavior graph for the testbed:
-python /Users/main/Documents/projects/freya-devkit/skills/behavior-graph/scripts/behavior_graph.py \
+python /Users/you/Documents/projects/freya-devkit/skills/behavior-graph/scripts/behavior_graph.py \
   --build --project <testbed>
 ```
 Expected: JSON with `behaviors.BEH-002.coverage == "observed"` (exercises `lib/webauthn.ts`) and `behaviors.BEH-003.coverage == "static"` (exercises the route + `lib/prisma.ts` + `lib/webauthn.ts`).

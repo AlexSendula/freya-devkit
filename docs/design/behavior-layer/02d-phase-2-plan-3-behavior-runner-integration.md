@@ -287,7 +287,7 @@ In `knowledge-base/specs/auth/SPEC-001-passkey-login.md`, in the BEH-003 behavio
 
 Run (non-interactive; the graph cache is git-ignored):
 ```bash
-python "/Users/main/.claude/plugins/cache/freya-devkit/freya-devkit/0.1.0/skills/code-graph/scripts/graph_ops.py" \
+python "/Users/you/.claude/plugins/cache/freya-devkit/freya-devkit/0.1.0/skills/code-graph/scripts/graph_ops.py" \
   --update --dir <testbed> --non-interactive
 ```
 Expected: graph updates without prompting. (Sanity check the entry resolves:
@@ -297,7 +297,7 @@ Expected: graph updates without prompting. (Sanity check the entry resolves:
 
 Run:
 ```bash
-python /Users/main/Documents/projects/freya-devkit/skills/behavior-runner/scripts/run_behaviors.py \
+python /Users/you/Documents/projects/freya-devkit/skills/behavior-runner/scripts/run_behaviors.py \
   --project <testbed> --emit-fingerprints
 ```
 Expected JSON: `fingerprints.BEH-003.coverage == "static"`, with `exercises` paths exactly `["app/api/auth/passkey/authenticate/start/route.ts", "lib/prisma.ts", "lib/webauthn.ts"]`, each `source: "static"`, `confidence: 0.5`. (BEH-002 stays `observed`; BEH-001 stays `unknown`/`level-deferred`.)
@@ -306,7 +306,7 @@ Expected JSON: `fingerprints.BEH-003.coverage == "static"`, with `exercises` pat
 
 Run:
 ```bash
-python "/Users/main/.claude/plugins/cache/freya-devkit/freya-devkit/0.1.0/skills/spec-manager/scripts/verify_links.py" \
+python "/Users/you/.claude/plugins/cache/freya-devkit/freya-devkit/0.1.0/skills/spec-manager/scripts/verify_links.py" \
   --dir <testbed>/knowledge-base/specs --format text
 ```
 Expected: `OK …` (exit 0). The added `entry` field is preserved/ignored by the parser (unknown fields are non-fatal); locator integrity is unchanged.

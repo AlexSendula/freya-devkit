@@ -19,7 +19,7 @@ public-API change." Nothing a user sees changes: not the CLI, not the record
 schema, not the file paths, not the verdict names.
 
 All four files live in:
-`/Users/main/Documents/projects/freya-devkit/skills/spec-manager/scripts/`
+`/Users/you/Documents/projects/freya-devkit/skills/spec-manager/scripts/`
 
 ---
 

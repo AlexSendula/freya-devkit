@@ -390,7 +390,7 @@ Run:
 ```bash
 cd /tmp && rm -rf ptest && mkdir -p ptest/knowledge-base
 printf '## Principles\n\n1. **Authenticated by default.** Endpoints need auth.\n' > ptest/knowledge-base/principles.md
-S=/Users/main/Documents/projects/freya-devkit/skills/spec-manager/scripts
+S=/Users/you/Documents/projects/freya-devkit/skills/spec-manager/scripts
 python "$S/principles.py" list --project ptest
 python "$S/principles.py" resolve --project ptest --principle 1 --verdict refuted --reason "public health check" --paths app/api/health/route.ts
 python "$S/principles.py" prior --project ptest --paths app/api/health/route.ts
@@ -517,7 +517,7 @@ In `skills/wrap-up/SKILL.md`, the `> Scope:` blockquote at the end of Phase 3.5 
 
 Run:
 ```bash
-cd /Users/main/Documents/projects/freya-devkit
+cd /Users/you/Documents/projects/freya-devkit
 grep -c "principles.py" skills/wrap-up/SKILL.md
 grep -n "Principle checkpoint (governance G2" skills/wrap-up/SKILL.md
 grep -n "principle-resolutions.jsonl" skills/wrap-up/SKILL.md
@@ -605,7 +605,7 @@ soft injection.
 
 Run:
 ```bash
-cd /Users/main/Documents/projects/freya-devkit
+cd /Users/you/Documents/projects/freya-devkit
 grep -c "principles.py" skills/spec-manager/SKILL.md
 grep -n "Principle Enforcement (governance G2)" skills/spec-manager/SKILL.md
 (cd skills/spec-manager/scripts && python test_principles.py)

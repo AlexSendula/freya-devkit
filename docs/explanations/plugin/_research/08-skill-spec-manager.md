@@ -518,7 +518,7 @@ security skills.
 
 - **Path form for scripts varies in `SKILL.md`.** Some commands use the portable
   `${CLAUDE_PLUGIN_ROOT}/skills/spec-manager/scripts/…` form; others hard-code an
-  absolute cached install path (`/Users/main/.claude/plugins/cache/freya-devkit/
+  absolute cached install path (`/Users/you/.claude/plugins/cache/freya-devkit/
   freya-devkit/0.1.0/skills/spec-manager/scripts/…`). The `${CLAUDE_PLUGIN_ROOT}`
   form is the portable one; the absolute path is machine-specific and should not
   be treated as canonical. (Recent commits mention a "Phase 5 work-laptop

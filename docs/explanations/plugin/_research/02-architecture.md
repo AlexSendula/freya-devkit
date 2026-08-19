@@ -339,7 +339,7 @@ more accurate* impact set when code-graph's graph is present.
   (`skills/code-graph/SKILL.md:158-159`).
 - **UNVERIFIED — hardcoded absolute path in wrap-up:** two commands in
   `skills/wrap-up/SKILL.md` (lines 159 and 458) reference an absolute
-  `/Users/main/.claude/plugins/cache/...verify_intent.py` path instead of
+  `/Users/you/.claude/plugins/cache/...verify_intent.py` path instead of
   `${CLAUDE_PLUGIN_ROOT}`. Noted as an apparent inconsistency, not a claim about intended
   behavior. (Machine-specific path abstracted here per sanitization rules.)
 - **UNVERIFIED — gitignore of `.graph/`:** the docs say add `knowledge-base/.graph/` to

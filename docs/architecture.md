@@ -247,19 +247,22 @@ bin/
 ```
 
 `freya <command> …` resolves through `bin/commands.json` and runs the target with
-`sys.executable`, so a SKILL.md never names an interpreter or a path. `bin/freya`
-self-locates via `Path(__file__).resolve()`, and because `.resolve()` follows symlinks, a
-skill linked into an agent's directory still resolves back to the store where its
-siblings live.
+`sys.executable`, so a SKILL.md never names an interpreter or a path.
+`bin/freya` self-locates via `os.path.realpath(__file__)` — deliberately `realpath`, not
+`abspath`, because under `-P` / `PYTHONSAFEPATH` CPython does not auto-insert a resolved
+`sys.path[0]`. Since `realpath` follows symlinks, a skill linked into an agent's directory
+still resolves back to the store where its siblings live.
 
 ```
 skills/
 ├── freya-code-graph/
 │   ├── SKILL.md
-│   └── scripts/
-│       └── graph_ops.py
+│   ├── scripts/
+│   │   └── graph_ops.py
+│   └── references/
 ├── freya-docs-manager/
 │   ├── SKILL.md
+│   ├── evals/
 │   └── scripts/
 │       └── detect_project.py
 ├── freya-spec-manager/

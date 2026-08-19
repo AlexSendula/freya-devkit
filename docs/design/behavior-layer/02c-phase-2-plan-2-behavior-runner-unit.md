@@ -531,7 +531,7 @@ In `features/auth/passkey-login.feature`, delete the `@BEH-002` scenario block (
 
 Run:
 ```bash
-python "/Users/main/.claude/plugins/cache/freya-devkit/freya-devkit/0.1.0/skills/spec-manager/scripts/verify_links.py" \
+python "/Users/you/.claude/plugins/cache/freya-devkit/freya-devkit/0.1.0/skills/spec-manager/scripts/verify_links.py" \
   --dir <testbed>/knowledge-base/specs --format text
 ```
 Expected: `OK — all behavior links pass Tier-1 integrity checks.` (exit 0). BEH-002's locator resolves to a real file (`lib/webauthn.test.ts`), it has no `TODO(scaffold)` marker, and the feature file no longer carries an orphan `@BEH-002`.

@@ -251,9 +251,9 @@ Then prove the pass-path end-to-end on the testbed (build the graph first, then 
 ```bash
 cd <testbed>
 PRIOR=$(git rev-parse HEAD~1)   # a commit before the most recent change
-python /Users/main/Documents/projects/freya-devkit/skills/behavior-graph/scripts/behavior_graph.py \
+python /Users/you/Documents/projects/freya-devkit/skills/behavior-graph/scripts/behavior_graph.py \
   --build --project <testbed> >/dev/null
-python /Users/main/Documents/projects/freya-devkit/skills/behavior-graph/scripts/behavior_graph.py \
+python /Users/you/Documents/projects/freya-devkit/skills/behavior-graph/scripts/behavior_graph.py \
   --check --base "$PRIOR" --project <testbed>
 echo "exit: $?"
 ```
@@ -323,7 +323,7 @@ In `skills/wrap-up/SKILL.md`, add a guard sentence to **each** of Phases 1–4's
 
 Run (confirms the command wrap-up now calls is real and accepts the flags):
 ```bash
-python "/Users/main/.claude/plugins/cache/freya-devkit/freya-devkit/0.1.0/skills/behavior-graph/scripts/behavior_graph.py" --help
+python "/Users/you/.claude/plugins/cache/freya-devkit/freya-devkit/0.1.0/skills/behavior-graph/scripts/behavior_graph.py" --help
 ```
 Expected: usage shows `--build`, `--check`, `--base`, `--affected`, `--implements`. Re-read Phase 3.5 to confirm step 1 (verify_links) is unchanged and step 2 now references `behavior-graph --check`.
 
@@ -380,10 +380,10 @@ Run and record the raw outputs:
 ```bash
 cd <testbed>
 # Fingerprint breadth (files per behavior):
-python /Users/main/Documents/projects/freya-devkit/skills/behavior-graph/scripts/behavior_graph.py --build --project . \
+python /Users/you/Documents/projects/freya-devkit/skills/behavior-graph/scripts/behavior_graph.py --build --project . \
   | python3 -c "import sys,json; d=json.load(sys.stdin); [print(b, len(v.get('exercises',[])), v.get('coverage')) for b,v in d['behaviors'].items()]"
 # Runtime of an incremental check (time it):
-time python /Users/main/Documents/projects/freya-devkit/skills/behavior-graph/scripts/behavior_graph.py --check --base "$(git rev-parse HEAD~1)" --project .
+time python /Users/you/Documents/projects/freya-devkit/skills/behavior-graph/scripts/behavior_graph.py --check --base "$(git rev-parse HEAD~1)" --project .
 ```
 
 - [ ] **Step 2: Record the measurement**

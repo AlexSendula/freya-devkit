@@ -392,7 +392,7 @@ canonical source:
 - **Path inconsistency in wrap-up source (UNVERIFIED as intentional):** most
   Phase 3.5 commands use the portable `${CLAUDE_PLUGIN_ROOT}` prefix, but a few
   (`verify_intent.py` in steps 2 and Phase 5.0) use a hard-coded absolute path
-  `/Users/main/.claude/plugins/cache/freya-devkit/freya-devkit/0.1.0/...`. This is
+  `/Users/you/.claude/plugins/cache/freya-devkit/freya-devkit/0.1.0/...`. This is
   a local-dev/dogfooding artifact and a known source inconsistency (also flagged in
   brief 11). Abstracted away here per sanitization; the portable form is the
   intended one.

@@ -7,7 +7,7 @@ specs), security baseline, behavior-layer brownfield bootstrap (internal-edge
 detector), then incremental day-to-day.
 
 Sources read (all paths relative to repo root
-`/Users/main/Documents/projects/freya-devkit`):
+`/Users/you/Documents/projects/freya-devkit`):
 - `docs/conventions.md`
 - `docs/migrations/knowledge-base.md`
 - `skills/spec-manager/SKILL.md`

@@ -25,6 +25,7 @@ no-op if already done, so the recipe is safe to re-run:
 
 ```bash
 # From the project root. Each line is safe to skip if the source dir doesn't exist.
+mkdir -p knowledge-base
 [ -d docs/specs ]            && git mv docs/specs knowledge-base/specs
 [ -d docs/project ]          && git mv docs/project knowledge-base/reference
 [ -d docs/security-reports ] && git mv docs/security-reports knowledge-base/security

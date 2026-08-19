@@ -248,7 +248,7 @@ when a declarative spec marks the finding intentional, and `behavior_ref` when a
 
 Run:
 ```bash
-cd /Users/main/Documents/projects/freya-devkit
+cd /Users/you/Documents/projects/freya-devkit
 grep -n "behavior_ref\|--covering" skills/codebase-security-scan/SKILL.md skills/codebase-security-scan/references/findings-schema.md
 ```
 Expected: `behavior_ref` appears in both files; the `--covering` invocation appears in the SKILL.md Phase 3 behavior pass. Visually confirm the behavior pass sits inside check-specs Phase 3 and the schema example/rules are consistent.

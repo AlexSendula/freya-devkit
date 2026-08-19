@@ -240,7 +240,7 @@ each report write (no dated suffixes — it always reflects the latest report).
 
 - [ ] **Step 3: Verify placement + provide a validating example**
 
-Run: `cd /Users/main/Documents/projects/freya-devkit && grep -n "findings.json" skills/codebase-security-scan/SKILL.md skills/codebase-security-scan/references/findings-schema.md`
+Run: `cd /Users/you/Documents/projects/freya-devkit && grep -n "findings.json" skills/codebase-security-scan/SKILL.md skills/codebase-security-scan/references/findings-schema.md`
 Expected: the schema doc exists and the SKILL.md references `findings.json` in its report-generation section. Visually confirm the emit subsection sits with the report-writing step and the path matches the schema doc.
 
 - [ ] **Step 4: Commit**
@@ -728,7 +728,7 @@ Note: the test mocks `gaps_bucket`/`verify_bucket`/`stale_bucket`/`security_buck
 
 Run:
 ```bash
-cd /Users/main/Documents/projects/freya-devkit
+cd /Users/you/Documents/projects/freya-devkit
 python skills/status/scripts/collect_status.py --project <testbed> --format text
 ```
 Expected: a status summary with non-zero accepted count (testbed has accepted BEH-002/003) and any notes (e.g. no findings.json yet). Read-only; do not commit testbed state.
@@ -862,7 +862,7 @@ And add `knowledge-base/BACKLOG.md` to the artifact list in step 1 of Phase 5 (t
 
 Run:
 ```bash
-cd /Users/main/Documents/projects/freya-devkit
+cd /Users/you/Documents/projects/freya-devkit
 test -f skills/status/SKILL.md && head -5 skills/status/SKILL.md
 grep -n "BACKLOG\|collect_status" skills/wrap-up/SKILL.md
 ```

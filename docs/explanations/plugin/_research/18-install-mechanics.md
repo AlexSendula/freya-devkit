@@ -3,7 +3,7 @@
 Research brief for the freya-devkit plugin-wide explainer.
 Topic: how freya-devkit is packaged, published as its own marketplace, installed, namespaced, developed locally, and how its bundled Workflow engine and `${CLAUDE_PLUGIN_ROOT}` path resolution work.
 
-Sources read (all paths relative to repo root `/Users/main/Documents/projects/freya-devkit`):
+Sources read (all paths relative to repo root `/Users/you/Documents/projects/freya-devkit`):
 - `README.md`
 - `CONTRIBUTING.md`
 - `.claude-plugin/plugin.json`

@@ -374,7 +374,7 @@ confirmed behavior; **only `accepted` behaviors gate.**"
 ## 13. Notes / caveats
 
 - The `${CLAUDE_PLUGIN_ROOT}` prefix and the hard-coded
-  `/Users/main/.claude/plugins/cache/freya-devkit/freya-devkit/0.1.0/...` path both
+  `/Users/you/.claude/plugins/cache/freya-devkit/freya-devkit/0.1.0/...` path both
   appear in the source for the same scripts (the latter for `verify_intent.py`,
   `adr.py`, `intent.py`, `contradictions.py`). This is a source inconsistency (a
   dogfooding/local-dev artifact), noted below in `unverified`.

@@ -335,7 +335,7 @@ lazily via wrap-up's "touched code with no covering behavior" prompt.
 
 - [ ] **Step 3: Verify the edits render and the cross-references are valid**
 
-Run: `cd /Users/main/Documents/projects/freya-devkit && grep -n "bootstrap" skills/spec-manager/SKILL.md`
+Run: `cd /Users/you/Documents/projects/freya-devkit && grep -n "bootstrap" skills/spec-manager/SKILL.md`
 Expected: the new Quick Reference row and the new command heading both appear. Visually confirm the `bootstrap` section sits between `init` and `create`, and that the `project_shape.py` path matches Task 1's file location.
 
 - [ ] **Step 4: Commit**

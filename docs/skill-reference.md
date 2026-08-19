@@ -2,7 +2,7 @@
 
 Quick reference for all ten skills, grouped by the five tiers of the ecosystem.
 
-> **Invocation & namespacing.** Skill names are `freya-<skill>` (e.g. `freya-code-graph`). Installed portably via `install.sh` (any agent), a skill is invoked as `/freya-<skill> [args]` (e.g. `/freya-code-graph build`). Installed via the Claude marketplace plugin, it's namespaced instead: `/freya-devkit:freya-<skill> [args]` (e.g. `/freya-devkit:freya-code-graph build`). See the [README](../README.md#installation) for both install paths.
+> **Invocation & namespacing.** Skill names are `freya-<skill>` (e.g. `freya-code-graph`). Installed portably via `install.sh` (any agent), a skill is named `freya-<skill>` and how you invoke it is the host's business — name it in the request ("run the freya-code-graph skill and build the graph"), or use whatever invocation syntax your agent offers. There is no cross-agent slash form. Installed via the Claude marketplace plugin, Claude namespaces it: `/freya-devkit:freya-<skill> [args]` (e.g. `/freya-devkit:freya-code-graph build`). See the [README](../README.md#installation) for both install paths.
 
 ## Core Skills
 

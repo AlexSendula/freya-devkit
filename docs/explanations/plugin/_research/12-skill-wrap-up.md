@@ -334,7 +334,7 @@ work without committing). It is also the terminal step invoked by
 
 - **GOTCHA (hardcoded absolute paths in source):** Two commands in SKILL.md use a
   machine-specific absolute path instead of `${CLAUDE_PLUGIN_ROOT}`:
-  `python "/Users/main/.claude/plugins/cache/freya-devkit/freya-devkit/0.1.0/skills/spec-manager/scripts/verify_intent.py"`
+  `python "/Users/you/.claude/plugins/cache/freya-devkit/freya-devkit/0.1.0/skills/spec-manager/scripts/verify_intent.py"`
   appears in Phase 3.5 step 2 and Phase 5 step 0. Elsewhere the same script is not
   path-hardcoded conceptually — this is an inconsistency in the doc (all other calls
   use `${CLAUDE_PLUGIN_ROOT}`). Abstracted here; the portable form is

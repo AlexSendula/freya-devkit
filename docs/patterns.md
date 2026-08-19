@@ -117,8 +117,9 @@ Commit 2 (artifacts):
 **Used by**: wrap-up
 
 **The rule that makes it hold: only `freya-wrap-up` stages or commits.** Every other
-skill writes its artifacts and stops. This is stated in the body of each
-artifact-writing skill because it has to be — phase-6 validation watched an agent with
+skill writes its artifacts and stops. This belongs in the body of every artifact-writing
+skill — four of the six carry it today; `freya-codebase-security-scan` and `freya-status`
+are the gap — because phase-6 validation watched an agent with
 broad tool permissions infer a `git commit` no skill had asked for, and prose is the only
 lever a skill has against that. A new artifact-writing skill needs its own
 "Artifacts, not commits" paragraph; no conformance rule can check for one.

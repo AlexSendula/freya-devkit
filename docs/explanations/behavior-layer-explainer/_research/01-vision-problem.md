@@ -2,8 +2,8 @@
 
 > Audience: an engineer who knows **nothing** about this feature and is coming from the original `main`.
 > Source of truth for this brief:
-> - `/Users/main/Documents/projects/freya-devkit/docs/design/behavior-layer/00-vision.md` (the vision doc, "Status: Draft for review", "Date: 2026-06-24")
-> - `/Users/main/Documents/projects/freya-devkit/docs/migrations/knowledge-base.md` (the `docs/ → knowledge-base/` IA migration)
+> - `/Users/you/Documents/projects/freya-devkit/docs/design/behavior-layer/00-vision.md` (the vision doc, "Status: Draft for review", "Date: 2026-06-24")
+> - `/Users/you/Documents/projects/freya-devkit/docs/migrations/knowledge-base.md` (the `docs/ → knowledge-base/` IA migration)
 >
 > Everything below is grounded in those two files. Verbatim quotes are marked. Anything I could not confirm is in the **Unverified** section at the end.
 

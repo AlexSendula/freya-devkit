@@ -796,7 +796,7 @@ Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
 - Modify: `skills/wrap-up/SKILL.md` (Phase 3.5; Phase 5; the behavior-aware staging table)
 
 **Interfaces:**
-- Consumes: `verify_intent.py` (`--project/--format/--advance`) and `intent.py new` from Tasks 1–2, invoked via the plugin's absolute cache path `"/Users/main/.claude/plugins/cache/freya-devkit/freya-devkit/0.1.0/skills/spec-manager/scripts/…"` (the convention every other SKILL.md script call already uses).
+- Consumes: `verify_intent.py` (`--project/--format/--advance`) and `intent.py new` from Tasks 1–2, invoked via the plugin's absolute cache path `"/Users/you/.claude/plugins/cache/freya-devkit/freya-devkit/0.1.0/skills/spec-manager/scripts/…"` (the convention every other SKILL.md script call already uses).
 - Produces: no code; documentation wiring so the deterministic gate actually runs at `spec-manager verify` and `wrap-up`.
 
 - [ ] **Step 1: Add the Quick Reference row and `init` step in `spec-manager/SKILL.md`**
@@ -821,7 +821,7 @@ Immediately after the existing `verify_links.py` invocation block (the one endin
 1b. Run the deterministic **declared-intent gate** (governance G1) — also a deterministic
     hard-block:
     ```bash
-    python "/Users/main/.claude/plugins/cache/freya-devkit/freya-devkit/0.1.0/skills/spec-manager/scripts/verify_intent.py" --project . --format json
+    python "/Users/you/.claude/plugins/cache/freya-devkit/freya-devkit/0.1.0/skills/spec-manager/scripts/verify_intent.py" --project . --format json
     ```
     This exits non-zero when an `accepted` behavior's linked test was **modified or
     deleted** in the current change-set (since the `.intent-last-verified` baseline)
@@ -862,7 +862,7 @@ threat model.
 **Create one** (when the gate blocks you, or proactively before editing an accepted test):
 
 ```bash
-python "/Users/main/.claude/plugins/cache/freya-devkit/freya-devkit/0.1.0/skills/spec-manager/scripts/intent.py" \
+python "/Users/you/.claude/plugins/cache/freya-devkit/freya-devkit/0.1.0/skills/spec-manager/scripts/intent.py" \
   new --behavior BEH-003 --approver "<you>" --rationale "<why the guarantee is changing>"
 ```
 
@@ -881,7 +881,7 @@ In "### Phase 3.5: Behavior Integrity & Accepted-Behavior Run", after step 1 (th
 ````markdown
 2. **Declared-intent gate (hard-block).** Run:
    ```bash
-   python "/Users/main/.claude/plugins/cache/freya-devkit/freya-devkit/0.1.0/skills/spec-manager/scripts/verify_intent.py" --project . --format json
+   python "/Users/you/.claude/plugins/cache/freya-devkit/freya-devkit/0.1.0/skills/spec-manager/scripts/verify_intent.py" --project . --format json
    ```
    A non-zero exit means an `accepted` behavior's test was modified/deleted in this
    change-set without a **new** `INTENT-NNN` record naming it (governance G1). This
@@ -906,7 +906,7 @@ In "### Phase 5: Artifacts Commit", add a numbered step before staging (so the m
 0. Advance the declared-intent baseline to the commit being wrapped (only reached
    because the Phase 3.5 gate passed):
    ```bash
-   python "/Users/main/.claude/plugins/cache/freya-devkit/freya-devkit/0.1.0/skills/spec-manager/scripts/verify_intent.py" --project . --advance
+   python "/Users/you/.claude/plugins/cache/freya-devkit/freya-devkit/0.1.0/skills/spec-manager/scripts/verify_intent.py" --project . --advance
    ```
    Stage `knowledge-base/intents/` (any new `INTENT-NNN.md` and the updated
    `.intent-last-verified`) with the other artifacts.
