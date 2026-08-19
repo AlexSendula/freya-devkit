@@ -1,75 +1,65 @@
-# Skills System Documentation
+# Documentation
 
-This directory documents the skills ecosystem for AI-assisted app development and maintenance.
+freya-devkit is a suite of ten skills that help an AI agent maintain a codebase: dependency
+graphs, documentation, specifications, behavior traceability, and security scanning, tied
+together by one post-implementation workflow.
 
-The skills are **agent-neutral**: they run on Claude Code, GitHub Copilot, and anything
-else that reads the Agent Skills standard. Every bundled script is invoked through one
-launcher, `freya <command>`, and nothing under `skills/` may name a host-specific
-construct — `bin/check_skill_conformance.py` enforces that and CI runs it on every push.
+The skills are **agent-neutral** — they run on Claude Code, GitHub Copilot, and anything else
+that reads the Agent Skills standard. Every bundled script is invoked through one launcher,
+`freya <command>`, and nothing under `skills/` may name a host-specific construct;
+`bin/check_skill_conformance.py` enforces that and CI runs it on every push.
 
-## Purpose
+## Where to start
 
-Help AI agents understand the philosophy, architecture, and patterns behind the skills system so they can:
-- Work effectively with existing skills
-- Create new skills that integrate naturally
-- Maintain consistency with established conventions
+| If you want to | Read |
+|---|---|
+| Understand why any of this exists | [philosophy.md](philosophy.md) |
+| See what's here and what each skill does | [skill-reference.md](skill-reference.md) |
+| Understand how the pieces fit together | [architecture.md](architecture.md) |
+| Build or extend a skill | [patterns.md](patterns.md), then [conventions.md](conventions.md) |
+| Know why something was built this way | [decisions/](decisions/) |
+| Know what's still outstanding | [backlog.md](backlog.md) |
 
-## Documentation
+## What's in here
 
-| Document | Purpose |
-|----------|---------|
-| [philosophy.md](philosophy.md) | Why skills exist, core concepts, mental model |
-| [architecture.md](architecture.md) | How skills connect, `bin/` and `skills/`, dependency graph, data flow |
-| [patterns.md](patterns.md) | Reusable patterns (coordinator+workers, two-commit, etc.) |
-| [conventions.md](conventions.md) | Integration conventions, not strict rules |
-| [skill-reference.md](skill-reference.md) | Quick reference table of all skills |
-| [migrations/](migrations/) | One-time moves between versions — run these, don't just read them |
+| Path | What it is |
+|---|---|
+| [philosophy.md](philosophy.md) | Why skills exist, core concepts, the mental model |
+| [architecture.md](architecture.md) | How the skills connect, `bin/` and `skills/`, the dependency graph, data flow |
+| [patterns.md](patterns.md) | Reusable patterns — coordinator + workers, the two-commit rule, incremental updates |
+| [conventions.md](conventions.md) | Integration conventions for writing a skill that fits |
+| [skill-reference.md](skill-reference.md) | Every skill, its commands, and what it reads and writes |
+| [decisions/](decisions/) | **Architecture Decision Records.** What was decided, why, and what was rejected. Sixteen records covering the behavior layer, the graph substrate, governance and portability. |
+| [backlog.md](backlog.md) | **The single live backlog.** Next initiative, deferred capabilities, verified open defects. Nothing outstanding lives anywhere else. |
+| [migrations/](migrations/) | Runnable recipes for projects adopting a new version. **Run these**, don't just read them. |
+| [explanations/](explanations/) | Source of the published explainer sites. Uploaded verbatim as the GitHub Pages site root, so anything added here is published; the four subdirectory names are pinned URLs. |
 
-Two more directories sit alongside, and are read differently:
-
-| Directory | How to read it |
-|-----------|----------------|
-| [design/](design/) | **Dated design records.** What was decided, when, and why — including reasoning that turned out wrong, kept with a dated correction beneath it rather than rewritten. Not a specification; shipped code wins. |
-| [explanations/](explanations/) | The source of the published visual explainers (GitHub Pages). |
-
-## Quick Orientation
-
-### The Core Idea
-
-Skills are specialized workflows that work together to maintain a codebase. Instead of one monolithic prompt, we have focused skills that:
-
-1. **Integrate with each other** - skills can use other skills
-2. **Share context** - through docs, specs, and graphs
-3. **Follow consistent patterns** - but aren't strictly forced to
-
-### The Foundation
+## The shape of it
 
 ```
-freya-code-graph (foundation)
+freya-code-graph                                            (foundation)
     ↓
-freya-docs-manager, freya-spec-manager, freya-behavior-graph, freya-behavior-runner
-        (the behavior layer) — use code-graph
+freya-docs-manager  freya-spec-manager
+freya-behavior-graph  freya-behavior-runner                 (knowledge + behavior)
     ↓
-freya-codebase-security-scan, freya-dependency-vulnerability-check  (analysis)
+freya-codebase-security-scan  freya-dependency-vulnerability-check
+freya-codebase-security-resolver                            (analysis)
     ↓
-freya-wrap-up (orchestrates everything, incl. behavior integrity Phase 3.5)
-freya-status  (read-only check)
+freya-wrap-up    orchestrates everything, incl. behavior integrity
+freya-status     read-only counterpart — what's outstanding
 ```
 
-### Key Patterns
+Skills compose through **on-disk artifacts**, not through calling each other: one writes a
+graph, the next reads it. That is why they degrade gracefully — a missing upstream artifact
+costs precision, not function.
 
-- **Coordinator + Independent Tasks**: One agent plans, then independent tasks run in parallel if the agent supports subagents, else one at a time — except where the guarantee is load-bearing, where a driver schedules its own worker processes instead
-- **Two-Commit Pattern**: Code changes separate from generated artifacts
-- **Incremental Updates**: Git-aware, only process what changed
-- **Certainty Scoring**: Confidence levels for AI-generated specs
+## Two conventions worth knowing before you edit anything
 
-### Integration Philosophy
+**Generated artifacts live in `knowledge-base/`, hand-written documentation lives in `docs/`.**
+This directory is entirely hand-written. When the toolkit runs against a project it creates
+`knowledge-base/` for its own output — specs, reference docs, security reports, the graph
+cache. freya-devkit deliberately has no `knowledge-base/` of its own yet; keeping the root
+unclaimed means generated and hand-written content never share a directory.
 
-Skills don't have to follow these patterns, but understanding them helps create skills that fit naturally into the ecosystem. The goal is coherence, not enforcement.
-
-## Getting Started
-
-1. Read [philosophy.md](philosophy.md) to understand the "why"
-2. Skim [skill-reference.md](skill-reference.md) to see what exists
-3. Reference [patterns.md](patterns.md) when building new skills
-4. Check [conventions.md](conventions.md) for integration guidelines
+**Only `freya-wrap-up` commits.** Every other skill writes its artifacts and stops. See
+[patterns.md](patterns.md) and [conventions.md](conventions.md).

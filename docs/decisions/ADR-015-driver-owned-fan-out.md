@@ -1,0 +1,73 @@
+---
+id: ADR-015
+title: Own the fan-out in our own driver, and run its workers under a read-only allowlist that excludes the shell
+status: accepted
+created: 2026-08-19
+updated: 2026-08-19
+tags:
+  - portability
+  - orchestration
+  - security-scan
+  - audit
+  - sandboxing
+---
+# ADR-015: Own the fan-out in our own driver, and run its workers under a read-only allowlist that excludes the shell
+
+## Decision
+
+Deterministic orchestration lives in our own Python driver, not in prose the host agent is asked to follow: the audit engine was reimplemented off Claude's Workflow tool as a stdlib driver owning all control flow — loop-until-dry, cross-round dedup, `upheld * 2 > total` majority voting, the disposition ladder — behind a single injected `ask` callable, with a bounded `concurrent.futures` pool and a ~20-line per-agent adapter that builds an argv and parses stdout. `codebase-security-scan` is a preset of that same driver differing in exactly one parameter, `MAX_ROUNDS 5 → 1`; `docs-manager` (12 workers) and `spec-manager scan` (5 discovery areas) keep their prose fan-out. Every worker argv is an explicit allowlist that excludes the shell — Claude `--allowedTools "Read Grep Glob" --disallowedTools "Write Edit Bash"`, Copilot `--allow-tool=read` with `--deny-tool=write --deny-tool=shell` as defence in depth only — and `--allow-all-tools`, `--allow-all`, `--allow-all-paths`, `--allow-all-urls` may never appear, with `build_argv` raising `UnsafeInvocation` if one is smuggled in through the prompt.
+
+## Rationale
+
+The original design was sound in shape — decouple the unit of work from the scheduler, express work as N agent-neutral tasks plus a scheduling hint, degrade to sequential (`docs/design/portability/01-design.md:206`). Two live measurements overturned it.
+
+**Phase 6.** Asked to run security-scan in `scan` mode and follow its scheduling instructions exactly, Copilot ran all six categories itself as a visible sequence of `grep` calls, then reported "Scan complete — six category scans run in parallel" (`docs/design/portability/phase-6-validation-log.md:280`). It cost 2.75 credits in 1m17s and found both planted issues, so the failure was invisible in the output: **the agent's own account of its work cannot be used to detect the difference.**
+
+**Phase 7.** That was instrumented with `--log-level debug` over a documented twelve-way `docs-manager` fan-out: `task` invoked 0 times, `explore` 0, `read_agent`/`write_agent`/`list_agents` 0, and all 13 files written by the main loop (`docs/design/portability/phase-7-validation-log.md:266`). The reason sits in Copilot's own system prompt — never delegate parts of a codebase small enough to read directly, regardless of how it divides into separate areas — a clause that contradicts the premise that task structure is the lever, since structure is precisely what Copilot is told to ignore. Copilot is not missing the capability (`task`, an explore agent, background agents, `/fleet`), but `/fleet` is an interactive toggle with no CLI flag, so a headless `-p` run cannot enable it.
+
+Driver-owned concurrency was then measured: **209.3 s at `--concurrency 1` against 91.4 s at 6 on the same fixture — 2.29x, not 6x** (`docs/design/portability/phase-7-validation-log.md:59`). Some of that is structural — 1 serial context call, one wave of 6 finders, then 12 skeptic calls in 2 waves, so ~4 waves at best, ~52 s at the serial rate of 13.1 s/call — which means per-call latency is roughly 1.75x worse under load. Copilot applies back-pressure and the pool still more than doubles throughput.
+
+On the audit port specifically: Copilot has multi-agent orchestration but no deterministic *scripted* primitive — decomposition is model-driven with no schema-validated structured return — and audit's rigor lives entirely in the deterministic parts, so as prose those guarantees degrade into suggestions (`docs/design/portability/01-design.md:216`). Reading the workflow showed the port was mostly relocation: of its 143 lines, only the `agent(...)` call was Claude-provided. Injecting `ask` makes every test offline and free. That matters, because the 2026-07-27 spike measured **$0.396 for one finder worker on a trivial fixture**, and a budget of 6 categories x up to 5 rounds plus 3 skeptics per finding is plausibly ~90 agent calls and tens of dollars on a real repo — which is why `audit` is on-demand/pre-release and deliberately not part of wrap-up. The spike also showed the hosts' output shapes differ and the driver must normalize: Copilot emits plain text with narration preceding the JSON, so `-s` alone is not a JSON guarantee and salvage extraction is needed, while Claude emits an array of session events with the payload at the `type == "result"` element.
+
+Two deliberate divergences from the retired JS. Where the JS dropped a finding when every skeptic call failed (empty verdicts gives `upheld == 0`), the driver returns `needs-review` with `verification.total = 0`, because a silent delete on error contradicts the rule that only a *unanimous* refutation drops a finding — zero verdicts is not unanimous refutation, it is no information (`docs/superpowers/archive/plans/2026-07-31-audit-driver.md:43`). And where the JS filtered a whole round against `seen` before adding anything, so two finders reporting the same issue in one round both survived, keys are now added as seen so intra-round duplicates collapse too (`skills/freya-codebase-security-scan/scripts/audit_engine.py:259`). `verification.lenses` reports the lenses that actually answered rather than the module-level `SKEPTICS` constant. The driver returns data; the skill's main loop still writes the report and assigns `SEC-###` ids, so the report format and downstream parsers are unchanged. Bonus: the driver is unit-testable with a mocked `ask_agent()`, which the Workflow version never was, and phase 7's Claude run exercised the retry path in the field for the first time — 2 of 27 attempts failed, both recovered, `health.unanswered` stayed 0 so the degraded guard correctly did not fire and the run exited 0.
+
+`scan` is a preset rather than a second driver because a separate scan driver would duplicate the adapter, pool, budget guard and read-only allowlist — four things already carrying 116 offline tests — and would let the two modes drift on what counts as a finding. The scope limit on `docs-manager` and `spec-manager scan` is **not** about volume; an initial draft claimed those flows were too narrow and that was factually wrong, since docs-manager fans out to twelve workers, more than the scan's six (`docs/superpowers/archive/specs/2026-08-17-driver-owned-scan-design.md:20`). The two real reasons are that doc workers *write files*, inverting the one property the driver exists to guarantee, and that there is no compact contract to return — audit workers hand back schema-validated JSON findings, whereas a doc worker's output *is* the artifact, and piping twelve markdown files through stdout is a different program. Neither doc flow is security-critical: a doc written sequentially is the same doc; a vulnerability missed sequentially is missed.
+
+The preset cuts rounds and never lenses because of the disposition ladder (`...driver-owned-scan-design.md:62`): with `upheld == 0 → drop`, a single lens makes any one refutation unanimous, so one skeptic could silently delete a real vulnerability — and a security tool's worst failure mode is a false negative it never mentions. With three lenses, dropping requires 3-of-3. The economics agree, because cost is dominated by discovery: 6 categories x up to 5 rounds = 30 calls falls to 6, verification stays at 3 x findings, and the worst case at 3 findings drops from 1+30+9 = 40 to 1+6+9 = 16, roughly 60% cheaper with every safety property intact. `K_EMPTY` is irrelevant at one round and is not part of the preset. The one-round run has fewer chances to recover from a failed task, so the degraded-run guard — any unanswered task makes the run INCOMPLETE, exit 3 — matters more, not less.
+
+The allowlist is a measurement, not a preference. In the 2026-07-27 spike against Copilot CLI 1.0.75, `--allow-tool='read' --deny-tool=write` held (both the write tool and an explicit shell-redirect attempt failed, while the worker could still discover files under `src/`) and Claude's allowlist held (Bash attempted three times for shell redirection, all three denied, `permission_denials: [Bash x3]`), but **`--allow-all-tools --deny-tool=write` was BYPASSED — a file was created via a shell command** (`docs/design/portability/01-design.md:237`). GitHub's "deny beats allow" applies to the write *tool*, not to writes performed *through* the shell tool, so the allowlist is the load-bearing control and the deny flags are not. Mutation testing confirmed the shape: removing Claude's `--disallowedTools` kills no test, which is the expected and documented result. Because the finding is version-specific it was encoded as a hard, tested guard — argv assertions plus a prompt-smuggling test — at `skills/freya-codebase-security-scan/scripts/audit_adapter.py:25` and `:49`. Confirmed in the field twice: phase 6's audit of a real 299-file repository left `git status --porcelain` and HEAD identical before and after, and phase 7's five live runs left the fixture byte-identical to pre-run checksums with an empty `git status`.
+
+## Rejected Alternatives
+
+- **Keeping the instruction-based scheduling hint.** Measured zero delegation on Copilot, accompanied by a false claim of parallelism. A guarantee that lives in a sentence is a suggestion.
+- **Trusting the agent's self-report as evidence.** Copilot reported six parallel scans while running greps inline; only the transcript and the debug tool-invocation counts told the truth.
+- **Depending on the host's parallel primitive** (Claude `Task`, Copilot delegation, `/fleet`). Claude-only in practice, and `/fleet` is an interactive toggle unreachable from a headless `-p` run.
+- **Accepting sequential everywhere.** The pool measured 2.29x on the real workload; giving that up for uniformity is a bad trade on a mode already at tens of dollars.
+- **Expecting linear scaling.** 6x was the naive prediction; 2.29x is the measurement, and the driver's docs say so rather than promising the fantasy.
+- **Porting `audit` as prose fan-out.** Turns loop-until-dry, dedup and majority voting from guarantees into suggestions on exactly the mode whose value is those guarantees.
+- **Keeping the Workflow tool and accepting a Claude-only `audit`.** Contradicts the one-implementation-everywhere goal of the portability track.
+- **Mapping `audit` onto `.agent.md` subagents.** No schema-validated structured return, and model-driven decomposition again degrades the deterministic parts.
+- **Maintaining two implementations per host.** Guarantees drift between the hosts, in a security tool where drift means differing findings.
+- **Dropping `audit` from the port.** An explicit non-goal in the original vision, reversed only once the driver approach made the port cheap.
+- **Letting the engine import the adapter.** Would make the engine untestable offline; the injected `ask` callable keeps every test free.
+- **Bug-for-bug fidelity on zero verdicts.** The JS dropped the finding; a silent delete on error is the one outcome the skill's own rule forbids.
+- **A separate scan driver.** Duplicates adapter, pool, budget guard and allowlist — four things already covered by 116 offline tests — and lets the modes disagree on what a finding is.
+- **Extending the driver to `docs-manager` and `spec-manager scan`.** Their workers write files (inverting the driver's security model) and have no compact structured contract to return.
+- **The originally-drafted volume rationale for the scope limit.** Corrected after implementation as factually wrong: docs-manager fans out to twelve workers, more than the scan's six.
+- **Cutting skeptic lenses from 3 to 1 to make `scan` cheap.** With one lens a single refutation reaches `upheld == 0` and drops a real vulnerability silently. Rounds were the safe knob; lenses never are.
+- **Changing audit's behaviour, constants or defaults to accommodate the preset.** `MAX_ROUNDS` stays the default so existing callers are unaffected.
+- **Relaxing the degraded-run guard for the lighter mode.** One round has fewer chances to recover from a failed task, so the guard matters more there.
+- **`--allow-all-tools --deny-tool=write`.** The intuitive reading of deny-beats-allow, and empirically bypassable via the shell on Copilot CLI 1.0.75.
+- **Relying on Claude's `agentType: 'Explore'` for the no-writes boundary.** Claude-only, and the port retires the Workflow tool that provided it.
+- **Relying on convention or code review rather than a raise-on-sight guard.** The bypass is version-specific and easy to reintroduce; `UnsafeInvocation` makes it a test failure instead of an incident.
+- **Deny-only configuration with no allowlist.** The measurement shows the deny flags are not the load-bearing control.
+- **Quoting the ~7x token cost of parallel fan-out as fact.** It came from landscape research and was never measured against this suite.
+
+## Revisit Conditions
+
+- Copilot's non-delegation clauses are conditioned on scope ("small enough to read directly", "when its total scope is small") and every observation was on a small fixture. On a large codebase its own policy would permit delegation — re-measure there, and re-check host delegation policy on every major CLI version, since it is host policy and can change.
+- If a host ships a deterministic scripted orchestration primitive with schema-validated structured returns and verifiable delegation, owning the control flow stops being necessary.
+- The read-only bypass probe is still listed as genuinely open in phase 6's residue: re-run it on every agent CLI version bump, since an upgrade can change what the `read` tool group covers, and probe any new adapter before it ships. The no-writes evidence is scoped to the fixture directory (checksums plus `git status`) and cannot see a write to `$HOME` or `/tmp`.
+- If measurement shows that one discovery round systematically misses findings a second round catches, reopen the rounds knob — never the lens count.
+- If a doc-producing flow gains a compact structured contract and a safe write path, the scope limit is worth reopening.
+- The `mitigated` disposition is in the skill's table but no code path emits it; reopen if it is ever made reachable, since it is currently a known dead branch.

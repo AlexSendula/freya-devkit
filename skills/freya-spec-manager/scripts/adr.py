@@ -9,7 +9,7 @@
 - `adr list` : print/regenerate the decisions index.
 
 Cross-cutting ADRs are compared ALWAYS-GLOBAL (no category scoping): see
-docs/superpowers/archive/specs/2026-07-01-p4a-adr-support-design.md §2. Only lifecycle
+docs/decisions/ADR-011-governance-check-scoping.md. Only lifecycle
 filters — `active_adrs` keeps `status == "accepted"`.
 """
 

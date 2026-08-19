@@ -14,6 +14,12 @@ __pycache__/
 # Plugin runtime marker (created when this repo is symlinked as a local-dev plugin install)
 .in_use/
 
+# Brainstorming/planning scratch. The superpowers brainstorming and writing-plans
+# skills write here by hardcoded path; it is working material for whoever is at the
+# keyboard, not part of the product. Decisions that come out of it belong in
+# docs/decisions/ as an ADR, outstanding work in docs/backlog.md.
+docs/superpowers/
+
 # Local agent settings: contains absolute paths from whoever ran it.
 # Ignored globally on the author's machine; pinned here so a fresh clone is safe too.
 .claude/settings.local.json

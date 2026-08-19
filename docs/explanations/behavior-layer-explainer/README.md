@@ -29,9 +29,10 @@ Light/dark toggle is in the top-right of the nav.
   `BEH-001/002/003`); no proprietary content, secrets, or customer data appear anywhere.
 - Dogfooding numbers are quoted with their honest limits (e.g. FP=0 was measured on
   2 behaviors / 3 changes — illustrative, not a benchmark).
-- Primary sources live in the repo: [`../../design/behavior-layer/`](../../design/behavior-layer/)
-  (vision, phase designs, dogfooding notes, parking lot) and
-  [`../../superpowers/archive/`](../../superpowers/archive/).
+- The decisions behind the behavior layer are recorded as ADRs in
+  [`../../decisions/`](../../decisions/) — ADR-001 through ADR-006 cover intent as an
+  artifact, the lifecycle, adapters, the graph substrate and the coverage model. The
+  design documents they were distilled from are in git history.
 - This site was authored from a set of sourced research briefs that lived in a `_research/`
   subdirectory, then adversarially fact-checked against the source. The briefs were deleted on
   2026-08-19: nothing linked to them, they had gone stale against the 0.2.0 portability release,

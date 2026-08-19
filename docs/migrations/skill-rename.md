@@ -17,8 +17,8 @@ Two constraints met:
   namespace hid that problem; nothing else has one.
 
 The repo therefore renamed its directories, and the installer applies no prefix. (The
-design spec originally decided the opposite — see the dated correction under Decision 3
-in [`../design/portability/01-design.md`](../design/portability/01-design.md).)
+design originally decided the opposite; the reversal and its cause are recorded in
+[`../decisions/ADR-014-canonical-store-install-contract.md`](../decisions/ADR-014-canonical-store-install-contract.md).)
 
 ## The mapping
 

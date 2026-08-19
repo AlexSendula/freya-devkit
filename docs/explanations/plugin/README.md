@@ -44,4 +44,4 @@ for the full narrative and dogfooding evidence.
   against the 0.2.0 portability release, and because this directory is uploaded verbatim as the
   GitHub Pages artifact they were being served publicly as raw markdown beneath the pages that
   contradicted them. They remain in git history, and the one finding they held that was recorded
-  nowhere else was moved to [`../../design/notes.md`](../../design/notes.md) first.
+  nowhere else was moved to [`../../backlog.md`](../../backlog.md) first.
