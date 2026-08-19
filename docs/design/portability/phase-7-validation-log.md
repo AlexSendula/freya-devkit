@@ -20,6 +20,11 @@ this testing) and Claude Code 2.1.220 on `haiku` (phase 6's 2.1.233 lives only i
 > transcript per adapter — under `docs/design/portability/evidence/`, and cite them by
 > path from the prose.
 
+> **Status (2026-08-19).** `docs/design/portability/evidence/` **does not exist** and no
+> evidence has been committed. The instruction above stands as the convention for future live
+> runs; it is unfulfilled, not withdrawn. A run that produces load-bearing numbers should
+> create the directory and commit the extracts named above before its prose lands.
+
 ## The fixture
 
 Three planted issues and one control:

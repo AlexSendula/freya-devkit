@@ -217,6 +217,14 @@ Two behaviors, two levels, two adapters, two coverage mechanisms → exactly the
 
 ## 10. Acceptance criteria
 
+> **Correction (2026-08-19) — Phase 2 shipped; the boxes below were never ticked.**
+> `behavior_graph.py` and `run_behaviors.py` exist, merge-by-trust is implemented exactly as
+> §5b specifies, and wrap-up Phase 3.5 calls `--check`. Treat the unchecked boxes as an
+> artefact of how the plan was closed out, not as outstanding work — the closeout is recorded
+> in `02f-phase-2-plan-5-closeout.md` and the measurement in §6a above. §6a's caveat that the
+> numbers are illustrative and not statistically significant (2 behaviors, 3 changes) still
+> binds.
+
 - [ ] `behavior.json` exists as a generated projection **owned by `behavior-graph`** (sibling to `graph.json`), keyed by `BEH-NNN`, with `level` and `exercises` edges carrying `source`/`confidence`/`freshness`.
 - [ ] **code-graph remains pure** — it does not own or import `behavior.json`; it only exposes the blast-radius query.
 - [ ] `behavior-runner` runs an accepted **integration** behavior (BEH-003) over real HTTP against a running app with V8 coverage, **remaps to source keys**, and records an `observed` fingerprint.

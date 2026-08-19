@@ -259,6 +259,13 @@ echo "exit: $?"
 ```
 Expected: a JSON report listing `affected` (the accepted behaviors whose exercised code intersects the diff) with `failed: []` and **exit 0** (the behaviors re-run green). The blocking path (`exit 1` on a `test-failed` affected behavior) is covered by the unit test `test_affected_failing_blocks`.
 
+> **Correction (2026-08-19).** The absolute path in the command above
+> (`.../skills/behavior-graph/scripts/behavior_graph.py`) predates the 0.2.0 `freya-*`
+> rename and no longer resolves. The launcher form is `freya behavior-graph …`. Every
+> deliverable this plan names did ship — the Phase 3.5 wiring, the F5 never-synced guard and
+> the F3 `.gitkeep` fix are all present in `skills/freya-wrap-up/SKILL.md` and
+> `skills/freya-spec-manager/SKILL.md`.
+
 - [ ] **Step 5: Commit**
 
 ```bash

@@ -1,6 +1,17 @@
 # Code-Graph Substrate Fix — Plan
 
 **Status:** Ready to implement
+
+> **Correction (2026-08-19) — delivered 2026-06-29.** The status line above was never
+> updated. This plan was executed in full under TDD; see `dogfooding-notes.md` §"RESOLVED —
+> F6/F7/F8/F9 fixed in code-graph (TDD)", where the rebuild went from 0 internal / 1052
+> external to 607 internal / 488 external / 0 unresolved and Phase 2 was unblocked. The test
+> file it specifies shipped as `skills/freya-code-graph/scripts/test_graph_ops.py` and has
+> since grown from the planned 7 cases to 16. The defect table and the out-of-scope list
+> below remain the most accurate statement of what the homegrown substrate does and does not
+> do, and are load-bearing input to the Track B substrate decision — read them, not the
+> status line.
+
 **Date:** 2026-06-29
 **Driver:** Dogfooding findings F6–F9 (`dogfooding-notes.md`). The code-graph blast radius is empty/silent on real path-alias projects, which **blocks Phase 2** (impact indexing rides on it). This is vision §10's "capability contract," now forced.
 **Route:** A — patch the homegrown resolver (stdlib-only, no new dependency). Graphify (§10) stays the fallback if the regex parser keeps accruing edge cases.

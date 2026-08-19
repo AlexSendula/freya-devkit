@@ -238,3 +238,24 @@ Ran the full brownfield `scan` (coordinator + 7 parallel discovery agents) over 
 4. `/freya-devkit:spec-manager verify` → deterministic link-integrity checks on real content.
 5. (Loop-closer, optional) write one real test for the most important behavior in a fitting runner (e.g. Playwright E2E or a `lib/` unit test), mark it `accepted`, run wrap-up so execution + deterministic-only blocking fire.
 6. Log every friction point here as a provisional-choice correction (vision §9).
+
+---
+
+## Closing note (2026-08-19)
+
+Two sections above are now dead machine-local content and must not be followed:
+
+- **"Local-dev install setup"** and its reverse instruction at "Reverse it with: `rm` the
+  symlink…". The symlink is gone; the cache holds real `0.1.0` and `0.2.0` directories. Its
+  F1/F2 action item — "should be documented in CONTRIBUTING" — is closed: see CONTRIBUTING.md,
+  "Local development loop".
+- **The resume checklist.** Every step is recorded DONE inside this file, and its commands
+  name skill ids (`/freya-devkit:spec-manager`) that 0.2.0 renamed. See
+  `../../migrations/skill-rename.md`.
+
+**F4 reads as open here but is resolved elsewhere** — "dissolved, not redesigned"; see
+`parking-lot.md` and `03-adoption-and-intent-lifecycle.md` §8.
+
+Everything else stands. F6-F9 (a substrate returning a confidently-empty blast radius) and
+F10/F11 (the framework-agnostic execution contract, and where per-framework coverage breaks)
+are the failure modes any Track B substrate must not reproduce.

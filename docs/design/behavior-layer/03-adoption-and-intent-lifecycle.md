@@ -106,6 +106,15 @@ Suggested order: **SP1 first** (everything leans on the lifecycle), then SP2 →
 
 ## 12. Acceptance criteria (capability-level)
 
+> **Correction (2026-08-19) — SP1 through SP5 all shipped and were dogfooded.** The unchecked
+> boxes below are stale bookkeeping. `confirmed` is in `frontmatter.py`; `freya-status` ships
+> `collect_status.py` with both worklists and refreshes `knowledge-base/BACKLOG.md`;
+> `behavior_graph.py` exposes `--surface`, `--gaps` and `--covering`; and the security scan
+> consults accepted behaviors via `behavior_ref`. Dated dogfood passes for each are in
+> `dogfooding-notes.md`. §11's open questions were all answered during those passes.
+> Note that shipped code cites this document by name — `run_behaviors.py` refers to
+> "design 03 §3" — so its number and section structure are load-bearing.
+
 - [ ] `confirmed` is a first-class lifecycle state: validated, allowed without a test, gets a static fingerprint via `entry`, advisory (non-gating), promotable to `accepted` when a real test lands.
 - [ ] A unified onboarding bootstraps a full **`proposed`** behavior graph on a brownfield project, and degrades gracefully (no pointless inference, clear message) on greenfield.
 - [ ] At wrap-up, a change surfaces its **affected** proposed/confirmed behaviors (bounded, skippable) and flags touched code with **no** covering behavior.

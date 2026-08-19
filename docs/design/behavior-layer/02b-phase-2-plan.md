@@ -186,6 +186,16 @@ python "/Users/you/.claude/plugins/cache/freya-devkit/freya-devkit/0.1.0/skills/
 ```
 Expected: `OK — all behavior links pass Tier-1 integrity checks.` (exit 0). BEH-003 is accepted AND its scenario has real steps (no `TODO(scaffold)`), so the `accepted-but-scaffold` gate does not fire; BEH-001/002 remain proposed scaffolds (allowed).
 
+> **Correction (2026-08-19) — the command above no longer resolves.** It hardcodes
+> `~/.claude/plugins/cache/freya-devkit/freya-devkit/0.1.0/skills/spec-manager/scripts/verify_links.py`,
+> a path that ceased to exist when 0.2.0 renamed every skill directory to `freya-*` and
+> routed all scripts through the launcher. The equivalent today is
+> `freya verify-links --dir <project>/knowledge-base/specs --format text`. Likewise the
+> Global Constraint above describing the plugin as "the symlinked local-dev install" is no
+> longer true. The recorded execution deviation below (the in-process route-handler import
+> proving non-viable, replaced by the HTTP app-under-test harness — which became F10) is the
+> part of this plan that still matters.
+
 - [ ] **Step 3: Confirm the test still passes**
 
 Run: `pnpm test:bdd`

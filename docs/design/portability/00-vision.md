@@ -6,6 +6,10 @@
 > stays and a dated `> **Correction …**` block sits under it — see §4.1 here, and the
 > seven in [`01-design.md`](01-design.md). Shipped code is the ground truth.
 
+> **Correction (2026-08-19).** `01-design.md` now carries **nine** correction blocks, not
+> seven — its own header says so, and CONTRIBUTING.md agrees. The count above was correct
+> when written; corrected here rather than edited in place, per this file's own convention.
+
 Make freya-devkit installable and runnable **outside Claude Code**, as a first-class multi-agent toolkit, with a **single command**. This is **Track A** of the work-laptop-enablement initiative; the **polyglot substrate** (Track B) and the **subagent-flow / generated-docs audit** ([`../notes.md`](../notes.md)) are separate, later efforts.
 
 ---

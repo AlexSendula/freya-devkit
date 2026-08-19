@@ -175,6 +175,9 @@ Each phase gets its own spec → plan → implementation cycle. The ordering is 
 
 - **Code substrate & its capability contract.** Whether to keep homegrown code-graph, adopt [graphify](https://github.com/safishamsi/graphify) (symbol-level, multi-language, tree-sitter, confidence-scored — philosophically aligned), or borrow its ideas. **Independent of that choice, the substrate must satisfy a capability contract before governance depends on it:** resolve imports (incl. TypeScript path aliases — the current regex resolver treats non-relative imports as external and silently drops them), stable file identity, language coverage, per-edge confidence, freshness, changed-file impact, and an explicit **"coverage unknown"** signal instead of a falsely-small blast radius.
 - **Frontmatter substrate.** The current spec frontmatter parser is hand-rolled and silently discards inline-array fields (e.g. `tags: [a, b]`). Replace it with a real YAML parser + schema validation **before** the schema is extended, since the model will depend on these fields.
+  (delivered — Phase 1: `skills/freya-spec-manager/scripts/frontmatter.py` is a scoped,
+  fail-loud parser with inline flow-array support and schema validation. This bullet was
+  simply missed when its ADR neighbour below was marked; noted 2026-08-19.)
 - **ADR capture machinery.** Its own phase (§9, Phase 4); Tier-2 conflict checks stay ADR-blind until it ships. (delivered — P4a, see docs/superpowers/specs/2026-07-01-p4a-adr-support-design.md)
 
 ## 11. What we borrowed from spec-kit (and what we did not)

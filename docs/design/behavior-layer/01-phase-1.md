@@ -55,6 +55,14 @@ Lifecycle states (vision §3.1):
 | `quarantined` | Test failing for infra reasons (flaky / fixture / env), temporarily out of the authoritative set. | No |
 | `deprecated` | Behavior intentionally retired. | No |
 
+> **Correction (2026-08-19) — the lifecycle gained a fifth state.** `confirmed` was inserted
+> between `proposed` and `accepted` by design 03 (SP1, 2026-06-30) and ships as
+> `skills/freya-spec-manager/scripts/frontmatter.py`:
+> `BEHAVIOR_STATES = ("proposed", "confirmed", "accepted", "quarantined", "deprecated")`.
+> A `confirmed` behavior is intent confirmed with a test owed; it has no executable test and
+> is never run. Phase 1's four-state table is correct for its date and superseded now.
+> §9's acceptance criteria are likewise unchecked but delivered.
+
 `state` replaces the earlier `behavior_status` (`none/scaffolded/authored`), which conflated "text exists" with "approved as intent." **Only `accepted` behaviors block on failure.**
 
 ## 4. Spec format

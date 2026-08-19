@@ -18,6 +18,23 @@ Things we deliberately deferred so they get done **properly**, not on the go. Ea
 ### Testbed: gitignore `coverage/`
 - **What:** vitest (and the integration coverage path) writes `coverage/` in the testbed; it isn't gitignored. Minor, but add it so generated coverage isn't committed.
 
+> **Correction (2026-08-19) — both entries above are delivered, and so is Track A below.**
+> - *Revert the local-dev plugin symlink* — **done.** `~/.claude/plugins/cache/freya-devkit/freya-devkit/`
+>   now holds real `0.1.0` and `0.2.0` directories; there is no symlink and no
+>   `0.1.0.pre-phase1-backup`. The supported development loop is documented in
+>   CONTRIBUTING.md, "Local development loop".
+> - *Publish the real freya-devkit release* — **done.** `main` and `origin/main` are both at
+>   `51bdadb`; `.claude-plugin/plugin.json` reads `"version": "0.2.0"`.
+> - *Track A — Multi-agent portability* — **shipped as 0.2.0 (2026-08-18)**: the `freya`
+>   launcher, `install.sh` / `install.ps1`, the repo-wide `freya-*` rename, and the audit
+>   driver. Validated live on GitHub Copilot CLI and Claude Code — see
+>   `design/portability/phase-6-validation-log.md` and `phase-7-validation-log.md`.
+>
+> Two testbed-local entries (gitignore `coverage/`, `vite-tsconfig-paths`) are unverifiable
+> from this repo and are left as written. Everything else in this file — including the P4c
+> substrate map and the whole Track B section — was re-checked against shipped code on
+> 2026-08-19 and is still accurate. **Track B (polyglot) remains the live next initiative.**
+
 ---
 
 ## Deferred capabilities (do properly, as their own effort)
@@ -109,6 +126,16 @@ Things we deliberately deferred so they get done **properly**, not on the go. Ea
 - **Why it's tractable:** the deterministic **scripts are already portable stdlib-Python CLIs** (no Claude dependency). Only the **orchestration layer** is Claude-specific: `SKILL.md` prose references the Skill tool / `/freya-devkit:*` / `${CLAUDE_PLUGIN_ROOT}` + hardcoded plugin-cache paths; install = the Claude marketplace.
 - **Approach sketch:** keep the scripts; make them **self-locating** (drop hardcoded cache paths); provide **per-agent instruction files** + an **installer** that maps the workflow into each agent's convention. Consolidation points: **`AGENTS.md`** (a growing cross-agent standard) and/or **MCP** (Copilot, Cursor, Claude all speak it — a clean home for the deterministic tools). `skills.sh` ≈ that installer + convention-mapping.
 - **Effort/risk:** self-contained, **medium**, no core rearchitecting. **Verify first (don't guess):** the *current* state of Copilot extensibility (custom instructions vs MCP vs agent skills — moving fast) and exactly what skills.sh does.
+
+> **Correction (2026-08-19) — Track A shipped as 0.2.0 (2026-08-18).** Delivered: the `freya`
+> launcher, `install.sh` / `install.ps1`, the repo-wide `freya-*` skill rename, and the audit
+> driver. Validated live on GitHub Copilot CLI and Claude Code — see
+> `../portability/phase-6-validation-log.md` and `phase-7-validation-log.md`. The sketch above
+> is close but not exact on the two consolidation points: **`AGENTS.md` was adopted** — `freya
+> init` writes a marker-delimited freya-devkit section into a project's `AGENTS.md`
+> (`bin/agents_md.py`) — while **MCP was evaluated and rejected**, on the grounds that the
+> deterministic tools are local stdlib-Python CLIs an agent already runs via bash
+> (`../portability/00-vision.md` §4.6). **Track B below remains the live next initiative.**
 
 ### Track B — Polyglot code-graph substrate (Java + config-as-code) ← the actual wall hit
 - **What:** `code-graph` is a **homegrown TS/JS import resolver**. Work projects are **Java + Docker images + Helm charts + Python config + YAML/TOML + `.crt`/`.key` + `bin/`**. code-graph is **blind to all of it** — the user hit this wall immediately on a first VS Code conversion attempt. Two distinct gaps:
