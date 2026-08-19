@@ -105,14 +105,18 @@ def load_behavior_json(project_dir):
 
 # Kept byte identical to graph_ops.py's copy — whichever skill runs first writes
 # the file, so a drift between the two would make its contents depend on run order.
-CACHE_IGNORED = ("graph.json", "classifications.json")
+CACHE_IGNORED = ("graph.json", "graph.*.json", "classifications.json")
 
 CACHE_GITIGNORE = (
     "# Generated code-graph cache — do not commit.\n"
     "#\n"
     "# behavior.json is deliberately NOT listed. Its observed coverage is captured\n"
     "# by running the test suite, so it cannot be rebuilt by re-reading source the\n"
-    "# way these two can — committing it is what gives a fresh clone a blast radius.\n"
+    "# way these can — committing it is what gives a fresh clone a blast radius.\n"
+    "#\n"
+    "# graph.*.json is the per-backend artifact (CD-17): each substrate writes its own,\n"
+    "# so a swap can be diffed instead of destroying the baseline it should be measured\n"
+    "# against. graph.json stays the active graph that other skills read.\n"
     + "\n".join(CACHE_IGNORED) + "\n"
 )
 

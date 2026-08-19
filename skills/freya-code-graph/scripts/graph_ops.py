@@ -25,6 +25,9 @@ from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
 from typing import Any, Dict, List, Optional, Sequence, Set
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import substrate  # noqa: E402  — the contract this module's CodeGraph implements
+
 
 # File patterns by language
 FILE_PATTERNS = {
@@ -207,14 +210,18 @@ def gitignore_excludes(rel_path: str, patterns: List[str]) -> bool:
 # The regenerable files in knowledge-base/.graph/, ignored by name. Kept byte
 # identical to behavior_graph.py's copy: whichever skill runs first writes it,
 # and a drift between the two would make the file depend on run order.
-CACHE_IGNORED = ('graph.json', 'classifications.json')
+CACHE_IGNORED = ('graph.json', 'graph.*.json', 'classifications.json')
 
 CACHE_GITIGNORE = (
     '# Generated code-graph cache — do not commit.\n'
     '#\n'
     '# behavior.json is deliberately NOT listed. Its observed coverage is captured\n'
     '# by running the test suite, so it cannot be rebuilt by re-reading source the\n'
-    '# way these two can — committing it is what gives a fresh clone a blast radius.\n'
+    '# way these can — committing it is what gives a fresh clone a blast radius.\n'
+    '#\n'
+    '# graph.*.json is the per-backend artifact (CD-17): each substrate writes its own,\n'
+    '# so a swap can be diffed instead of destroying the baseline it should be measured\n'
+    '# against. graph.json stays the active graph that other skills read.\n'
     + '\n'.join(CACHE_IGNORED) + '\n'
 )
 
@@ -330,6 +337,55 @@ class CodeGraph:
         self._dir_listing_cache: Dict[Path, Any] = {}
         # workspace package name -> directory; None until the manifests are read once
         self._workspace_cache: Optional[Dict[str, Path]] = None
+
+    # -------------------------------------------------------------------------
+    # The substrate contract (see substrate.py). This class is freya's first
+    # backend — the stdlib-only floor that is always installed.
+    # -------------------------------------------------------------------------
+
+    name = 'homegrown'
+
+    def coverage(self) -> substrate.Coverage:
+        """What this backend actually handles — contract obligation 4.
+
+        `relations` claims only `imports`, because that is genuinely all it emits. It resolves
+        module references between files; it has no notion of a symbol, so it must not claim
+        `calls` or `inherits` merely because the vocabulary contains them. Overclaiming here is
+        how a caller ends up trusting a query the backend cannot answer.
+        """
+        extensions = sorted({
+            os.path.splitext(pattern)[1]
+            for patterns in FILE_PATTERNS.values()
+            for pattern in patterns
+        })
+        return substrate.Coverage(
+            languages=FILE_PATTERNS.keys(),
+            extensions=extensions,
+            relations=('imports',),
+            # Deletions are handled correctly: `update` removes the entry and rebuilds every
+            # dependent. This is the bar spec §9.2 holds other backends to.
+            incremental=True,
+        )
+
+    def available(self) -> bool:
+        """Always. The floor exists for the machine that cannot install anything."""
+        return True
+
+    def project_exclusions(self) -> substrate.Exclusions:
+        """The exclusions this project declares, as a contract input.
+
+        Obligation 6 says a backend is *given* its exclusions rather than deciding them, on the
+        grounds that "vendor/ is not mine" is true whichever parser runs. This assembles that
+        input from the two places the project states it: directory classifications, and
+        `.gitignore`.
+        """
+        classified = (self._load_classifications().get('directories') or {})
+        return substrate.Exclusions(
+            directories=[name for name, verdict in classified.items()
+                         if isinstance(verdict, dict) and verdict.get('type') == 'exclude'],
+            patterns=self._parse_gitignore(),
+            matcher=gitignore_excludes,
+        )
 
     def _ensure_graph_dir(self) -> None:
         """Create the graph cache dir and write its `.gitignore` (F8).
@@ -1550,13 +1606,31 @@ Respond with ONLY a JSON object, no markdown formatting:
             'language': language,
         }
 
-    def build(self, ai_response: Optional[str] = None, non_interactive: bool = False) -> Dict[str, Any]:
+    def _write_graph(self, graph: Dict[str, Any]) -> None:
+        """Persist the graph as both the active artifact and this backend's own.
+
+        `graph.json` stays the active graph because three other skills read that path
+        directly, and Phase 1's rule is that nothing downstream changes. `graph.<backend>.json`
+        is the addition (CD-17): without it, switching substrates destroys the baseline at
+        exactly the moment CD-13 requires a diff against it.
+        """
+        self._ensure_graph_dir()
+        payload = json.dumps(graph, indent=2)
+        for path in (self.graph_path, self.graph_dir / ('graph.%s.json' % self.name)):
+            with open(path, 'w', encoding='utf-8') as handle:
+                handle.write(payload)
+
+    def build(self, ai_response: Optional[str] = None, non_interactive: bool = False,
+              exclusions: Optional[substrate.Exclusions] = None) -> Dict[str, Any]:
         """Build the dependency graph from scratch.
 
         Args:
             ai_response: Pre-fetched AI response for directory classification
                          (used when skill invokes this with AI access)
             non_interactive: Never prompt for directory classification (F6)
+            exclusions: Contract obligation 6 — what the project has declared out of
+                        scope. Omitted, the backend derives them from the project itself,
+                        which is what every current caller relies on.
         """
         print(f'Scanning {self.project_dir}...')
 
@@ -1570,6 +1644,13 @@ Respond with ONLY a JSON object, no markdown formatting:
 
         # Step 2: Scan files using classifications
         files = self._scan_files(classifications)
+
+        # A caller-supplied exclusion set is applied on top of the project's own, never
+        # instead of it: the caller is adding scope knowledge, not overriding the repo's
+        # .gitignore.
+        if exclusions is not None:
+            files = [f for f in files
+                     if not exclusions.excludes(normalize_key(f.relative_to(self.project_dir)))]
         print(f'Found {len(files)} source files')
 
         # Build file info
@@ -1578,6 +1659,9 @@ Respond with ONLY a JSON object, no markdown formatting:
             'commit': self._get_git_commit(),
             'timestamp': datetime.now(timezone.utc).isoformat(),
             'project_root': str(self.project_dir),
+            'substrate': substrate.graph_metadata(
+                self.name, self.coverage(),
+                exclusions if exclusions is not None else self.project_exclusions()),
             'files': {},
         }
 
@@ -1591,11 +1675,7 @@ Respond with ONLY a JSON object, no markdown formatting:
                 if not imp.startswith('external:') and imp in graph['files']:
                     graph['files'][imp]['dependents'].append(file_path)
 
-        # Save graph
-        self._ensure_graph_dir()
-        with open(self.graph_path, 'w', encoding='utf-8') as f:
-            json.dump(graph, f, indent=2)
-
+        self._write_graph(graph)
         self.graph = graph
 
         # Summary
@@ -1618,17 +1698,18 @@ Respond with ONLY a JSON object, no markdown formatting:
             return self.graph
         return None
 
-    def update(self, non_interactive: bool = False) -> Dict[str, Any]:
+    def update(self, non_interactive: bool = False,
+               exclusions: Optional[substrate.Exclusions] = None) -> Dict[str, Any]:
         """Incrementally update the graph."""
         graph = self.load()
         if not graph:
             print('No cached graph found. Running full build...')
-            return self.build(non_interactive=non_interactive)
+            return self.build(non_interactive=non_interactive, exclusions=exclusions)
 
         last_commit = graph.get('commit')
         if not last_commit:
             print('No commit info in cached graph. Running full build...')
-            return self.build(non_interactive=non_interactive)
+            return self.build(non_interactive=non_interactive, exclusions=exclusions)
 
         changed_files = self._get_changed_files(last_commit)
         if not changed_files:
@@ -1639,14 +1720,34 @@ Respond with ONLY a JSON object, no markdown formatting:
         # Re-parse changed files. `git diff --name-only` already emits POSIX paths on
         # every host, but normalizing keeps the key that indexes the graph and the key
         # `_build_file_info` derives from the same string — one source of truth.
+        # The same exclusions `build` applies. Without this, `--update` re-parsed whatever
+        # `git diff` named and wrote it straight in, so one commit touching an ignored tree
+        # silently re-admitted files the build had excluded — and `--update` is the command
+        # the steady-state workflow actually runs.
+        gitignore_patterns = self._parse_gitignore()
+        classified = (self._load_classifications().get('directories') or {})
+
+        def out_of_scope(rel_path: str) -> bool:
+            if self._should_exclude(rel_path, gitignore_patterns):
+                return True
+            if exclusions is not None and exclusions.excludes(rel_path):
+                return True
+            ancestors = rel_path.split('/')[:-1]
+            for depth in range(len(ancestors), 0, -1):
+                verdict = classified.get('/'.join(ancestors[:depth]))
+                if isinstance(verdict, dict):
+                    return verdict.get('type') == 'exclude'
+            return False
+
         for file_path in map(normalize_key, changed_files):
             full_path = self.project_dir / file_path
-            if full_path.exists():
+            if full_path.exists() and not out_of_scope(file_path):
                 # Check if it's a source file
                 if self._detect_language(full_path):
                     graph['files'][file_path] = self._build_file_info(full_path)
             elif file_path in graph['files']:
-                # File was deleted
+                # Deleted, or newly out of scope. Either way it leaves the graph, and the
+                # dependents rebuild below drops every edge that pointed at it.
                 del graph['files'][file_path]
 
         # Rebuild dependents for affected files
@@ -1658,14 +1759,15 @@ Respond with ONLY a JSON object, no markdown formatting:
                 if not imp.startswith('external:') and imp in graph['files']:
                     graph['files'][imp]['dependents'].append(file_path)
 
-        # Update metadata
+        # Update metadata. The substrate block is refreshed rather than carried over, so a
+        # graph never claims coverage the currently-installed backend does not have.
         graph['commit'] = self._get_git_commit()
         graph['timestamp'] = datetime.now(timezone.utc).isoformat()
+        graph['substrate'] = substrate.graph_metadata(
+            self.name, self.coverage(),
+            exclusions if exclusions is not None else self.project_exclusions())
 
-        # Save
-        with open(self.graph_path, 'w', encoding='utf-8') as f:
-            json.dump(graph, f, indent=2)
-
+        self._write_graph(graph)
         self.graph = graph
 
         return {
@@ -1898,6 +2000,29 @@ def main():
     non_interactive = args.non_interactive or not sys.stdin.isatty()
 
     graph = CodeGraph(args.dir)
+
+    # Backend selection, on the operations that produce a graph. Announced on stderr rather
+    # than stdout so it never contaminates `--format json`, and announced at all because
+    # spec §2.2 requires the choice to be visible: a caller must be able to tell a thin graph
+    # from a thin repo. Today there is one backend and this is plumbing; Phase 2 is what it
+    # is plumbing for.
+    if args.build or args.update:
+        try:
+            import backends
+            selection = backends.select(
+                str(graph.project_dir),
+                present_extensions=backends.extension_census(
+                    str(graph.project_dir), graph.project_exclusions()))
+            for warning in selection.warnings:
+                print(warning, file=sys.stderr)
+            if selection.degraded or selection.backend.name != CodeGraph.name:
+                print(selection.describe(), file=sys.stderr)
+            graph = selection.backend if hasattr(selection.backend, 'build') else graph
+        except Exception as exc:
+            # Selection is an optimisation over "run the floor". It must never be the reason
+            # a build fails, because the floor is what the build would have used anyway.
+            print('code-graph: backend selection failed (%s); using %r'
+                  % (exc.__class__.__name__, CodeGraph.name), file=sys.stderr)
     output = None
     operation = None
 

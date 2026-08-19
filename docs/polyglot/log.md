@@ -272,6 +272,66 @@ change as a finding rather than a fact.
 
 ---
 
+## 2026-08-20 — Phase 1, the contract
+
+**Outcome:** the substrate contract exists and the shipped resolver sits behind it. 1070 tests,
+up from 1040. `docs/backlog.md` item 9 closed, items 10 and 11 opened.
+
+### What shipped
+
+| Module | Holds |
+|---|---|
+| `substrate.py` | the contract — `Coverage`, `Exclusions`, the relation-kind vocabulary, conformance and graph validation. Imports nothing but the stdlib, so a backend can depend on it without inheriting anything |
+| `settings.py` | `knowledge-base/settings.json` (CD-15) |
+| `backends.py` | the registry and selection (CD-15), including the degradation path |
+| `graph_ops.py` | `CodeGraph` is now freya's first backend: `name`, `coverage()`, `available()`, `build()`, `update()` |
+
+Every graph now carries a `substrate` block naming the backend and its coverage. `--build` and
+`--update` both write `graph.<backend>.json` beside `graph.json` (CD-17); `graph.json` stays the
+active artifact because three other skills read that path and Phase 1's rule was that nothing
+downstream changes.
+
+**The acceptance check: the testbed built to 234 files and 627 edges before and after, and
+§9.1 still reports 0 misses.** No behaviour change, measured rather than asserted.
+
+### Decisions that moved while implementing
+
+| Planned | Landed on | Why |
+|---|---|---|
+| `homegrown` declares the relations it *could* emit | declares **only `imports`** | It has no notion of a symbol. Claiming `calls` because the vocabulary contains the word would make a caller trust a query the backend cannot answer — the exact overclaiming the coverage block exists to stop |
+| Exclusions replace the backend's own | applied **on top of** them | A caller passing `Exclusions` is adding scope knowledge, not overriding the repo's `.gitignore`. Replacing would let a caller accidentally re-admit `node_modules` |
+| `auto` prefers the richer backend | prefers whichever reads **more files in this repo**, floor breaking ties | "Supports more languages" is the wrong question. A repo that is 90% Java wants the backend that reads Java, and a tie must not depend on registration order |
+| Selection failure is an error | never fatal | Selection is an optimisation over "run the floor"; the floor is what the build would have used anyway. It logs and continues |
+
+### Found while implementing
+
+- **The two `.gitignore` writers had already drifted.** `graph_ops.py` and `behavior_graph.py`
+  each hold a copy of `CACHE_GITIGNORE`, with a comment in both saying they must stay
+  identical — and nothing checked it. Whichever ran first won, so the file's content depended
+  on run order. Now asserted by a test that compares the produced strings, which is the thing
+  that actually matters (the two differ in quote style and always did).
+- **`--update` bypassed every exclusion rule.** It re-parsed whatever `git diff` named and
+  wrote it straight in, so a single commit touching an ignored tree re-admitted files the build
+  had excluded. It is also the command the steady-state workflow runs, so this was the common
+  path, not the rare one. Now applies the same exclusions as `build`, and refreshes the
+  substrate block rather than carrying a stale one forward.
+- **CD-18 landed and the LBT shape works.** `apps/mobile` importing `@acme/domain` resolves to
+  `packages/domain/src/index.ts` instead of `external:@acme/domain`.
+
+### Doc impact — applied
+
+- `skills/freya-code-graph/SKILL.md` — settings, backends, the `substrate` block, the
+  two-copies rationale
+- `skills/freya-code-graph/references/graph-schema.md` — `substrate` in the schema and the
+  field table; new sections on workspace and Python resolution; `category` marked removed
+
+### Still owed at feature end
+
+CD-14 through CD-18 are recorded in [`decisions.md`](decisions.md) but not yet distilled into
+`docs/decisions/`. That is the closeout task, along with deleting this directory.
+
+---
+
 ## ~~Open questions carried into the vision~~ — ANSWERED by the brainstorm
 
 Kept for the record. All four are resolved in [`spec.md`](spec.md); the reasoning is in the

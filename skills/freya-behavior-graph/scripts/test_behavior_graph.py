@@ -191,7 +191,7 @@ class WriteBehaviorJsonGitignoreTest(unittest.TestCase):
         self.assertTrue(os.path.exists(self._gitignore()))
         with open(self._gitignore(), encoding="utf-8") as f:
             lines = [ln.strip() for ln in f if ln.strip() and not ln.startswith("#")]
-        self.assertEqual(lines, ["graph.json", "classifications.json"])
+        self.assertEqual(lines, ["graph.json", "graph.*.json", "classifications.json"])
         self.assertNotIn("*", lines)
 
     def test_replaces_a_legacy_blanket_ignore(self):
@@ -204,7 +204,7 @@ class WriteBehaviorJsonGitignoreTest(unittest.TestCase):
         behavior_graph.write_behavior_json(self.proj, {"version": 1, "behaviors": {}})
         with open(self._gitignore(), encoding="utf-8") as f:
             lines = [ln.strip() for ln in f if ln.strip() and not ln.startswith("#")]
-        self.assertEqual(lines, ["graph.json", "classifications.json"])
+        self.assertEqual(lines, ["graph.json", "graph.*.json", "classifications.json"])
 
     def test_replaces_the_legacy_commented_blanket_ignore(self):
         """code-graph's variant of the same legacy file, comment and all."""
@@ -212,7 +212,7 @@ class WriteBehaviorJsonGitignoreTest(unittest.TestCase):
         behavior_graph.write_behavior_json(self.proj, {"version": 1, "behaviors": {}})
         with open(self._gitignore(), encoding="utf-8") as f:
             lines = [ln.strip() for ln in f if ln.strip() and not ln.startswith("#")]
-        self.assertEqual(lines, ["graph.json", "classifications.json"])
+        self.assertEqual(lines, ["graph.json", "graph.*.json", "classifications.json"])
 
     def test_does_not_overwrite_a_customised_gitignore(self):
         """Anything that is not a recognised legacy blanket is the user's file."""

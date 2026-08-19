@@ -296,5 +296,384 @@ class TestSettings(unittest.TestCase):
         self.assertNotIn('.graph', path)
 
 
+class TestHomegrownIsAConformingBackend(unittest.TestCase):
+    """Phase 1's actual deliverable: the shipped resolver, behind the contract.
+
+    An interface with one implementation is fiction, so the point of these is not that they
+    pass — it is that they are the same assertions graphify will have to pass in Phase 2.
+    """
+
+    def mk(self, files):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        for rel, content in files.items():
+            p = Path(d) / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(content, encoding='utf-8')
+        return d
+
+    def graph_of(self, files):
+        from graph_ops import CodeGraph
+        g = CodeGraph(self.mk(files))
+        g.build(non_interactive=True)
+        return g
+
+    def test_it_satisfies_the_contract(self):
+        from graph_ops import CodeGraph
+        self.assertEqual(conformance_errors(CodeGraph(self.mk({}))), [])
+
+    def test_it_is_always_available(self):
+        """The floor exists for the machine that cannot install anything."""
+        from graph_ops import CodeGraph
+        self.assertTrue(CodeGraph(self.mk({})).available())
+
+    def test_its_coverage_names_the_languages_it_parses(self):
+        from graph_ops import CodeGraph
+        cov = CodeGraph(self.mk({})).coverage()
+        self.assertEqual(set(cov.languages),
+                         {'typescript', 'javascript', 'python', 'go'})
+        self.assertIn('.tsx', cov.extensions)
+        self.assertIn('imports', cov.relations)
+
+    def test_it_declares_only_the_relations_it_actually_emits(self):
+        """It resolves imports. It does not do symbols, so it must not claim calls."""
+        from graph_ops import CodeGraph
+        cov = CodeGraph(self.mk({})).coverage()
+        self.assertNotIn('calls', cov.relations)
+        self.assertNotIn('inherits', cov.relations)
+
+    def test_a_built_graph_validates_against_the_contract(self):
+        g = self.graph_of({
+            'src/a.ts': "import { b } from './b'\n",
+            'src/b.ts': 'export const b = 1\n',
+        })
+        self.assertEqual(validate_graph(g.graph), [])
+
+    def test_a_built_graph_carries_its_substrate_block(self):
+        g = self.graph_of({'src/a.ts': 'export const a = 1\n'})
+        substrate = g.graph['substrate']
+        self.assertEqual(substrate['backend'], 'homegrown')
+        self.assertIsNotNone(Coverage.from_dict(substrate['coverage']))
+
+    def test_the_substrate_block_survives_a_write_and_reload(self):
+        from graph_ops import CodeGraph
+        d = self.mk({'src/a.ts': 'export const a = 1\n'})
+        CodeGraph(d).build(non_interactive=True)
+        reloaded = CodeGraph(d).load()
+        self.assertEqual(reloaded['substrate']['backend'], 'homegrown')
+
+    def test_blind_spots_distinguish_an_empty_repo_from_a_blind_backend(self):
+        """The question freya could not answer, and why a Java repo read as greenfield."""
+        g = self.graph_of({
+            'src/a.ts': 'export const a = 1\n',
+            'Main.java': 'class Main {}\n',
+            'Other.java': 'class Other {}\n',
+        })
+        summary = summarise_coverage(g.graph, ['src/a.ts', 'Main.java', 'Other.java'])
+        self.assertEqual(summary['blind_spots'], {'.java': 2})
+        self.assertEqual(summary['backend'], 'homegrown')
+
+    def test_exclusions_are_an_input_the_caller_can_supply(self):
+        """Obligation 6: `vendor/ is not mine` is a project fact, not a backend opinion."""
+        from graph_ops import CodeGraph
+        d = self.mk({
+            'src/a.ts': 'export const a = 1\n',
+            'thirdparty/b.ts': 'export const b = 1\n',
+        })
+        g = CodeGraph(d)
+        g.build(non_interactive=True, exclusions=Exclusions(directories=['thirdparty']))
+        self.assertEqual(set(g.graph['files']), {'src/a.ts'})
+
+    def test_the_exclusions_it_used_are_recorded_in_the_graph(self):
+        from graph_ops import CodeGraph
+        d = self.mk({'src/a.ts': 'export const a = 1\n'})
+        g = CodeGraph(d)
+        g.build(non_interactive=True, exclusions=Exclusions(directories=['vendor']))
+        self.assertIn('vendor', g.graph['substrate']['exclusions']['directories'])
+
+
+class TestPerBackendArtifacts(unittest.TestCase):
+    """CD-17. A substrate swap has to be diffable, so the previous graph must survive it."""
+
+    def mk(self, files):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        for rel, content in files.items():
+            p = Path(d) / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(content, encoding='utf-8')
+        return d
+
+    def test_a_build_writes_the_per_backend_artifact(self):
+        from graph_ops import CodeGraph
+        d = self.mk({'src/a.ts': 'export const a = 1\n'})
+        CodeGraph(d).build(non_interactive=True)
+        self.assertTrue((Path(d) / 'knowledge-base' / '.graph' / 'graph.homegrown.json').exists())
+
+    def test_graph_json_remains_the_active_graph(self):
+        """Three other skills read graph.json directly; Phase 1 changes nothing for them."""
+        from graph_ops import CodeGraph
+        d = self.mk({'src/a.ts': 'export const a = 1\n'})
+        CodeGraph(d).build(non_interactive=True)
+        gdir = Path(d) / 'knowledge-base' / '.graph'
+        active = json.loads((gdir / 'graph.json').read_text(encoding='utf-8'))
+        per_backend = json.loads((gdir / 'graph.homegrown.json').read_text(encoding='utf-8'))
+        self.assertEqual(active['files'], per_backend['files'])
+
+    def test_the_per_backend_artifact_is_gitignored(self):
+        from graph_ops import CodeGraph
+        d = self.mk({'src/a.ts': 'export const a = 1\n'})
+        CodeGraph(d).build(non_interactive=True)
+        gi = (Path(d) / 'knowledge-base' / '.graph' / '.gitignore').read_text(encoding='utf-8')
+        self.assertIn('graph.*.json', gi)
+
+    def test_behavior_json_is_still_not_ignored(self):
+        """ADR-017: it is the one artifact that cannot be rebuilt from source."""
+        from graph_ops import CodeGraph
+        d = self.mk({'src/a.ts': 'export const a = 1\n'})
+        CodeGraph(d).build(non_interactive=True)
+        gi = (Path(d) / 'knowledge-base' / '.graph' / '.gitignore').read_text(encoding='utf-8')
+        self.assertNotIn('behavior.json\n', gi.replace('# behavior.json', ''))
+
+
+class TestIncrementalUpdateHonoursTheContract(unittest.TestCase):
+    """`--update` is the steady-state command, so the contract has to hold on it too.
+
+    It re-parsed whatever `git diff` named and wrote it straight into the graph, consulting
+    neither the exclusion rules nor the classifications — so a single commit touching an
+    ignored tree quietly re-admitted files `--build` had excluded, and the substrate block
+    disappeared on the first incremental run after a build.
+    """
+
+    def repo(self, files):
+        import subprocess
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        for rel, content in files.items():
+            p = Path(d) / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(content, encoding='utf-8')
+        env = dict(os.environ, GIT_AUTHOR_NAME='t', GIT_AUTHOR_EMAIL='t@t',
+                   GIT_COMMITTER_NAME='t', GIT_COMMITTER_EMAIL='t@t')
+        for cmd in (['init', '-q'], ['add', '-A'], ['commit', '-qm', 'one']):
+            subprocess.run(['git'] + cmd, cwd=d, env=env, check=True,
+                           capture_output=True)
+        return d, env
+
+    def commit(self, d, env, rel, content):
+        import subprocess
+        p = Path(d) / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(content, encoding='utf-8')
+        subprocess.run(['git', 'add', '-A'], cwd=d, env=env, check=True, capture_output=True)
+        subprocess.run(['git', 'commit', '-qm', 'two'], cwd=d, env=env, check=True,
+                       capture_output=True)
+
+    def test_update_keeps_the_substrate_block(self):
+        from graph_ops import CodeGraph
+        d, env = self.repo({'src/a.ts': 'export const a = 1\n'})
+        CodeGraph(d).build(non_interactive=True)
+        self.commit(d, env, 'src/b.ts', 'export const b = 1\n')
+        g = CodeGraph(d)
+        g.update(non_interactive=True)
+        self.assertEqual(g.graph['substrate']['backend'], 'homegrown')
+        self.assertEqual(validate_graph(g.graph), [])
+
+    def test_update_does_not_re_admit_an_excluded_file(self):
+        from graph_ops import CodeGraph
+        d, env = self.repo({
+            '.gitignore': 'ignored/\n',
+            'src/a.ts': 'export const a = 1\n',
+        })
+        CodeGraph(d).build(non_interactive=True)
+        # -f because the tree is gitignored; the point is that a commit touching it must
+        # still not put it in the graph.
+        import subprocess
+        p = Path(d) / 'ignored' / 'x.ts'
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text('export const x = 1\n', encoding='utf-8')
+        subprocess.run(['git', 'add', '-f', '-A'], cwd=d, env=env, check=True,
+                       capture_output=True)
+        subprocess.run(['git', 'commit', '-qm', 'two'], cwd=d, env=env, check=True,
+                       capture_output=True)
+        g = CodeGraph(d)
+        g.update(non_interactive=True)
+        self.assertNotIn('ignored/x.ts', g.graph['files'])
+
+    def test_update_refreshes_the_per_backend_artifact(self):
+        from graph_ops import CodeGraph
+        d, env = self.repo({'src/a.ts': 'export const a = 1\n'})
+        CodeGraph(d).build(non_interactive=True)
+        self.commit(d, env, 'src/b.ts', 'export const b = 1\n')
+        CodeGraph(d).update(non_interactive=True)
+        per_backend = json.loads(
+            (Path(d) / 'knowledge-base' / '.graph' / 'graph.homegrown.json')
+            .read_text(encoding='utf-8'))
+        self.assertIn('src/b.ts', per_backend['files'])
+
+
+class _FakeBackend:
+    """A stand-in second backend.
+
+    An interface with one implementation is fiction (spec §2.2), and Phase 2's graphify does
+    not exist yet — so selection is proved against something that is not the incumbent.
+    """
+
+    def __init__(self, name='graphify', available=True, extensions=('.java', '.kt', '.ts')):
+        self.name = name
+        self._available = available
+        self._extensions = extensions
+
+    def coverage(self):
+        return Coverage(['java', 'kotlin', 'typescript'], self._extensions, ['imports'], True)
+
+    def available(self):
+        return self._available
+
+    def build(self, exclusions=None, non_interactive=False):
+        return {}
+
+    def update(self, exclusions=None, non_interactive=False):
+        return {}
+
+
+class TestBackendSelection(unittest.TestCase):
+    """CD-15, and spec §2.2's rule that selection is never silent."""
+
+    def mk(self, settings_json=None):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        if settings_json is not None:
+            kb = Path(d) / 'knowledge-base'
+            kb.mkdir(parents=True, exist_ok=True)
+            (kb / 'settings.json').write_text(settings_json, encoding='utf-8')
+        return d
+
+    def registry(self, **extra):
+        import graph_ops
+        reg = {'homegrown': lambda p: graph_ops.CodeGraph(p)}
+        reg.update(extra)
+        return reg
+
+    def test_default_is_the_floor_when_nothing_else_is_registered(self):
+        import backends
+        sel = backends.select(self.mk(), registry=self.registry())
+        self.assertEqual(sel.backend.name, 'homegrown')
+        self.assertFalse(sel.degraded)
+
+    def test_a_named_backend_is_honoured(self):
+        import backends
+        d = self.mk('{"substrate": {"backend": "graphify"}}')
+        sel = backends.select(d, registry=self.registry(graphify=lambda p: _FakeBackend()))
+        self.assertEqual(sel.backend.name, 'graphify')
+        self.assertFalse(sel.degraded)
+
+    def test_an_unavailable_backend_degrades_to_the_floor_and_says_so(self):
+        import backends
+        d = self.mk('{"substrate": {"backend": "graphify"}}')
+        sel = backends.select(
+            d, registry=self.registry(graphify=lambda p: _FakeBackend(available=False)))
+        self.assertEqual(sel.backend.name, 'homegrown')
+        self.assertTrue(sel.degraded)
+        self.assertEqual(sel.degraded_from, 'graphify')
+        self.assertIn('graphify', sel.describe())
+
+    def test_an_unknown_backend_degrades_rather_than_failing_the_run(self):
+        import backends
+        d = self.mk('{"substrate": {"backend": "nonesuch"}}')
+        sel = backends.select(d, registry=self.registry())
+        self.assertEqual(sel.backend.name, 'homegrown')
+        self.assertEqual(sel.degraded_from, 'nonesuch')
+
+    def test_degradation_reaches_the_graph_metadata(self):
+        """A thin graph must never be mistaken for a thin repo."""
+        import backends
+        d = self.mk('{"substrate": {"backend": "graphify"}}')
+        sel = backends.select(
+            d, registry=self.registry(graphify=lambda p: _FakeBackend(available=False)))
+        meta = sel.metadata()
+        self.assertEqual(meta['degraded_from'], 'graphify')
+        self.assertTrue(meta['degraded_reason'])
+
+    def test_auto_prefers_whichever_backend_reads_more_of_this_repo(self):
+        import backends
+        d = self.mk()  # no settings file at all -> auto
+        sel = backends.select(
+            d, present_extensions={'.java': 40, '.ts': 2},
+            registry=self.registry(graphify=lambda p: _FakeBackend()))
+        self.assertEqual(sel.backend.name, 'graphify')
+
+    def test_auto_keeps_the_floor_when_it_reads_just_as_much(self):
+        """Predictability: a tie must not depend on registration order."""
+        import backends
+        d = self.mk()
+        sel = backends.select(
+            d, present_extensions={'.ts': 10},
+            registry=self.registry(graphify=lambda p: _FakeBackend(extensions=('.ts',))))
+        self.assertEqual(sel.backend.name, 'homegrown')
+
+    def test_a_backend_that_explodes_on_construction_is_simply_unavailable(self):
+        import backends
+
+        def boom(_):
+            raise RuntimeError('bad install')
+
+        sel = backends.select(self.mk('{"substrate": {"backend": "graphify"}}'),
+                              registry=self.registry(graphify=boom))
+        self.assertEqual(sel.backend.name, 'homegrown')
+        self.assertTrue(sel.degraded)
+
+    def test_settings_warnings_are_carried_to_the_caller(self):
+        import backends
+        sel = backends.select(self.mk('{not json'), registry=self.registry())
+        self.assertTrue(sel.warnings)
+
+    def test_the_extension_census_skips_dependency_trees(self):
+        import backends
+        d = self.mk()
+        for rel in ('src/a.ts', 'src/b.ts', 'node_modules/pkg/c.ts', 'Main.java'):
+            p = Path(d) / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text('x', encoding='utf-8')
+        census = backends.extension_census(d)
+        self.assertEqual(census.get('.ts'), 2)
+        self.assertEqual(census.get('.java'), 1)
+
+
+class TestTheTwoCacheGitignoreWritersAgree(unittest.TestCase):
+    """`code-graph` and `behavior-graph` both write `.graph/.gitignore`.
+
+    Whichever runs first wins, so if their content differs the file depends on run order —
+    and one of them would keep rewriting the other's. The comment in each says they are kept
+    identical; nothing checked it, and they had already drifted by the time this was written.
+    """
+
+    def _other(self):
+        here = os.path.dirname(os.path.abspath(__file__))
+        path = os.path.normpath(os.path.join(
+            here, '..', '..', 'freya-behavior-graph', 'scripts', 'behavior_graph.py'))
+        sys.path.insert(0, os.path.dirname(path))
+        import behavior_graph  # noqa: E402
+        return behavior_graph
+
+    def test_the_produced_file_content_is_identical(self):
+        import graph_ops
+        self.assertEqual(graph_ops.CACHE_GITIGNORE, self._other().CACHE_GITIGNORE)
+
+    def test_the_ignored_names_are_identical(self):
+        import graph_ops
+        self.assertEqual(graph_ops.CACHE_IGNORED, self._other().CACHE_IGNORED)
+
+    def test_behavior_json_is_ignored_by_neither(self):
+        """ADR-017, asserted against the actual string rather than the intent."""
+        import graph_ops
+        for name in graph_ops.CACHE_IGNORED:
+            self.assertNotEqual(name, 'behavior.json')
+        body = [ln for ln in graph_ops.CACHE_GITIGNORE.splitlines()
+                if ln.strip() and not ln.startswith('#')]
+        self.assertNotIn('behavior.json', body)
+        self.assertNotIn('*', body)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

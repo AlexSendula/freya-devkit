@@ -144,17 +144,21 @@ class TestGraphCacheIgnored(Base):
 
     def test_graph_dir_ignores_the_regenerable_files_by_name(self):
         """The cache writes its own .gitignore so it is never committed (F8) — but
-        it names the two regenerable files rather than using a blanket `*`.
+        it names the regenerable files rather than using a blanket `*`.
 
         F8 predates behavior.json. A `*` written for a directory holding only a
         parse cache later swept up behavior.json, whose observed coverage comes
         from running the test suite and cannot be rebuilt from source.
+
+        `graph.*.json` covers the per-backend artifacts (CD-17), which are as
+        regenerable as graph.json and must not turn the cache back into a `*`.
         """
         proj = self.mk({"src/b.ts": "export const b = 1\n"})
         CodeGraph(proj).build()
         gi = Path(proj) / "knowledge-base" / ".graph" / ".gitignore"
         self.assertTrue(gi.exists(), ".graph/.gitignore not written")
-        self.assertEqual(self._lines(gi), ["graph.json", "classifications.json"])
+        self.assertEqual(self._lines(gi),
+                         ["graph.json", "graph.*.json", "classifications.json"])
 
     def test_upgrades_a_legacy_blanket_ignore(self):
         """An already-onboarded project carries `*`; the build must upgrade it."""
@@ -167,7 +171,7 @@ class TestGraphCacheIgnored(Base):
         # and build() would otherwise prompt on stdin (F6).
         CodeGraph(proj).build(non_interactive=True)
         self.assertEqual(self._lines(gdir / ".gitignore"),
-                         ["graph.json", "classifications.json"])
+                         ["graph.json", "graph.*.json", "classifications.json"])
 
     def test_leaves_a_customised_gitignore_alone(self):
         proj = self.mk({"src/b.ts": "export const b = 1\n"})

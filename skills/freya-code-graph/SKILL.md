@@ -39,14 +39,72 @@ A lightweight dependency graph skill that tracks import/export relationships in 
 
 The dependency graph and classifications are stored in the project at:
 ```
-knowledge-base/.graph/
-├── graph.json           # Dependency graph
-└── classifications.json # Directory classifications (source/exclude)
+knowledge-base/
+├── settings.json             # Project settings — committed, see below
+└── .graph/                   # Generated cache — self-ignoring
+    ├── graph.json            # The active dependency graph
+    ├── graph.homegrown.json  # Per-backend copy (one per substrate)
+    └── classifications.json  # Directory classifications (source/exclude)
 ```
 
-This keeps the graph version-controlled alongside the code and in sync with branch changes.
+`.graph/` writes its own `.gitignore` naming the regenerable files, so the cache is never
+committed. It names them individually rather than using `*` because `behavior.json` also lives
+there and **is** committed — its coverage comes from running the test suite and cannot be
+rebuilt from source (ADR-017).
 
-**Note:** Add `knowledge-base/.graph/` to `.gitignore` if you don't want to commit the generated graph.
+**Why two copies of the graph.** `graph.json` is the active one, read by docs-manager,
+spec-manager and behavior-graph. `graph.<backend>.json` is written alongside it so switching
+substrates does not destroy the graph you would want to diff the new one against.
+
+### Project Settings
+
+Optional. Absent, everything below is the default.
+
+```json
+{
+  "substrate": {
+    "backend": "auto"
+  }
+}
+```
+
+`auto` picks whichever installed backend can read the most of the repo, preferring the built-in
+one on a tie. Naming a backend that is not installed does not fail the build — it falls back,
+and says so on stderr:
+
+```
+code-graph: 'graphify' unavailable (not installed) — using 'homegrown' instead, with reduced coverage
+```
+
+The file is committed, so a clone gets the same backend. It sits in `knowledge-base/` rather
+than the project root, and outside `.graph/` because that is regenerable cache and `--clear`
+would take a real decision with it.
+
+### Backends
+
+The graph is produced by a **substrate backend** behind a fixed contract
+(`scripts/substrate.py`). One ships today:
+
+| Backend | Languages | Requires |
+|---|---|---|
+| `homegrown` | TypeScript, JavaScript, Python, Go | nothing — stdlib only |
+
+Every graph records which backend built it and what that backend can read:
+
+```json
+"substrate": {
+  "backend": "homegrown",
+  "coverage": {
+    "languages": ["go", "javascript", "python", "typescript"],
+    "extensions": [".go", ".js", ".jsx", ".py", ".ts", ".tsx"],
+    "relations": ["imports"],
+    "incremental": true
+  }
+}
+```
+
+That block is what lets a caller tell **"this repo has no dependencies"** from **"this backend
+cannot read Java"** — the distinction that made a Java repo read as greenfield.
 
 ### Classifications File Structure
 
@@ -77,19 +135,30 @@ This keeps the graph version-controlled alongside the code and in sync with bran
   "commit": "abc123",
   "timestamp": "2024-01-15T10:30:00Z",
   "project_root": "/path/to/project",
+  "substrate": {
+    "backend": "homegrown",
+    "coverage": { "languages": ["typescript"], "extensions": [".ts", ".tsx"],
+                  "relations": ["imports"], "incremental": true },
+    "schema": 1
+  },
   "files": {
     "src/lib/auth/validateToken.ts": {
       "exports": ["validateToken", "TokenPayload"],
-      "imports": ["jsonwebtoken", "./config"],
+      "imports": ["external:jsonwebtoken", "src/lib/auth/config.ts"],
       "dependents": [
         "src/api/middleware/auth.ts",
         "src/api/routes/users.ts"
       ],
-      "category": "auth"
+      "language": "typescript"
     }
   }
 }
 ```
+
+Every import specifier is one of three things: a project-relative path (a real edge),
+`external:<pkg>` (third-party), or `unresolved:<raw>` (meant something in this project and
+could not be found). The third is never dropped — a silently-empty answer is worse than an
+honest gap.
 
 ### Import Parsing
 

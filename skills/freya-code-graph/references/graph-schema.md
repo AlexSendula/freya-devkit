@@ -38,6 +38,29 @@ The graph is stored inside the project under `knowledge-base/` so it stays versi
       "type": "string",
       "description": "Absolute path to the project root directory"
     },
+    "substrate": {
+      "type": "object",
+      "description": "Which backend produced this graph and what it can read (Track B Phase 1)",
+      "required": ["backend", "coverage"],
+      "properties": {
+        "backend": { "type": "string", "description": "Backend name, e.g. homegrown" },
+        "coverage": {
+          "type": "object",
+          "properties": {
+            "languages":  { "type": "array", "items": { "type": "string" } },
+            "extensions": { "type": "array", "items": { "type": "string" } },
+            "relations":  { "type": "array", "items": { "type": "string" },
+                            "description": "Edge kinds this backend emits" },
+            "incremental": { "type": "boolean",
+                             "description": "False means the contract forces a full rebuild" }
+          }
+        },
+        "degraded_from": {
+          "type": "string",
+          "description": "Present only when the configured backend was unavailable and this is a fallback"
+        }
+      }
+    },
     "files": {
       "type": "object",
       "additionalProperties": {
@@ -152,7 +175,23 @@ The graph is stored inside the project under `knowledge-base/` so it stays versi
 | `commit` | string | No | Git commit hash (null if not in git repo) |
 | `timestamp` | string | Yes | ISO 8601 timestamp of graph creation |
 | `project_root` | string | Yes | Absolute path to project directory |
+| `substrate` | object | Yes | Which backend built this and what it can read |
 | `files` | object | Yes | Map of file paths to FileInfo objects |
+
+### The `substrate` block
+
+Added in Track B Phase 1. It is what lets a caller distinguish **"this repo has no
+dependencies"** from **"this backend cannot read Java"** — the confusion that made a Java repo
+classify as greenfield.
+
+| Field | Description |
+|---|---|
+| `backend` | Name of the backend that produced the graph, e.g. `homegrown` |
+| `coverage.languages` / `.extensions` | What it parsed. Anything on disk outside this is a blind spot, not an absence |
+| `coverage.relations` | Edge kinds it emits. `homegrown` claims only `imports`; it has no notion of a symbol, so it must not claim `calls` |
+| `coverage.incremental` | `false` means the backend cannot reliably drop deleted nodes, and the contract rebuilds from scratch instead |
+| `degraded_from` | Present **only** on a fallback: the backend that was configured but unavailable |
+| `exclusions` | What the project declared out of scope for this build |
 
 ### FileInfo Fields
 
@@ -202,6 +241,41 @@ Project-absolute imports (with path alias) are resolved when possible:
 import { auth } from '@/lib/auth';
 // Resolved to: src/lib/auth.ts
 ```
+
+### Workspace Imports
+
+In an npm/yarn/pnpm monorepo, a sibling package is resolved to the file it actually names,
+not treated as a third-party dependency:
+
+```typescript
+// In apps/mobile/src/App.tsx, with workspaces ["packages/*", "apps/*"]
+import { extract } from '@acme/domain';
+// Resolved to: packages/domain/src/index.ts   (via that package's `main`)
+```
+
+Membership is read from `package.json#workspaces` (list or `{ "packages": [...] }`) and from
+a top-level `packages:` block in `pnpm-workspace.yaml`. A bare package name honours `main` then
+falls back to index resolution; a subpath resolves inside the package.
+
+A specifier that names a workspace package but does not resolve is `unresolved:`, not
+`external:` — it could only ever have meant something in this repo.
+
+### Python Imports
+
+Python module syntax is not a filesystem path, so it is resolved with Python's own rules:
+
+```python
+import behavior_graph          # a sibling module -> skills/x/scripts/behavior_graph.py
+from .adapters import parse    # explicit relative, anchored to the containing package
+from myapp.core import db      # src-layout, when a packaging manifest declares one
+```
+
+A file inside a package (its directory has `__init__.py`) does **not** search its own
+directory: Python 3 removed implicit relative imports, so `import logging` there is absolute
+and must not bind a sibling `logging.py`.
+
+Still missed, and tracked in the backlog: `from . import x`, `import a, b`, and indented
+imports.
 
 ### Unresolved Imports
 
