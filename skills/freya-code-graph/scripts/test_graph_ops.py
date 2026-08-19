@@ -448,6 +448,168 @@ class TestStaleRuleClassificationsAreRefreshed(Base):
         self.assertIn("rules_version", self._classifications(proj))
 
 
+class TestDeadCategoryFieldIsGone(Base):
+    """CD-12. `category` was written on every file and read by nothing.
+
+    Three unrelated things in this repo are called "category"; the other two — security
+    findings and spec contexts — are live and untouched. This one guessed a label from the
+    file path, stored it in every entry, and no caller ever looked.
+    """
+
+    def test_no_file_entry_carries_a_category(self):
+        proj = self.mk({
+            "src/auth/login.ts": "export const l = 1\n",
+            "src/api/route.ts": "export const r = 1\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        for path, info in g.graph["files"].items():
+            self.assertNotIn("category", info, path)
+
+    def test_a_cache_written_with_category_still_loads(self):
+        """Existing graphs carry it; reading one must not break."""
+        legacy = {
+            "version": 1,
+            "files": {"src/a.ts": {"exports": [], "imports": [], "dependents": [],
+                                   "category": "auth", "language": "typescript"}},
+        }
+        proj = self.mk({"knowledge-base/.graph/graph.json": json.dumps(legacy)})
+        loaded = CodeGraph(proj).load()
+        self.assertIn("src/a.ts", loaded["files"])
+
+
+class TestWorkspaceResolution(Base):
+    """A monorepo's cross-package import is the architectural edge, not a third-party one.
+
+    Measured before this landed: `apps/mobile` importing `@acme/domain` resolved to
+    `external:@acme/domain` — the toolkit reporting the most important relationship in the
+    repo as an npm dependency. CD-18.
+    """
+
+    WS_ROOT = '{"name":"root","private":true,"workspaces":["packages/*","apps/*"]}'
+
+    def test_a_cross_package_import_is_internal(self):
+        proj = self.mk({
+            "package.json": self.WS_ROOT,
+            "packages/domain/package.json": '{"name":"@acme/domain","main":"src/index.ts"}',
+            "packages/domain/src/index.ts": "export const extract = () => 1\n",
+            "apps/mobile/package.json": '{"name":"@acme/mobile"}',
+            "apps/mobile/src/App.tsx": "import { extract } from '@acme/domain'\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        self.assertIn("packages/domain/src/index.ts",
+                      g.query("apps/mobile/src/App.tsx")["imports"])
+
+    def test_the_dependency_gains_a_dependent(self):
+        """The blast-radius consequence, which is the reason this matters."""
+        proj = self.mk({
+            "package.json": self.WS_ROOT,
+            "packages/domain/package.json": '{"name":"@acme/domain","main":"src/index.ts"}',
+            "packages/domain/src/index.ts": "export const extract = () => 1\n",
+            "apps/mobile/package.json": '{"name":"@acme/mobile"}',
+            "apps/mobile/src/App.tsx": "import { extract } from '@acme/domain'\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        self.assertIn("apps/mobile/src/App.tsx",
+                      g.get_dependents("packages/domain/src/index.ts"))
+
+    def test_a_subpath_import_resolves_inside_the_package(self):
+        proj = self.mk({
+            "package.json": self.WS_ROOT,
+            "packages/domain/package.json": '{"name":"@acme/domain"}',
+            "packages/domain/src/dates.ts": "export const fmt = () => 1\n",
+            "apps/mobile/package.json": '{"name":"@acme/mobile"}',
+            "apps/mobile/src/App.tsx": "import { fmt } from '@acme/domain/src/dates'\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        self.assertIn("packages/domain/src/dates.ts",
+                      g.query("apps/mobile/src/App.tsx")["imports"])
+
+    def test_a_package_without_main_falls_back_to_an_index(self):
+        proj = self.mk({
+            "package.json": self.WS_ROOT,
+            "packages/ui/package.json": '{"name":"@acme/ui"}',
+            "packages/ui/index.ts": "export const Button = 1\n",
+            "apps/mobile/package.json": '{"name":"@acme/mobile"}',
+            "apps/mobile/src/App.tsx": "import { Button } from '@acme/ui'\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        self.assertIn("packages/ui/index.ts", g.query("apps/mobile/src/App.tsx")["imports"])
+
+    def test_the_yarn_object_form_is_read(self):
+        proj = self.mk({
+            "package.json": '{"name":"root","workspaces":{"packages":["libs/*"]}}',
+            "libs/core/package.json": '{"name":"@x/core","main":"index.js"}',
+            "libs/core/index.js": "module.exports = 1\n",
+            "libs/app/package.json": '{"name":"@x/app"}',
+            "libs/app/main.js": "const c = require('@x/core')\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        self.assertIn("libs/core/index.js", g.query("libs/app/main.js")["imports"])
+
+    def test_a_pnpm_workspace_file_is_read(self):
+        proj = self.mk({
+            "package.json": '{"name":"root"}',
+            "pnpm-workspace.yaml": "packages:\n  - 'packages/*'\n",
+            "packages/domain/package.json": '{"name":"@acme/domain","main":"src/index.ts"}',
+            "packages/domain/src/index.ts": "export const e = 1\n",
+            "packages/app/package.json": '{"name":"@acme/app"}',
+            "packages/app/main.ts": "import { e } from '@acme/domain'\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        self.assertIn("packages/domain/src/index.ts", g.query("packages/app/main.ts")["imports"])
+
+    def test_a_pnpm_file_without_a_packages_key_is_not_a_workspace_root(self):
+        """The testbed has exactly this: pnpm-workspace.yaml holding only build settings."""
+        proj = self.mk({
+            "package.json": '{"name":"solo"}',
+            "pnpm-workspace.yaml": "onlyBuiltDependencies:\n  - better-sqlite3\n",
+            "src/a.ts": "import React from 'react'\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        self.assertIn("external:react", g.query("src/a.ts")["imports"])
+
+    def test_a_real_npm_package_is_still_external(self):
+        proj = self.mk({
+            "package.json": self.WS_ROOT,
+            "packages/domain/package.json": '{"name":"@acme/domain","main":"src/index.ts"}',
+            "packages/domain/src/index.ts": "import React from 'react'\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        self.assertIn("external:react", g.query("packages/domain/src/index.ts")["imports"])
+
+    def test_a_non_workspace_repo_is_unaffected(self):
+        proj = self.mk({
+            "package.json": '{"name":"solo"}',
+            "src/a.ts": "import { b } from '@scope/thing'\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        self.assertIn("external:@scope/thing", g.query("src/a.ts")["imports"])
+
+    def test_a_missing_workspace_target_is_unresolved_not_external(self):
+        """It names a package this repo owns, so a failure is a gap, not a third party."""
+        proj = self.mk({
+            "package.json": self.WS_ROOT,
+            "packages/domain/package.json": '{"name":"@acme/domain","main":"src/index.ts"}',
+            "packages/domain/src/index.ts": "export const e = 1\n",
+            "apps/mobile/package.json": '{"name":"@acme/mobile"}',
+            "apps/mobile/src/App.tsx": "import { x } from '@acme/domain/src/missing'\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        imports = g.query("apps/mobile/src/App.tsx")["imports"]
+        self.assertIn("unresolved:@acme/domain/src/missing", imports)
+
+
 class TestNestedClassificationVerdicts(Base):
     """A per-project verdict must be honoured wherever it sits.
 

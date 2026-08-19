@@ -34,17 +34,10 @@ FILE_PATTERNS = {
     'go': ['**/*.go'],
 }
 
-# Category patterns
-CATEGORY_PATTERNS = {
-    'auth': ['**/auth/**', '**/middleware/auth*', '**/authentication/**'],
-    'api': ['**/api/**', '**/routes/**', '**/controllers/**', '**/handlers/**'],
-    'data': ['**/models/**', '**/schema/**', '**/db/**', '**/entities/**'],
-    'ui': ['**/components/**', '**/pages/**', '**/views/**', '**/screens/**'],
-    'infra': ['**/infra/**', '**/deploy/**', '**/infrastructure/**'],
-    'util': ['**/utils/**', '**/lib/**', '**/helpers/**', '**/common/**'],
-    'config': ['**/*.config.*', '**/config/**'],
-    'test': ['**/*.test.*', '**/*.spec.*', '**/__tests__/**', '**/test/**', '**/tests/**'],
-}
+# `CATEGORY_PATTERNS` and `_categorize_file` lived here until 2026-08-19. Every file entry
+# carried a path-guessed `category` that no caller ever read — three unrelated things in
+# this repo are called "category", and the live two are security findings and spec
+# contexts. Removed under CD-12; existing caches keep the key harmlessly.
 
 # Import patterns by language
 IMPORT_PATTERNS = {
@@ -335,6 +328,8 @@ class CodeGraph:
         # not serve one's listing to the other, and a build is short enough that staleness
         # within a single run is not a concern.
         self._dir_listing_cache: Dict[Path, Any] = {}
+        # workspace package name -> directory; None until the manifests are read once
+        self._workspace_cache: Optional[Dict[str, Path]] = None
 
     def _ensure_graph_dir(self) -> None:
         """Create the graph cache dir and write its `.gitignore` (F8).
@@ -395,16 +390,6 @@ class CodeGraph:
             '.go': 'go',
         }
         return mapping.get(ext)
-
-    def _categorize_file(self, file_path: str) -> str:
-        """Infer category from file path."""
-        from fnmatch import fnmatch
-
-        for category, patterns in CATEGORY_PATTERNS.items():
-            for pattern in patterns:
-                if fnmatch(file_path, pattern):
-                    return category
-        return 'unknown'
 
     # -------------------------------------------------------------------------
     # Import resolution: relative (cwd-independent) + tsconfig/jsconfig aliases
@@ -522,6 +507,130 @@ class CodeGraph:
             if self._is_real_file(candidate):
                 return normalize_key(rel)
         return None
+
+    def _load_workspace_packages(self) -> Dict[str, Path]:
+        """Map each workspace package name to its directory. Empty if not a monorepo.
+
+        In a monorepo the cross-package import *is* the architecture — `apps/mobile` depending
+        on `packages/domain` is the relationship anyone asking for blast radius cares about.
+        Without this it resolves to `external:@scope/name`, indistinguishable from a dependency
+        on something off npm, and the graph quietly reports the repo as a set of unrelated
+        islands (CD-18).
+
+        npm and yarn declare membership in `package.json#workspaces`, as a list or under a
+        `packages` key. pnpm uses `pnpm-workspace.yaml`, read here with a deliberately narrow
+        line parser rather than a YAML dependency: only a top-level `packages:` block of
+        `- pattern` entries. Anything more elaborate is treated as "not a workspace root",
+        which costs edges rather than inventing them.
+        """
+        if self._workspace_cache is not None:
+            return self._workspace_cache
+
+        packages = {}  # type: Dict[str, Path]
+        globs = self._workspace_globs()
+        for pattern in globs:
+            pattern = pattern.strip().strip('"\'').rstrip('/')
+            if not pattern or pattern.startswith('!'):
+                continue
+            try:
+                candidates = sorted(self.project_dir.glob(pattern))
+            except (ValueError, OSError):
+                continue
+            for directory in candidates:
+                if not directory.is_dir():
+                    continue
+                manifest = directory / 'package.json'
+                if not manifest.is_file():
+                    continue
+                try:
+                    with open(manifest, encoding='utf-8') as handle:
+                        name = json.load(handle).get('name')
+                except (OSError, ValueError):
+                    continue
+                if isinstance(name, str) and name:
+                    packages.setdefault(name, directory)
+
+        self._workspace_cache = packages
+        return packages
+
+    def _workspace_globs(self) -> List[str]:
+        """The workspace patterns this repo declares, from whichever tool declares them."""
+        globs = []  # type: List[str]
+
+        manifest = self.project_dir / 'package.json'
+        if manifest.is_file():
+            try:
+                with open(manifest, encoding='utf-8') as handle:
+                    declared = json.load(handle).get('workspaces')
+            except (OSError, ValueError):
+                declared = None
+            if isinstance(declared, list):
+                globs.extend(str(p) for p in declared if isinstance(p, str))
+            elif isinstance(declared, dict):
+                # yarn's object form
+                entries = declared.get('packages')
+                if isinstance(entries, list):
+                    globs.extend(str(p) for p in entries if isinstance(p, str))
+
+        pnpm = self.project_dir / 'pnpm-workspace.yaml'
+        if pnpm.is_file():
+            try:
+                lines = pnpm.read_text(encoding='utf-8').splitlines()
+            except OSError:
+                lines = []
+            in_packages = False
+            for line in lines:
+                stripped = line.strip()
+                if not stripped or stripped.startswith('#'):
+                    continue
+                if not line[:1].isspace():
+                    # A new top-level key ends the block. The testbed's file declares only
+                    # `onlyBuiltDependencies`, so this is what stops it being read as a
+                    # workspace root.
+                    in_packages = stripped.startswith('packages:')
+                    continue
+                if in_packages and stripped.startswith('- '):
+                    globs.append(stripped[2:].strip())
+
+        return globs
+
+    def _resolve_workspace_import(self, import_path: str) -> Optional[str]:
+        """Resolve `@scope/pkg` or `@scope/pkg/sub/path` to a file, or None."""
+        packages = self._load_workspace_packages()
+        if not packages:
+            return None
+
+        # Longest name first: `@acme/domain-utils` must not be matched by `@acme/domain`.
+        for name in sorted(packages, key=len, reverse=True):
+            if import_path != name and not import_path.startswith(name + '/'):
+                continue
+            root = packages[name]
+            subpath = import_path[len(name):].lstrip('/')
+            if subpath:
+                return self._resolve_fs(root / subpath)
+            # A bare package name: honour `main`, then fall back to index resolution.
+            manifest = root / 'package.json'
+            try:
+                with open(manifest, encoding='utf-8') as handle:
+                    main = json.load(handle).get('main')
+            except (OSError, ValueError):
+                main = None
+            if isinstance(main, str) and main:
+                hit = self._resolve_fs(root / main)
+                if hit:
+                    return hit
+            return self._resolve_fs(root)
+        return None
+
+    def _names_a_workspace_package(self, import_path: str) -> bool:
+        """Does this specifier name a package this repo owns?
+
+        Separates a genuine gap from a third-party dependency: a failed `@acme/domain/...`
+        could only ever have meant something in this repo, so it is `unresolved:`, not
+        `external:`.
+        """
+        return any(import_path == name or import_path.startswith(name + '/')
+                   for name in self._load_workspace_packages())
 
     def _resolve_alias(self, import_path: str) -> Optional[str]:
         """Resolve a bare specifier via tsconfig/jsconfig `paths`, or None."""
@@ -687,6 +796,12 @@ class CodeGraph:
         if import_path.startswith('.') or import_path.startswith('/'):
             from_dir = (self.project_dir / from_file).parent
             return self._resolve_fs((from_dir / import_path).resolve())
+        # A workspace sibling looks exactly like a third-party package until you read the
+        # root manifest. Tried before aliases because a tsconfig `paths` entry that happens
+        # to collide should not shadow a real package in the same repo.
+        hit = self._resolve_workspace_import(import_path)
+        if hit:
+            return hit
         return self._resolve_alias(import_path)
 
     def _classify_import(self, import_path: str, from_file: str,
@@ -712,7 +827,9 @@ class CodeGraph:
         if language == 'python':
             return (f'unresolved:{import_path}' if import_path.startswith('.')
                     else f'external:{import_path}')
-        if import_path.startswith('.') or import_path.startswith('/') or self._matches_alias(import_path):
+        if (import_path.startswith('.') or import_path.startswith('/')
+                or self._matches_alias(import_path)
+                or self._names_a_workspace_package(import_path)):
             return f'unresolved:{import_path}'
         return f'external:{import_path}'
 
@@ -1430,7 +1547,6 @@ Respond with ONLY a JSON object, no markdown formatting:
             'exports': exports,
             'imports': resolved_imports,
             'dependents': [],
-            'category': self._categorize_file(rel_path),
             'language': language,
         }
 

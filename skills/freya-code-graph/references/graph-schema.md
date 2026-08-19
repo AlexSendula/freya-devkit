@@ -71,11 +71,6 @@ The graph is stored inside the project under `knowledge-base/` so it stays versi
           },
           "description": "List of files that import this file (reverse mapping of imports)"
         },
-        "category": {
-          "type": "string",
-          "enum": ["auth", "api", "data", "ui", "infra", "util", "config", "test", "unknown"],
-          "description": "Inferred category based on file path and content"
-        },
         "language": {
           "type": "string",
           "enum": ["typescript", "javascript", "python", "go"],
@@ -108,7 +103,6 @@ The graph is stored inside the project under `knowledge-base/` so it stays versi
         "src/api/routes/users.ts",
         "src/lib/auth/index.ts"
       ],
-      "category": "auth",
       "language": "typescript"
     },
     "src/lib/auth/config.ts": {
@@ -118,7 +112,6 @@ The graph is stored inside the project under `knowledge-base/` so it stays versi
         "src/lib/auth/validateToken.ts",
         "src/lib/auth/session.ts"
       ],
-      "category": "config",
       "language": "typescript"
     },
     "src/api/middleware/auth.ts": {
@@ -131,7 +124,6 @@ The graph is stored inside the project under `knowledge-base/` so it stays versi
         "src/api/routes/users.ts",
         "src/api/routes/admin.ts"
       ],
-      "category": "api",
       "language": "typescript"
     },
     "src/api/routes/users.ts": {
@@ -144,7 +136,6 @@ The graph is stored inside the project under `knowledge-base/` so it stays versi
       "dependents": [
         "src/app.ts"
       ],
-      "category": "api",
       "language": "typescript"
     }
   }
@@ -170,22 +161,16 @@ The graph is stored inside the project under `knowledge-base/` so it stays versi
 | `exports` | string[] | No | List of exported symbol names |
 | `imports` | string[] | Yes | List of imported module paths (resolved to project-relative) |
 | `dependents` | string[] | Yes | Files that import this file |
-| `category` | string | No | Inferred category |
 | `language` | string | No | Detected language |
 
-### Categories
+### `category` — removed 2026-08-19
 
-| Category | Description | Path Patterns |
-|----------|-------------|---------------|
-| `auth` | Authentication/authorization | `**/auth/**`, `**/middleware/auth*` |
-| `api` | API routes/handlers | `**/api/**`, `**/routes/**` |
-| `data` | Data models/schemas | `**/models/**`, `**/schema/**`, `**/db/**` |
-| `ui` | UI components | `**/components/**`, `**/pages/**` |
-| `infra` | Infrastructure/config | `**/infra/**`, `**/deploy/**` |
-| `util` | Utility functions | `**/utils/**`, `**/lib/**` |
-| `config` | Configuration files | `**/*.config.*`, `**/config/**` |
-| `test` | Test files | `**/*.test.*`, `**/*.spec.*`, `**/__tests__/**` |
-| `unknown` | Uncategorized | (default) |
+Every file entry used to carry a `category` (`auth`, `api`, `ui`, …) guessed from its path.
+Nothing ever read it: the two live things in this toolkit also called "category" are security
+findings and spec contexts, and neither comes from here.
+
+Caches written before the removal still contain the key. Readers ignore it, and it disappears
+on the next build. See CD-12 in the Track B decision register.
 
 ## Path Resolution
 
