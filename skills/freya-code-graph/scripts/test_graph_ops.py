@@ -300,5 +300,478 @@ class TestPathKeySeparators(Base):
         self.assertEqual(CodeGraph(proj).load(), clean)
 
 
+# =============================================================================
+# Resolver repairs — Track B Phase 0 findings (backlog item 9).
+#
+# The spike measured this resolver against its own repo and got 10 of 50 Python
+# files and 0 internal edges, reported as success. Each class below pins one of
+# the causes. They are written against a real project tree rather than a unit
+# seam deliberately: every one of these defects was invisible to the existing
+# suite precisely because nothing ran the resolver end to end.
+# =============================================================================
+
+
+class TestSourceBearingDirsAreNotExcludedByName(Base):
+    """`scripts/` holds build shell scripts in a web app and application code here.
+
+    Excluding it by name, at any depth, is what hid 40 of this repo's 51 Python
+    files. Generated and vendored trees must stay excluded.
+    """
+
+    def test_code_under_a_nested_scripts_dir_is_graphed(self):
+        proj = self.mk({
+            "skills/thing/scripts/mod_a.py": "import mod_b\n",
+            "skills/thing/scripts/mod_b.py": "x = 1\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        self.assertIn("skills/thing/scripts/mod_a.py", g.graph["files"])
+        self.assertIn("skills/thing/scripts/mod_b.py", g.graph["files"])
+
+    def test_code_under_a_top_level_scripts_dir_is_graphed(self):
+        proj = self.mk({"scripts/tool.ts": "export const z = 1\n"})
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        self.assertIn("scripts/tool.ts", g.graph["files"])
+
+    def test_a_top_level_convention_dir_is_still_excluded(self):
+        """At the root, `docs/` and `examples/` do mean what the convention says.
+
+        Measured: indexing this repo's own `docs/` pulled in the published site's
+        bundled JS and a spike's planted fixtures — noise in every blast radius.
+        """
+        proj = self.mk({
+            "src/a.ts": "export const a = 1\n",
+            "docs/site/bundle.js": "var b = 1\n",
+            "examples/demo.ts": "export const d = 1\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        self.assertEqual(set(g.graph["files"]), {"src/a.ts"})
+
+    def test_the_same_name_below_the_root_is_kept(self):
+        """Below the root the name promises nothing, so it is not evidence.
+
+        `app/api/media/generated/route.ts` in the testbed is a git-tracked Next.js
+        route that a depth-blind `generated` rule silently dropped.
+        """
+        proj = self.mk({
+            "app/api/media/generated/route.ts": "export const DELETE = 1\n",
+            "skills/thing/docs/build.py": "x = 1\n",
+            "packages/ui/examples/card.tsx": "export const C = 1\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        self.assertEqual(set(g.graph["files"]), {
+            "app/api/media/generated/route.ts",
+            "skills/thing/docs/build.py",
+            "packages/ui/examples/card.tsx",
+        })
+
+    def test_our_own_generated_output_is_still_excluded(self):
+        """`knowledge-base/` is freya's output. Graphing it would be self-reference."""
+        proj = self.mk({
+            "src/a.ts": "export const a = 1\n",
+            "knowledge-base/generated.ts": "export const g = 1\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        self.assertIn("src/a.ts", g.graph["files"])
+        self.assertNotIn("knowledge-base/generated.ts", g.graph["files"])
+
+    def test_build_and_dependency_trees_are_still_excluded(self):
+        proj = self.mk({
+            "src/a.ts": "export const a = 1\n",
+            "dist/bundle.js": "var x = 1\n",
+            "node_modules/pkg/index.js": "module.exports = {}\n",
+            "build/out.js": "var y = 1\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        self.assertEqual(set(g.graph["files"]), {"src/a.ts"})
+
+
+class TestStaleRuleClassificationsAreRefreshed(Base):
+    """A rule change has to reach projects that were already graphed.
+
+    `classifications.json` caches a verdict per directory and the builder skips any
+    directory already in it, so changing the rules only ever helped a fresh clone —
+    every existing user kept the old answer, and `--clear` does not delete the file.
+    Rule-derived verdicts are re-derivable and must follow the rules; a verdict the
+    user or the model made is a judgement and must survive.
+    """
+
+    def _classifications(self, proj):
+        p = Path(proj) / "knowledge-base" / ".graph" / "classifications.json"
+        return json.loads(p.read_text(encoding="utf-8"))
+
+    def _seed(self, proj, entries, version=None):
+        gdir = Path(proj) / "knowledge-base" / ".graph"
+        gdir.mkdir(parents=True, exist_ok=True)
+        payload = {"version": 1, "directories": entries}
+        if version is not None:
+            payload["rules_version"] = version
+        (gdir / "classifications.json").write_text(json.dumps(payload), encoding="utf-8")
+
+    def test_a_stale_rule_verdict_is_rediscarded_and_the_dir_is_graphed(self):
+        proj = self.mk({"scripts/tool.py": "x = 1\n"})
+        self._seed(proj, {
+            "scripts": {"type": "exclude", "confidence": 1.0, "source": "rule"},
+        }, version="something-old")
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        self.assertIn("scripts/tool.py", g.graph["files"])
+
+    def test_a_user_verdict_survives_a_rules_change(self):
+        proj = self.mk({"vendor_ish/tool.py": "x = 1\n"})
+        self._seed(proj, {
+            "vendor_ish": {"type": "exclude", "confidence": 1.0, "source": "user"},
+        }, version="something-old")
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        self.assertNotIn("vendor_ish/tool.py", g.graph["files"])
+        self.assertEqual(
+            self._classifications(proj)["directories"]["vendor_ish"]["source"], "user")
+
+    def test_an_ai_verdict_survives_a_rules_change(self):
+        proj = self.mk({"odd/tool.py": "x = 1\n"})
+        self._seed(proj, {
+            "odd": {"type": "exclude", "confidence": 0.8, "source": "ai"},
+        }, version="something-old")
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        self.assertNotIn("odd/tool.py", g.graph["files"])
+
+    def test_the_current_rules_version_is_recorded_so_the_next_change_propagates(self):
+        proj = self.mk({"src/a.py": "x = 1\n"})
+        CodeGraph(proj).build(non_interactive=True)
+        self.assertIn("rules_version", self._classifications(proj))
+
+
+class TestPythonImportResolution(Base):
+    """Python's own resolution rules, which the resolver did not implement.
+
+    A sibling module is the ordinary way freya's skills import each other, and it
+    was being reported as a third-party package — so the graph had no internal
+    edges at all even once the files were in it.
+    """
+
+    def test_sibling_module_import_is_internal(self):
+        proj = self.mk({
+            "pkg/mod_a.py": "import mod_b\n",
+            "pkg/mod_b.py": "x = 1\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        self.assertIn("pkg/mod_b.py", g.query("pkg/mod_a.py")["imports"])
+
+    def test_sibling_from_import_is_internal(self):
+        proj = self.mk({
+            "pkg/mod_a.py": "from mod_c import thing\n",
+            "pkg/mod_c.py": "thing = 1\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        self.assertIn("pkg/mod_c.py", g.query("pkg/mod_a.py")["imports"])
+
+    def test_explicit_relative_import_is_internal(self):
+        proj = self.mk({
+            "pkg/__init__.py": "",
+            "pkg/mod_a.py": "from .mod_d import other\n",
+            "pkg/mod_d.py": "other = 1\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        self.assertIn("pkg/mod_d.py", g.query("pkg/mod_a.py")["imports"])
+
+    def test_dotted_package_import_is_internal(self):
+        proj = self.mk({
+            "app/main.py": "from lib.helpers import fn\n",
+            "app/lib/__init__.py": "",
+            "app/lib/helpers.py": "def fn():\n    return 1\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        self.assertIn("app/lib/helpers.py", g.query("app/main.py")["imports"])
+
+    def test_stdlib_and_third_party_stay_external(self):
+        """The regression guard: resolving siblings must not swallow real packages."""
+        proj = self.mk({"pkg/mod_a.py": "import json\nimport requests\n"})
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        imports = g.query("pkg/mod_a.py")["imports"]
+        self.assertIn("external:json", imports)
+        self.assertIn("external:requests", imports)
+
+    def test_a_local_module_shadowing_a_stdlib_name_resolves_locally(self):
+        """If `json.py` sits next door, Python imports that. So must the graph."""
+        proj = self.mk({
+            "pkg/mod_a.py": "import json\n",
+            "pkg/json.py": "loads = None\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        self.assertIn("pkg/json.py", g.query("pkg/mod_a.py")["imports"])
+
+
+class TestPythonSourceRoots(Base):
+    """Which directories stand in for `sys.path`.
+
+    Modelling it as exactly (importing file's dir, project root) misses the layout
+    the PyPA recommends, and the miss is silent: `from myapp.core.db import X`
+    becomes `external:myapp.core.db`, which reads identically to `external:requests`.
+    """
+
+    def test_src_layout_resolves(self):
+        proj = self.mk({
+            "pyproject.toml": '[project]\nname = "myapp"\n',
+            "src/myapp/__init__.py": "",
+            "src/myapp/core/__init__.py": "",
+            "src/myapp/core/db.py": "WHO = 'db'\n",
+            "src/myapp/service.py": "from myapp.core.db import WHO\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        self.assertIn("src/myapp/core/db.py",
+                      g.query("src/myapp/service.py")["imports"])
+
+    def test_src_layout_gives_the_dependency_a_dependent(self):
+        """The blast-radius consequence, which is the reason this matters."""
+        proj = self.mk({
+            "src/myapp/__init__.py": "",
+            "src/myapp/core/__init__.py": "",
+            "src/myapp/core/db.py": "WHO = 'db'\n",
+            "src/myapp/service.py": "from myapp.core.db import WHO\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        self.assertEqual(g.get_dependents("src/myapp/core/db.py"),
+                         {"src/myapp/service.py"})
+
+    def test_a_package_member_does_not_take_a_sibling_over_the_root(self):
+        """Python 3 removed implicit relative imports.
+
+        Inside a package, a bare `import utils` is absolute — it must not silently
+        bind the sibling `pkg/utils.py`.
+        """
+        proj = self.mk({
+            "utils.py": "ROOT = True\n",
+            "pkg/__init__.py": "",
+            "pkg/utils.py": "SIBLING = True\n",
+            "pkg/mod.py": "import utils\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        self.assertIn("utils.py", g.query("pkg/mod.py")["imports"])
+        self.assertNotIn("pkg/utils.py", g.query("pkg/mod.py")["imports"])
+
+    def test_a_loose_script_still_prefers_its_own_directory(self):
+        """Outside a package, sys.path[0] is the script's directory, so the sibling wins."""
+        proj = self.mk({
+            "helpers.py": "ROOT = True\n",
+            "tools/helpers.py": "SIBLING = True\n",
+            "tools/run.py": "import helpers\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        self.assertIn("tools/helpers.py", g.query("tools/run.py")["imports"])
+
+
+class TestNoPhantomPackagesFromImportSyntax(Base):
+    """A regex that captures part of the statement's grammar invents dependencies.
+
+    `from . import leaf` was yielding a package literally named `import`. The edge
+    itself is still missed — the module name lives in the import clause, which
+    nothing captures — but a wrong answer must not be dressed up as a real one.
+    """
+
+    def test_from_dot_import_does_not_invent_a_package_named_import(self):
+        proj = self.mk({
+            "pkg/__init__.py": "",
+            "pkg/leaf.py": "V = 1\n",
+            "pkg/deep.py": "from . import leaf\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        imports = g.query("pkg/deep.py")["imports"]
+        self.assertNotIn("external:import", imports)
+        self.assertFalse([i for i in imports if i.rstrip().endswith(" import")],
+                         f"specifier captured part of the statement grammar: {imports}")
+
+    def test_no_specifier_anywhere_ends_in_the_import_keyword(self):
+        proj = self.mk({
+            "pkg/__init__.py": "",
+            "pkg/sub/__init__.py": "",
+            "pkg/sub/leaf.py": "V = 1\n",
+            "pkg/sibling.py": "V = 2\n",
+            "pkg/sub/deep.py": "from . import leaf\nfrom .. import sibling\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        bad = [(f, i) for f, info in g.graph["files"].items()
+               for i in info["imports"] if i.rstrip().endswith(" import")
+               or i in ("external:import", "unresolved:import")]
+        self.assertEqual(bad, [])
+
+
+class TestTypeOnlyImports(Base):
+    """`import type` is a real dependency: the file does not compile without it.
+
+    16 of the 18 edges graphify found and this resolver missed were this form.
+    """
+
+    def test_named_type_import_is_an_edge(self):
+        proj = self.mk({
+            "a.ts": "export type A = string\n",
+            "t.ts": "import type { A } from './a'\nexport const t: A = 'x'\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        self.assertIn("a.ts", g.query("t.ts")["imports"])
+
+    def test_default_type_import_is_an_edge(self):
+        proj = self.mk({
+            "b.ts": "type B = number\nexport default B\n",
+            "t.ts": "import type B from './b'\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        self.assertIn("b.ts", g.query("t.ts")["imports"])
+
+    def test_type_only_re_export_is_an_edge(self):
+        proj = self.mk({
+            "d.ts": "export type D = boolean\n",
+            "t.ts": "export type { D } from './d'\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        self.assertIn("d.ts", g.query("t.ts")["imports"])
+
+    def test_inline_type_specifier_still_resolves(self):
+        proj = self.mk({
+            "e.ts": "export type E = string\nexport const e = 1\n",
+            "t.ts": "import { type E, e } from './e'\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        self.assertIn("e.ts", g.query("t.ts")["imports"])
+
+
+class TestBarrelImports(Base):
+    """`import { X } from './dir'` must land on the directory's index file.
+
+    The candidate list tried the bare path first, and a directory satisfies
+    `exists()`, so resolution returned the directory and never reached `index.ts`.
+    The result was an edge pointing at something that is not a file in the graph —
+    the sole dangling edge on the testbed.
+    """
+
+    def test_directory_import_resolves_to_its_index(self):
+        proj = self.mk({
+            "components/accessibility/index.tsx": "export const A = 1\n",
+            "components/providers.tsx": "import { A } from './accessibility'\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        self.assertIn("components/accessibility/index.tsx",
+                      g.query("components/providers.tsx")["imports"])
+
+    def test_a_python_package_dir_resolves_to_its_init(self):
+        proj = self.mk({
+            "pkg/sub/__init__.py": "value = 1\n",
+            "pkg/main.py": "from sub import value\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        self.assertIn("pkg/sub/__init__.py", g.query("pkg/main.py")["imports"])
+
+    def test_no_edge_points_at_a_directory(self):
+        """The invariant behind both: every internal edge names a file in the graph."""
+        proj = self.mk({
+            "components/accessibility/index.tsx": "export const A = 1\n",
+            "components/accessibility/ctx.tsx": "export const C = 1\n",
+            "components/providers.tsx": "import { A } from './accessibility'\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        files = set(g.graph["files"])
+        dangling = [(s, i) for s, info in g.graph["files"].items()
+                    for i in info["imports"]
+                    if not i.startswith(("external:", "unresolved:")) and i not in files]
+        self.assertEqual(dangling, [])
+
+
+class TestGitignoreMatchingIsNotSubstring(Base):
+    """A gitignore entry matched a path that merely *contained* it.
+
+    `.next` excluded `app/api/auth/[...nextauth]/route.ts`, because the string
+    `...nextauth` contains `.next`. A sibling `[...path]` route survived, so the
+    hole was invisible until two catch-all routes were compared.
+    """
+
+    def test_a_route_whose_name_contains_an_ignored_pattern_is_kept(self):
+        proj = self.mk({
+            ".gitignore": ".next\nnode_modules\n",
+            "app/api/auth/[...nextauth]/route.ts": "export const GET = 1\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        self.assertIn("app/api/auth/[...nextauth]/route.ts", g.graph["files"])
+
+    def test_the_actually_ignored_directory_is_still_excluded(self):
+        proj = self.mk({
+            ".gitignore": ".next\n",
+            "src/a.ts": "export const a = 1\n",
+            ".next/static/chunk.js": "var c = 1\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        self.assertIn("src/a.ts", g.graph["files"])
+        self.assertNotIn(".next/static/chunk.js", g.graph["files"])
+
+    def test_a_gitignored_source_dir_is_still_excluded(self):
+        proj = self.mk({
+            ".gitignore": "secret/\n",
+            "src/a.ts": "export const a = 1\n",
+            "secret/leak.ts": "export const s = 1\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+        self.assertIn("src/a.ts", g.graph["files"])
+        self.assertNotIn("secret/leak.ts", g.graph["files"])
+
+
+class TestThisRepoGraphsItself(Base):
+    """The end-to-end assertion the old suite could not make.
+
+    Every defect above was individually invisible to a synthetic fixture. What
+    made them visible was pointing the resolver at a real repo, so that check is
+    now part of the suite rather than a thing someone remembers to do.
+    """
+
+    def test_a_skill_shaped_python_tree_yields_internal_edges(self):
+        proj = self.mk({
+            "bin/cli.py": "import installer\n",
+            "bin/installer.py": "import json\n",
+            "skills/thing/scripts/behavior_graph.py": "from frontmatter import parse\n",
+            "skills/thing/scripts/frontmatter.py": "def parse():\n    return {}\n",
+            "skills/thing/scripts/test_behavior_graph.py": "import behavior_graph\n",
+        })
+        g = CodeGraph(proj)
+        g.build(non_interactive=True)
+
+        internal = {
+            (src, imp)
+            for src, info in g.graph["files"].items()
+            for imp in info["imports"]
+            if not imp.startswith(("external:", "unresolved:"))
+        }
+        self.assertEqual(len(g.graph["files"]), 5)
+        self.assertGreaterEqual(len(internal), 3, f"expected real wiring, got {internal}")
+        self.assertIn(
+            ("skills/thing/scripts/test_behavior_graph.py",
+             "skills/thing/scripts/behavior_graph.py"), internal)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

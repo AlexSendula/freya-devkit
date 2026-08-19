@@ -66,7 +66,10 @@ def load_homegrown(path):
     for src, info in files_raw.items():
         s = _norm(src)
         for imp in (info.get("imports") or []):
-            if imp.startswith("external:"):
+            # Both prefixes are signals, not paths. `unresolved:` in particular means
+            # "this names no file", so counting it as an edge target manufactures a
+            # miss for the other backend, which correctly has nothing there.
+            if imp.startswith(("external:", "unresolved:")):
                 continue
             d = _norm(imp)
             if not d or d == s:

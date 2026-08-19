@@ -22,7 +22,7 @@ import re
 import subprocess
 import sys
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Dict, List, Optional, Set, Any
 
 
@@ -48,36 +48,47 @@ CATEGORY_PATTERNS = {
 
 # Import patterns by language
 IMPORT_PATTERNS = {
+    # `(?:type\s+)?` appears on the three statement forms that accept it. A type-only
+    # import is a real dependency — the importer does not compile without it — and
+    # omitting it hid 16 edges on the testbed alone. It is optional, so the plain
+    # forms keep matching exactly as before.
     'typescript': [
-        # import { x } from './y'
-        r'import\s+\{[^}]*\}\s+from\s+[\'"]([^\'"]+)[\'"]',
-        # import x from './y'
-        r'import\s+\w+\s+from\s+[\'"]([^\'"]+)[\'"]',
+        # import { x } from './y'   /   import type { X } from './y'
+        r'import\s+(?:type\s+)?\{[^}]*\}\s+from\s+[\'"]([^\'"]+)[\'"]',
+        # import x from './y'       /   import type X from './y'
+        r'import\s+(?:type\s+)?\w+\s+from\s+[\'"]([^\'"]+)[\'"]',
         # import * as x from './y'
-        r'import\s+\*\s+as\s+\w+\s+from\s+[\'"]([^\'"]+)[\'"]',
-        # export * from './y'
-        r'export\s+(?:\*|\{[^}]*\})\s+from\s+[\'"]([^\'"]+)[\'"]',
+        r'import\s+(?:type\s+)?\*\s+as\s+\w+\s+from\s+[\'"]([^\'"]+)[\'"]',
+        # export * from './y'       /   export type { D } from './y'
+        r'export\s+(?:type\s+)?(?:\*|\{[^}]*\})\s+from\s+[\'"]([^\'"]+)[\'"]',
         # require('./y')
         r'require\s*\(\s*[\'"]([^\'"]+)[\'"]\s*\)',
         # import('./y')
         r'import\s*\(\s*[\'"]([^\'"]+)[\'"]\s*\)',
     ],
     'javascript': [
-        # Same as TypeScript (JS is subset)
-        r'import\s+\{[^}]*\}\s+from\s+[\'"]([^\'"]+)[\'"]',
-        r'import\s+\w+\s+from\s+[\'"]([^\'"]+)[\'"]',
-        r'import\s+\*\s+as\s+\w+\s+from\s+[\'"]([^\'"]+)[\'"]',
-        r'export\s+(?:\*|\{[^}]*\})\s+from\s+[\'"]([^\'"]+)[\'"]',
+        # Same as TypeScript (JS is subset). `type` cannot appear in plain JS, but
+        # keeping the two lists identical is what stops them drifting apart.
+        r'import\s+(?:type\s+)?\{[^}]*\}\s+from\s+[\'"]([^\'"]+)[\'"]',
+        r'import\s+(?:type\s+)?\w+\s+from\s+[\'"]([^\'"]+)[\'"]',
+        r'import\s+(?:type\s+)?\*\s+as\s+\w+\s+from\s+[\'"]([^\'"]+)[\'"]',
+        r'export\s+(?:type\s+)?(?:\*|\{[^}]*\})\s+from\s+[\'"]([^\'"]+)[\'"]',
         r'require\s*\(\s*[\'"]([^\'"]+)[\'"]\s*\)',
         r'import\s*\(\s*[\'"]([^\'"]+)[\'"]\s*\)',
     ],
     'python': [
-        # from x import y
+        # from x import y   (also covers `from .x import y` and `from ..x import y`)
         r'from\s+([\w.]+)\s+import',
         # import x
         r'^import\s+([\w.]+)',
-        # from . import x
-        r'from\s+\.(\s+import|\s*\.\s*[\w.]*\s+import)',
+        # A third pattern for `from . import x` used to sit here. Its capture group
+        # started *after* the dots, so it returned the rest of the statement rather
+        # than a module: `from . import leaf` yielded the specifier 'import', which
+        # was then reported as a third-party package literally named `import`. It
+        # produced 66 junk entries across the measured repos and not one real edge.
+        # `from . import x` is still missed — the module name lives in the import
+        # clause, which needs clause capture to read — but it is now missed silently
+        # rather than answered wrongly. Tracked in docs/backlog.md.
     ],
     'go': [
         # import "module/path"
@@ -125,6 +136,47 @@ EXPORT_PATTERNS = {
 # Import edges that name a *specifier*, not a file in this project. Their tail is
 # whatever the source file wrote, so it is reported verbatim and never re-keyed.
 IMPORT_SIGNALS = ('external:', 'unresolved:')
+
+# Bump whenever the directory rules below change meaning. Cached `rule`/`gitignore`
+# verdicts in classifications.json are discarded on a mismatch, so a rule fix reaches
+# projects that were already graphed instead of only fresh clones. Any string works;
+# a date is readable in the file.
+RULES_VERSION = '2026-08-19'
+
+
+def gitignore_excludes(rel_path: str, patterns: List[str]) -> bool:
+    """Does any gitignore `pattern` exclude the project-relative `rel_path`?
+
+    One implementation, because there used to be two. `_should_exclude` filtered
+    files and `_classify_with_rules` filtered whole directories, each with its own
+    matching rules, and they disagreed — so a path could be classified one way and
+    filtered the other.
+
+    Both previously fell back to an unanchored substring test, which is what made a
+    `.next` entry exclude `app/api/auth/[...nextauth]/route.ts`: the directory name
+    contains the characters `.next`. Matching is therefore per path *component*, or
+    against the whole path when the pattern contains a separator.
+
+    This is a useful approximation of gitignore, not an implementation of it.
+    Negation (`!`) and the precise semantics of `**` are not modelled; on both, the
+    choice is to keep a file rather than drop one, since a spurious edge only runs a
+    test that was not needed while a missing one hides a regression.
+    """
+    from fnmatch import fnmatch
+
+    parts = PurePosixPath(rel_path).parts
+    for pattern in patterns:
+        pat = (pattern or '').strip().rstrip('/')
+        if not pat or pat.startswith('!'):
+            continue
+        if '/' in pat:
+            anchored = pat.lstrip('/')
+            if fnmatch(rel_path, anchored) or fnmatch(rel_path, f'{anchored}/*'):
+                return True
+        elif any(fnmatch(part, pat) for part in parts):
+            return True
+    return False
+
 
 # The regenerable files in knowledge-base/.graph/, ignored by name. Kept byte
 # identical to behavior_graph.py's copy: whichever skill runs first writes it,
@@ -424,7 +476,11 @@ class CodeGraph:
                 rel = candidate.relative_to(self.project_dir)
             except ValueError:
                 continue
-            if candidate.exists():
+            # is_file(), not exists(): the bare path is the first candidate, and a
+            # directory satisfies exists(). `import { X } from './accessibility'`
+            # therefore resolved to the directory and never reached the index
+            # candidates below it, yielding an edge that names no file in the graph.
+            if candidate.is_file():
                 return normalize_key(rel)
         return None
 
@@ -447,27 +503,126 @@ class CodeGraph:
                         return hit
         return None
 
-    def _resolve_import_path(self, import_path: str, from_file: str) -> Optional[str]:
+    def _resolve_python_module(self, base: Path, parts: List[str]) -> Optional[str]:
+        """Resolve dotted module `parts` beneath `base` to a real file, or None."""
+        if not parts:
+            return None
+        target = base
+        for part in parts:
+            target = target / part
+        for candidate in (target.with_suffix('.py'), target / '__init__.py'):
+            try:
+                rel = candidate.relative_to(self.project_dir)
+            except ValueError:
+                continue  # escaped the project; not ours to resolve
+            if candidate.exists():
+                return normalize_key(rel)
+        return None
+
+    def _python_search_bases(self, from_dir: Path) -> List[Path]:
+        """Directories standing in for `sys.path`, best candidate first.
+
+        There is no single right answer without running the interpreter, so this
+        approximates the two layouts that actually occur, in the order Python would
+        prefer them:
+
+          - a **loose script or test** (its directory has no `__init__.py`) gets its
+            own directory as `sys.path[0]`, so a sibling module wins
+          - a **package member** does not. Python 3 removed implicit relative imports,
+            so a bare `import utils` inside a package is absolute and must resolve
+            against whatever the package hangs off — which is the parent of its
+            outermost `__init__.py`, not the file's own directory
+
+        That parent is also what makes the PyPA src-layout work: for
+        `src/myapp/service.py` it comes out as `src/`, which is exactly the entry
+        `pip install -e .` puts on the path.
+        """
+        package_root = from_dir
+        while ((package_root / '__init__.py').exists()
+               and package_root != self.project_dir
+               and package_root.parent != package_root):
+            package_root = package_root.parent
+
+        in_package = package_root != from_dir
+        ordered = ([package_root, self.project_dir, from_dir] if in_package
+                   else [from_dir, package_root, self.project_dir])
+
+        src = self.project_dir / 'src'
+        if src.is_dir():
+            ordered.append(src)
+
+        seen, bases = set(), []
+        for base in ordered:
+            if base not in seen:
+                seen.add(base)
+                bases.append(base)
+        return bases
+
+    def _resolve_python_import(self, import_path: str, from_file: str) -> Optional[str]:
+        """Resolve a Python import the way Python does, or None.
+
+        Python's dotted module syntax is not a filesystem path, which is what the
+        generic resolver treated it as: `from .adapters import x` became a lookup for
+        a file literally named `.adapters`, and `import behavior_graph` — a module
+        sitting in the same directory — was written off as a third-party package.
+        Between them these produced zero internal edges for every Python project.
+
+        Explicit relative imports (`.mod`, `..pkg.mod`) are anchored to the importing
+        file's package: one leading dot is the current package, each extra dot climbs
+        a level. Absolute imports are tried against `_python_search_bases`.
+
+        Resolution only succeeds when a real file is there, so genuine third-party
+        packages still fall through to `external:`.
+        """
+        from_dir = (self.project_dir / from_file).parent
+
+        if import_path.startswith('.'):
+            stripped = import_path.lstrip('.')
+            climb = len(import_path) - len(stripped)
+            base = from_dir
+            for _ in range(climb - 1):
+                base = base.parent
+            return self._resolve_python_module(base, stripped.split('.') if stripped else [])
+
+        parts = import_path.split('.')
+        for base in self._python_search_bases(from_dir):
+            hit = self._resolve_python_module(base, parts)
+            if hit:
+                return hit
+        return None
+
+    def _resolve_import_path(self, import_path: str, from_file: str,
+                             language: Optional[str] = None) -> Optional[str]:
         """Resolve an import to a project-relative file path, or None.
 
         Relative/absolute imports are anchored to `project_dir` (cwd-independent, F9);
         bare specifiers are matched against tsconfig/jsconfig path aliases (F7) before
-        falling through to external.
+        falling through to external. Python uses module semantics instead of path
+        semantics throughout.
         """
+        if language == 'python':
+            return self._resolve_python_import(import_path, from_file)
         if import_path.startswith('.') or import_path.startswith('/'):
             from_dir = (self.project_dir / from_file).parent
             return self._resolve_fs((from_dir / import_path).resolve())
         return self._resolve_alias(import_path)
 
-    def _classify_import(self, import_path: str, from_file: str) -> str:
+    def _classify_import(self, import_path: str, from_file: str,
+                         language: Optional[str] = None) -> str:
         """Tag an import: internal rel-path, `external:<pkg>`, or `unresolved:<imp>`.
 
         `unresolved:` makes a failed relative/alias resolution visible instead of
         silently dropping it (vision §6, "coverage-unknown, never silent").
         """
-        resolved = self._resolve_import_path(import_path, from_file)
+        resolved = self._resolve_import_path(import_path, from_file, language)
         if resolved:
             return resolved
+        # A Python import that names no file on disk is a package. Only an explicitly
+        # relative one is a broken reference worth surfacing, since it can only ever
+        # have meant something inside this project.
+        if language == 'python':
+            return (f'unresolved:{import_path}' if import_path.startswith('.')
+                    else f'external:{import_path}')
         if import_path.startswith('.') or import_path.startswith('/') or self._matches_alias(import_path):
             return f'unresolved:{import_path}'
         return f'external:{import_path}'
@@ -561,12 +716,36 @@ class CodeGraph:
                 '.idea', '.vscode', '.sublime-project',
                 # OS files
                 '__MACOSX',
-                # Generated code
-                'generated', '.generated', 'autogen',
                 # Documentation builds
                 '_site', '.docusaurus',
-                # Other common exclusions
-                '.github', '.gitlab', 'scripts', 'docs', 'knowledge-base', 'examples',
+                # CI definitions
+                '.github', '.gitlab',
+                # Our own generated output. Graphing it would be self-reference.
+                'knowledge-base',
+            },
+            # Excluded only as a TOP-LEVEL directory, not wherever the name appears.
+            #
+            # The distinction is the fix for a real defect: the set above is tested
+            # against *every* path component, which is right for an artifact tree —
+            # a nested `node_modules/` is still `node_modules`. It is wrong for a
+            # name that merely follows a convention. `scripts` used to sit above, so
+            # `skills/<skill>/scripts/` was excluded too, hiding 40 of this repo's
+            # Python files while the build reported success. `generated` did the same
+            # to the Next.js route `app/api/media/generated/route.ts`.
+            #
+            # At the repo root these names do mean what the convention says, and
+            # indexing them is measurably noise: a top-level `docs/` here holds the
+            # published site's bundled JS and this spike's planted fixtures, none of
+            # which belong in a blast radius. Below the root, the name carries no such
+            # promise, so the judgement passes to classifications.json — per-project
+            # and overridable, which a hardcoded name list is not.
+            #
+            # 'scripts' is on neither list: it holds real source often enough, at the
+            # root as well as below it, that excluding it by name is the guess that
+            # started this.
+            'top_level_exclude_dirs': {
+                'docs', 'examples',
+                'generated', '.generated', 'autogen',
             },
             # File patterns that are ALWAYS excluded
             'always_exclude_files': {
@@ -619,25 +798,17 @@ class CodeGraph:
             if exc_dir in path_parts:
                 return True
 
+        # 1b. Convention directories, at the repo root only. See the set's comment.
+        if len(path_parts) > 1 and path_parts[0] in rules['top_level_exclude_dirs']:
+            return True
+
         # 2. Check always-exclude file patterns
         for pattern in rules['always_exclude_files']:
             if fnmatch(filename, pattern):
                 return True
 
-        # 3. Check gitignore patterns
-        for pattern in gitignore_patterns:
-            # Handle *.ext patterns
-            if pattern.startswith('*.'):
-                if fnmatch(filename, pattern):
-                    return True
-            # Handle directory/file name patterns
-            elif pattern in path_parts:
-                return True
-            # Handle glob-like patterns
-            elif fnmatch(rel_path, f'*{pattern}*'):
-                return True
-
-        return False
+        # 3. Check gitignore patterns — shared with _classify_with_rules
+        return gitignore_excludes(rel_path, gitignore_patterns)
 
     # =========================================================================
     # Hybrid Classification System (Rules + AI)
@@ -728,40 +899,76 @@ class CodeGraph:
         return sorted(set(directories))
 
     def _load_classifications(self) -> Dict[str, Any]:
-        """Load cached classifications from file."""
-        if self.classifications_path.exists():
-            try:
-                with open(self.classifications_path) as f:
-                    return json.load(f)
-            except Exception:
-                pass
-        return {'version': 1, 'directories': {}}
+        """Load cached classifications, discarding verdicts the rules have outgrown.
+
+        The builder skips any directory already present here, so without this a rule
+        change only ever reached a fresh clone: every project graphed before the
+        change kept the old answer indefinitely, and `--clear` does not remove this
+        file. That is how a fix for a directory being wrongly excluded would have
+        shipped to nobody.
+
+        Only `rule` and `gitignore` verdicts are dropped — they are re-derivable, so
+        the rules are their single source of truth. A `user` or `ai` verdict is a
+        judgement about this project that no rule change invalidates, and it stays.
+        """
+        if not self.classifications_path.exists():
+            return {'version': 1, 'rules_version': RULES_VERSION, 'directories': {}}
+        try:
+            with open(self.classifications_path) as f:
+                data = json.load(f)
+        except Exception:
+            return {'version': 1, 'rules_version': RULES_VERSION, 'directories': {}}
+
+        if data.get('rules_version') != RULES_VERSION:
+            data['directories'] = {
+                name: verdict
+                for name, verdict in (data.get('directories') or {}).items()
+                if (verdict or {}).get('source') not in ('rule', 'gitignore')
+            }
+            data['rules_version'] = RULES_VERSION
+        return data
 
     def _save_classifications(self, classifications: Dict[str, Any]) -> None:
         """Save classifications to file."""
         self._ensure_graph_dir()
         classifications['version'] = 1
+        classifications['rules_version'] = RULES_VERSION
         classifications['classified_at'] = datetime.now(timezone.utc).isoformat()
         with open(self.classifications_path, 'w') as f:
             json.dump(classifications, f, indent=2)
 
     def _classify_with_rules(self, dir_name: str) -> Optional[Dict[str, Any]]:
-        """Classify a directory using known rules. Returns None if unknown."""
-        rules = self._get_exclusion_rules()
+        """Classify a directory using known rules. Returns None if unknown.
 
-        # Check if it's a known exclude directory
-        if dir_name in rules['always_exclude_dirs']:
+        `dir_name` is project-relative and may be nested ('skills/thing'), so the
+        checks here mirror `_should_exclude` rather than inventing their own rules.
+        Two verdicts for the same directory would be worse than either one.
+        """
+        rules = self._get_exclusion_rules()
+        parts = PurePosixPath(dir_name).parts
+
+        # Artifact trees, wherever the name appears
+        if any(part in rules['always_exclude_dirs'] for part in parts):
+            return {'type': 'exclude', 'confidence': 1.0, 'source': 'rule'}
+
+        # Convention directories, at the repo root only
+        if parts and parts[0] in rules['top_level_exclude_dirs']:
             return {'type': 'exclude', 'confidence': 1.0, 'source': 'rule'}
 
         # Check if it's a known source directory
         if dir_name in rules['likely_source_dirs']:
             return {'type': 'source', 'confidence': 1.0, 'source': 'rule'}
 
-        # Check gitignore patterns
-        gitignore_patterns = self._parse_gitignore()
-        for pattern in gitignore_patterns:
-            if pattern == dir_name or pattern in dir_name:
-                return {'type': 'exclude', 'confidence': 0.9, 'source': 'gitignore'}
+        # Check gitignore patterns.
+        #
+        # This used to be `pattern == dir_name or pattern in dir_name` — the same
+        # unanchored substring test that was removed from `_should_exclude`, and it
+        # survived here because the two functions had drifted apart. It is the more
+        # damaging of the two: `_classify_with_rules` runs first and excludes whole
+        # directories, so a `.next` entry took out any top-level directory whose name
+        # merely contained `.next`.
+        if gitignore_excludes(dir_name, self._parse_gitignore()):
+            return {'type': 'exclude', 'confidence': 0.9, 'source': 'gitignore'}
 
         return None
 
@@ -1108,7 +1315,7 @@ Respond with ONLY a JSON object, no markdown formatting:
         exports = self._parse_exports(content, language) if language else []
 
         # Resolve + classify import paths (internal / external: / unresolved:)
-        resolved_imports = [self._classify_import(imp, rel_path) for imp in imports]
+        resolved_imports = [self._classify_import(imp, rel_path, language) for imp in imports]
 
         return {
             'exports': exports,
