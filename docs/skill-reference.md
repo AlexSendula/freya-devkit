@@ -279,13 +279,14 @@ Tier 5  codebase-security-resolver
 
 ## File Locations
 
-Everything under `knowledge-base/` is committed except `.graph/`, which ignores itself.
+Everything under `knowledge-base/` is committed except the two regenerable cache files, which
+`.graph/.gitignore` names.
 
 | Type | Location | In git? |
 |------|----------|---------|
 | Dependency graph | `knowledge-base/.graph/graph.json` | ignored |
 | Graph classifications | `knowledge-base/.graph/classifications.json` | ignored |
-| Behavior graph | `knowledge-base/.graph/behavior.json` | ignored ⚠ |
+| Behavior graph | `knowledge-base/.graph/behavior.json` | tracked |
 | Project docs | `knowledge-base/reference/*.md` | tracked |
 | Feature specs | `knowledge-base/specs/<category>/SPEC-*.md` | tracked |
 | ADRs (decisions) | `knowledge-base/decisions/ADR-*.md` | tracked |
@@ -300,6 +301,6 @@ Everything under `knowledge-base/` is committed except `.graph/`, which ignores 
 | Update-check throttle | `~/.freya/update-check.json` | outside the repo |
 | Project agent primer | `AGENTS.md` (managed block only) | tracked |
 
-⚠ `behavior.json` holds observed coverage captured by running the tests, so it cannot be
-rebuilt by re-reading source like its `.graph/` neighbours can. See
-[architecture.md](architecture.md#output-artifacts) and [backlog.md](backlog.md).
+`behavior.json` holds observed coverage captured by running the tests, so it cannot be rebuilt
+by re-reading source like its `.graph/` neighbours can — which is why it is committed while they
+are not. See [ADR-017](decisions/ADR-017-behavior-json-is-committed.md).

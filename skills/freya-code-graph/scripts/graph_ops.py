@@ -126,6 +126,44 @@ EXPORT_PATTERNS = {
 # whatever the source file wrote, so it is reported verbatim and never re-keyed.
 IMPORT_SIGNALS = ('external:', 'unresolved:')
 
+# The regenerable files in knowledge-base/.graph/, ignored by name. Kept byte
+# identical to behavior_graph.py's copy: whichever skill runs first writes it,
+# and a drift between the two would make the file depend on run order.
+CACHE_IGNORED = ('graph.json', 'classifications.json')
+
+CACHE_GITIGNORE = (
+    '# Generated code-graph cache — do not commit.\n'
+    '#\n'
+    '# behavior.json is deliberately NOT listed. Its observed coverage is captured\n'
+    '# by running the test suite, so it cannot be rebuilt by re-reading source the\n'
+    '# way these two can — committing it is what gives a fresh clone a blast radius.\n'
+    + '\n'.join(CACHE_IGNORED) + '\n'
+)
+
+
+def _is_legacy_blanket_ignore(text: str) -> bool:
+    """True for the pre-0.2.1 `*` file, whichever skill wrote it.
+
+    Both writers used to write only when the file was absent, so an
+    already-onboarded project would otherwise keep ignoring behavior.json
+    forever. Matching on content — rather than just overwriting — leaves a
+    hand-edited file alone.
+    """
+    lines = [ln.strip() for ln in text.splitlines()
+             if ln.strip() and not ln.lstrip().startswith('#')]
+    return lines == ['*']
+
+
+def _write_cache_gitignore(path: Any) -> None:
+    """Write the cache .gitignore, upgrading a legacy blanket but never a custom one."""
+    try:
+        if path.exists() and not _is_legacy_blanket_ignore(
+                path.read_text(encoding='utf-8', errors='replace')):
+            return
+    except OSError:
+        return
+    path.write_text(CACHE_GITIGNORE, encoding='utf-8')
+
 
 def normalize_key(path: Any) -> str:
     """A project-relative path, as a stable graph key.
@@ -209,15 +247,21 @@ class CodeGraph:
         self._alias_base: Path = self.project_dir
 
     def _ensure_graph_dir(self) -> None:
-        """Create the graph cache dir and a self-ignoring `.gitignore` (F8).
+        """Create the graph cache dir and write its `.gitignore` (F8).
 
-        The cache is fully regenerable, so it ignores its own contents — adopting
-        projects never need to touch their root `.gitignore`.
+        The two files this skill generates are a parse cache — rebuildable from
+        source in seconds, and large enough that committing them would put an
+        unreadable, conflict-prone diff in a large share of commits. They are
+        ignored by name so adopting projects never touch their root `.gitignore`.
+
+        **Not a blanket `*`.** F8 predates `behavior.json`, which later landed in
+        this same directory and inherited an ignore rule written before it
+        existed. It is not a parse cache: its observed coverage is captured by
+        running the test suite, so it cannot be rebuilt by re-reading source. A
+        `*` here silently costs a fresh clone every observed fingerprint it has.
         """
         self.graph_dir.mkdir(parents=True, exist_ok=True)
-        gi = self.graph_dir / '.gitignore'
-        if not gi.exists():
-            gi.write_text('# Generated code-graph cache — do not commit\n*\n', encoding='utf-8')
+        _write_cache_gitignore(self.graph_dir / '.gitignore')
 
     def _get_git_commit(self) -> Optional[str]:
         """Get current git commit hash."""

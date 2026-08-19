@@ -55,6 +55,7 @@ add one rather than rewriting history.
 | [ADR-002](ADR-002-authority-order-single-ownership.md) | Authority runs principle > ADR > spec > reference, and every fact is owned once |
 | [ADR-003](ADR-003-lifecycle-state-is-trust-signal.md) | Lifecycle state, not a certainty score, is the trust signal |
 | [ADR-004](ADR-004-behavior-adapters-and-execution-split.md) | Bind behaviors to tests through adapters, and split execution from the graph |
+| [ADR-017](ADR-017-behavior-json-is-committed.md) | Commit `behavior.json`; ignore only the regenerable parse cache |
 
 ### Substrate — the graph everything else stands on
 

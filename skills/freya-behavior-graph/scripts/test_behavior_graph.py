@@ -172,24 +172,92 @@ class WriteBehaviorJsonGitignoreTest(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def test_creates_gitignore_on_fresh_graph_dir(self):
-        behavior_graph.write_behavior_json(self.proj, {"version": 1, "behaviors": {}})
-        gitignore = os.path.join(self.proj, "knowledge-base", ".graph", ".gitignore")
-        self.assertTrue(os.path.exists(gitignore))
-        with open(gitignore, encoding="utf-8") as f:
-            contents = f.read()
-        self.assertEqual(contents.strip(), "*")
+    def _gitignore(self):
+        return os.path.join(self.proj, "knowledge-base", ".graph", ".gitignore")
 
-    def test_does_not_overwrite_existing_gitignore(self):
+    def _write_gitignore(self, text):
         graph_dir = os.path.join(self.proj, "knowledge-base", ".graph")
-        os.makedirs(graph_dir)
-        gitignore = os.path.join(graph_dir, ".gitignore")
-        with open(gitignore, "w", encoding="utf-8") as f:
-            f.write("existing\n")
+        os.makedirs(graph_dir, exist_ok=True)
+        with open(self._gitignore(), "w", encoding="utf-8") as f:
+            f.write(text)
+
+    def test_creates_gitignore_on_fresh_graph_dir(self):
+        """The cache ignores the two regenerable files by name, never behavior.json.
+
+        A blanket `*` would sweep up behavior.json, whose observed coverage comes
+        from running the test suite and cannot be rebuilt by re-reading source.
+        """
         behavior_graph.write_behavior_json(self.proj, {"version": 1, "behaviors": {}})
-        with open(gitignore, encoding="utf-8") as f:
+        self.assertTrue(os.path.exists(self._gitignore()))
+        with open(self._gitignore(), encoding="utf-8") as f:
+            lines = [ln.strip() for ln in f if ln.strip() and not ln.startswith("#")]
+        self.assertEqual(lines, ["graph.json", "classifications.json"])
+        self.assertNotIn("*", lines)
+
+    def test_replaces_a_legacy_blanket_ignore(self):
+        """Existing projects carry the old `*`; the writer must upgrade it in place.
+
+        Both writers only wrote when the file was absent, so without this an
+        already-onboarded project would keep ignoring behavior.json forever.
+        """
+        self._write_gitignore("*\n")
+        behavior_graph.write_behavior_json(self.proj, {"version": 1, "behaviors": {}})
+        with open(self._gitignore(), encoding="utf-8") as f:
+            lines = [ln.strip() for ln in f if ln.strip() and not ln.startswith("#")]
+        self.assertEqual(lines, ["graph.json", "classifications.json"])
+
+    def test_replaces_the_legacy_commented_blanket_ignore(self):
+        """code-graph's variant of the same legacy file, comment and all."""
+        self._write_gitignore("# Generated code-graph cache — do not commit\n*\n")
+        behavior_graph.write_behavior_json(self.proj, {"version": 1, "behaviors": {}})
+        with open(self._gitignore(), encoding="utf-8") as f:
+            lines = [ln.strip() for ln in f if ln.strip() and not ln.startswith("#")]
+        self.assertEqual(lines, ["graph.json", "classifications.json"])
+
+    def test_does_not_overwrite_a_customised_gitignore(self):
+        """Anything that is not a recognised legacy blanket is the user's file."""
+        self._write_gitignore("existing\n")
+        behavior_graph.write_behavior_json(self.proj, {"version": 1, "behaviors": {}})
+        with open(self._gitignore(), encoding="utf-8") as f:
             contents = f.read()
         self.assertEqual(contents, "existing\n")
+
+    def test_exercises_are_sorted_by_path(self):
+        """behavior.json is committed, so it must be byte-stable across rebuilds.
+
+        code-graph's import closure comes out of a set, so its order varies run to
+        run (proven: two builds of identical input differ only in ordering). Left
+        unsorted, every rebuild would produce a spurious diff.
+        """
+        data = {"version": 1, "behaviors": {"BEH-001": {"coverage": "static", "exercises": [
+            {"path": "lib/z.ts", "source": "static"},
+            {"path": "lib/a.ts", "source": "static"},
+            {"path": "lib/m.ts", "source": "static"},
+        ]}}}
+        behavior_graph.write_behavior_json(self.proj, data)
+        with open(behavior_graph._behavior_json_path(self.proj), encoding="utf-8") as f:
+            written = json.load(f)
+        paths = [e["path"] for e in written["behaviors"]["BEH-001"]["exercises"]]
+        self.assertEqual(paths, ["lib/a.ts", "lib/m.ts", "lib/z.ts"])
+
+    def test_two_writes_of_the_same_content_are_byte_identical(self):
+        """The property that matters: rebuild with no change produces no diff."""
+        import random
+        exercises = [{"path": p, "source": "static"} for p in
+                     ["lib/a.ts", "lib/b.ts", "lib/c.ts", "lib/d.ts"]]
+        first = None
+        for _ in range(4):
+            shuffled = exercises[:]
+            random.shuffle(shuffled)
+            behavior_graph.write_behavior_json(
+                self.proj,
+                {"version": 1, "behaviors": {"BEH-001": {"coverage": "static",
+                                                         "exercises": shuffled}}})
+            with open(behavior_graph._behavior_json_path(self.proj), encoding="utf-8") as f:
+                text = f.read()
+            if first is None:
+                first = text
+            self.assertEqual(text, first, "same content produced a different file")
 
 
 class DirectionBTest(unittest.TestCase):

@@ -103,16 +103,68 @@ def load_behavior_json(project_dir):
         return {}
 
 
+# Kept byte identical to graph_ops.py's copy — whichever skill runs first writes
+# the file, so a drift between the two would make its contents depend on run order.
+CACHE_IGNORED = ("graph.json", "classifications.json")
+
+CACHE_GITIGNORE = (
+    "# Generated code-graph cache — do not commit.\n"
+    "#\n"
+    "# behavior.json is deliberately NOT listed. Its observed coverage is captured\n"
+    "# by running the test suite, so it cannot be rebuilt by re-reading source the\n"
+    "# way these two can — committing it is what gives a fresh clone a blast radius.\n"
+    + "\n".join(CACHE_IGNORED) + "\n"
+)
+
+
+def _is_legacy_blanket_ignore(text):
+    """True for the pre-0.2.1 `*` file, whichever skill wrote it."""
+    lines = [ln.strip() for ln in text.splitlines()
+             if ln.strip() and not ln.lstrip().startswith("#")]
+    return lines == ["*"]
+
+
+def _write_cache_gitignore(path):
+    """Write the cache .gitignore, upgrading a legacy blanket but never a custom one."""
+    try:
+        if os.path.exists(path):
+            with open(path, encoding="utf-8", errors="replace") as f:
+                if not _is_legacy_blanket_ignore(f.read()):
+                    return
+    except OSError:
+        return
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(CACHE_GITIGNORE)
+
+
+def _sorted_exercises(data):
+    """Return `data` with every behavior's exercises ordered by path.
+
+    behavior.json is committed, so it has to be byte-stable: two builds of
+    unchanged input must produce an identical file or every rebuild shows a
+    spurious diff. The static edges come from code-graph's import closure, which
+    is assembled from a set — proven to vary run to run in ordering while being
+    identical in content. Sorting here is the single choke point that fixes it
+    for every producer.
+    """
+    behaviors = data.get("behaviors")
+    if not isinstance(behaviors, dict):
+        return data
+    for entry in behaviors.values():
+        ex = entry.get("exercises") if isinstance(entry, dict) else None
+        if isinstance(ex, list):
+            entry["exercises"] = sorted(
+                ex, key=lambda e: e.get("path", "") if isinstance(e, dict) else str(e))
+    return data
+
+
 def write_behavior_json(project_dir, data):
     path = _behavior_json_path(project_dir)
     graph_dir = os.path.dirname(path)
     os.makedirs(graph_dir, exist_ok=True)
-    gitignore = os.path.join(graph_dir, ".gitignore")
-    if not os.path.exists(gitignore):
-        with open(gitignore, "w", encoding="utf-8") as f:
-            f.write("*\n")
+    _write_cache_gitignore(os.path.join(graph_dir, ".gitignore"))
     with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
+        json.dump(_sorted_exercises(data), f, indent=2)
 
 
 def _run_behavior_runner(project_dir, only=None):
