@@ -449,9 +449,12 @@ awareness of strings or comments, and the Python patterns do not cover every sta
 |---|---|
 | An import inside a string literal becomes an edge | `bin/installer.py:566` writes `"from freya_cli import main\n"` into a generated launcher; the graph records installer → freya_cli |
 | An import in a comment or docstring becomes an edge | `graph_ops.py`'s own docstrings contribute every `unresolved:` entry in this repo's graph |
-| `from . import x` / `from .. import y` are missed | the module name is in the import clause, which no pattern captures. ~1,948 occurrences per 91,780 import lines of site-packages; **0 in this repo** |
-| `import a, b` keeps only `a` | ~12 per 91,780 |
-| Indented imports are invisible | `^import` under `re.MULTILINE`; lazy and `try:`-guarded imports. ~1,150 per 91,780, 12 here |
+| `from . import x` / `from .. import y` are missed | the module name is in the import clause, which no pattern captures. **1,948** occurrences across **91,780** import lines in site-packages (22,042 files); **0 in this repo** |
+| `import a, b` keeps only `a` | **21** per 91,780 |
+| Indented imports are invisible | `^import` under `re.MULTILINE`, so lazy and `try:`-guarded imports. **1,957** per 91,780 |
+
+Counted directly over site-packages on 2026-08-19; re-run the loop in the commit message for
+this entry to reproduce. The two larger figures are the ones worth acting on.
 
 All four need the same work — capture the import *clause*, not just the module path, and skip
 strings and comments — so they are one item rather than four.
