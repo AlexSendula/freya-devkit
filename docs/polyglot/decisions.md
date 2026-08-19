@@ -494,6 +494,138 @@ count freya-devkit reaches, and let the contract absorb the rest.
 
 ---
 
+## CD-15 — Project settings live in `knowledge-base/settings.json`
+
+**Status:** taken 2026-08-19, ahead of Phase 1.
+
+**Decision.** Per-project substrate configuration goes in `knowledge-base/settings.json` —
+committed, travelling with the repo, and outside the project root.
+
+**Rationale.** Three properties were needed at once: the setting has to survive a clone (a
+teammate must get the same backend), it must not be lost when the cache is cleared, and it must
+not add a file to the project root.
+
+`knowledge-base/` satisfies all three, and it already exists wherever freya runs. Only
+`knowledge-base/.graph/` is gitignored; `specs/`, `decisions/` and `principles.md` are tracked,
+so a settings file beside them is committed by default. The directory name is hardcoded in
+every skill, so the location is stable rather than another thing to configure.
+
+**Rejected alternatives.**
+
+- *`freya.json` at the repo root.* Proposed first and rejected by the engineer: it pollutes the
+  root of every adopting project for a tool that already owns a directory.
+- *Extend `knowledge-base/.graph/classifications.json`.* No new file, but that path is
+  gitignored regenerable cache. Configuration there would not survive `--clear` and would not
+  reach a fresh clone, so every checkout would re-decide its own backend.
+- *A `"freya"` key in `package.json`.* Fine for Node, and worth supporting later as an optional
+  override. Rejected as the home: Java, Python and Go repos have no `package.json`, and keying
+  the polyglot toolkit's own config to a Node manifest is precisely the framework assumption
+  Track B exists to remove.
+- *No config; auto-detect only.* Zero surface, but unpinnable — a contributor without graphify
+  installed silently produces a different graph, which is the "never silent" rule inverted.
+
+**Revisit conditions.** If a project ever needs to relocate `knowledge-base/`, this moves with
+it — the setting cannot live inside the thing it configures the location of.
+
+---
+
+## CD-16 — A backend declares languages *and* relation kinds
+
+**Status:** taken 2026-08-19, ahead of Phase 1.
+
+**Decision.** The coverage a backend declares in graph metadata names both the languages and
+extensions it parses **and** the relation kinds it can emit (`imports`, `calls`, `inherits`, …).
+
+**Rationale.** Languages alone answer "can you see this repo at all", which is the headline
+Track B failure — a Java repo silently graphed as empty. Relation kinds answer the finer
+question a caller actually asks: blast radius wants import edges, and a query that needs
+symbol-level `calls` should be able to degrade by itself rather than distrust the whole graph.
+
+It also forces Phase 1 to define the contract's edge-kind vocabulary. Phase 3 needs that
+vocabulary anyway to thread the optional `symbol` through, and inventing it under the pressure
+of a migration is worse than agreeing it now.
+
+**Rejected alternatives.**
+
+- *Languages only.* Least to build. Rejected: the scanner matches on extensions, so every
+  caller would have to map language → extension itself, and those mappings would drift.
+- *Languages + extensions, no relation kinds.* The simpler option, recommended at first.
+  Rejected because it defers the edge-kind vocabulary to Phase 3, where it becomes a migration
+  rather than a definition.
+
+**Revisit conditions.** If the relation-kind list turns out to be per-backend rather than a
+shared vocabulary, the contract is describing implementations instead of an interface — treat
+that as a design failure and collapse it back to a fixed set.
+
+---
+
+## CD-17 — Graphs are stored per backend, side by side
+
+**Status:** taken 2026-08-19, ahead of Phase 1.
+
+**Decision.** Each backend writes `graph.<backend>.json`. Switching backends does not overwrite
+the previous graph.
+
+**Rationale.** [CD-13](#cd-13--the-substrate-change-is-a-measured-migration) requires a
+substrate swap to be a *measured* migration — diff before trusting. That is impossible if the
+new graph destroys the old one, because the baseline is gone at exactly the moment it is
+needed. Phase 0 hit this directly: comparing homegrown against graphify meant moving files by
+hand, and the numbers were nearly re-derived against the wrong baseline more than once.
+
+Keeping both current also makes the degradation story checkable rather than asserted — the
+reduced coverage a fallback declares can be diffed against what the preferred backend found.
+
+**Rejected alternatives.**
+
+- *One `graph.json`, overwritten.* Matches today and is simplest. Rejected: it makes the
+  comparison CD-13 mandates cost a full rebuild of the backend you just replaced.
+- *One `graph.json` plus a stashed `graph.previous.json`.* Cheap one-hop comparison without
+  filename sprawl. Rejected because it cannot hold two backends *current*, which is what
+  validating a fallback needs.
+
+**Revisit conditions.** If the artifacts get large enough that keeping two is a real cost — the
+2.8 MB / ~9.3 KB-per-file figure from Phase 0 scaled to a big repo — make retention explicit
+rather than silently dropping one.
+
+---
+
+## CD-18 — Workspace packages resolve in the homegrown backend
+
+**Status:** taken 2026-08-19, ahead of Phase 1.
+
+**Decision.** The homegrown resolver reads `workspaces` from `package.json`, maps each package
+name to its directory, and resolves cross-package imports internally. It does not wait for the
+graphify backend.
+
+**Rationale.** In a monorepo the cross-package edge is *the* architectural edge. Measured on a
+two-package fixture, `apps/mobile` importing `@acme/domain` resolved to `external:@acme/domain` —
+the toolkit reporting the most important relationship in the repo as a third-party dependency.
+graphify resolves it correctly (`imports`, `imports_from` and `calls`), which confirms the edge
+is real and findable rather than ambiguous.
+
+Leaving it to graphify would mean the zero-install floor cannot see a monorepo — and per
+[CD-2](#cd-2--two-backends-ship-and-the-homegrown-one-is-the-floor) the floor exists for the
+locked-down machine, which is the environment least able to install a dependency. A floor that
+collapses on the layout the immediate real target uses is not a floor.
+
+The immediate target is concrete: acme-travel is moving to Expo/React Native with a
+`packages/domain` + `apps/mobile` npm-workspaces shape, and plans to run freya on it before the
+migration to capture undocumented behaviour.
+
+**Rejected alternatives.**
+
+- *File it; graphify covers it in Phase 2.* Keeps Phase 1 to contract plumbing. Rejected on the
+  floor argument above.
+- *Fix it after Phase 1, behind the interface.* Cleaner sequencing. Rejected only on timing —
+  it is the same defect class as the six already fixed, and bounded.
+
+**Revisit conditions.** pnpm and yarn workspaces declare membership differently
+(`pnpm-workspace.yaml`, `package.json#workspaces.packages`). If supporting them turns into
+per-tool special-casing, that is the signal to stop and let the substrate contract own package
+resolution instead.
+
+---
+
 ## Coverage check
 
 Every decision from the brainstorm maps to an entry above. Recorded so nothing is quietly lost
@@ -528,6 +660,10 @@ when these become ADRs.
 | `category` removed | CD-12 |
 | Spike-first, five acceptance tests | CD-13 |
 | Repair the resolver before freezing it | CD-14 |
+| Settings in `knowledge-base/settings.json` | CD-15 |
+| Coverage declares languages **and** relation kinds | CD-16 |
+| One graph artifact per backend | CD-17 |
+| Workspace resolution in the homegrown backend | CD-18 |
 | Governance graph deferred | not an ADR — filed in [`../backlog.md`](../backlog.md) |
 
 ## Decisions the spike has now settled
