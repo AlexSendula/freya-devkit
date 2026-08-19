@@ -448,6 +448,52 @@ the same five before becoming a default.
 
 ---
 
+## CD-14 — The homegrown resolver is repaired before it is frozen behind the contract
+
+**Status:** taken 2026-08-19, on Phase 0 evidence
+([findings](phases/phase_0/findings.md)).
+
+**Decision.** Phase 1 does not begin with the refactor. It begins by fixing the four resolver
+defects the spike found ([backlog item 9](../backlog.md)), adding real-repo regression tests
+that would have caught them, and re-running §9.1 against the corrected baseline. Only then is
+the resolver moved behind the contract.
+
+**Rationale.** Phase 1's stated safety property is "no behaviour change, and the existing test
+suite is the regression gate." Neither half holds today. `test_graph_ops.py` is 18 tests over
+synthetic `tempfile` fixtures; it is green while the resolver, pointed at its own repo,
+indexes 10 of 50 Python files, emits 0 internal edges and exits 0 reporting success. A suite
+that cannot observe the behaviour cannot pin it, so "no behaviour change" would preserve
+nothing — and the behaviour being frozen into the permanent zero-install floor is *an empty
+graph on freya's own language*.
+
+There is a second, independent payoff. The spike has exactly **one** two-sided diff, because
+freya-devkit produced no homegrown edges to compare against. Repairing the resolver converts
+it into a second real comparison, on a different language, before the contract's shape is
+fixed.
+
+Doing it after the contract is worse than doing it before: the fixes move the §9.1 baseline —
+homegrown should recover most of the 18 `import type` edges and the barrel edge — so the
+blocking test would otherwise be re-run against a different denominator *after* the interface
+had already been specified around the old one.
+
+**Rejected alternatives.**
+
+- *Refactor first, fix the defects behind the contract afterwards.* This is the spec's stated
+  order and it is defensible — a contract is backend-agnostic, so freezing an interface does
+  not freeze bugs behind it. Rejected on sequencing only: it validates the contract against a
+  floor known to be broken, and re-runs the gate against a moved baseline.
+- *Treat the defects as Phase 5 agnosticism-sweep work.* Rejected: three of the four are not
+  framework assumptions at all, and the fourth (`docs` in the exclusion set) blocks Phase 4.
+- *Declare graphify the default and stop maintaining the homegrown resolver.* Rejected —
+  CD-2 makes the floor load-bearing precisely for the locked-down-laptop case, which is the
+  environment Track B exists to serve.
+
+**Revisit conditions.** If fixing (b), the bare-specifier resolution, turns out to be
+substantially larger than it looks, split it: ship (a), (c) and (d), record the internal-edge
+count freya-devkit reaches, and let the contract absorb the rest.
+
+---
+
 ## Coverage check
 
 Every decision from the brainstorm maps to an entry above. Recorded so nothing is quietly lost
@@ -481,13 +527,38 @@ when these become ADRs.
 | Exclusions are a contract input | CD-11 |
 | `category` removed | CD-12 |
 | Spike-first, five acceptance tests | CD-13 |
+| Repair the resolver before freezing it | CD-14 |
 | Governance graph deferred | not an ADR — filed in [`../backlog.md`](../backlog.md) |
+
+## Decisions the spike has now settled
+
+Answers from [`phases/phase_0/findings.md`](phases/phase_0/findings.md). They become ADR
+material at feature end; the reasoning is in the findings, not reconstructed here.
+
+1. ~~**Is graphify's incremental mode trusted?**~~ **Yes.** Deletion, rename and import removal
+   in one `update` left zero dangling links. `--force` is not a staleness guard and is not
+   needed. *But* graphify's own cache keys on `mtime`/`ast_hash` only — no tool version, no
+   extras set — so a tool upgrade does not invalidate it. Phase 2 owns that.
+2. ~~**How do exclusions reach graphify?**~~ **Mostly for free: it indexes everything not
+   gitignored.** There is no CLI flag, so any exclusion beyond `.gitignore` is a post-filter on
+   its output.
+3. ~~**Are graphify's config edges kept?**~~ **SQL and Terraform yes, YAML no** — and YAML fails
+   without a warning. Does not disturb CD-9 (no config graph), but it **refutes the premise**
+   that retired the identifier index.
+4. ~~**Does `graph.json` stay gitignored?**~~ **Yes.** graphify is content-stable but not
+   byte-stable — `community`/`community_name` drift between runs — so committing it would
+   produce spurious diffs. It also writes only to `graphify-out/`, so **ADR-017's revisit
+   trigger does not fire** and `behavior.json` stays where it is.
 
 ## Decisions still to come
 
-The spike will force at least these, and they belong here when taken:
+Raised by the spike rather than answered by it. All are Phase 2 gates.
 
-1. Whether graphify's incremental mode is trusted, or the contract forces full rebuilds for it.
-2. How exclusions reach graphify — CLI flag, config file, or post-filter on its output.
-3. Whether graphify's config-file edges are kept, once we have seen them.
-4. Whether `graph.json` stays gitignored under graphify, which depends on its reproducibility.
+1. Whether the `EXTRACTED`/`INFERRED` split earns the two-tier machinery in CD-4 at all. It is
+   **not** the deterministic/model-judged axis it was assumed to be, and **zero** file-level
+   edges on any of the three repos rest solely on an `INFERRED` link.
+2. What the contract does about graphify's cache being blind to tool and extras versions.
+3. Whether a ~9.3 KB-per-file artifact is acceptable at scale, given every skill `json.load`s
+   it per invocation.
+4. Whether running a pre-1.0, single-maintainer dependency recursively over a whole codebase
+   needs a supply-chain position before it is recommended to other people's repos.

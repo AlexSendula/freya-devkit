@@ -1,0 +1,147 @@
+{
+  "_comment": "Raw Phase 0 measurements, 2026-08-19. Every number here was produced by a command, not estimated. See ../findings.md for interpretation.",
+  "_provenance": "All three graphify graphs were REBUILT from scratch after the sql/terraform extras were installed, so every number below comes from the environment documented in `environment` rather than from an earlier partial one. The testbed graph was byte-for-byte unchanged by that rebuild (2681 nodes / 5027 links before and after), which is expected: it contains no .sql or .tf files.",
+  "environment": {
+    "date": "2026-08-19",
+    "platform": "darwin 24.6.0",
+    "graphify_version": "0.9.47",
+    "graphify_package": "graphifyy (PyPI name; CLI is 'graphify')",
+    "graphify_install": "uv tool install \"graphifyy[sql,terraform]\"",
+    "graphify_canonical_repo": "safishamsi/graphify (Graphify-Labs/graphify redirects here)",
+    "python": "3.12",
+    "leiden_clusterer": "graspologic ABSENT - a fallback clusterer was in use for every measurement",
+    "jdk": "absent - the Java fixture was never compiled",
+    "llm": "none - no API key was set; every run used the deterministic AST path"
+  },
+  "repos": {
+    "acme-site-testbed": {
+      "language": "typescript",
+      "homegrown": {
+        "files": 232,
+        "internal_edges": 609,
+        "dangling_edges": 1,
+        "dangling_example": ["components/providers.tsx", "components/accessibility"],
+        "build_seconds": 2.42
+      },
+      "graphify": {
+        "files_indexed": 292,
+        "files_indexed_note": "294 distinct source_file values, of which 2 ('next', 'postcss-load-config') are package pseudo-nodes harvested from package.json and are not files on disk",
+        "nodes": 2681,
+        "links": 5027,
+        "graph_json_kb": 2802,
+        "file_level_internal_edges": 714,
+        "directed": false,
+        "build_seconds_cold": 3.01,
+        "build_seconds_warm": 2.12,
+        "relations": {
+          "contains": 2285, "imports": 1137, "imports_from": 624, "calls": 822,
+          "references": 133, "extends": 10, "re_exports": 8, "indirect_call": 3,
+          "inherits": 2, "rationale_for": 2, "dynamic_import": 1
+        },
+        "confidence": { "EXTRACTED": 5024, "INFERRED": 3 },
+        "inferred_note": "All 3 INFERRED links on this repo are lib/db-prisma.ts self-loops, so 0 file-level edges rest solely on an INFERRED link."
+      },
+      "comparison_restricted_to_232_common_files": {
+        "homegrown_edges": 608,
+        "graphify_edges": 626,
+        "shared": 608,
+        "missed_by_graphify": 0,
+        "extra_in_graphify": 18,
+        "shared_backed_by_import_family": 608,
+        "shared_backed_only_by_calls_or_references": 0,
+        "unrestricted_missed_by_graphify": 1,
+        "unrestricted_miss_is": "the dangling components/providers.tsx -> components/accessibility, which is homegrown's own failure to resolve a barrel import. graphify resolves it correctly into two edges.",
+        "excused_by_the_restriction": 0,
+        "per_file_reverse_blast_radius_vs_homegrown": "across all 232 files: 220 identical, 12 larger, 0 smaller"
+      }
+    },
+    "freya-devkit": {
+      "language": "python",
+      "homegrown": {
+        "files": 10,
+        "internal_edges": 0,
+        "python_files_actually_present": "50 git-tracked, 52 on disk",
+        "files_excluded_by_scripts_rule": 40,
+        "reported_success": true,
+        "exit_code": 0,
+        "build_seconds": 0.13,
+        "second_independent_defect": "Removing 'scripts'/'docs'/'knowledge-base' from always_exclude_dirs raises the scan from 10 to 51 files but yields only ONE internal edge, and that one is dangling. Python sibling imports ('import behavior_graph') are classified 'external:', so the exclusion bug is necessary but far from sufficient to explain the zero."
+      },
+      "graphify": {
+        "files_indexed": 109,
+        "nodes": 2913,
+        "links": 4812,
+        "graph_json_kb": 3290,
+        "file_level_internal_edges": 131,
+        "confidence": { "EXTRACTED": 4753, "INFERRED": 42 },
+        "inferred_breakdown": { "indirect_call": 20, "uses": 14, "calls": 8 },
+        "inferred_note": "27 of the 42 are intra-file and invisible at file level. The 15 cross-file ones are all correct and are exactly freya's sys.path.insert cross-skill imports, every one of which homegrown reports as 'external:'.",
+        "build_seconds_cold": 1.98,
+        "build_seconds_warm": 1.54
+      },
+      "comparison_restricted_to_10_common_files": {
+        "homegrown_edges": 0,
+        "graphify_edges": 11,
+        "missed_by_graphify": 0,
+        "note": "Not a meaningful comparison. Homegrown produced no edges at all, so there was nothing to under-report against."
+      }
+    },
+    "java-graph-fixture": {
+      "language": "java",
+      "homegrown": { "supported": false, "files": 0, "internal_edges": 0 },
+      "graphify": {
+        "files_indexed": 8,
+        "nodes": 40,
+        "links": 73,
+        "graph_json_kb": 47,
+        "build_seconds_cold": 0.16,
+        "build_seconds_warm": 0.12,
+        "confidence": { "EXTRACTED": 61, "INFERRED": 12 },
+        "inferred_breakdown": { "calls": 12 },
+        "inferred_correctness": "all 12 manually checked and correct; they are method calls whose receiver type had to be resolved from a declared type"
+      },
+      "ground_truth_scoring": {
+        "expected_edges": 11,
+        "found": 11,
+        "missing": 0,
+        "spurious": 0,
+        "import_derivable": "9/9",
+        "type_resolution_only": "2/2"
+      }
+    }
+  },
+  "tests": {
+    "9.1_under_reporting": {
+      "verdict": "PASS",
+      "evidence": "0 of 608 homegrown edges missing on the testbed; all 608 agreed edges independently backed by an import-family relation, so the agreement is not an artifact of folding symbol edges to file level"
+    },
+    "9.2_deletion_and_staleness": {
+      "verdict": "PASS",
+      "method": "deleted a file, renamed a method, and removed an import in one update",
+      "evidence": "nodes 40 -> 35; deleted file absent as a node source; stale symbol totalUnits gone; renamed sumUnits present; 0 dangling links",
+      "residual": "one placeholder node 'inmemoryitemstore' with source_file:'' survives because AuditedItemStore.java:8 still says 'extends InMemoryItemStore'. Faithful to source, not stale. Distinguishable only by empty source_file.",
+      "force_guard": "a 62% node drop (40 -> 15) proceeded without --force and without any guard message. The guard protects the curated/LLM layer, which is backed up separately, not code nodes."
+    },
+    "9.3_reproducibility": {
+      "verdict": "PASS (content-stable)",
+      "method": "graphify-out destroyed entirely between runs, so the SHA256 cache could not mask instability",
+      "small_repo": "byte-identical, including community assignment",
+      "large_repo": "node and link sets identical; every link field identical; 6 of 2901 nodes differ in 'community' and 'community_name' only",
+      "caveat": "measured with the fallback clusterer. graspologic/Leiden was not installed and may behave differently."
+    },
+    "9.4_config_coverage": {
+      "verdict": "MIXED - and this refutes a premise in the spec",
+      "fixture": "../fixtures/config/ - re-runnable. Result recorded in config_result.json.",
+      "sql": "works, but only after installing graphifyy[sql]. Extracts tables, views, foreign-key 'references' and view 'reads_from'. Warns clearly when the extra is missing.",
+      "terraform_hcl": "works, but only after installing graphifyy[terraform]. Resolved an interpolation dependency (cloudfront -> s3 bucket) correctly. Warns clearly when missing.",
+      "yaml": "NOT SUPPORTED. k8s manifests and docker-compose produced zero nodes AND zero warnings.",
+      "json": "manifest-aware only. package.json produced 5 nodes; generic data JSON produced nothing."
+    },
+    "9.5_degradation_and_output_location": {
+      "verdict": "PASS",
+      "output_location": "writes only to graphify-out/. knowledge-base/.graph/ was untouched in both repos.",
+      "adr_017_trigger": "does NOT fire. behavior.json does not need to move.",
+      "absence": "exit code 127, clearly detectable; the homegrown resolver is unaffected with graphify off PATH."
+    }
+  }
+}

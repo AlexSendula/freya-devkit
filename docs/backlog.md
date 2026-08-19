@@ -303,7 +303,8 @@ brainstorm, 2026-08-19.
 
 ## Open defects
 
-All eight were re-verified against shipped code on 2026-08-19; item 7 has since been fixed.
+Items 1–8 were re-verified against shipped code on 2026-08-19, and item 7 has since been
+fixed. Item 9 was found the same day by the Track B Phase 0 spike.
 
 ### 1. A `--copy` install is re-copied on every `update`, even when nothing changed
 
@@ -406,6 +407,33 @@ and blob references above are enough to act on, and writing the values into a li
 re-create the leak this entry exists to track.
 
 ---
+
+### 9. The code-graph resolver cannot graph this repo, and reports success doing it
+
+Found by the Track B Phase 0 spike, 2026-08-19
+([findings](polyglot/phases/phase_0/findings.md)). Building the graph on freya-devkit yields
+**10 of 50 tracked Python files and 0 internal edges**, prints
+`Built dependency graph: 10 files scanned`, and exits 0. Because
+`project_shape.classify()` calls a repo *greenfield* at 0 internal edges, **freya-devkit reads
+as a greenfield project to its own tooling.**
+
+Four independent defects, all in `skills/freya-code-graph/scripts/graph_ops.py`:
+
+| # | Defect | Where | Effect |
+|---|---|---|---|
+| a | `'scripts'`, `'docs'`, `'knowledge-base'` in `always_exclude_dirs`, matched against *any* path component | `:569` with `:619` | drops the 40 files under `skills/*/scripts/`. `docs` also blocks Phase 4 |
+| b | Bare-specifier sibling imports classified third-party | `_resolve_import_path` | `import behavior_graph` becomes `external:behavior_graph`. **This alone keeps the internal edge count at ~0 even with (a) fixed** |
+| c | `import type { X } from '...'` invisible to the regex | `:53`, `:67` | 16 real edges missed on the testbed |
+| d | gitignore patterns are substring-matched | `:637` | `app/api/auth/[...nextauth]/route.ts` is excluded because `...nextauth` contains `.next`. A sibling `[...path]` route survives |
+
+(a) and (b) are independent: removing the exclusion raises the scan to 51 files and still
+produces one internal edge, which dangles. Both are needed.
+
+**Why this is scheduled rather than merely filed.** Phase 1 plans to move the resolver behind
+the substrate contract "with no behaviour change; the existing test suite is the regression
+gate." That suite — 18 tests over synthetic `tempfile` fixtures — is green today while all four
+defects are live, so it cannot observe the behaviour being frozen. Fixing these first also
+turns freya-devkit into a second real two-sided diff for §9.1, which the spike currently lacks.
 
 ## Platform-blocked
 

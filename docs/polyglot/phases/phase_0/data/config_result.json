@@ -1,0 +1,72 @@
+{
+  "_comment": "Config-as-code coverage fixture result (spec 9.4). Run: graphify update . in fixtures/config/",
+  "files_in_fixture": [
+    "db/schema.sql",
+    "docker-compose.yml",
+    "infra/main.tf",
+    "k8s/configmap.yaml",
+    "k8s/deployment.yaml",
+    "package.json",
+    "src/app.js"
+  ],
+  "files_that_produced_nodes": [
+    "db/schema.sql",
+    "infra/main.tf",
+    "package.json",
+    "src/app.js"
+  ],
+  "files_that_produced_NOTHING": [
+    "docker-compose.yml",
+    "k8s/configmap.yaml",
+    "k8s/deployment.yaml"
+  ],
+  "nodes_per_file": {
+    "package.json": 5,
+    "db/schema.sql": 4,
+    "infra/main.tf": 3,
+    "src/app.js": 3
+  },
+  "non_containment_edges": [
+    {
+      "src": "package_dependencies_express",
+      "dst": "express",
+      "relation": "imports",
+      "file": "package.json",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "src": "db_schema_customer_totals",
+      "dst": "db_schema_customers",
+      "relation": "reads_from",
+      "file": "db/schema.sql",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "src": "db_schema_customer_totals",
+      "dst": "db_schema_orders",
+      "relation": "reads_from",
+      "file": "db/schema.sql",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "src": "db_schema_orders",
+      "dst": "db_schema_customers",
+      "relation": "references",
+      "file": "db/schema.sql",
+      "confidence": "EXTRACTED"
+    },
+    {
+      "src": "infra_aws_cloudfront_distribution_cdn",
+      "dst": "infra_aws_s3_bucket_assets",
+      "relation": "references",
+      "file": "infra/main.tf",
+      "confidence": "EXTRACTED"
+    }
+  ],
+  "verdict": {
+    "sql": "SUPPORTED with graphifyy[sql]. Tables, views, FK references and view reads_from all EXTRACTED.",
+    "terraform_hcl": "SUPPORTED with graphifyy[terraform]. Resource interpolation resolved.",
+    "yaml": "NOT SUPPORTED. k8s manifests and docker-compose produce zero nodes and NO warning.",
+    "json": "Manifest-aware only. package.json dependencies extracted; generic data JSON produces nothing."
+  }
+}

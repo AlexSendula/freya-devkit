@@ -1,0 +1,26 @@
+{
+  "by_requirement": {
+    "import": {
+      "found": 9,
+      "total": 9
+    },
+    "type-resolution": {
+      "found": 2,
+      "total": 2
+    }
+  },
+  "expected": 11,
+  "extra": [],
+  "files_missing_from_graph": [],
+  "found": 11,
+  "missing": [],
+  "relations": {
+    "calls": 13,
+    "contains": 10,
+    "implements": 1,
+    "imports": 13,
+    "inherits": 1,
+    "method": 18,
+    "references": 17
+  }
+}

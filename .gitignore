@@ -30,3 +30,6 @@ docs/superpowers/
 # Local agent settings: contains absolute paths from whoever ran it.
 # Ignored globally on the author's machine; pinned here so a fresh clone is safe too.
 .claude/settings.local.json
+
+# graphify backend output (Track B spike). Regenerable; never committed.
+graphify-out/

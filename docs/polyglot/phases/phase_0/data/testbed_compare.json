@@ -1,0 +1,301 @@
+{
+  "excused_by_restriction": {
+    "count": 0,
+    "homegrown_edges_thereby_excused": [],
+    "homegrown_files_graphify_produced_no_nodes_for": []
+  },
+  "files": {
+    "common": 232,
+    "graphify_only": [
+      "app/api/auth/[...nextauth]/route.ts",
+      "app/api/media/generated/route.ts",
+      "components.json",
+      "cucumber.mjs",
+      "docker-entrypoint.sh",
+      "docs/project/API_REFERENCE.md",
+      "docs/project/ARCHITECTURE.md",
+      "docs/project/DATABASE_SCHEMA.md",
+      "docs/project/DEPLOYMENT.md",
+      "docs/project/DEVELOPER_GUIDE.md",
+      "docs/project/ENVIRONMENT.md",
+      "docs/project/INFRASTRUCTURE.md",
+      "docs/project/PROJECT_OVERVIEW.md",
+      "docs/project/README.md",
+      "docs/project/SECURITY.md",
+      "docs/project/STYLE_GUIDE.md",
+      "docs/project/TESTING.md",
+      "docs/project/TROUBLESHOOTING.md",
+      "docs/security-reports/codebase-security/2026-03-13.md",
+      "docs/security-reports/codebase-security/2026-03-26.md",
+      "docs/security-reports/codebase-security/2026-03-29.md",
+      "docs/security-reports/dependency-vulnerabilities/2026-03-13.md",
+      "docs/specs/README.md",
+      "docs/specs/auth/SPEC-001-passkey-authentication.md",
+      "docs/specs/auth/SPEC-002-jwt-sessions.md",
+      "docs/specs/auth/SPEC-003-setup-tokens.md",
+      "docs/specs/auth/SPEC-004-magic-links.md",
+      "docs/specs/auth/SPEC-005-super-admin-transfer.md",
+      "docs/specs/features/SPEC-006-draft-published-workflow.md",
+      "docs/specs/features/SPEC-007-passkey-management.md",
+      "docs/specs/features/SPEC-008-post-locking.md",
+      "docs/specs/features/SPEC-009-role-based-access.md",
+      "docs/specs/features/SPEC-010-audit-logging.md",
+      "docs/specs/features/SPEC-012-internationalization.md",
+      "docs/specs/features/SPEC-013-event-management.md",
+      "docs/specs/features/SPEC-020-media-library.md",
+      "docs/specs/features/SPEC-021-email-campaigns.md",
+      "docs/specs/infra/SPEC-011-rate-limiting.md",
+      "docs/specs/infra/SPEC-016-security-headers.md",
+      "docs/specs/infra/SPEC-017-seo.md",
+      "docs/specs/infra/SPEC-018-docker-deployment.md",
+      "docs/specs/integration/SPEC-019-email-service.md",
+      "docs/specs/security.decisions.md",
+      "docs/specs/ui/SPEC-014-accessibility-features.md",
+      "docs/specs/ui/SPEC-015-mobile-navigation.md",
+      "docs/tickets_and_donations_system_feature/2026-06-19-donations-phase1-design.md",
+      "docs/tickets_and_donations_system_feature/2026-06-19-donations-phase1-plan.md",
+      "docs/tickets_and_donations_system_feature/2026-06-19-overview-design.md",
+      "features/steps/passkey_auth_steps.mts",
+      "features/steps/support/server.mts",
+      "knowledge-base/decisions/README.md",
+      "knowledge-base/principles.md",
+      "knowledge-base/specs/README.md",
+      "knowledge-base/specs/auth/SPEC-001-passkey-login.md",
+      "next-env.d.ts",
+      "next.config.mjs",
+      "package.json",
+      "postcss.config.mjs",
+      "tsconfig.json",
+      "types/next-auth.d.ts"
+    ],
+    "graphify_total": 292,
+    "homegrown_only": [],
+    "homegrown_total": 232
+  },
+  "graphify_meta": {
+    "backend": "graphify",
+    "confidence": {
+      "EXTRACTED": 5024,
+      "INFERRED": 3
+    },
+    "directed": false,
+    "edge_count": 714,
+    "file_count": 292,
+    "link_count": 5027,
+    "links_dropped_unmapped_endpoint": 0,
+    "multigraph": false,
+    "node_count": 2681,
+    "phantom_source_files_excluded": [
+      "next",
+      "postcss-load-config"
+    ],
+    "relations": {
+      "calls": 822,
+      "contains": 2285,
+      "dynamic_import": 1,
+      "extends": 10,
+      "imports": 1137,
+      "imports_from": 624,
+      "indirect_call": 3,
+      "inherits": 2,
+      "rationale_for": 2,
+      "re_exports": 8,
+      "references": 133
+    }
+  },
+  "homegrown_meta": {
+    "backend": "homegrown",
+    "dangling_edges": [
+      [
+        "components/providers.tsx",
+        "components/accessibility"
+      ]
+    ],
+    "edge_count": 609,
+    "file_count": 232,
+    "languages": {
+      "typescript": 232
+    }
+  },
+  "raw": {
+    "graphify_edges": 714,
+    "homegrown_edges": 609
+  },
+  "restricted": {
+    "common_files": 232,
+    "extra_in_graphify": [
+      [
+        "app/api/events/[id]/route.ts",
+        "lib/db-types.ts"
+      ],
+      [
+        "app/api/events/route.ts",
+        "lib/db-types.ts"
+      ],
+      [
+        "app/api/posts/[id]/draft/route.ts",
+        "lib/db-types.ts"
+      ],
+      [
+        "app/api/posts/[id]/route.ts",
+        "lib/db-types.ts"
+      ],
+      [
+        "app/api/posts/route.ts",
+        "lib/db-types.ts"
+      ],
+      [
+        "app/dashboard/events/[id]/event-form.tsx",
+        "lib/db-types.ts"
+      ],
+      [
+        "app/dashboard/events/events-table.tsx",
+        "lib/db-types.ts"
+      ],
+      [
+        "app/dashboard/posts/posts-table.tsx",
+        "lib/db-types.ts"
+      ],
+      [
+        "components/blog-grid.tsx",
+        "lib/db-types.ts"
+      ],
+      [
+        "components/editable-event-card.tsx",
+        "lib/db-types.ts"
+      ],
+      [
+        "components/editable-event-image.tsx",
+        "lib/image-processing.ts"
+      ],
+      [
+        "components/event-edit-mode-provider.tsx",
+        "lib/db-types.ts"
+      ],
+      [
+        "components/post-image-upload-dialog.tsx",
+        "lib/image-processing.ts"
+      ],
+      [
+        "components/providers.tsx",
+        "components/accessibility/accessibility-context.tsx"
+      ],
+      [
+        "components/providers.tsx",
+        "components/accessibility/index.tsx"
+      ],
+      [
+        "components/ui/use-toast.ts",
+        "components/ui/toast.tsx"
+      ],
+      [
+        "hooks/use-toast.ts",
+        "components/ui/toast.tsx"
+      ],
+      [
+        "lib/post-utils.ts",
+        "lib/db-types.ts"
+      ]
+    ],
+    "graphify_edges": 626,
+    "homegrown_edges": 608,
+    "missed_by_graphify": [],
+    "shared": 608
+  },
+  "restricted_undirected": {
+    "extra_in_graphify": [
+      [
+        "app/api/events/[id]/route.ts",
+        "lib/db-types.ts"
+      ],
+      [
+        "app/api/events/route.ts",
+        "lib/db-types.ts"
+      ],
+      [
+        "app/api/posts/[id]/draft/route.ts",
+        "lib/db-types.ts"
+      ],
+      [
+        "app/api/posts/[id]/route.ts",
+        "lib/db-types.ts"
+      ],
+      [
+        "app/api/posts/route.ts",
+        "lib/db-types.ts"
+      ],
+      [
+        "app/dashboard/events/[id]/event-form.tsx",
+        "lib/db-types.ts"
+      ],
+      [
+        "app/dashboard/events/events-table.tsx",
+        "lib/db-types.ts"
+      ],
+      [
+        "app/dashboard/posts/posts-table.tsx",
+        "lib/db-types.ts"
+      ],
+      [
+        "components/accessibility/accessibility-context.tsx",
+        "components/providers.tsx"
+      ],
+      [
+        "components/accessibility/index.tsx",
+        "components/providers.tsx"
+      ],
+      [
+        "components/blog-grid.tsx",
+        "lib/db-types.ts"
+      ],
+      [
+        "components/editable-event-card.tsx",
+        "lib/db-types.ts"
+      ],
+      [
+        "components/editable-event-image.tsx",
+        "lib/image-processing.ts"
+      ],
+      [
+        "components/event-edit-mode-provider.tsx",
+        "lib/db-types.ts"
+      ],
+      [
+        "components/post-image-upload-dialog.tsx",
+        "lib/image-processing.ts"
+      ],
+      [
+        "components/ui/toast.tsx",
+        "components/ui/use-toast.ts"
+      ],
+      [
+        "components/ui/toast.tsx",
+        "hooks/use-toast.ts"
+      ],
+      [
+        "lib/db-types.ts",
+        "lib/post-utils.ts"
+      ]
+    ],
+    "graphify_edges": 626,
+    "homegrown_edges": 608,
+    "missed_by_graphify": [],
+    "shared": 608
+  },
+  "shared_edge_backing": {
+    "agreed_via_non_import_relation_only": [],
+    "counts": {
+      "import_family": 608
+    }
+  },
+  "unrestricted": {
+    "examples": [
+      [
+        "components/providers.tsx",
+        "components/accessibility"
+      ]
+    ],
+    "homegrown_edges": 609,
+    "missed_by_graphify": 1
+  }
+}
