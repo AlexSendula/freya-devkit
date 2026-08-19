@@ -9,7 +9,7 @@ knows only the original `main`.
 No build, no install, no network. Either:
 
 - **Double-click `index.html`** (works on `file://`), or
-- serve it: `python3 -m http.server -d docs/behavior-layer-explainer` → http://localhost:8000
+- serve it: `python3 -m http.server -d docs/explanations/behavior-layer-explainer` → http://localhost:8000
 
 Light/dark toggle is in the top-right of the nav.
 
@@ -23,19 +23,17 @@ Light/dark toggle is in the top-right of the nav.
 | `journey.html` — **The Journey & The Proof** | Mechanism-first sequencing, the phase timeline, the wrap-up pipeline explorer, the dogfooding evidence (with its honest limits), the adoption arc, and the parking lot / Phase 5. |
 | `reference.html` — **Reference** | Lookup: real per-script CLI flags (filterable), the knowledge-base layout, lifecycle cheat-sheet, G1 trigger rules, coverage-unknown reasons, glossary. |
 
-## What `_research/` is
-
-Thirteen verified research briefs, mined from the branch's design docs, specs, plans, and
-code by a multi-agent research pass. They are the **sourced backing** for every claim on the
-site (each brief names its primary sources) — kept as a "go deeper" layer and as citations.
-The webapp was authored from these briefs and then adversarially fact-checked against the
-actual source.
-
 ## Provenance & accuracy
 
 - All examples use the dogfooding testbed's generic passkey-auth spec (`SPEC-001`,
   `BEH-001/002/003`); no proprietary content, secrets, or customer data appear anywhere.
 - Dogfooding numbers are quoted with their honest limits (e.g. FP=0 was measured on
   2 behaviors / 3 changes — illustrative, not a benchmark).
-- Primary sources live in the repo: `docs/design/behavior-layer/` (vision, phase designs,
-  dogfooding notes, parking lot) and `docs/superpowers/specs|plans/`.
+- Primary sources live in the repo: [`../../design/behavior-layer/`](../../design/behavior-layer/)
+  (vision, phase designs, dogfooding notes, parking lot) and
+  [`../../superpowers/archive/`](../../superpowers/archive/).
+- This site was authored from a set of sourced research briefs that lived in a `_research/`
+  subdirectory, then adversarially fact-checked against the source. The briefs were deleted on
+  2026-08-19: nothing linked to them, they had gone stale against the 0.2.0 portability release,
+  and because this directory is uploaded verbatim as the GitHub Pages artifact they were being
+  served publicly as raw markdown. They remain in git history.

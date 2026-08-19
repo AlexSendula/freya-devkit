@@ -2,7 +2,7 @@
 
 **Run 2026-08-17 on macOS 15.6, Python 3.12.5.** Continues
 [`phase-6-validation-log.md`](phase-6-validation-log.md), which produced the finding this
-phase exists to fix. Design: [`../../superpowers/specs/2026-08-17-driver-owned-scan-design.md`](../../superpowers/specs/2026-08-17-driver-owned-scan-design.md).
+phase exists to fix. Design: [`../../superpowers/specs/2026-08-17-driver-owned-scan-design.md`](../../superpowers/archive/specs/2026-08-17-driver-owned-scan-design.md).
 
 Worker CLIs: GitHub Copilot CLI 1.0.75 on `gpt-5.6-luna` (a Copilot Pro month bought for
 this testing) and Claude Code 2.1.220 on `haiku` (phase 6's 2.1.233 lives only in the sandbox). Fixture: `/tmp/freya-phase7/fixture`, git-tracked, five files.

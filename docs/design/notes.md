@@ -47,3 +47,20 @@ are still true. They live here so that archiving a plan never archives a bug rep
 Still open and platform-blocked: Windows live-agent validation, `install.ps1` and `--copy`
 under Windows (CI covers them on `windows-latest`; no live agent run has), the 60 s fetch
 timeout path, and the read-only bypass probe against Copilot CLI 1.0.75.
+
+## `status` and `review` are advertised but undefined (codebase-security-resolver) (2026-08-19)
+
+`skills/freya-codebase-security-resolver/SKILL.md` lists `status` ("Quick count by severity +
+last scan date") and `review` ("Show what was fixed in last session") in its Quick Reference
+table at lines 34-35, but the Commands section below defines only the default interactive flow,
+`list`, `fix <ids...>` and `fix --dry-run`. Neither command has a phase, an example, or any
+statement of where it reads prior-session state from — git log, a diff between dated reports,
+or something else — so an agent invoked with `review` has to improvise. The published explainer
+does not preserve the gap either: `explanations/plugin/reference.html` and `skills.html` list
+only the four defined commands, silently dropping two commands the skill still ships. Pick one:
+specify both commands with a phase and an example, or remove them from the table.
+
+*(Rescued from the explainer research brief `explanations/plugin/_research/10-skill-security-resolver.md`
+before that tree was deleted. Re-verified against shipped code on 2026-08-19. It was the only
+finding in all 33 briefs that existed nowhere else — 69 other candidates were checked and each
+was already recorded elsewhere, already fixed, or already false.)*

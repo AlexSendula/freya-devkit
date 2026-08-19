@@ -1,7 +1,7 @@
 # Phase 6 — Validation Log
 
 **Part A (mechanics, sandboxed): run 2026-08-15 on macOS 15.6, Python 3.12.5.**
-Plan: [`../../superpowers/plans/2026-08-14-phase-6-validation.md`](../../superpowers/plans/2026-08-14-phase-6-validation.md).
+Plan: [`../../superpowers/plans/2026-08-14-phase-6-validation.md`](../../superpowers/archive/plans/2026-08-14-phase-6-validation.md).
 ~~Part B (live agents) has **not** been run — it is gated on separate approval.~~
 **Correction (2026-08-18): Part B *was* approved and run, on 2026-08-15 — it is the
 second half of this file, from "Part B — live agents (partial)" onward.** The line above
