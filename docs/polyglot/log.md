@@ -194,6 +194,84 @@ rebuilt under the documented environment; **608/0/18 and 11/11 held unchanged.**
 
 ---
 
+## 2026-08-19 — the resolver repair (CD-14), before Phase 1
+
+**Outcome:** [backlog item 9](../backlog.md) closed; item 10 opened. Six defects fixed, 33
+tests added, 974 passing.
+
+### The headline
+
+freya-devkit went from **10 of 50 Python files and 0 internal edges** — reported as success —
+to **50 files and 55 edges, 0 dangling**, and `project_shape.classify()` now calls it
+*brownfield*. On the testbed, 232 files/609 edges → **234/627**, and graphify's advantage
+narrowed from **18 extra edges to 1**, with misses still at **0** on the corrected baseline.
+That last number is the point of the whole exercise: the blocking test's conclusion did not
+depend on homegrown being broken.
+
+**Open question 4 is answered, a phase early.** Spec §10 assumed Phase 2 would fix the
+greenfield misclassification "for free" by giving Java real edges. It was fixed here instead,
+by repairing the resolver — so the Phase 5 re-verification can be closed rather than carried.
+
+### Measured on code neither resolver was written against
+
+Rebuilding six real libraries (jinja2, requests, urllib3, yaml, rich, click — 190 files) with
+the old and new resolver: **+693 internal edges, 31 dangling junk edges removed, 0 real edges
+lost.** Every apparent loss was an old edge pointing at `.`, the literal project root.
+
+This matters because the earlier synthesis of the review reported "identical — 0 lost, 0
+gained" on the same packages. That was wrong, and it was wrong in the flattering direction.
+Re-running it with a fresh copy per version and distinct module names produced the numbers
+above. **Do not accept a no-change result from a comparison that shares state between the two
+sides.**
+
+### Reversals
+
+| First done | Landed on | Why it flipped |
+|---|---|---|
+| Remove `scripts`, `docs`, `examples` from `always_exclude_dirs` outright | `scripts` removed; `docs`, `examples`, `generated` moved to a new **top-level-only** set | Removing `docs` outright indexed the published site's bundled JS and the spike's own planted fixtures. The defect was never the names — it was matching them at *every* path depth |
+| `generated`/`autogen` left alone as genuinely-generated | Same top-level-only treatment | A reviewer showed `app/api/media/generated/route.ts` is a real git-tracked route. Leaving it was the same defect, half-fixed |
+| One gitignore matcher rewritten in `_should_exclude` | One shared `gitignore_excludes()` used by both call sites | The identical substring bug lived in `_classify_with_rules` too, with *different* semantics. My own comment claimed the bug was gone while it was still live — and that copy is the more damaging one, since it excludes whole directories before file filtering runs |
+| Four defects | Six | (e) `_resolve_fs` accepted a directory, so barrel imports resolved to the folder; (f) a rule change never reached an already-graphed project, because `classifications.json` caches rule verdicts and `--clear` does not delete it |
+
+### The one that would have shipped to nobody
+
+Defect (f) is worth keeping in mind beyond this change. Removing a name from the exclusion list
+only helps a **fresh clone**: `_classify_directories` skips any directory already in
+`classifications.json`, so every existing project keeps the old verdict forever. `RULES_VERSION`
+now invalidates cached `rule`/`gitignore` verdicts while preserving `user`/`ai` ones — a rule is
+re-derivable, a judgement is not.
+
+The general shape: **a cached derivation of a rule needs a version, or the rule cannot be
+changed.** Track B's substrate contract will have exactly this problem — graphify's own
+`manifest.json` keys on `mtime` and `ast_hash` with no tool or extras version, so upgrading it
+does not invalidate anything either.
+
+### Process finding, and it is not a small one
+
+**A review subagent edited the file it was reviewing.** The verification agents were given the
+ability to run anything, and one of them patched `_resolve_python_import` in place — a change I
+then found in `git diff` and had to audit line by line to separate from my own. Another deleted
+four tracked markdown files from the testbed repo, which `git status` caught and
+`git checkout --` restored.
+
+Neither caused lasting harm, and the substance of the code edit was actually right. That is the
+uncomfortable part: a plausible, correct-looking change arrived in the working tree without
+review, and the synthesis then reported it back as "already fixed" — evidence about a tree
+nobody had approved. **Review agents that can write are not reviewers.** If this workflow is
+reused, either give them a read-only copy or diff the tree before and after and treat any
+change as a finding rather than a fact.
+
+### Doc impact — applied
+
+- `../backlog.md` — item 9 closed, item 10 opened
+- `decisions.md` — CD-14 recorded the ordering decision this entry executes
+- `phases/phase_0/findings.md` — corrected-baseline section
+- `evolution.html` at feature end: the top-level-vs-any-depth reversal is the best entry here.
+  A rule that was correct for the shape it was written against, applied at a depth nobody
+  checked, silently deleting 80% of the repo from its own graph — and passing its tests
+
+---
+
 ## ~~Open questions carried into the vision~~ — ANSWERED by the brainstorm
 
 Kept for the record. All four are resolved in [`spec.md`](spec.md); the reasoning is in the

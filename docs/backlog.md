@@ -303,8 +303,8 @@ brainstorm, 2026-08-19.
 
 ## Open defects
 
-Items 1–8 were re-verified against shipped code on 2026-08-19, and item 7 has since been
-fixed. Item 9 was found the same day by the Track B Phase 0 spike.
+Items 1–8 were re-verified against shipped code on 2026-08-19; items 7 and 9 have since been
+fixed. Items 9 and 10 were found the same day by the Track B Phase 0 spike.
 
 ### 1. A `--copy` install is re-copied on every `update`, even when nothing changed
 
@@ -408,32 +408,65 @@ re-create the leak this entry exists to track.
 
 ---
 
-### 9. The code-graph resolver cannot graph this repo, and reports success doing it
+### ~~9. The code-graph resolver cannot graph this repo, and reports success doing it~~ — RESOLVED (2026-08-19)
 
-Found by the Track B Phase 0 spike, 2026-08-19
-([findings](polyglot/phases/phase_0/findings.md)). Building the graph on freya-devkit yields
-**10 of 50 tracked Python files and 0 internal edges**, prints
-`Built dependency graph: 10 files scanned`, and exits 0. Because
-`project_shape.classify()` calls a repo *greenfield* at 0 internal edges, **freya-devkit reads
-as a greenfield project to its own tooling.**
+**Fixed.** Found by the Track B Phase 0 spike
+([findings](polyglot/phases/phase_0/findings.md)) and repaired before Phase 1 per
+[CD-14](polyglot/decisions.md). freya-devkit went from **10 of 50 files and 0 internal edges**
+— reported as success, exit 0 — to **50 files and 55 edges, 0 dangling**, and
+`project_shape.classify()` now reads it as *brownfield* instead of *greenfield*.
 
-Four independent defects, all in `skills/freya-code-graph/scripts/graph_ops.py`:
+Six defects, all in `skills/freya-code-graph/scripts/graph_ops.py`:
 
-| # | Defect | Where | Effect |
-|---|---|---|---|
-| a | `'scripts'`, `'docs'`, `'knowledge-base'` in `always_exclude_dirs`, matched against *any* path component | `:569` with `:619` | drops the 40 files under `skills/*/scripts/`. `docs` also blocks Phase 4 |
-| b | Bare-specifier sibling imports classified third-party | `_resolve_import_path` | `import behavior_graph` becomes `external:behavior_graph`. **This alone keeps the internal edge count at ~0 even with (a) fixed** |
-| c | `import type { X } from '...'` invisible to the regex | `:53`, `:67` | 16 real edges missed on the testbed |
-| d | gitignore patterns are substring-matched | `:637` | `app/api/auth/[...nextauth]/route.ts` is excluded because `...nextauth` contains `.next`. A sibling `[...path]` route survives |
+| # | Defect | Fix |
+|---|---|---|
+| a | `'scripts'`, `'docs'`, `'examples'`, `'generated'` in `always_exclude_dirs`, matched against *any* path component | `scripts` dropped entirely; the rest moved to a new `top_level_exclude_dirs` matched only at the repo root |
+| b | Bare-specifier and dotted Python imports classified third-party | `_resolve_python_import` / `_python_search_bases` implement module semantics, including src-layout |
+| c | `import type { X } from '...'` invisible to the regex | optional `(?:type\s+)?` on the three forms that accept it |
+| d | gitignore patterns substring-matched, so `.next` excluded `[...nextauth]` | one shared `gitignore_excludes()`, matching per path component |
+| e | `_resolve_fs` accepted a directory, so barrel imports resolved to the folder | `is_file()` instead of `exists()` |
+| f | A rule change never reached an already-graphed project | `RULES_VERSION` discards cached `rule`/`gitignore` verdicts; `user`/`ai` ones survive |
 
-(a) and (b) are independent: removing the exclusion raises the scan to 51 files and still
-produces one internal edge, which dangles. Both are needed.
+(d) existed in **two** places with different semantics — `_should_exclude` and
+`_classify_with_rules` — which is why the first attempt fixed only one of them. They now share
+one function.
 
-**Why this is scheduled rather than merely filed.** Phase 1 plans to move the resolver behind
-the substrate contract "with no behaviour change; the existing test suite is the regression
-gate." That suite — 18 tests over synthetic `tempfile` fixtures — is green today while all four
-defects are live, so it cannot observe the behaviour being frozen. Fixing these first also
-turns freya-devkit into a second real two-sided diff for §9.1, which the spike currently lacks.
+**Measured, on packages neither side was written against.** Rebuilding six real libraries
+(jinja2, requests, urllib3, yaml, rich, click — 190 files) with the old and new resolver:
+**+693 internal edges, 31 dangling junk edges removed, 0 real edges lost.** On the testbed,
+232 files/609 edges → 234/627, and graphify's edge advantage narrowed from 18 to 1.
+
+Deferred, and filed separately below: the Python import regex still misses
+`from . import x`, drops all but the first name in `import a, b`, and cannot see indented
+imports.
+
+### 10. The import regexes read strings and comments, and miss three Python forms
+
+Surfaced while fixing item 9. `_parse_imports` runs regexes over raw file text with no
+awareness of strings or comments, and the Python patterns do not cover every statement shape.
+
+| Symptom | Evidence |
+|---|---|
+| An import inside a string literal becomes an edge | `bin/installer.py:566` writes `"from freya_cli import main\n"` into a generated launcher; the graph records installer → freya_cli |
+| An import in a comment or docstring becomes an edge | `graph_ops.py`'s own docstrings contribute every `unresolved:` entry in this repo's graph |
+| `from . import x` / `from .. import y` are missed | the module name is in the import clause, which no pattern captures. ~1,948 occurrences per 91,780 import lines of site-packages; **0 in this repo** |
+| `import a, b` keeps only `a` | ~12 per 91,780 |
+| Indented imports are invisible | `^import` under `re.MULTILINE`; lazy and `try:`-guarded imports. ~1,150 per 91,780, 12 here |
+
+All four need the same work — capture the import *clause*, not just the module path, and skip
+strings and comments — so they are one item rather than four.
+
+**Why deferred rather than fixed.** Doing it properly means parsing rather than matching, which
+is an argument for the graphify backend (Track B Phase 2) rather than for more regex. The
+phantom-edge direction is also the safe one: a spurious edge runs a test that was not needed,
+where a missing one hides a regression. Worth revisiting only if the substrate contract keeps
+the homegrown backend as more than a floor.
+
+Two further known-wrong-but-narrow cases, both requiring real work for little gain: on a
+case-insensitive filesystem `import Foo` resolves to `foo.py` and emits a dangling key (needs a
+real-name `scandir` comparison — `is_file()` and `.resolve()` were both confirmed not to fix
+it); and a symlinked directory inside the project yields a lexical key. Only the first can be
+triggered by source Python itself rejects.
 
 ## Platform-blocked
 

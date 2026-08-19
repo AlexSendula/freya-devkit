@@ -249,7 +249,50 @@ Stated so the verdict is not read as broader than the evidence.
 
 ---
 
+## Addendum, same day — §9.1 re-run against the corrected baseline
+
+The recommendation below was accepted, the six resolver defects were fixed
+([backlog item 9](../../../backlog.md), [CD-14](../../decisions.md)), and §9.1 was re-measured.
+**The blocking conclusion holds, and it no longer depends on homegrown being broken.**
+
+| | before the repair | after |
+|---|---|---|
+| testbed — homegrown | 232 files, 609 edges | **234 files, 627 edges** |
+| testbed — graphify missed | 0 | **0** |
+| testbed — graphify extra | 18 | **1** |
+| testbed — unrestricted misses | 1 | **0** |
+| freya-devkit — homegrown | 10 files, **0 edges** | **50 files, 55 edges** |
+| freya-devkit — shape detector | *greenfield* | **brownfield** |
+
+The gap closed from 18 edges to 1 because homegrown now sees `import type` and resolves barrel
+imports. The single remaining extra is a genuine graphify gain.
+
+freya-devkit is now the **second two-sided diff** the spike lacked. It reports 1 miss and 5
+extras — but the "miss" is `installer.py → freya_cli.py`, which homegrown invents from the
+string literal `"from freya_cli import main\n"` at `installer.py:566`, written into a generated
+launcher. graphify parses an AST and is correct to omit it. So across both repos graphify's only
+apparent miss is an edge homegrown hallucinated.
+
+**Regression check on code neither resolver was written against.** Six real libraries (jinja2,
+requests, urllib3, yaml, rich, click — 190 files), old resolver vs new: **+693 internal edges,
+31 dangling junk edges removed, 0 real edges lost.**
+
+Two limits of that number, stated because they are easy to overclaim past. The 31 "losses" were
+all edges pointing at `.`, the literal project root, so removing them is a fix rather than a
+regression — but the count is still a *change*, and anything downstream that cached those edges
+will see a diff. And an earlier automated pass reported "identical — 0 lost, 0 gained" on the
+same packages; that was an artifact of the two versions sharing state, which is worth knowing
+before trusting a no-change result.
+
+**This also closes open question 4 a phase early.** Spec §10 assumed Phase 2 would fix the
+greenfield misclassification for free by giving Java real edges. It was fixed here instead, so
+the Phase 5 re-verification can be closed rather than carried.
+
+---
+
 ## Recommendation
+
+*Accepted and executed — see the addendum above.*
 
 **Proceed to Phase 1, with the resolver fixes pulled in front of it.**
 
