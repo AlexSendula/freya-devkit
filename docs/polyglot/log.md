@@ -332,6 +332,81 @@ CD-14 through CD-18 are recorded in [`decisions.md`](decisions.md) but not yet d
 
 ---
 
+## 2026-08-20 — Phases 5 and 4, and the Phase 1 review
+
+**Outcome:** Phase 5 done, Phase 4 done, Phase 1 reviewed and partly repaired. 1151 tests, up
+from 1070. Phases 2 and 3 deliberately untouched — both need decisions.
+
+### Phase 5 — the agnosticism sweep
+
+The greenfield misclassification is fixed at the root rather than by luck. `classify()` now
+reads the substrate coverage Phase 1 added and censuses what is on disk but unread, so a repo
+the backend cannot see returns **`unknown`, naming the blind spot**, instead of *greenfield*.
+The Java fixture went from `greenfield` to `unknown | {'.java': 6}`.
+
+`detect_project.py` gained JVM (Maven/Gradle, plus Spring/Quarkus/Micronaut/Ktor read off the
+build file as text), Expo and React Native — checked before `react`, because every Expo app has
+all three in its dependencies and checking `react` first calls a mobile app a web app — and
+monorepo detection. It also stopped requiring a manifest: freya-devkit is fifty Python files
+with no `pyproject.toml` and reported *no runtime at all*, so docs-manager had no purchase on
+the repo it ships from.
+
+It had **no tests**. It has 26 now, half of them a regression guard for what already worked.
+
+`templates.md` stopped prescribing one stack. A template filled in by a model is not neutral —
+the example *is* the exemplar — and `NEXTAUTH_SECRET` was listed as a required variable for
+every project.
+
+### Phase 4 — the docs graph
+
+`docs.json` records which doc section cites which code file, parsed from `path:line` citations,
+relative links and `related_code:` frontmatter. On this repo: **35 docs, 168 edges**. Asking
+which sections cite `graph_ops.py` returns `architecture.md#output-artifacts` — the exact
+section this log recorded as invalidated, which is the question §6.1 said had no answer.
+
+**Measurement that changed the design: 103 citations are bare filenames against 67 full paths.**
+Requiring a path would have discarded 60% of the graph. Bare names now resolve when
+unambiguous; an ambiguous one is listed in `ambiguous_citations` rather than guessed. Zero were
+ambiguous here.
+
+The chunker was written against the failure mode rather than the happy path: a `# comment`
+inside a ```bash block is indistinguishable from an H1, fences are tracked by character *and*
+length so ```` can contain ``` verbatim, and the output is a partition that rejoins to the
+input byte for byte.
+
+### The Phase 1 review, and the verdict worth keeping
+
+**"Homegrown's shape wearing an interface."** Demonstrated rather than asserted: a second
+backend built to the contract crashed the CLI twice and then exited 0 having written nothing.
+
+Nine defects fixed across two commits. The one with real user impact: `.graph/.gitignore` was
+only ever upgraded from the legacy `*`, so any project that had run one build kept its old
+list — and CD-17's new artifact arrived **committable**. Verified against real git before and
+after.
+
+Two findings are worth carrying beyond this feature:
+
+- **I introduced one of the defects while fixing another.** `main()` began calling
+  `project_exclusions()` on the *selected* backend — a method the contract never mentions —
+  in the commit that fixed six review findings. The lesson is not "be careful"; it is that
+  nothing checked the call, which is why the contract now states its own signature and binds
+  against it. That check caught the repo's own reference stub immediately.
+- **A rule with no test drifts, and both copies of it drift independently.** The two
+  `CACHE_GITIGNORE` constants each carried a comment saying they must stay identical. They had
+  already diverged. The guard is now a test comparing the produced strings.
+
+The unresolved fork — who owns persistence, and whether the contract's unit is a file or a
+node — is written up in [`decisions.md`](decisions.md) under *The open fork*. It is a design
+decision with three defensible answers, not a defect, and Phase 2 cannot start without it.
+
+### Doc impact — applied
+
+- `skills/freya-docs-manager/SKILL.md` — the docs graph, its commands and its limits
+- `skills/freya-code-graph/references/graph-schema.md` — workspace and Python resolution
+- `../backlog.md` — item 9 closed, 10 and 11 opened
+
+---
+
 ## ~~Open questions carried into the vision~~ — ANSWERED by the brainstorm
 
 Kept for the record. All four are resolved in [`spec.md`](spec.md); the reasoning is in the
