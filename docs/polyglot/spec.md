@@ -238,6 +238,12 @@ Line numbers shift the moment anyone inserts a paragraph; the heading is stable 
 the actual question — *which section is now wrong*. The `path:line` citation is retained as
 evidence *within* the edge, not as its anchor.
 
+The **target** follows §5: a file path, refined with an optional `symbol` when the citation
+carries a line and the substrate can map that line to one. Measured on this repo, 62 citations
+carry a line and 43 are bare file references, so the field populates for the majority. Under the
+homegrown backend there are no symbol ranges, so every docs edge is file-level — the same floor
+as everywhere else.
+
 ### 6.4 Chunking rules
 
 Sectioning a markdown file must not corrupt its content:
@@ -414,8 +420,12 @@ must be re-verified, not assumed.
 1. ~~**Which model for the semantic pass.**~~ **Resolved:** the engineer chooses via `--model`;
    defaults are per-agent (§4.1). A cost/quality comparison on real docs would refine the
    defaults but does not block anything, since the pass is off unless asked for.
-2. **Do docs edges anchor to symbols as well as files?** §5 permits it. Most citations name a
-   file or a concept, so the field would be mostly empty. Decide during Phase 4 with real data.
+2. ~~**Do docs edges anchor to symbols as well as files?**~~ **Resolved: both**, on the same
+   optional-refinement rule as §5. Measured on this repo's `docs/`: **62** citations carry a line
+   (`graph_ops.py:212`) and **43** are bare file references — so the symbol field is
+   majority-populated, not mostly empty as first assumed. It is filled when the citation has a
+   line *and* the substrate provides symbol ranges to map it onto; otherwise the edge is
+   file-level, which is exactly today's behaviour.
 3. ~~**Does `classifications.json` survive graphify?**~~ **Resolved:** yes, promoted — exclusions
    move into the contract as a project-level input (§2.1) and both backends honour them. What
    remains to check in Phase 2 is narrower: whether graphify's own file selection needs
