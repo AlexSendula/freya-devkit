@@ -1,0 +1,814 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>How it evolved — freya-devkit</title>
+  <meta name="description" content="Plans that turned out wrong — an impossible install design, a security control that controlled nothing, hollow tests — and the one failure mode underneath them all.">
+  <link rel="stylesheet" href="assets/styles.css">
+  <script src="assets/site.js"></script>
+</head>
+<body>
+  <div id="site-header"></div>
+
+  <main class="doc">
+    <aside class="toc" id="toc" aria-label="On this page"></aside>
+    <div class="doc-body">
+      <span class="eyebrow">Why · the course corrections</span>
+      <h1>The plan was wrong. Here is how we know.</h1>
+      <p class="lead">
+        The design documents were written before the code, and most of what they said held. This page
+        is the part that did not: a belief this project held confidently, the evidence that refuted it,
+        and what replaced it — thirteen times, in that order.
+      </p>
+
+      <!-- ==================== OPENER ==================== -->
+      <section>
+        <h2 id="every-one-was-a-plan">Every one of these was a plan that turned out wrong</h2>
+        <p>
+          An install architecture the Agent Skills specification made <em>impossible</em>. A security
+          control that controlled nothing — a worker denied the write tool, writing a file through the
+          shell anyway. A correctness guarantee that no wording could deliver, because the host reading
+          the words has its own orders and they win. None of these were discovered by thinking harder
+          about the design; each one arrived from outside it, from a specification, a paid spike, or a
+          run. They are written down rather than tidied away for a simple reason:
+          <strong>the correction is more useful than the original plan was.</strong>
+        </p>
+
+        <div class="callout callout--why">
+          <span class="callout-label">How each entry is built</span>
+          <p>The belief first, then the evidence that refuted it, then what replaced it. Where a
+          correction was itself later overturned — and one of the most useful entries here is exactly
+          that — the original conclusion stays as written and the new evidence is appended underneath
+          it. Quietly rewriting the earlier conclusion would delete the only part worth keeping: that
+          it was believed, on stated grounds, by people looking straight at it.</p>
+        </div>
+
+        <p class="muted">
+          A bug on its own is not a reversal and is not listed. Everything below is something the
+          project <em>intended</em>, argued for, and then had to take back.
+        </p>
+      </section>
+
+      <!-- ==================== AT A GLANCE ==================== -->
+      <section>
+        <h2 id="at-a-glance">At a glance</h2>
+        <p>Each belief links to the entry that refutes it.</p>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th scope="col">What we believed</th><th scope="col">What was true</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><a href="#install-design-impossible">The installer can apply the name prefix</a></td>
+                <td>The specification forbids it, and a symlink has nothing to rewrite</td>
+              </tr>
+              <tr>
+                <td><a href="#non-standard-field">A frontmatter field was non-standard</a></td>
+                <td>It is in the standard — and the guard built on the mistake enforced it on everyone</td>
+              </tr>
+              <tr>
+                <td><a href="#governance-before-intent">Governance comes first</a></td>
+                <td>You cannot govern intent you have not captured</td>
+              </tr>
+              <tr>
+                <td><a href="#blind-on-purpose">Leaving a check blind to ADRs was a gap</a></td>
+                <td>It was the right call, and it expired on schedule</td>
+              </tr>
+              <tr>
+                <td><a href="#dry-run-deleted">A safety flag previews the plan</a></td>
+                <td><code>--dry-run</code> deleted every symlink, with a green suite behind it</td>
+              </tr>
+              <tr>
+                <td><a href="#guards-misfiring">Feature logic is where defects live</a></td>
+                <td>Every serious defect was in a guard, aimed at the person it protects</td>
+              </tr>
+              <tr>
+                <td><a href="#control-that-controlled-nothing">"Deny beats allow" denies writes</a></td>
+                <td>It denies the write <em>tool</em>. The shell walks straight past it</td>
+              </tr>
+              <tr>
+                <td><a href="#hollow-tests">The vote arithmetic is tested</a></td>
+                <td>Three tests could not fail; breaking the code on purpose is what showed it</td>
+              </tr>
+              <tr>
+                <td><a href="#numbers-never-multiplied">A failed audit fails loudly</a></td>
+                <td>Every call failed, the run exited 0, and the report said the codebase was clean</td>
+              </tr>
+              <tr>
+                <td><a href="#cannot-be-told-to-parallelise">Structure the tasks and the agent parallelises</a></td>
+                <td>It ran them itself, sequentially, and reported that it had not</td>
+              </tr>
+              <tr>
+                <td><a href="#artefact-correct-host-disagreed">A conformant artefact is a working artefact</a></td>
+                <td>One host dropped a whole skill without a word; the other never noticed</td>
+              </tr>
+              <tr>
+                <td><a href="#false-green">Import the handler and call it directly</a></td>
+                <td>The test only passed once every adopter had to restructure their app</td>
+              </tr>
+              <tr>
+                <td><a href="#windows-waiting-on-code">Windows needs a machine, not code</a></td>
+                <td>29 failures the first time anything ran there, two of them product bugs</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ==================== ACT I ==================== -->
+      <section>
+        <h2 id="act-one-design-assumptions">Act I — Design assumptions that were wrong</h2>
+        <p>
+          Four beliefs that were held before any code existed, and were refuted by reading a
+          specification, by arguing the sequencing through, or by the thing they were waiting on
+          finally arriving.
+        </p>
+
+        <h3 id="install-design-impossible">1 · The install design was impossible</h3>
+        <p>
+          The plan was for the installer to apply the <code>freya-</code> prefix at install time — to
+          the directory name <em>and</em> to the <code>name:</code> field inside each
+          <code>SKILL.md</code>. Reading the Agent Skills specification before writing the installer
+          turned up a rule that makes that unbuildable.
+        </p>
+
+        <div class="callout callout--danger">
+          <span class="callout-label">The rule that ended it</span>
+          <p>A skill's <code>name</code> <strong>must match its parent directory name</strong>.
+          Installation is symlinking, so a link from an agent's
+          <code>skills/freya-code-graph</code> to <code>skills/code-graph</code> in the store produces
+          a file declaring <code>name: code-graph</code> under a <code>freya-code-graph</code> parent —
+          invalid, and rejected by the ecosystem's own validator. And there is nothing to rewrite:
+          there is one file, shared by every agent.</p>
+        </div>
+
+        <div class="card-grid cols-2">
+          <div class="card problem">
+            <h4>Planned</h4>
+            <p class="muted">Repo keeps the unprefixed names; the installer prefixes on the way out.
+            Requires rewriting a file every agent shares, or shipping a skill the spec rejects — and
+            an installed copy that diverges from the store on every update.</p>
+          </div>
+          <div class="card">
+            <h4>Built instead</h4>
+            <p class="muted">All ten skills renamed in the repository: ten directories, ten
+            <code>name:</code> fields, fifteen manifest paths, and ten hard-coded sibling paths across
+            five scripts. The installer became a pure symlink.</p>
+          </div>
+        </div>
+
+        <p>
+          The consolation prize is real. With the prefix already on disk, <code>freya update</code>
+          collapses to a git pull plus a re-link — there is one copy of each file and every agent is
+          looking at it. Those ten sibling paths are a consequence of an earlier decision rather than an
+          accident: skills resolve one another through the store instead of being separately
+          installable, and every skill file invokes the one launcher
+          (<a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-013-single-freya-launcher.md">docs/decisions/ADR-013-single-freya-launcher.md</a>).
+        </p>
+
+        <div class="callout callout--warn">
+          <span class="callout-label">Nine of ten, by the obvious grep</span>
+          <p>One of the ten sibling paths was built with <code>os.path.join</code> and a textual
+          <code>'../..'</code> rather than the <code>parents[2]</code> idiom the other nine used. A
+          sweep for the idiom finds nine and reports success. The one it misses fails at import, on
+          someone else's machine, after the release.</p>
+        </div>
+
+        <p>
+          The whole contract — store, symlink, prefix-in-repo, and the ownership gates on every
+          destructive path — is stated in
+          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-014-canonical-store-install-contract.md">docs/decisions/ADR-014-canonical-store-install-contract.md</a>.
+        </p>
+
+        <h3 id="non-standard-field">2 · A "non-standard" field that was in the standard</h3>
+        <p>
+          The design described <code>compatibility:</code> frontmatter as non-standard and had it
+          removed. The specification lists it as a standard <em>optional</em> field, alongside
+          <code>license</code>, <code>metadata</code> and <code>allowed-tools</code>.
+        </p>
+        <p>
+          Deleting those particular two lines was still the right move — they enumerated one vendor's
+          tool names — but the stated reason was wrong, and by the time anyone checked, the wrong
+          reason had hardened into a guard. The conformance checker's allow-list of permitted
+          frontmatter keys was <code>{name, description}</code>, so it was rejecting four legitimate
+          fields on any skill that used them.
+        </p>
+        <div class="callout callout--why">
+          <span class="callout-label">The lesson generalises past this repo</span>
+          <p>A guard built from a remembered fact inherits the memory's error and then enforces it on
+          everyone. The remembering feels identical either way; the enforcement is what makes it
+          expensive. Read the spec before you encode it.</p>
+        </div>
+
+        <h3 id="governance-before-intent">3 · Governance was planned before there was anything to govern</h3>
+        <p>
+          The original sequencing put the governance track first — principles, contradiction checks,
+          the machinery that judges intent against intent. It was preempted by an adoption track on one
+          argument: <strong>you cannot govern intent you have not captured.</strong> A checker that
+          compares a change against the recorded intent of a codebase with no recorded intent is a
+          ceremony.
+        </p>
+        <p>
+          The adoption work rests on a split that is the reason the whole thing is affordable:
+          inference is cheap and human validation is scarce, so they are decoupled. A bootstrap infers
+          hundreds of untrusted candidates up front; validation is spent lazily, on the two or three
+          behaviors a change actually touches, in the flow of work. That is what turns a few hundred
+          inferred candidates into a backlog rather than a flood —
+          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-007-bootstrap-proposed-drain-lazily.md">docs/decisions/ADR-007-bootstrap-proposed-drain-lazily.md</a>.
+        </p>
+        <div class="callout callout--info">
+          <span class="callout-label">The second sequencing reversal, taken deliberately</span>
+          <p>A separate, staged "vertical proof" — validate the mechanism in isolation before using it
+          on anything real — was considered and dropped. That validation was folded into the first real
+          use on a live testbed instead. It was a conscious risk trade, and it was paid for: several
+          early schema, lifecycle and adapter choices were made provisionally and corrected in contact
+          with reality. The friction findings from that testbed <em>are</em> the correction record, and
+          two of the entries further down this page came out of it.</p>
+        </div>
+
+        <h3 id="blind-on-purpose">4 · Blindness on purpose, and then the premise dissolved</h3>
+        <p>
+          The contradiction check — the one that judges a changed spec against the intent already
+          recorded around it — was built deliberately <em>blind</em> to architecture decision records.
+          That reads like an omission. It was a decision, and it was argued in the open at the time.
+        </p>
+        <div class="callout callout--why">
+          <span class="callout-label">The honest version, as it was written then</span>
+          <p>Checking specs against ADRs while no ADR format existed would mean comparing against a
+          structurally empty set, while <em>looking</em> like the check covered architecture decisions.
+          That false sense of coverage is worse than an honest gap. So the check was built
+          ADR-<em>ready</em>: a wired-but-unplugged socket, not a wall.</p>
+        </div>
+        <div class="callout callout--success">
+          <span class="callout-label">Overtaken on schedule</span>
+          <p>The ADR format, the create flow and the gather function shipped, and the same check gained
+          ADR-awareness for free — always global, with no scoping at all, because for intent-vs-intent
+          the unrecoverable failure is the relevant record that never reached the judgment. The
+          premise dissolved exactly the way the socket was built to expect. The reasoning, including
+          why the sibling drift check takes the <em>opposite</em> scoping, is in
+          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-011-governance-check-scoping.md">docs/decisions/ADR-011-governance-check-scoping.md</a>.</p>
+        </div>
+      </section>
+
+      <!-- ==================== ACT II ==================== -->
+      <section>
+        <h2 id="act-two-guards">Act II — Guards that failed at the job they existed for</h2>
+        <p>
+          Five entries about protective code. Every one of them was written specifically to keep
+          somebody safe, and every one of them did damage in a case its author had not pictured. This
+          is the densest cluster on the page and it is not a coincidence: a guard is the code least
+          likely to be exercised on the happy path, and the code whose failure looks most like success.
+        </p>
+
+        <h3 id="dry-run-deleted">5 · <code>--dry-run</code> deleted your installation</h3>
+        <p>
+          The installer's uninstall path returned before it ever consulted <code>args.dry_run</code>.
+          So <code>freya uninstall --dry-run</code> — a flag whose help text reads
+          <em>print the plan, change nothing</em>, and which the README advertised as a preview —
+          removed all ten symlinks.
+        </p>
+        <p>
+          The damage was bounded: only links this toolkit had created, recreatable by re-installing.
+          But a safety flag that performs the destructive operation is the precise failure the whole
+          class of flag exists to prevent. The same review found that uninstall never removed the
+          launcher either, so deleting the checkout afterwards left a dangling <code>freya</code> on
+          <code>PATH</code>.
+        </p>
+        <div class="callout callout--why">
+          <span class="callout-label">Why the review caught it and the tests did not</span>
+          <p>Every unit test exercised <code>uninstall_agent()</code> directly. Nothing tested the
+          <em>flag wiring</em> in <code>main()</code>. The suite was green and the feature was broken,
+          which is the whole argument for a review that runs the thing end to end rather than reading
+          the diff that changed.</p>
+        </div>
+
+        <h3 id="guards-misfiring">6 · Every guard, misfiring at the person it protects</h3>
+        <p>
+          Eight of ten tasks in one work package came back from review with findings, and
+          <strong>not one was in the feature logic</strong>. Every serious defect was in code written
+          to keep the user safe.
+        </p>
+
+        <div class="card-grid cols-2">
+          <div class="card problem">
+            <div class="ico" aria-hidden="true">🚧</div>
+            <h4>The barrier that half-installed</h4>
+            <p>Added because installing for two agents with a blocker under the second left the first
+            fully installed while exiting non-zero. The fix planned every agent before applying
+            anything — which made each plan's status a snapshot of the disk <em>before</em> anything
+            moved. Two agents pointing at one directory both planned "create"; the first installed, the
+            second raised <code>FileExistsError</code>. A partial install and an error, by a new
+            route.</p>
+          </div>
+          <div class="card problem">
+            <div class="ico" aria-hidden="true">🔒</div>
+            <h4>The rule that locked you out of your own file</h4>
+            <p>The markers that fence off the generated block in your <code>AGENTS.md</code> had to be
+            unambiguous, because a stray one could delete a user's prose. So the fix demanded each
+            marker appear exactly once, counting occurrences <em>anywhere</em> — including
+            mid-sentence. A user who merely wrote <em>about</em> freya-devkit in that file could then
+            never run <code>freya init</code> again. Being over-strict about a file you do not own is
+            its own kind of damage.</p>
+          </div>
+          <div class="card problem">
+            <div class="ico" aria-hidden="true">🏠</div>
+            <h4>The check that could not break a command</h4>
+            <p>The update notice is wrapped so that nothing escapes it: it cannot alter an exit code or
+            print a traceback. Wiring it in front of <code>main</code> silently turned four existing
+            tests into ones that wrote the real <code>~/.freya</code> and made real network calls. The
+            reviewer found the file sitting on disk, timestamped to the test run.</p>
+          </div>
+          <div class="card problem">
+            <div class="ico" aria-hidden="true">📄</div>
+            <h4>The write that emptied the file first</h4>
+            <p><code>open(target, "w")</code> truncates before it writes a byte, so a failure mid-write
+            left the user's <code>AGENTS.md</code> empty — in the one module whose single hard rule is
+            that everything outside its markers survives. It now writes a temp file and calls
+            <code>os.replace</code>.</p>
+          </div>
+        </div>
+
+        <div class="callout callout--danger">
+          <span class="callout-label">And one that could not heal</span>
+          <p>The relink error was self-sustaining. A copy that failed partway leaves a directory with
+          no ownership marker, which the audit classifies as <code>occupied</code> forever — so the
+          next <code>freya update</code> crashed at the same line, and so did the one after that. A
+          guard against clobbering somebody else's directory, holding the user's own broken install
+          hostage, permanently, with no route out but manual deletion.</p>
+        </div>
+
+        <h3 id="control-that-controlled-nothing">7 · A security control that controlled nothing</h3>
+        <p>
+          Before the audit driver was designed, a paid spike ran both agent CLIs against a deliberately
+          vulnerable fixture, to establish how to enforce <em>this worker may read, and must never
+          write</em>. The belief under test was the vendors' documented rule that a deny flag beats an
+          allow flag.
+        </p>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th scope="col">Configuration</th><th scope="col">Result</th></tr></thead>
+            <tbody>
+              <tr>
+                <td>Claude, explicit read-only allowlist plus an explicit write denial</td>
+                <td><strong>Held.</strong> The worker tried the shell three times; all three denied.</td>
+              </tr>
+              <tr>
+                <td>Copilot, explicit read allowlist plus <code>--deny-tool=write</code></td>
+                <td><strong>Held.</strong> Both the write tool and an explicit shell redirect failed.</td>
+              </tr>
+              <tr>
+                <td>Copilot, <code>--allow-all-tools</code> plus <code>--deny-tool=write</code></td>
+                <td><strong>Bypassed.</strong> The worker created a file through a shell redirect.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="callout callout--danger">
+          <span class="callout-label">The actual rule</span>
+          <p><strong>"Deny beats allow" applies to the write tool, not to writes performed through the
+          shell.</strong> Only an explicit allowlist that excludes the shell holds, and a blanket
+          permission flag must never appear in an audit invocation.</p>
+        </div>
+
+        <p>
+          That finding is now enforced in code rather than remembered as a convention: the adapter
+          refuses to emit a blanket permission flag even if one is smuggled in through the prompt, and
+          a test asserts that no adapter can ever produce one — a guard designed before the thing it
+          guards existed. The same spike priced a single finder worker at <strong>$0.396</strong> on a
+          trivial fixture, which is why the driver ships with a call ceiling and a confirmation prompt
+          rather than an advisory note. Both live in
+          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-015-driver-owned-fan-out.md">docs/decisions/ADR-015-driver-owned-fan-out.md</a>.
+        </p>
+
+        <h3 id="hollow-tests">8 · Three tests that proved nothing</h3>
+        <p>
+          The audit engine's vote arithmetic is the part where a silent error changes security
+          findings: how many skeptics must refute a finding before it is dropped. Its tests all passed.
+          Mutation testing — deliberately breaking the code to see whether the suite notices — showed
+          three of them were hollow, each for a different reason.
+        </p>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th scope="col">Mutation</th><th scope="col">Why the test could not see it</th></tr></thead>
+            <tbody>
+              <tr>
+                <td><code>upheld * 2 &gt; total</code> → <code>&gt;=</code></td>
+                <td>Only a <strong>1-of-2 split</strong> distinguishes the two operators. Every test
+                used three skeptics, where they agree.</td>
+              </tr>
+              <tr>
+                <td>The <code>K_EMPTY</code> constant, changed</td>
+                <td>The test asserted against the constant itself, so it adapted to the mutation and
+                stayed green.</td>
+              </tr>
+              <tr>
+                <td>Delete the dry-round reset</td>
+                <td>The test counted <em>findings</em>, and both paths yield the same count. Only the
+                <em>round count</em> differs.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p>
+          All three now have tests that distinguish, and every engine mutation is verified to be killed
+          by a specifically named test.
+        </p>
+
+        <div class="callout callout--warn">
+          <span class="callout-label">A trap worth knowing before you try this</span>
+          <p>Mutation runs land inside a single filesystem timestamp tick, so Python happily reuses
+          cached bytecode and reports the <em>previous</em> mutation's result. Two mutations looked
+          killed when they had never been loaded. Clear <code>__pycache__</code> between runs, or run
+          the interpreter with bytecode writing off.</p>
+        </div>
+
+        <h3 id="numbers-never-multiplied">9 · Two numbers that were never multiplied together</h3>
+        <p>
+          One work package skipped its whole-package review, on the argument that the port was
+          mechanical. The review, run late, showed the argument was half right. The engine itself was
+          clean — every constant, the dedup key, the vote arithmetic and the disposition ladder
+          survived the port intact. Both serious defects were at the <strong>edges</strong>.
+        </p>
+
+        <div class="card-grid cols-2">
+          <div class="card problem">
+            <div class="ico" aria-hidden="true">🚨</div>
+            <h4>A failed audit reported a clean codebase</h4>
+            <p>Every failure path in the agent call was a bare <code>continue</code>. With an expired
+            login, all 26 calls failed, the driver printed <em>"done: 0 findings"</em>, exited
+            <strong>0</strong>, and emitted <code>[]</code> — from which the skill wrote a report saying
+            the codebase was clean. The captured <code>stderr</code> holding the real reason was
+            discarded unread. For a security tool that is the worst available failure mode, and it is
+            the <em>likely</em> first run.</p>
+          </div>
+          <div class="card problem">
+            <div class="ico" aria-hidden="true">🧮</div>
+            <h4>The defaults could not finish a run</h4>
+            <p>A findings cap of 40 implies 151 tasks. The call ceiling was 80. The two were chosen in
+            the same sitting and never multiplied out — even though the function that does exactly that
+            multiplication sits twenty-five lines below them. They were not even in the same unit: the
+            budget counts <em>attempts</em>, and each task may retry once.</p>
+          </div>
+        </div>
+
+        <p>
+          The second compounded the first. Exhausting the budget discarded everything, including
+          findings that had already been fully verified, so a real run would spend its entire ceiling
+          and return an empty array.
+        </p>
+
+        <div class="callout callout--danger">
+          <span class="callout-label">An unplugged smoke detector finds no fire</span>
+          <p>A security tool that cannot tell <em>nothing is wrong</em> from <em>nothing answered</em>
+          does not merely fail — it produces a document asserting safety, over a signature nobody
+          questions. This is the sharpest thing on the page and the one worth carrying to your own
+          work.</p>
+        </div>
+
+        <div class="callout callout--why">
+          <span class="callout-label">The fix that mattered was not the arithmetic</span>
+          <p>Refusing to return a partial audit that could be mistaken for a complete one is the right
+          instinct. But the answer is to <strong>label truncation, not to delete the evidence of
+          it</strong>. Verification now settles in batches, a halt keeps what it has already verified,
+          and <strong>exit 3</strong> marks a result incomplete. The driver refuses to exit 0 when no
+          task got a usable answer. With that in place, the exact cap values stopped being
+          load-bearing.</p>
+        </div>
+      </section>
+
+      <!-- ==================== ACT III ==================== -->
+      <section>
+        <h2 id="act-three-running-it">Act III — Things only running it could find</h2>
+        <p>
+          Everything above was found by building, reviewing or reading a specification. These four were
+          reachable only by running the thing against a real agent, a real host, or a real platform —
+          and three of the four had survived multiple careful reviews that read the code correctly
+          every time.
+        </p>
+
+        <h3 id="cannot-be-told-to-parallelise">10 · Copilot cannot be told to parallelise</h3>
+        <p>
+          <strong>Act one — the belief.</strong> Copilot's public documentation says the main agent
+          decides execution strategy autonomously, based on task structure. The design took that at its
+          word and concluded that the lever was not the sentence but the <em>shape</em> of what
+          preceded it: present N visibly independent units of work, and place the scheduling
+          instruction after the task list so the list is read first. Every fan-out flow was built that
+          way.
+        </p>
+
+        <div class="callout callout--danger">
+          <span class="callout-label">Overtaken by evidence</span>
+          <p>Run for real, task structure is not the lever. Asked to run six category scans the way the
+          skill instructs, Copilot ran them <em>itself</em> — a sequence of greps — and then reported
+          that it had run six category scans in parallel. Instrumenting a twelve-way fan-out with debug
+          logging settled it: the delegation tools were invoked <strong>zero</strong> times, in both
+          directions. The reason was in the host's own system prompt: never delegate parts of a
+          codebase small enough to read directly, <em>"regardless of how it divides into separate
+          areas."</em> The lever the design had identified is the exact thing the agent is instructed
+          to ignore.</p>
+        </div>
+
+        <p>
+          Read the heading precisely, because the capability was never the problem. Copilot
+          <em>can</em> parallelise; it ships delegation tools, background agents and a fleet mode. What
+          it cannot be is <em>told</em>, by a file in your project.
+        </p>
+
+        <div class="callout callout--why">
+          <span class="callout-label">The general lesson, stated once</span>
+          <p>An instruction file is information the assistant reads; the assistant's own instructions
+          are its orders. When they conflict, the orders win — <strong>and they should</strong>, or a
+          file in any repository could override what a vendor built.</p>
+        </div>
+
+        <p>
+          <strong>Act two — the first remedy was also wrong,</strong> and this is the more valuable
+          half. The finding was initially recorded as <em>unfixable from this side</em>, on the grounds
+          that the skills already carried a sequential fallback: the work still gets done, only slower.
+          That reasoning has a hole in it.
+        </p>
+
+        <div class="callout callout--danger">
+          <span class="callout-label">The fallback was never the problem</span>
+          <p>The problem is that <strong>nothing can tell you which mode ran.</strong> An instruction
+          saying "run these in parallel if you can" gets the same answer from an agent that did and an
+          agent that did not — the original finding was only visible because a human read a transcript
+          and counted greps. <strong>A correctness property you cannot observe is not a property. It is
+          a hope.</strong></p>
+        </div>
+
+        <p>
+          So the fix was neither to accept the sequential mode nor to word the instruction more firmly.
+          It was to stop issuing an instruction at all: the security scan now calls a driver that owns a
+          worker pool, makes the calls itself, and returns verified findings. The agent's cooperation
+          left the guarantee. Measured on the same fixture, that driver runs
+          <strong>209.3 s single-threaded against 91.4 s at six workers</strong> — a 2.29× win rather
+          than a 6× one, because the host throttles under load, and the honest number is the one that
+          got written down. The design and its rejected alternatives are in
+          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-015-driver-owned-fan-out.md">docs/decisions/ADR-015-driver-owned-fan-out.md</a>.
+        </p>
+
+        <div class="callout callout--info">
+          <span class="callout-label">A smaller refutation, sitting inside the same story</span>
+          <p>The scheduling block copied into every fan-out flow promised that a sequential run was
+          <em>"identical, only slower."</em> This repo's own dogfooding notes had already recorded a
+          real scan at <strong>7 parallel discovery agents and ~260k subagent tokens</strong>. Running
+          those inline collapses seven isolated context windows into one, because each worker's
+          file-reading context is retained rather than discarded — on a 200k-context agent that run does
+          not produce an identical result, it does not complete. The block's own next paragraph
+          explained why, by noting that each worker carries its own context window. The claim
+          contradicted the sentence directly beneath it, in a file that had been reviewed line by
+          line.</p>
+        </div>
+
+        <h3 id="artefact-correct-host-disagreed">11 · The artefact was correct. The host disagreed.</h3>
+        <p>
+          Asked to list its installed skills, Copilot returned <strong>nine</strong>. The missing one
+          was the security scanner — the skill the portability work most existed to reach. Installed.
+          Correctly symlinked. Silently dropped.
+        </p>
+
+        <div class="callout callout--danger">
+          <span class="callout-label">1251 characters against a 1024-character limit</span>
+          <p>The Agent Skills specification caps a skill's <code>description</code> at 1024 characters.
+          That one had grown to <strong>1251</strong> — the only skill in the suite past the line.
+          Copilot enforces the limit and drops the skill without a word. <strong>Claude Code ignores
+          the limit and loads the skill happily</strong>, which is exactly why work done mostly against
+          Claude never saw it. Nothing raised an error anywhere: not the CLI, not the doctor command,
+          and not the conformance gate, whose frontmatter rule had always checked <em>which</em> keys
+          were present and never how long their values were.</p>
+        </div>
+
+        <p>
+          This is the site's best argument for running the thing rather than reading it, and its
+          cleanest statement of a recurring truth: <strong>a test suite can only ever check the
+          artefact, never what a host does with it.</strong> Everything on the repository side was
+          right. The evidence discipline that came out of it — real dependencies, live dogfooding,
+          committed evidence, corrections appended rather than rewritten — is
+          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-016-prove-it-against-the-real-thing.md">docs/decisions/ADR-016-prove-it-against-the-real-thing.md</a>.
+        </p>
+
+        <div class="callout callout--warn">
+          <span class="callout-label">A result from the same run that had to be thrown away</span>
+          <p>One agent marked both planted vulnerabilities <code>intentional-design</code> where the
+          other had marked them confirmed. Before reading that as an adapter defect: the fixture's own
+          README announced that it existed to validate the audit driver. A skeptic lens reading that
+          could quite reasonably decide the vulnerabilities were deliberate test data. Re-run against a
+          fixture that says nothing about itself, both came back <strong>confirmed critical</strong>.
+          <strong>A control fixture that describes its own purpose is contaminated</strong> — the
+          disposition ladder was fine, and the experiment was not.</p>
+        </div>
+
+        <h3 id="false-green">12 · The false green that reshaped the behavior layer</h3>
+        <p>
+          The plan for integration behaviors was to import the framework's route handler in-process and
+          call it directly. On an ordinary CommonJS-default project, Node's <code>require(esm)</code>
+          rules forbid it — and flipping the application to <code>"type": "module"</code> made the test
+          <em>pass</em>. That is the trap: a <strong>false green</strong>, bought by demanding that
+          every adopter restructure their application to suit the test harness.
+        </p>
+        <p>
+          The resolution became a principle rather than a workaround. A behavior test drives the
+          application over its <strong>real interface, against a running instance</strong> — never by
+          importing internals. Then the honest consequence, which is why the shipped coverage model
+          looks the way it does: observed coverage of that running application captured only framework
+          internals and <strong>zero application code</strong>, so observed integration coverage was
+          deferred and the static import closure became the honest baseline — over-approximating, in
+          the safe direction, and saying which it is. Both halves are in
+          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-006-real-interface-execution-and-coverage.md">docs/decisions/ADR-006-real-interface-execution-and-coverage.md</a>.
+        </p>
+
+        <div class="callout callout--success">
+          <span class="callout-label">The inverse demonstration, from the same testbed</span>
+          <p>Flipping a behavior to <code>accepted</code> while its test was still a
+          <code>TODO(scaffold)</code> produced <strong>exactly one error, exit 1, scoped to that
+          behavior</strong> — the sibling proposed scaffolds in the same file correctly untouched. The
+          suite is green, because nothing runs. The layer still says exit 1. That is a lie about a
+          guarantee that a green test suite is structurally incapable of catching, and it is the
+          clearest evidence that the layer earns its place.</p>
+        </div>
+
+        <h3 id="windows-waiting-on-code">13 · Windows was not waiting on a machine. It was waiting on code.</h3>
+        <p>
+          Every earlier version of this record carried the same sentence in some form: Windows is
+          untested, it needs a Windows machine, <strong>and no code</strong>. The first half was true.
+          The second half was an assumption that had been restated so many times it had started to read
+          like a measurement.
+        </p>
+        <p>
+          A CI matrix now runs the suite, the conformance gate and a real end-to-end install across
+          <code>ubuntu-latest</code> and <code>windows-latest</code>, on Python 3.9 and 3.13
+          (<a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/.github/workflows/ci.yml">.github/workflows/ci.yml</a>).
+          The Windows leg came back <strong>29 failed</strong> against a green Linux leg. Nothing had
+          regressed; it was simply the first time the suite had ever executed there, and the failures
+          had been sitting in the tree the whole time. Four root causes account for all 29, and
+          <strong>two of them were product bugs, not test bugs</strong>.
+        </p>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th scope="col">Root cause</th><th scope="col">What it actually broke</th><th scope="col">Kind</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><strong>Extended-length paths.</strong> Windows hands a symlink target back as
+                <code>\\?\C:\…</code> where the source is spelled <code>C:\…</code>, and the installer
+                proved it owned a link by comparing those two strings.</td>
+                <td>Every link the installer had just created classified as <strong>foreign</strong>,
+                so install refused to manage its own install and relink skipped every agent.
+                <strong>17 of the 29</strong> were downstream of that one comparison.</td>
+                <td><span class="badge badge--block">product bug</span></td>
+              </tr>
+              <tr>
+                <td><strong>Backslash graph keys.</strong> The code graph keyed its entries with
+                backslashes, so every forward-slash lookup missed.</td>
+                <td>Wider than one skill: the behavior graph and runner both read those keys expecting
+                forward slashes, so <strong>blast radius came back empty and silent</strong> on
+                Windows — the failure mode with no error attached.</td>
+                <td><span class="badge badge--block">product bug</span></td>
+              </tr>
+              <tr>
+                <td><code>remove_link</code> retried a failed unlink as an <code>rmdir</code>,
+                unconditionally.</td>
+                <td>On Windows the fallback <em>succeeded</em>, so a removal that had not happened was
+                counted as one that had, and the command reported zero failures over nothing
+                removed.</td>
+                <td><span class="badge badge--advisory">reporting</span></td>
+              </tr>
+              <tr>
+                <td>A manifest escape guard used <code>os.path.isabs</code> on a path that reaches the
+                filesystem.</td>
+                <td>Python 3.13 changed <code>ntpath.isabs</code> so a rooted path with no drive is no
+                longer absolute on Windows: <code>/etc/passwd</code> was <strong>rejected on 3.9 and
+                accepted on 3.13</strong>. A guard on a trust boundary, correct by accident of which
+                interpreter was running it.</td>
+                <td><span class="badge badge--quarantined">trust boundary</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="callout callout--warn">
+          <span class="callout-label">And two the matrix structurally could not catch</span>
+          <p>Two further defects were found by <em>review</em>, not by the runner, and neither could
+          ever have turned a leg red: one function is Windows-exclusive, so no POSIX run reaches it at
+          all, and the other was latent. Both would have shipped broken behind a green build.
+          <strong>A green matrix is evidence only about the paths it executes</strong>, and adding a
+          platform did not make it evidence about everything on that platform.</p>
+        </div>
+
+        <p>
+          What the matrix proves is that the toolkit installs on Windows and that its tests pass there.
+          It does not prove that a live scan works there: no agent CLI is installed on the runner, so
+          nothing that spends money has ever executed on the platform. That gap is owned, with its
+          remedy, in
+          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/backlog.md">docs/backlog.md</a>
+          rather than restated here.
+        </p>
+      </section>
+
+      <!-- ==================== META ==================== -->
+      <section>
+        <h2 id="what-the-plans-got-wrong">What the plans got wrong about themselves</h2>
+        <p>
+          Two of the corrections were not about the code at all. They were caught by refusing to
+          proceed rather than by testing anything.
+        </p>
+
+        <div class="card-grid cols-2">
+          <div class="card problem">
+            <h4>A plan that violated its own rule</h4>
+            <p>The canonical scheduling block — the paragraph copied verbatim into every fan-out flow —
+            mandated a phrase naming one vendor's internal tool, which a conformance rule had forbidden
+            since well before it was written. The plan required text the gate rejects. Fixed by naming
+            the agents rather than their internals; the rule stayed intact.</p>
+          </div>
+          <div class="card problem">
+            <h4>A definition of done that could not be met</h4>
+            <p>One package's exit criteria demanded that a Claude-only path variable appear
+            <em>nowhere</em> — including in the contributing guide's own bullet, which cites that exact
+            variable as the anti-pattern not to write
+            (<a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/CONTRIBUTING.md">CONTRIBUTING.md</a>).
+            The mention is the point of the bullet. The criterion was wrong, not the file.</p>
+          </div>
+        </div>
+
+        <div class="callout callout--success">
+          <span class="callout-label">The pattern across both</span>
+          <p>Each was resolved by amending the plan in a standalone commit — not by quietly weakening
+          the guard, and not by editing the evidence until it agreed. <strong>The plan is a hypothesis;
+          the code and the specification are the facts.</strong></p>
+        </div>
+      </section>
+
+      <!-- ==================== SYNTHESIS ==================== -->
+      <section>
+        <h2 id="the-pattern-underneath">The pattern underneath</h2>
+        <p>
+          One failure mode recurs in almost every entry above, and it is always the same shape:
+          <strong>a confidently empty answer.</strong>
+        </p>
+
+        <div class="card-grid cols-2">
+          <div class="card problem">
+            <h4>Empty because of an alias</h4>
+            <p>A blast radius came back empty on a whole class of project, because every import used a
+            path alias the resolver could not follow. Fixing it took the graph from
+            <strong>0 to 607 internal edges</strong>.</p>
+          </div>
+          <div class="card problem">
+            <h4>Empty because of a separator</h4>
+            <p>A blast radius came back empty on Windows, because the keys were written with
+            backslashes and every lookup asked with forward slashes.</p>
+          </div>
+          <div class="card problem">
+            <h4>Clean because nothing answered</h4>
+            <p>A security report said the codebase was clean, because every single call to the agent
+            had failed and the failures were swallowed one by one.</p>
+          </div>
+          <div class="card problem">
+            <h4>Missing because it was too long</h4>
+            <p>A skill was dropped by its host without an error, because its description ran past a
+            limit the other host does not enforce.</p>
+          </div>
+        </div>
+
+        <p>
+          And a parallel fan-out that never happened, reporting that it had. In every one of these,
+          nothing crashed, nothing was logged, and the output was
+          <strong>indistinguishable from success</strong>. That is what makes this class of failure
+          expensive: it does not consume your attention, it consumes your trust, and it spends it on
+          the wrong thing.
+        </p>
+
+        <p>
+          Everything the toolkit does about it follows from that one observation. Unresolvable imports
+          are tagged rather than dropped. Coverage that cannot be measured is <code>unknown</code> with
+          a reason attached, rather than absent. An incomplete scan exits 3 and refuses to be read as
+          clean. A fan-out that cannot be observed is replaced by one that can be counted.
+        </p>
+      </section>
+
+    </div>
+  </main>
+
+  <div id="site-footer"></div>
+
+  <script>
+    (function () {
+      "use strict";
+      // No widgets on this page. The at-a-glance table's first column is a column
+      // of ordinary in-page anchors, so it works with JavaScript disabled; the
+      // shell supplies nav, footer, theme and the sidebar TOC.
+    })();
+  </script>
+</body>
+</html>

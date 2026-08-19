@@ -44,7 +44,7 @@ Think of skills as **specialized team members** working on a codebase:
 
 Each skill has a role, knows its job, and can collaborate with others.
 
-> This is a representative sketch, not the full roster. The toolkit is **ten skills across five tiers** — the three "team members" above plus the **behavior layer** (`behavior-graph`, `behavior-runner`), `status`, the security skills, and `dependency-vulnerability-check`. See [architecture.md](architecture.md) for the complete tier map.
+> This is a representative sketch, not the full roster. The toolkit is **ten skills across five tiers** — the four "team members" above plus the **behavior layer** (`behavior-graph`, `behavior-runner`), `status`, the security skills, and `dependency-vulnerability-check`. See [architecture.md](architecture.md) for the complete tier map.
 
 ## Core Concepts
 
@@ -67,12 +67,7 @@ Skills should understand that some "issues" are design decisions. The `spec-mana
 
 When AI generates documentation or specs, it doesn't always know it's right.
 
-| Score | Meaning | Action |
-|-------|---------|--------|
-| 90-100 | High confidence | Trust it |
-| 70-89 | Good confidence | Quick review |
-| 50-69 | Medium confidence | Ask user |
-| 0-49 | Low confidence | Detailed review |
+Every AI-generated spec carries a certainty score (0-100). The bands, and the review action each one implies, are defined once in [patterns.md](patterns.md#pattern-certainty-scoring).
 
 This acknowledges AI uncertainty rather than hiding it.
 

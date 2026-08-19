@@ -53,8 +53,8 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        # 3.9 is the floor the code actually has, not the 3.8 that
-        # freya_cli.MIN_PYTHON reports: skills/freya-spec-manager/scripts/search_specs.py
+        # 3.9 is the floor the code actually has, and the one
+        # freya_cli.MIN_PYTHON declares: skills/freya-spec-manager/scripts/search_specs.py
         # annotates `-> list[Spec]` and carries no `from __future__ import
         # annotations`, and PEP 585 builtin generics only became subscriptable
         # at runtime in 3.9 — so importing it is a TypeError on 3.8. 3.13 is
@@ -180,8 +180,8 @@ jobs:
           # Resolve the launcher the way a Windows user does: by name, off PATH,
           # through PATHEXT. An extensionless `bin/freya` is not executable on
           # Windows at all, so this step is what proves the .cmd shim exists
-          # and runs. (The shim is landing in the same wave as this file; until
-          # it does, this step failing is the finding, not a broken job.)
+          # and runs. `installer.link_launcher` writes it at install time from
+          # `cmd_shim_text`; it is never shipped in the store.
           $env:PATH = "$root\bin;$env:PATH"
           Get-Command freya -ErrorAction SilentlyContinue | Format-List Name, Source
           freya help

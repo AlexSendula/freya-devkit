@@ -1,0 +1,975 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Using it — freya-devkit</title>
+  <meta name="description" content="Install freya-devkit, bootstrap it on a greenfield or brownfield repo, learn what each of the ten skills is for and what it writes, and fix what breaks.">
+  <link rel="stylesheet" href="assets/styles.css">
+  <script src="assets/site.js"></script>
+</head>
+<body>
+  <div id="site-header"></div>
+
+  <main class="doc">
+    <aside class="toc" id="toc" aria-label="On this page"></aside>
+    <div class="doc-body">
+      <span class="eyebrow">Using it</span>
+      <h1>Stand it up on your project</h1>
+      <p class="lead">
+        One install, one bootstrap, then a small loop you run after each feature. This page is the
+        whole operational surface: what to type, what lands on disk, what each of the ten skills is
+        actually for, what a security run costs, and the six failures you will hit that are worth
+        recognising on sight.
+      </p>
+
+      <!-- ============================== INSTALL ============================== -->
+      <section>
+        <h2 id="install">Install</h2>
+        <p>There are two paths. The first works on any agent that loads the Agent Skills standard; the
+        second is a Claude Code convenience. <strong>Pick exactly one.</strong> Run both and Claude
+        registers every skill twice — once namespaced by the plugin, once from your personal skills
+        directory — and you get two subtly different copies competing for the same request.
+        <code>freya doctor</code> warns when it sees this, but it is far easier not to cause it.</p>
+
+        <div class="seg" id="install-seg" role="group" aria-label="Install path">
+          <button type="button" class="active" data-inst="any" aria-pressed="true">Any agent · recommended</button>
+          <button type="button" data-inst="claude" aria-pressed="false">Claude Code · marketplace</button>
+        </div>
+
+        <div id="install-any">
+          <div class="code-block">
+            <div class="code-head"><span class="dot"></span><span class="dot"></span><span class="dot"></span>&nbsp; any agent</div>
+            <pre class="code"><code>git clone https://github.com/AlexSendula/freya-devkit.git
+cd freya-devkit
+./install.sh          <span class="tok-c"># macOS / Linux</span>
+.\install.ps1         <span class="tok-c"># Windows (PowerShell)</span>
+
+freya doctor          <span class="tok-c"># verify what landed where</span></code></pre>
+          </div>
+
+          <p>There is no copy step, because <strong>the checkout <em>is</em> the store</strong>. The
+          installer symlinks each skill directory into your agent's skills directory and writes the
+          <code>freya</code> launcher into <code>~/.local/bin</code>. No file is ever rewritten at install
+          time — which is only possible because the repo's directory names are already the installed
+          names: the directory is <code>skills/freya-code-graph/</code>, not <code>skills/code-graph/</code>,
+          and its <code>name:</code> field matches. The Agent Skills specification requires that match, and a
+          symlinked file cannot be rewritten per-agent, so the prefix had to move into the repo itself.</p>
+
+          <p>Four flags matter. <code>--agent claude --agent copilot</code> chooses which agents to install
+          for (repeatable). <code>--copy</code> copies instead of linking. <code>--dry-run</code> prints the
+          plan and changes nothing. <code>--uninstall</code> removes what this store put there.</p>
+
+          <div class="callout callout--warn">
+            <span class="callout-label">If <code>freya doctor</code> says <em>command not found</em></span>
+            <p><code>~/.local/bin</code> is not on <code>PATH</code> in a stock macOS shell, and the
+            installer <strong>deliberately does not edit your shell profile</strong>. Editing a login file
+            on a user's behalf is not a thing an install script gets to do quietly. Instead it prints the
+            exact export line for the shell you are actually in —
+            <code>export PATH="$HOME/.local/bin:$PATH"</code> on a POSIX shell, the PowerShell equivalent on
+            Windows. Run it, then put it in your profile so it survives the session.</p>
+          </div>
+
+          <p class="small muted">On Windows the installer does not wait to be told: it probes whether it can
+          actually create a symlink before it changes anything, and switches itself to <code>--copy</code>
+          when creation is refused (Developer Mode off, or an unelevated shell). The launcher is always
+          written rather than linked, with a <code>freya.cmd</code> beside it, because an extensionless
+          <code>freya</code> is not runnable on Windows.</p>
+        </div>
+
+        <div id="install-claude">
+          <div class="code-block">
+            <div class="code-head"><span class="dot"></span><span class="dot"></span><span class="dot"></span>&nbsp; in Claude Code</div>
+            <pre class="code"><code>/plugin marketplace add AlexSendula/freya-devkit
+/plugin install freya-devkit@freya-devkit</code></pre>
+          </div>
+
+          <p>The <code>freya-devkit@freya-devkit</code> string is
+          <code>&lt;plugin&gt;@&lt;marketplace&gt;</code>: the repo hosts its own single-plugin marketplace,
+          so both halves happen to be the same word. For local development, point the marketplace at a
+          checkout path instead.</p>
+
+          <p>The launcher is not optional on this path either. Measured across the shipped skill layer,
+          <strong>7 of the 10</strong> <code>SKILL.md</code> files invoke <code>freya &lt;command&gt;</code>,
+          <strong>102</strong> times in total — spec-manager 38, wrap-up 28, the security scan 14. Without
+          <code>freya</code> on <code>PATH</code>, those steps fail with <em>command not found</em>. Claude
+          Code supplies it: it adds every installed plugin's <code>bin/</code> directory to <code>PATH</code>
+          automatically, so a plugin shipping <code>bin/freya</code> puts <code>freya</code> on
+          <code>PATH</code> with no extra step. The entry is version-stamped, but Claude Code re-adds it for
+          whichever version is installed, so <code>/plugin update</code> does not break it.</p>
+
+          <div class="callout callout--warn">
+            <span class="callout-label">Two caveats that both survive</span>
+            <p>That host behaviour is <strong>undocumented</strong> by Claude Code and nothing in this repo
+            tests it. It works, it was checked by hand, and it is a dependency worth knowing you have.</p>
+            <p>On <strong>Windows</strong>, a marketplace install has no runnable launcher at all.
+            <code>bin/freya</code> is an extensionless shebang script, which Windows cannot execute, and the
+            <code>freya.cmd</code> shim is generated <em>by the installer</em> — which a marketplace install
+            never runs. On Windows, use the clone path and run <code>.\install.ps1</code> — it takes
+            the same flags and delegates to the same <code>bin/installer.py</code>.</p>
+          </div>
+        </div>
+
+        <h3 id="the-safety-model">What the installer refuses to do</h3>
+        <p>This code deletes things inside a home directory, so every destination is classified
+        <strong>before</strong> anything is touched, and the plan is applied only if all of it can be.</p>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th scope="col">Status</th><th scope="col">What is there</th><th scope="col">What happens</th></tr></thead>
+            <tbody>
+              <tr><td><code>create</code></td><td>nothing</td><td>the link is made</td></tr>
+              <tr><td><code>ok</code></td><td>our link, pointing at this store</td><td>nothing to do</td></tr>
+              <tr><td><code>foreign</code></td><td>a link into <em>another</em> checkout, or a copy marked as another store's</td><td>replaced only with <code>--force</code></td></tr>
+              <tr><td><code>occupied</code></td><td>a real file or directory</td><td><strong>never touched.</strong> Blocks even with <code>--force</code></td></tr>
+              <tr><td><code>stale-store</code></td><td>our link, pointing at a store that has moved</td><td>reported by <code>doctor</code>; repaired by re-installing</td></tr>
+              <tr><td><code>orphan-skill</code></td><td>our link to a skill that no longer exists</td><td>reported by <code>doctor</code>; pruned by <code>update</code></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p><code>apply_plan</code> raises <em>before</em> mutating anything if any target blocks, which makes
+        a half-applied install impossible — you either get all ten links or none. Uninstall removes only
+        symlinks that resolve back into <em>this</em> store, so another checkout's links and anything you
+        created survive. A <code>--copy</code> install writes a <code>.freya-install</code> marker naming its
+        source store, and a recursive delete is reachable only for a directory carrying that marker and
+        naming <em>this</em> store; a marker-less directory survives both a forced install and an uninstall.</p>
+
+        <div class="callout callout--info prose-center">
+          <span class="callout-label">In the markdown</span>
+          <p>The install contract is written as a decision record, clause by clause — what may be replaced,
+          what may be deleted, and what the two install modes each promise. Reach for it before changing
+          anything in <code>bin/installer.py</code>, or if you want the guarantees rather than the summary.</p>
+          <ul class="md-links">
+            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-014-canonical-store-install-contract.md">docs/decisions/ADR-014-canonical-store-install-contract.md</a></li>
+            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-013-single-freya-launcher.md">docs/decisions/ADR-013-single-freya-launcher.md</a></li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ============================= BOOTSTRAP ============================= -->
+      <section>
+        <h2 id="bootstrap">The one entry point: bootstrap</h2>
+        <p>One command, one time. <code>freya-spec-manager bootstrap</code> replaces running
+        <code>init</code>, <code>code-graph build</code> and <code>scan</code> by hand, and after it
+        everything is incremental.</p>
+
+        <ol class="cmd-steps">
+          <li><strong>Initialise the structure</strong> — the <code>knowledge-base/</code> layout and
+          <code>principles.md</code>. Idempotent; it never clobbers an existing file.</li>
+          <li><strong>Build the code graph</strong> — cheap, useful regardless, and the shape detector
+          cannot run without it.</li>
+          <li><strong>Detect the project's shape and recommend</strong> — it shows you the recommendation
+          <em>and its evidence</em> (source-file count, internal-edge count, detected stack) and asks you to
+          confirm or override. On <code>unknown</code> it asks outright, with no recommendation.</li>
+          <li><strong>Branch</strong> — greenfield or brownfield, below.</li>
+          <li><strong>Summarise</strong> — what was created, and for brownfield a count of proposed
+          candidates by category, with the reminder that <em>nothing needs review now</em>.</li>
+        </ol>
+
+        <h3 id="the-shape-detector">The shape detector</h3>
+        <p>The greenfield/brownfield call is deterministic and inspectable: it counts <strong>internal
+        import edges</strong> in the graph — real feature wiring — not raw files. A bare scaffold can have
+        hundreds of boilerplate files and zero wiring, and would be misread by any file-count heuristic.
+        Try it; this reproduces the detector's own logic and its own reason strings.</p>
+
+        <div class="panel">
+          <div class="grid-2">
+            <label class="small muted" for="sd-files">Source files<br>
+              <input class="filter-input" id="sd-files" type="number" min="0" value="120"></label>
+            <label class="small muted" for="sd-edges">Internal import edges<br>
+              <input class="filter-input" id="sd-edges" type="number" min="0" value="0"></label>
+          </div>
+          <div class="result-line" id="sd-out" aria-live="polite"></div>
+        </div>
+
+        <p class="small muted">Zero edges → <strong>greenfield</strong>. Any positive value →
+        <strong>brownfield</strong>. No graph at all → <code>unknown</code>, meaning build the graph first.
+        The detector never forces a branch: a one-time onboarding decision benefits from a human glance, so
+        an unusually structured repo can be overridden on sight rather than silently misclassified.</p>
+
+        <div class="callout callout--danger">
+          <span class="callout-label">The trap, stated plainly</span>
+          <p>On a polyglot repo — Java, Helm charts, Dockerfiles, YAML wiring — the graph produces
+          <strong>zero internal edges</strong>, because its import scraping covers TypeScript, JavaScript,
+          Python and Go and nothing else. The detector then confidently says <em>greenfield</em> on a
+          codebase with a decade of history in it. Override it. This wall was hit on the first real attempt
+          to use the toolkit on a work laptop, and closing it — a real parser for real languages, plus a
+          second graph for reference and deployment edges — is the next initiative, recorded in
+          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/backlog.md">docs/backlog.md</a>.</p>
+        </div>
+      </section>
+
+      <!-- ============================== YOUR PATH ============================= -->
+      <section>
+        <h2 id="your-path">Your path: greenfield or brownfield</h2>
+
+        <div class="seg" id="path-seg" role="group" aria-label="Project path">
+          <button type="button" class="active" data-path="green" aria-pressed="true">Greenfield · new project</button>
+          <button type="button" data-path="brown" aria-pressed="false">Brownfield · existing project</button>
+        </div>
+
+        <div id="path-green">
+          <p class="muted">There is no code to infer intent from, so bootstrap <strong>skips
+          inference</strong> and you author intent forward as you build. This is the easier path.</p>
+          <ol class="cmd-steps">
+            <li><strong>Bootstrap</strong> — <code>freya-spec-manager bootstrap</code> detects greenfield,
+            skips <code>scan</code>, and builds an empty behavior graph so the machinery is initialised. It
+            prints: <em>"Greenfield project — no inference run. Author behaviors forward as you build with
+            <code>spec-manager create</code>."</em></li>
+            <li><strong>Scaffold the docs</strong> — <code>freya-docs-manager init</code>. On a near-empty
+            project most of them will be <code>[TODO:]</code> markers you resolve as it grows; that is the
+            intended state, not a failed run.</li>
+            <li><strong>Author intent</strong> — one spec per feature, as you build it. A spec you wrote
+            yourself starts at certainty 100; add behavior records for anything observable.</li>
+            <li><strong>Implement, then link a test</strong> — write or link the test, and once it passes,
+            bump the behavior to <code>accepted</code>. <strong>Acceptance is a byproduct of implementing,
+            not a separate ceremony.</strong></li>
+            <li><strong>Wrap up</strong> — <code>freya-wrap-up</code>. Two commits: code, then artifacts.</li>
+          </ol>
+        </div>
+
+        <div id="path-brown">
+          <p class="muted">There is real code carrying intent nobody wrote down. Bootstrap
+          reverse-engineers a review queue of <strong>proposed</strong> candidates — never authoritative,
+          never files in the code tree.</p>
+          <ol class="cmd-steps">
+            <li><strong>Bootstrap</strong> — <code>freya-spec-manager bootstrap</code> detects brownfield and
+            runs <code>scan</code> to infer candidate behaviors, then builds the behavior graph. It warns
+            first: <code>scan</code> spawns a discovery task per area and over a large repo it takes a
+            while.</li>
+            <li><strong>Docs from the code</strong> — <code>freya-docs-manager init</code>, a separate step
+            because bootstrap does not run it. The reference docs are what give the security scan and spec
+            inference their architectural context.</li>
+            <li><strong>A security baseline</strong> — the first scan has no prior report to diff against,
+            so it becomes the baseline.</li>
+            <li><strong>Drain the queue lazily</strong> — nothing needs review now. Work the tail through
+            <code>freya-status</code>'s <code>review intent</code> worklist (proposed → confirm) and
+            <code>review tests</code> (confirmed → accept), or let wrap-up's validate-on-hit surface
+            behaviors as you touch their code.</li>
+            <li><strong>Go incremental</strong> — <code>freya-wrap-up</code> after each feature,
+            <code>freya-status</code> whenever you want to know where you stand.</li>
+          </ol>
+
+          <div class="callout callout--info">
+            <span class="callout-label">A near-empty <code>behavior.json</code> is correct</span>
+            <p>The single most likely "is this broken?" moment on a brownfield repo. <code>scan</code> only
+            ever mints <code>proposed</code> records, and the graph projects only <code>accepted</code> and
+            <code>confirmed</code> ones. So a fresh brownfield behavior graph is near-empty <em>by design</em>
+            while the proposed corpus sits in <code>specs/</code>. That is the system working.</p>
+          </div>
+
+          <p>The obvious objection is that inference floods you. It was measured: a full brownfield scan
+          over ~224 files produced <strong>~383 candidate behaviors</strong> at roughly 260k tokens and
+          ~65 seconds. That is a flood if you review it eagerly, and fine because nothing asks you to — each
+          feature area came out individually manageable at 35–63 candidates, and the executable-versus-
+          declarative split landed around 88/12. Lazy review is what makes a corpus that size tractable; it
+          is load-bearing, not a convenience.</p>
+        </div>
+
+        <div class="callout callout--info prose-center">
+          <span class="callout-label">In the markdown</span>
+          <p>Why inference produces only proposals, and why the queue is drained lazily rather than up
+          front, is the decision this whole onboarding arc rests on. Read it if you are tempted to
+          bulk-accept.</p>
+          <ul class="md-links">
+            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-007-bootstrap-proposed-drain-lazily.md">docs/decisions/ADR-007-bootstrap-proposed-drain-lazily.md</a></li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ============================= THE TEN ============================== -->
+      <section>
+        <h2 id="the-ten-skills">The ten skills, and what each is actually for</h2>
+        <p>Before the roster, the distinction that changes what you can expect of each one. <strong>Five
+        ship a real, stdlib-only Python engine</strong> that does deterministic work — code-graph,
+        spec-manager, behavior-graph, behavior-runner, status — and docs-manager has one detection helper.
+        <strong>Three are pure prose</strong> the agent follows, with no binary at all:
+        codebase-security-resolver, dependency-vulnerability-check, wrap-up. <strong>One sits
+        between</strong>: codebase-security-scan is prose for the report and a Python driver for the
+        fan-out. An engine's output is a program's output. A prose skill's output is a model following
+        instructions, which is a different kind of guarantee. Every engine is reached the same way —
+        <code>freya &lt;command&gt;</code> through the launcher, never a filesystem path.</p>
+
+        <p>Each card below gives the purpose in a line and then spends its space on the
+        <strong>limits</strong>, because the limits are the part the reference markdown does not carry. For
+        commands, arguments and outputs, follow the link in the card.</p>
+
+        <input class="filter-input" id="skill-filter" type="text" placeholder="Filter skills… (e.g. security, behavior, graph)" aria-label="Filter skills">
+
+        <details class="skill" id="code-graph" data-name="code-graph dependency graph blast radius impact foundation regex ast monorepo tsconfig">
+          <summary>
+            <span class="s-name">code-graph</span>
+            <span class="tier-badge tier-1">Foundation</span>
+            <span class="badge badge--script">Python engine</span>
+            <span class="s-purpose">The dependency graph and blast radius every other skill queries.</span>
+          </summary>
+          <div class="s-body">
+            <p>Builds a reverse-dependency graph by scraping import and export relationships for
+            TypeScript/JavaScript, Python and Go, so consumers can process a change's whole blast radius
+            rather than only the file that changed.</p>
+            <h4>Limits</h4>
+            <ul>
+              <li>It is <strong>regex, not an AST</strong>. A dynamic <code>import(variable)</code> is
+              missed; imports inside comments or strings can mismatch.</li>
+              <li>External packages are recorded as <code>external:</code> leaves and never traversed.</li>
+              <li>Bare Go imports and absolute-Python module specifiers often fall through to
+              <code>external:</code>. Internal-edge resolution is strongest for TS/JS relative and aliased
+              imports.</li>
+              <li>Monorepos want one graph per subproject, and a <code>tsconfig</code> <code>extends</code>
+              chain is not followed.</li>
+              <li>On <code>build</code> it classifies directories in the order rules → AI → user, and
+              non-interactively an uncertain directory defaults to <strong>source</strong> — so real code is
+              never silently dropped, at the cost of occasionally graphing something you would have
+              excluded.</li>
+            </ul>
+            <p class="small muted">Commands and output schema:
+            <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/skill-reference.md#code-graph">docs/skill-reference.md#code-graph</a></p>
+          </div>
+        </details>
+
+        <details class="skill" id="docs-manager" data-name="docs-manager documentation readme reference architecture api todo placeholders prose coordinator workers">
+          <summary>
+            <span class="s-name">docs-manager</span>
+            <span class="tier-badge tier-2">Knowledge</span>
+            <span class="badge badge--prose">Prose + 1 helper</span>
+            <span class="s-purpose">Standardized project docs, impact-aware, in knowledge-base/reference/.</span>
+          </summary>
+          <div class="s-body">
+            <p>Creates and maintains a standard documentation set: a coordinator detects the stack and
+            gathers business context, then one worker per doc type runs the write. Undetectable details
+            become <code>[TODO:]</code> markers resolved later in batched questions.</p>
+            <h4>Limits</h4>
+            <ul>
+              <li><strong>Almost entirely prose-driven.</strong> Its only real code is stack and test-runner
+              detection; doc quality is the model following instructions.</li>
+              <li>Certainty scoring is <strong>not</strong> one of its features — that is spec-manager. Its
+              analog is <code>[TODO:]</code> markers plus a check / warn / fail review pass.</li>
+              <li>Some of its templates and evals still name the older <code>docs/</code> layout;
+              <code>knowledge-base/</code> is authoritative.</li>
+            </ul>
+            <p class="small muted">Commands and outputs:
+            <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/skill-reference.md#docs-manager">docs/skill-reference.md#docs-manager</a></p>
+          </div>
+        </details>
+
+        <details class="skill" id="spec-manager" data-name="spec-manager specs specifications intentional design decisions principles adr intent certainty scan proposed authority">
+          <summary>
+            <span class="s-name">spec-manager</span>
+            <span class="tier-badge tier-2">Knowledge</span>
+            <span class="badge badge--script">Python engine</span>
+            <span class="s-purpose">Specs, intentional-design decisions, the behavior lifecycle, and governance.</span>
+          </summary>
+          <div class="s-body">
+            <p>The intent owner: what a feature does, why it was designed that way, and — the part that pays
+            for itself — which of its oddities are deliberate.</p>
+            <div class="callout callout--why">
+              <span class="callout-label">The false-positive filter</span>
+              <p>A spec's <em>Intentional Design Decisions</em> section is what a security scan reads to tell
+              a real vulnerability from an on-purpose choice: <em>"No password fallback — a scanner flagging
+              missing password auth should be ignored."</em></p>
+            </div>
+            <h4>Limits</h4>
+            <ul>
+              <li><code>scan</code> only ever produces <strong>proposed</strong> candidates — never
+              <code>accepted</code>, never files in the code tree. Acceptance is a human act.</li>
+              <li>Authority order for contradictions is fixed: <strong>principle &gt; ADR &gt; spec</strong>.
+              A spec never wins against a principle.</li>
+              <li>Certainty (0–100) gates review of <em>inferred</em> specs only. Trust in an executable
+              behavior is its lifecycle state, not that number.</li>
+            </ul>
+            <p class="small muted">Commands and outputs:
+            <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/skill-reference.md#spec-manager">docs/skill-reference.md#spec-manager</a></p>
+          </div>
+        </details>
+
+        <details class="skill" id="behavior-graph" data-name="behavior-graph behavior.json projection affected implements covering gaps trust merge observed static">
+          <summary>
+            <span class="s-name">behavior-graph</span>
+            <span class="tier-badge tier-2">Knowledge</span>
+            <span class="badge badge--script">Python engine</span>
+            <span class="s-purpose">Owns behavior.json; answers both blast-radius directions.</span>
+          </summary>
+          <div class="s-body">
+            <p>Projects your specs' behavior records, merges in coverage from behavior-runner, and answers
+            impact both ways: which behaviors a code change affects, and which code implements a
+            behavior.</p>
+            <h4>Limits</h4>
+            <ul>
+              <li>Only <code>accepted</code> and <code>confirmed</code> behaviors are projected;
+              <code>proposed</code> lives only in the specs.</li>
+              <li>Only <code>accepted</code> behaviors can <strong>gate</strong> a change.</li>
+              <li>Queries reflect the last <code>--build</code> snapshot. Change specs or code and the answer
+              is stale until you rebuild.</li>
+              <li>Coverage merges by trust: <strong>observed beats static</strong>. A red test invalidates
+              prior coverage; any <em>other</em> unknown preserves it, so a runner that could not run does
+              not erase what was already known.</li>
+            </ul>
+            <p class="small muted">Commands and outputs:
+            <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/skill-reference.md#behavior-graph">docs/skill-reference.md#behavior-graph</a></p>
+          </div>
+        </details>
+
+        <details class="skill" id="behavior-runner" data-name="behavior-runner coverage fingerprints observed static vitest pnpm adapters producer confirmed">
+          <summary>
+            <span class="s-name">behavior-runner</span>
+            <span class="tier-badge tier-2">Knowledge</span>
+            <span class="badge badge--script">Python engine</span>
+            <span class="s-purpose">Runs accepted behaviors; emits observed coverage fingerprints.</span>
+          </summary>
+          <div class="s-body">
+            <p>A producer only. It runs accepted, non-quarantined behaviors through their adapter and prints
+            <code>TEST → CODE</code> coverage fingerprints as JSON. It never writes
+            <code>behavior.json</code>.</p>
+            <h4>Limits</h4>
+            <ul>
+              <li>Only the <strong>vitest unit path</strong> is implemented. Other adapters are allow-listed
+              but return <code>unknown</code> with a reason.</li>
+              <li>The vitest invocation is <strong>hardcoded to <code>pnpm</code></strong>.</li>
+              <li><code>confirmed</code> behaviors are never executed — a test is still owed — so they can
+              never be test-failed and never gate.</li>
+              <li>Coverage is <code>observed</code> at 0.8 (real V8 runtime), <code>static</code> at 0.5
+              (graph closure of a declared entry point), or <code>unknown</code> with a reason. It is never
+              faked, and there is no fourth value.</li>
+            </ul>
+            <p class="small muted">Commands and outputs:
+            <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/skill-reference.md#behavior-runner">docs/skill-reference.md#behavior-runner</a></p>
+          </div>
+        </details>
+
+        <details class="skill" id="codebase-security-scan" data-name="codebase-security-scan security audit findings vulnerability adversarial refutation lenses finders driver exit codes">
+          <summary>
+            <span class="s-name">codebase-security-scan</span>
+            <span class="tier-badge tier-3">Analysis</span>
+            <span class="badge badge--script">Prose + Python driver</span>
+            <span class="s-purpose">Six parallel finders plus adversarial verification; specs cut false positives.</span>
+          </summary>
+          <div class="s-body">
+            <p>Six specialised finders scan in parallel — auth/authz, injection, secrets, API/network,
+            config/deps, file/resource — and every finding is validated and then adversarially attacked
+            before it is allowed into the report.</p>
+            <h4>Limits</h4>
+            <ul>
+              <li>Only <strong><code>accepted</code></strong> behaviors downgrade a finding. A verified
+              guarantee beats a prose claim; proposed and confirmed add an advisory note at most.</li>
+              <li>On the driver path, exactly <strong>three</strong> refutation lenses run per finding. (The
+              "2–3 lenses" wording elsewhere describes the in-loop <code>update</code> pass, not the
+              driver.)</li>
+              <li>A finding is dropped only on a <strong>unanimous</strong> refutation. A split verdict stays
+              <em>needs review</em> — which is why the lens count is never the thing that gets cut to save
+              money.</li>
+              <li><strong>Neither driver mode is wired into <code>wrap-up</code>.</strong> See
+              <a href="#security">Security</a> below for what wrap-up runs instead, and why.</li>
+            </ul>
+            <p class="small muted">Commands, modes and the exit-code table:
+            <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/skills/freya-codebase-security-scan/SKILL.md">skills/freya-codebase-security-scan/SKILL.md</a></p>
+          </div>
+        </details>
+
+        <details class="skill" id="dependency-vulnerability-check" data-name="dependency-vulnerability-check supply chain cve npm yarn pnpm audit lockfile node">
+          <summary>
+            <span class="s-name">dependency-vulnerability-check</span>
+            <span class="tier-badge tier-3">Analysis</span>
+            <span class="badge badge--prose">Prose-driven</span>
+            <span class="s-purpose">Supply-chain CVE audit for Node projects.</span>
+          </summary>
+          <div class="s-body">
+            <p>The supply-chain half of security — its sibling covers <em>your</em> code. It detects the
+            package manager from the lock file, runs that manager's audit, then enriches and validates each
+            finding with web searches to strip false positives and note applicability.</p>
+            <h4>Limits</h4>
+            <ul>
+              <li><strong>Node ecosystem only</strong> — npm, yarn, pnpm. No pip, no cargo, no Go modules.
+              (The quick-reference entry for this skill claims otherwise; the skill file is the accurate
+              one.)</li>
+              <li>It <strong>reports, it does not fix</strong>. It suggests the upgrade; you run it.</li>
+              <li>It is <strong>not invoked by <code>wrap-up</code></strong>. Nothing schedules it — you do,
+              with whatever recurring mechanism your agent offers.</li>
+            </ul>
+            <p class="small muted">Commands and outputs:
+            <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/skills/freya-dependency-vulnerability-check/SKILL.md">skills/freya-dependency-vulnerability-check/SKILL.md</a></p>
+          </div>
+        </details>
+
+        <details class="skill" id="codebase-security-resolver" data-name="codebase-security-resolver fix findings interactive terminal state resolved intentional obsolete info dead code delete">
+          <summary>
+            <span class="s-name">codebase-security-resolver</span>
+            <span class="tier-badge tier-5">Resolution</span>
+            <span class="badge badge--prose">Prose-driven</span>
+            <span class="s-purpose">Interactive fixer; routes every finding to a terminal state.</span>
+          </summary>
+          <div class="s-body">
+            <p>The actor half of the security loop: list → select → validate → confirm → plan → implement →
+            commit the code, then hand off to wrap-up for the artifacts commit. Its signature move is that
+            <strong>skipping is never a no-op</strong> — every <em>skipped</em> finding still gets routed to a
+            terminal state. Already resolved becomes <code>RESOLVED</code>; intentional gets a spec entry and
+            becomes <code>INTENTIONAL</code>; code that no longer exists becomes <code>OBSOLETE</code>; not
+            actually a security issue is downgraded to <code>INFO</code>. Nothing rots in the report as a
+            permanent open item nobody will ever look at again.</p>
+            <h4>Limits</h4>
+            <ul>
+              <li>When a finding's file has <strong>zero dependents</strong>, it recommends
+              <em>deleting</em> the dead code rather than fixing it — occasionally the right answer, always
+              worth a second look before you agree.</li>
+              <li>Prose-only: its tables and status lines are <strong>templates the agent reproduces</strong>,
+              not program output. They look like a tool speaking and they are not.</li>
+            </ul>
+            <p class="small muted">Commands and outputs:
+            <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/skill-reference.md#codebase-security-resolver">docs/skill-reference.md#codebase-security-resolver</a></p>
+          </div>
+        </details>
+
+        <details class="skill" id="wrap-up" data-name="wrap-up orchestrator two commits pipeline post-implementation governance scaffold lifecycle skip missing">
+          <summary>
+            <span class="s-name">wrap-up</span>
+            <span class="tier-badge tier-4">Orchestration</span>
+            <span class="badge badge--prose">Prose orchestrator</span>
+            <span class="s-purpose">Runs the whole team in order under a two-commit pattern.</span>
+          </summary>
+          <div class="s-body">
+            <p>The post-implementation orchestrator: commit the code, refresh the graph, then docs, then
+            specs, then the behavior-integrity and governance gates, then an in-loop security pass, then
+            commit the artifacts. Five steps between two commits.</p>
+            <h4>Limits</h4>
+            <ul>
+              <li>It <strong>warns and skips</strong> any missing skill rather than failing. A partial
+              install produces a partial run that tells you so.</li>
+              <li>A behavior scaffold's commit class follows its <strong>lifecycle state, not its file
+              location</strong>: a <code>proposed</code> <code>.feature</code> scaffold rides the
+              <em>artifacts</em> commit even though it sits among tests, and an <code>accepted</code>
+              behavior's test rides the <em>code</em> commit.</li>
+              <li>Its security step is the in-loop <code>update</code> mode, never the paid driver — see
+              <a href="#security">Security</a>.</li>
+            </ul>
+            <p class="small muted">Pipeline, flags and staging rules:
+            <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/skill-reference.md#wrap-up">docs/skill-reference.md#wrap-up</a></p>
+          </div>
+        </details>
+
+        <details class="skill" id="status" data-name="status backlog read-only census worklist intent tests owed gaps findings cold tail degrade">
+          <summary>
+            <span class="s-name">status</span>
+            <span class="tier-badge tier-4">Orchestration</span>
+            <span class="badge badge--script">Python engine</span>
+            <span class="s-purpose">Read-only backlog: what intent, tests, and findings are outstanding.</span>
+          </summary>
+          <div class="s-body">
+            <p>The check-counterpart of wrap-up. Where wrap-up does and syncs, status only reports — and on
+            request regenerates the git-tracked <code>BACKLOG.md</code>, which diffs in a pull request so a
+            reviewer sees outstanding work without running anything.</p>
+            <h4>Limits</h4>
+            <ul>
+              <li><strong>Read-only.</strong> The one file it writes is the backlog.</li>
+              <li>The intent worklist is sorted <strong>lowest-certainty first</strong>, so the least
+              trustworthy proposals reach you first.</li>
+              <li>It drains the <em>cold tail</em> — behaviors no change ever touches, which wrap-up's
+              validate-on-hit will therefore never surface.</li>
+              <li>It <strong>never auto-authors a test.</strong> That is the engineer's work, on purpose.</li>
+              <li>Every source degrades to a note independently, so a missing or corrupt input narrows the
+              census rather than blocking the command.</li>
+            </ul>
+            <p class="small muted">Commands and outputs:
+            <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/skill-reference.md#status">docs/skill-reference.md#status</a></p>
+          </div>
+        </details>
+
+        <p class="filter-empty hide" id="skill-empty">No skills match that filter.</p>
+      </section>
+
+      <!-- ========================== WHAT IT WRITES =========================== -->
+      <section>
+        <h2 id="what-it-writes">What it writes, and where</h2>
+        <p>Everything durable lands under one project-local, version-controlled root:
+        <code>knowledge-base/</code>. It travels with your branch and diffs in code review. The four
+        directories you will actually open are <code>specs/</code> (per-feature intent),
+        <code>decisions/</code> (ADRs), <code>security/</code> (dated reports plus a machine-readable
+        <code>findings.json</code>) and <code>reference/</code> (the generated docs) — alongside two files at
+        the root, <code>principles.md</code>, which is the project's constitution, and
+        <code>BACKLOG.md</code>, which is generated and says so.</p>
+
+        <div class="callout callout--warn">
+          <span class="callout-label">Committed versus regenerable — and one thing the prose gets wrong</span>
+          <p>The prose and the machine indexes are meant to be <strong>committed</strong>. The
+          <code>.graph/</code> directory is not. Both graph tools auto-write a <code>.gitignore</code>
+          containing <code>*</code> into it the first time they run, so <strong>the entire graph directory is
+          git-ignored by default</strong> — even though some prose still describes the graph as
+          version-controlled. Treat <code>.graph/</code> as a local cache. Rebuilding it is cheap, and an
+          adopting project never has to touch its own root <code>.gitignore</code>.</p>
+        </div>
+
+        <div class="callout callout--info prose-center">
+          <span class="callout-label">In the markdown</span>
+          <p>The path-by-path table — every artifact, its owning skill, and whether it is committed — lives
+          in the repo, along with the conventions each skill follows when writing into that tree. Reach for
+          these when you need to know who owns a file rather than what the tree is for.</p>
+          <ul class="md-links">
+            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/skill-reference.md#file-locations">docs/skill-reference.md#file-locations</a></li>
+            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/architecture.md">docs/architecture.md</a></li>
+            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/conventions.md">docs/conventions.md</a></li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ============================ DAILY LOOP ============================= -->
+      <section>
+        <h2 id="the-daily-loop">The daily loop: wrap-up and status</h2>
+        <p>Bootstrap was a one-time act. From here the loop is two commands, and only one of them changes
+        anything.</p>
+
+        <div class="card-grid cols-2">
+          <div class="card">
+            <h3><code>freya-wrap-up</code></h3>
+            <p class="muted">After each feature. Refreshes the graph, then docs, then specs, then the
+            behavior-integrity and governance gates, then an in-loop security pass — and lands two commits.
+            The mutating, syncing path.</p>
+          </div>
+          <div class="card">
+            <h3><code>freya-status</code></h3>
+            <p class="muted">Any time, including mid-change. A read-only census of outstanding intent, tests
+            owed, coverage gaps and open findings, refreshing <code>BACKLOG.md</code>. Because it mutates
+            nothing, "where do I stand?" is always a safe question.</p>
+          </div>
+        </div>
+
+        <p>What you see in your own git log afterwards is two commits, in this order:</p>
+
+        <figure class="diagram">
+          <div class="flow">
+            <div class="node code">commit 1<span class="sub">your code</span></div>
+            <span class="arrow">→</span>
+            <div class="node beh">commit 2<span class="sub">docs · specs · behaviors · findings</span></div>
+          </div>
+          <figcaption>The order is not cosmetic. The artifacts describe a specific code commit, so they have
+          to be able to reference it — which means it must already exist. Reviewing them together also lets a
+          reader read the change first and the consequences second, and revert either half alone.</figcaption>
+        </figure>
+
+        <div class="callout callout--danger">
+          <span class="callout-label">The never-synced guard</span>
+          <p>Every incremental <code>update</code> assumes a prior sync — it works from the commit it last
+          processed. On a project with <em>no</em> tracking files there is no such commit, and the naive
+          reading of "changed since never" is "the entire codebase". So wrap-up must not let
+          <code>update</code> silently trigger a full-codebase generation: it reports that the project is
+          unsynced and defers to an explicit first scan and build. Running bootstrap first is exactly what
+          makes your first wrap-up behave.</p>
+        </div>
+      </section>
+
+      <!-- ============================= SECURITY ============================== -->
+      <section>
+        <h2 id="security">Security: what to run, and what it costs</h2>
+        <p>Three modes, and the difference between them is money.</p>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th scope="col">Mode</th><th scope="col">Discovery rounds</th><th scope="col">Verification lenses</th><th scope="col">Runs in wrap-up?</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><code>freya security scan --yes</code></td><td>1</td><td>3</td><td><strong>no</strong> — paid, on request</td></tr>
+              <tr><td><code>freya security audit --yes</code></td><td>up to 5 <span class="faint">(stops after 2 dry rounds)</span></td><td>3</td><td><strong>no</strong> — paid, on demand</td></tr>
+              <tr><td><span class="faint">no driver —</span> the skill's <code>update</code> mode</td><td>—</td><td>in-loop</td><td><strong>yes</strong> — git-diff scoped, spends nothing</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p><strong>Neither driver mode is wired into wrap-up</strong>, and that includes a project's first
+        wrap-up, where there is no previous scan to diff against — that case is covered by a full in-loop
+        pass rather than by silently falling into the paid driver. Both driver modes spawn headless agent
+        workers and cost real money, so both confirm before spending unless <code>--yes</code> is passed; an
+        agent shell has no tty to answer that prompt with, which is why the skill's prescribed invocations
+        carry <code>--yes</code> and put the money gate in the conversation instead.</p>
+
+        <p>The cost is not hypothetical. A spike measured <strong>$0.396 for a single finder worker on a
+        trivial fixture</strong>, and a real audit's worst case is one context call plus five rounds of six
+        finders plus three skeptics per finding. So the guard is not advisory —
+        <code>--max-calls</code> (default 200 attempts) is the single cost knob, every attempt is counted
+        <em>before</em> the subprocess runs so retries cannot overrun the ceiling, and setting it too low
+        makes the driver <em>refuse to start</em> rather than run a scan whose only possible output is a
+        false clean. Look before you spend:</p>
+
+        <div class="code-block">
+          <div class="code-head"><span class="dot"></span><span class="dot"></span><span class="dot"></span>&nbsp; freya security audit --dry-run</div>
+          <pre class="code"><code>mode:         audit — exhaustive loop-until-dry discovery
+agent:        claude
+project:      /path/to/your/project
+call ceiling: 200 attempts (each of 100 tasks may retry once)
+worst case:   200 attempts (1 context + 5x6 finders + 3 skeptics x 23 findings)
+buys you:     up to 23 findings discovered and verified
+This spends real money. One worker measured ~$0.40 on a trivial fixture.</code></pre>
+        </div>
+
+        <h3 id="read-the-exit-code">Read the exit code before you read the findings</h3>
+        <p>A misread exit code on a security scan produces a <em>silent false clean</em>, which is the worst
+        failure this toolkit can have, so the codes are narrow on purpose. <strong>0</strong> means complete:
+        the result is the whole result. <strong>3</strong> means incomplete — the call ceiling stopped the run
+        early, some tasks got no usable answer, or discovery found more than <code>--max-findings</code> and
+        discarded the rest; the findings it did verify are kept, coverage was truncated, and it is never
+        described as clean. <strong>2</strong> means failed, and no report is written at all.
+        <strong>4</strong> means declined: confirmation was refused, or there was no tty and no
+        <code>--yes</code>. Nothing ran and nothing was spent — re-run with <code>--yes</code>, and do
+        <em>not</em> fall back to the in-loop scan. <strong>1</strong> means there is no agent CLI on
+        <code>PATH</code>, and nothing else; that is the only case where the in-loop fallback is the right
+        move.</p>
+
+        <div class="callout callout--why">
+          <span class="callout-label">The rule, in one sentence</span>
+          <p>An empty result with exit <code>0</code> means clean. An empty result with <em>any</em> other
+          exit code means the scan did not run. The driver refuses to exit <code>0</code> when no task got a
+          usable answer, precisely so a broken run cannot be mistaken for a clean codebase.</p>
+          <p><code>4</code> was split out of <code>1</code> because <code>1</code> used to mean three things
+          at once — no CLI, declined, and no tty — which is how a perfectly healthy driver read as a missing
+          CLI, and the fan-out quietly reverted to the prose version the driver exists to replace.</p>
+        </div>
+
+        <p class="small muted">Two more flags worth knowing: <code>--concurrency</code> sets the worker-pool
+        width, and <code>--agent</code> and <code>--model</code> must be passed <strong>together or not at
+        all</strong>, because the two CLIs' model vocabularies do not overlap and a model name from one is
+        meaningless to the other.</p>
+
+        <div class="callout callout--info prose-center">
+          <span class="callout-label">In the markdown</span>
+          <p>The canonical exit-code table, the mode presets and the in-loop fallback procedure live in the
+          skill file the agent actually reads. Reach for it if you are scripting around the driver.</p>
+          <ul class="md-links">
+            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/skills/freya-codebase-security-scan/SKILL.md">skills/freya-codebase-security-scan/SKILL.md</a></li>
+            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-015-driver-owned-fan-out.md">docs/decisions/ADR-015-driver-owned-fan-out.md</a></li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ============================= UPGRADING ============================= -->
+      <section>
+        <h2 id="upgrading">Upgrading</h2>
+        <p><code>freya update</code> is <strong>fast-forward only</strong>. Preconditions first, then a
+        fetch, then an explicit "can this fast-forward?" before the merge — so a diverged store gets its own
+        message rather than git's. Then it <strong>re-links</strong>, because a pull is not an install: a
+        symlinked skill picks up edits for free, but a skill <em>added</em> upstream has no link at all, a
+        <em>deleted</em> one leaves a dangling link behind, and a <code>--copy</code> install tracks
+        nothing.</p>
+
+        <div class="card-grid cols-2">
+          <div class="card">
+            <h3>The notify check</h3>
+            <p class="muted">At most one <code>ls-remote</code> a day, bounded at 2&nbsp;s, one line to
+            <strong>stderr</strong> so stdout stays parseable for the agent that ran the command. It never
+            applies anything: auto-update was rejected on purpose for a toolkit that gates
+            <code>wrap-up</code>.</p>
+          </div>
+          <div class="card">
+            <h3><code>freya init</code></h3>
+            <p class="muted">Writes a marker-delimited section into a project's <code>AGENTS.md</code>, with
+            the skill table generated from each <code>SKILL.md</code> so it cannot drift. Idempotent,
+            CRLF-preserving, atomic, and it never rewrites a byte outside its own markers.</p>
+          </div>
+          <div class="card">
+            <h3><code>freya doctor</code></h3>
+            <p class="muted">Reports the install mode per agent, and warns on the two failures that look
+            fine from outside: a link left behind when the checkout moved, and the same skill registered
+            twice because both install paths were used.</p>
+          </div>
+          <div class="card">
+            <h3>Coming from 0.1.0</h3>
+            <p class="muted">Every skill directory and every <code>name:</code> gained the
+            <code>freya-</code> prefix, and <strong>there is no alias</strong> — the old names are
+            directories that no longer exist. There is a runnable recipe for it; see below.</p>
+          </div>
+        </div>
+
+        <div class="callout callout--warn">
+          <span class="callout-label">An update mid-session is invisible to that session</span>
+          <p>This is the one you will hit within a week and be unable to diagnose. Agents read their skill
+          list <strong>once, at session start</strong>. So an update that lands mid-session changes the disk
+          without changing what the open session believes.</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th scope="col">A mid-session <code>freya update</code>…</th><th scope="col">Seen by the open session?</th></tr></thead>
+              <tbody>
+                <tr><td>edited an existing skill</td><td>Sometimes — one host re-reads the body from disk; another serves a skill it has already loaded from its cache</td></tr>
+                <tr><td>added a skill</td><td>No — it is not in the start-up snapshot</td></tr>
+                <tr><td>removed or renamed a skill</td><td><strong>Worse than no</strong> — still offered, then a raw <code>ENOENT</code> at the point of use</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p>That third row is how the mechanism is known rather than assumed: with a skill's link moved out
+          from under a live Copilot session, the session <em>still listed it</em>, then failed to load it with
+          <code>ENOENT: no such file or directory</code>. The registry is snapshotted at session start; the
+          body is read from disk at invocation. <strong>The fix is a reload, not a restart</strong> —
+          <code>/reload-skills</code> in Claude Code, <code>/skills</code> in Copilot —
+          and <code>freya update</code> now prints that reminder whenever it actually moves the store.</p>
+        </div>
+
+        <div class="callout callout--info prose-center">
+          <span class="callout-label">In the markdown</span>
+          <p>The migrations are <em>runnable recipes</em>, not history: kept current against the shipped CLI,
+          idempotent, and safe to re-run. Run the rename first if you need both — the knowledge-base move
+          assumes the launcher and the renamed skills.</p>
+          <ul class="md-links">
+            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/migrations/README.md">docs/migrations/README.md</a></li>
+            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/migrations/skill-rename.md">docs/migrations/skill-rename.md</a></li>
+            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/migrations/knowledge-base.md">docs/migrations/knowledge-base.md</a></li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ========================== TROUBLESHOOTING ========================== -->
+      <section>
+        <h2 id="when-something-goes-wrong">When something goes wrong</h2>
+        <p>Six symptoms that are real, diagnosable, and easy to misread as something worse.</p>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th scope="col">Symptom</th><th scope="col">What it is, and what to do</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>A skill vanished, or fails right after an update</td>
+                <td>The session's skill registry is a start-up snapshot. <strong>Reload, don't restart</strong>
+                — <code>/reload-skills</code> in Claude Code, <code>/skills</code> in Copilot. A renamed or
+                removed skill is the bad case: it is still offered and then fails with a filesystem error.</td>
+              </tr>
+              <tr>
+                <td><code>freya: command not found</code></td>
+                <td><code>~/.local/bin</code> is not on your <code>PATH</code>. The installer printed the
+                exact export line for your shell and deliberately did not add it for you. Add it, then put
+                it in your shell profile.</td>
+              </tr>
+              <tr>
+                <td>Every skill appears twice</td>
+                <td>Both install paths were run — a marketplace install <em>and</em> a symlink install.
+                <code>freya doctor</code> confirms it and names which. Remove one.</td>
+              </tr>
+              <tr>
+                <td>Blast radius comes back empty on a project that uses path aliases</td>
+                <td>Usually a stale graph: queries answer from the last build. Rebuild it. If it is still
+                empty, that is a defect rather than an answer — an empty result is treated as a bug here, for
+                the reason set out in <a href="how-it-works.html">How it works</a>.</td>
+              </tr>
+              <tr>
+                <td>The security report is empty but the command exited non-zero</td>
+                <td><strong>The scan did not run.</strong> Empty plus <code>0</code> is clean; empty plus
+                anything else is a run that failed, was truncated, or was declined. Read the code, then
+                re-run — do not record it as a clean result.</td>
+              </tr>
+              <tr>
+                <td>wrap-up says the project is unsynced</td>
+                <td>Working as designed. Incremental update has no prior sync to work from, and it refuses to
+                turn that into a silent full-codebase generation. Run
+                <code>freya-spec-manager bootstrap</code> once, then wrap up.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p class="small muted">Known defects that are open rather than mysterious — including a
+        <code>--copy</code> install being re-copied on every update — are tracked in
+        <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/backlog.md">docs/backlog.md</a>,
+        which is the file that actually gets updated. If your symptom is on that list, it is not you.</p>
+      </section>
+
+    </div>
+  </main>
+
+  <div id="site-footer"></div>
+
+  <script>
+  (function () {
+    "use strict";
+
+    /* ---- segmented control helper -------------------------------------- */
+    function seg(groupId, attr, panels) {
+      var group = document.getElementById(groupId);
+      if (!group) return;
+      var btns = Array.prototype.slice.call(group.querySelectorAll("button"));
+      btns.forEach(function (b) {
+        b.addEventListener("click", function () {
+          var key = b.getAttribute(attr);
+          btns.forEach(function (x) {
+            var on = x === b;
+            x.classList.toggle("active", on);
+            x.setAttribute("aria-pressed", on ? "true" : "false");
+          });
+          Object.keys(panels).forEach(function (k) {
+            var el = document.getElementById(panels[k]);
+            if (el) el.hidden = (k !== key);
+          });
+        });
+      });
+    }
+    seg("install-seg", "data-inst", { any: "install-any", claude: "install-claude" });
+    seg("path-seg", "data-path", { green: "path-green", brown: "path-brown" });
+
+    /* Panels ship visible in the markup so the page is complete with JS off;
+       the segmented control only takes over once it can actually work.
+       Same pattern as extending.html's show("before") init. */
+    ["install-claude", "path-brown"].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) el.hidden = true;
+    });
+
+    /* ---- shape detector — mirrors project_shape.py, reason strings and all */
+    var files = document.getElementById("sd-files");
+    var edges = document.getElementById("sd-edges");
+    var out = document.getElementById("sd-out");
+    function compute() {
+      var f = parseInt(files.value, 10); if (isNaN(f) || f < 0) f = 0;
+      var e = parseInt(edges.value, 10); if (isNaN(e) || e < 0) e = 0;
+      var rec, cls, reason;
+      if (e === 0) {
+        rec = "greenfield";
+        cls = "badge badge--confirmed";
+        reason = f + " source file(s) but 0 internal import edges — no real feature wiring yet";
+      } else {
+        rec = "brownfield";
+        cls = "badge badge--advisory";
+        reason = f + " source file(s) with " + e + " internal import edge(s) — existing codebase";
+      }
+      out.textContent = "";
+      var badge = document.createElement("span");
+      badge.className = cls;
+      badge.textContent = rec;
+      out.appendChild(badge);
+      out.appendChild(document.createTextNode("  ·  " + reason));
+    }
+    if (files && edges && out) {
+      files.addEventListener("input", compute);
+      edges.addEventListener("input", compute);
+      compute();
+    }
+
+    /* ---- skill filter --------------------------------------------------- */
+    var input = document.getElementById("skill-filter");
+    var cards = Array.prototype.slice.call(document.querySelectorAll(".skill"));
+    var empty = document.getElementById("skill-empty");
+    if (input && empty) {
+      input.addEventListener("input", function () {
+        var q = (input.value || "").trim().toLowerCase();
+        var shown = 0;
+        cards.forEach(function (c) {
+          var hay = (c.getAttribute("data-name") + " " + c.textContent).toLowerCase();
+          var match = !q || hay.indexOf(q) !== -1;
+          c.classList.toggle("hide", !match);
+          if (match) shown++;
+        });
+        empty.classList.toggle("hide", shown !== 0);
+      });
+    }
+
+    /* ---- hash deep-link: open and scroll to a skill card ----------------- */
+    function openHash() {
+      var id = location.hash.replace("#", "");
+      if (!id) return;
+      var el = document.getElementById(id);
+      if (el && el.classList.contains("skill")) {
+        el.classList.remove("hide");
+        el.open = true;
+        el.scrollIntoView({ block: "start" });
+      }
+    }
+    window.addEventListener("hashchange", openHash);
+    openHash();
+  })();
+  </script>
+</body>
+</html>

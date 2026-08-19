@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Reference — freya-devkit</title>
+  <meta name="description" content="What lookup material lives in the repo's markdown and when you want each file — plus the glossary and the three tables the markdown does not own.">
+  <link rel="stylesheet" href="assets/styles.css">
+  <script src="assets/site.js"></script>
+</head>
+<body>
+  <div id="site-header"></div>
+
+  <main class="doc">
+    <aside class="toc" id="toc" aria-label="On this page"></aside>
+    <div class="doc-body">
+      <span class="eyebrow">Reference</span>
+      <h1>Where the lookup material lives</h1>
+      <p class="lead">
+        This site is the narrative half. The reference half — commands, flags, file locations,
+        conventions, decisions — lives in the repo's markdown, and that is where it stays. This page
+        tells you what is over there and when you will want it, and carries the four things the
+        markdown does not own.
+      </p>
+
+      <!-- ==================== DIVISION OF LABOUR ==================== -->
+      <section>
+        <h2 id="how-the-work-divides">How this site and the markdown divide the work</h2>
+        <p>
+          This site is narrative and human-facing: it exists to explain <em>why</em> the toolkit
+          behaves the way it does.
+          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/README.md">docs/README.md</a>
+          and its siblings are lookup-shaped and agent-facing, and they are the
+          <strong>single source of truth</strong> for reference material. This page does not restate
+          them; it says what is there and links to it. Two copies of one table drift — and drift is
+          what rotted the thirty-three research briefs that were deleted rather than repaired.
+        </p>
+
+        <div class="callout callout--why">
+          <span class="callout-label">Why anything is left on this page at all</span>
+          <p>Four blocks below have no owner in the markdown: the glossary (no glossary exists in
+          <code>philosophy.md</code>, <code>architecture.md</code>, <code>patterns.md</code>,
+          <code>conventions.md</code> or <code>skill-reference.md</code>), and three tables that are
+          short, enumerable, and consulted while you are debugging exactly one thing. Everything else
+          on this page is a pointer.</p>
+        </div>
+      </section>
+
+      <!-- ======================= THE MARKDOWN MAP ======================= -->
+      <section>
+        <h2 id="the-markdown-map">The markdown map</h2>
+        <p>One row per file. The column that matters is the last one.</p>
+
+        <input class="filter-input" id="md-filter" type="text"
+               placeholder="Filter… (e.g. behavior, install, gate, ADR)" aria-label="Filter the markdown map">
+
+        <div class="table-wrap">
+          <table id="md-table">
+            <thead>
+              <tr><th scope="col">File</th><th scope="col">What it is</th><th scope="col">When you want it</th></tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/README.md">docs/README.md</a></td>
+                <td>The index, with a "where to start" table and the shape of the ten skills.</td>
+                <td>You know you need the markdown but not which file.</td>
+              </tr>
+              <tr>
+                <td><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/philosophy.md">docs/philosophy.md</a></td>
+                <td>Why any of this exists: the mental model and the
+                <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/philosophy.md#core-concepts">seven core concepts</a>.</td>
+                <td>Before you decide whether to adopt it, or when a skill's behaviour looks arbitrary
+                and you want the reasoning. This site deliberately does not restate the seven — its
+                old five-item version was already a stale subset of them.</td>
+              </tr>
+              <tr>
+                <td><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/architecture.md">docs/architecture.md</a></td>
+                <td>How the skills connect: <code>bin/</code> and <code>skills/</code>, the data flow
+                through wrap-up, the tracking files, the output-artifact tree.</td>
+                <td>You are tracing where a value came from, or which skill wrote a file you did not
+                expect.</td>
+              </tr>
+              <tr>
+                <td><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/patterns.md">docs/patterns.md</a></td>
+                <td>Coordinator + workers, two-commit separation, incremental updates, certainty-score
+                bands, resolution logs.</td>
+                <td>You are writing a skill and want the shape before the rules.</td>
+              </tr>
+              <tr>
+                <td><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/conventions.md">docs/conventions.md</a></td>
+                <td>What makes a skill fit: frontmatter declarations, cross-references by installed
+                name, artifact locations, dated-report idempotency, tracking-file naming.</td>
+                <td>Your skill works and you want it to stop looking foreign next to the other ten.</td>
+              </tr>
+              <tr>
+                <td><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/skill-reference.md">docs/skill-reference.md</a></td>
+                <td>Every skill, every command, what it reads and what it writes.</td>
+                <td>You need the precise invocation rather than the idea behind it. spec-manager alone
+                carries a sixteen-row command table, which is why this site does not try to mirror it.</td>
+              </tr>
+              <tr>
+                <td><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/README.md">docs/decisions/README.md</a></td>
+                <td>Sixteen ADRs — what was decided, why, and what was rejected.</td>
+                <td>A question is about to be re-litigated. The navigable version is on this site's
+                <a href="decisions.html">Decisions</a> page; the records themselves are the authority.</td>
+              </tr>
+              <tr>
+                <td><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/backlog.md">docs/backlog.md</a></td>
+                <td><strong>The single live backlog</strong>: next initiative, deferred capabilities,
+                verified open defects, platform-blocked items.</td>
+                <td>Anything is outstanding. Every item was re-verified against shipped code, and
+                nothing outstanding lives anywhere else — including on this site.</td>
+              </tr>
+              <tr>
+                <td><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/migrations/README.md">docs/migrations/README.md</a></td>
+                <td>Runnable, idempotent recipes for adopting projects —
+                <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/migrations/skill-rename.md">docs/migrations/skill-rename.md</a>
+                and
+                <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/migrations/knowledge-base.md">docs/migrations/knowledge-base.md</a>.</td>
+                <td>You are moving a project across a release. Run them; don't read them. Re-running a
+                recipe that is already applied is a no-op.</td>
+              </tr>
+              <tr>
+                <td><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/CONTRIBUTING.md">CONTRIBUTING.md</a></td>
+                <td>The conventions a contribution must preserve, and the contract of the CI gate.</td>
+                <td>Before you commit anything under <code>skills/</code>. The gate is separate from
+                the test suite: a shipped <code>SKILL.md</code> can violate most of the rules with the
+                whole suite green, because only the gate reads the tree that actually ships.</td>
+              </tr>
+              <tr>
+                <td><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/bin/commands.json">bin/commands.json</a></td>
+                <td>The sixteen registered <code>freya</code> commands, machine-readable.</td>
+                <td>You need to know whether a command exists, or you are adding one. A test fails if
+                an entry points at a missing script, and another fails if a script with a
+                <code>__main__</code> block is not registered.</td>
+              </tr>
+              <tr>
+                <td><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/bin/check_skill_conformance.py">bin/check_skill_conformance.py</a></td>
+                <td>Thirteen rules, R1–R13, each carrying its own failure message at the top of the
+                file.</td>
+                <td>The gate failed and you want to know what R9 actually objects to. The messages are
+                the documentation.</td>
+              </tr>
+              <tr>
+                <td><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/skills/freya-codebase-security-scan/SKILL.md">skills/freya-codebase-security-scan/SKILL.md</a></td>
+                <td>The scan's exit-code table and its finding statuses — eight in the prose report,
+                collapsed to three in <code>findings.json</code>.</td>
+                <td>A scan returned nothing and you need to know whether that means clean.</td>
+              </tr>
+              <tr>
+                <td><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/skills/freya-spec-manager/SKILL.md">skills/freya-spec-manager/SKILL.md</a></td>
+                <td>The behavior-record field schema — <code>state</code>, <code>adapter</code>,
+                <code>locator</code>, <code>entry</code>, <code>related_code</code> — and what
+                <code>verify</code> rejects.</td>
+                <td>You are hand-writing or debugging a behavior's frontmatter.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="filter-empty hide" id="md-empty" aria-live="polite">Nothing in the map matches that filter.</p>
+      </section>
+
+      <!-- =========================== GLOSSARY =========================== -->
+      <section>
+        <h2 id="glossary">Glossary</h2>
+        <p>Site-only: no glossary exists anywhere in the markdown. Each entry carries the
+        <em>distinction</em> rather than the definition, because in every case the distinction is
+        what people get wrong.</p>
+
+        <dl class="dl">
+          <div><dt>Blast radius</dt><dd>A file plus everything that transitively depends on it. What a change reaches, not what you edited.</dd></div>
+          <div><dt>Internal edge</dt><dd>An import that resolved to a real project file, rather than to an <code>external:</code> or <code>unresolved:</code> tag. Zero internal edges on a large repo means the resolver failed, not that the code is unwired.</dd></div>
+          <div><dt>BEH-NNN</dt><dd>A behavior record: one intended, observable fact about the system, numbered stably and never renumbered.</dd></div>
+          <div><dt>Lifecycle state</dt><dd><code>proposed → confirmed → accepted</code>, with <code>quarantined</code> and <code>deprecated</code> off to the side. Trust <em>is</em> the state; only accepted gates.</dd></div>
+          <div><dt>Adapter</dt><dd>How a behavior reaches its test — a Gherkin scaffold, a native link to a test that already exists, or <code>manual</code>.</dd></div>
+          <div><dt>Locator</dt><dd>The address of that test: <code>path#scenario-slug</code> or <code>path::node</code>. The governance gate is keyed off this path and nothing else.</dd></div>
+          <div><dt>Entry</dt><dd>The route or handler file an integration behavior drives. Its code-graph closure is the static coverage.</dd></div>
+          <div><dt>Coverage fingerprint</dt><dd>The set of files one test actually executed — the <code>TEST → CODE</code> edge. Never asserted as precise.</dd></div>
+          <div><dt>Trust order</dt><dd><code>explicit &gt; observed &gt; static</code>. <code>explicit</code> is reserved and not emitted today; every shipped edge is observed or static, with a confidence and a freshness commit. Higher trust wins on merge.</dd></div>
+          <div><dt>Coverage-unknown</dt><dd>An edge the graph knew it should resolve and could not, kept with a reason instead of dropped — so "no dependencies" and "could not resolve" never look alike.</dd></div>
+          <div><dt>Direction A / B</dt><dd>A: a code change → the behaviors it affects (regression). B: a behavior → the code that implements it (planning).</dd></div>
+          <div><dt>Generated projection</dt><dd>A read-only view derived from one source of truth. Allowed. A hand-maintained second copy of the same facts is not.</dd></div>
+          <div><dt>Certainty score</dt><dd>0–100 on an <em>inferred</em> spec. A review heuristic for prose, not the trust signal for executable behavior — that is the lifecycle state.</dd></div>
+          <div><dt><code>spec_ref</code> / <code>behavior_ref</code></dt><dd>Both mark a security finding intentional. A <code>spec_ref</code> is a prose claim; a <code>behavior_ref</code> is an accepted, test-backed guarantee. The second is the stronger one, and the difference is not cosmetic.</dd></div>
+          <div><dt>INTENT-NNN</dt><dd>A declared-intent record — behaviors touched, rationale, approver. The only legitimate reason to change an accepted behavior's test.</dd></div>
+          <div><dt>ADR</dt><dd>A cross-cutting architecture decision in <code>decisions/</code>. It records the decision, not the implementation.</dd></div>
+          <div><dt>Principle</dt><dd>A project-wide rule in <code>principles.md</code> — the constitution.</dd></div>
+          <div><dt>Authority order</dt><dd>principle &gt; ADR &gt; spec, and shipped code beats all three. Where the code and an ADR disagree, the ADR gets a dated correction rather than a rewrite.</dd></div>
+          <div><dt>Resolution log</dt><dd>An append-only JSONL recording how a resolve-to-proceed finding was settled, so it is not re-litigated on the next run.</dd></div>
+          <div><dt>Resolve-to-proceed</dt><dd>A model judgment must be fixed, refuted, amended or reconciled before wrap-up completes. "Ignore and push" is not a resolution.</dd></div>
+          <div><dt>Two-commit pattern</dt><dd>Code changes in one commit, generated artifacts in a second. Clean history, stable references.</dd></div>
+          <div><dt>The store</dt><dd>The git checkout the skills are symlinked <em>from</em>. There is no second installed copy, so <code>freya update</code> fast-forwards the files you were editing.</dd></div>
+          <div><dt>The launcher</dt><dd><code>bin/freya</code>. It works out where the suite lives from its own location on disk and runs the target with the interpreter already running — so no <code>SKILL.md</code> names a path or a Python.</dd></div>
+          <div><dt>Conformance rule</dt><dd>One of R1–R13, checked over the shipped skill layer. A <code>SKILL.md</code> can break most of them with the entire test suite green.</dd></div>
+          <div><dt>Driver-owned fan-out</dt><dd>Parallel work scheduled by a Python worker pool instead of requested of the agent in prose. Whether the fan-out happened is then a fact, not a claim.</dd></div>
+          <div><dt>Validate-on-hit</dt><dd>wrap-up surfacing the proposed and confirmed behaviors a change touched, plus touched code no behavior covers. Advisory, and skippable in one action.</dd></div>
+          <div><dt>Cold tail</dt><dd>The behaviors no change ever touches, so validate-on-hit never surfaces them. <code>freya status</code> worklists grind them down one at a time; without that, an inferred corpus never drains.</dd></div>
+          <div><dt>Never-synced guard</dt><dd>wrap-up's refusal to let an incremental <code>update</code> quietly full-generate on a project that was never synced in the first place.</dd></div>
+        </dl>
+      </section>
+
+      <!-- ==================== THE THREE TABLES ==================== -->
+      <section>
+        <h2 id="three-tables">Three tables that live here</h2>
+        <p>Exactly three. Each is short, enumerable, and consulted while debugging one specific
+        thing. Only the lifecycle table has no enumerable owner in the markdown; the other two
+        reprint a list a shipped <code>SKILL.md</code> owns, and are kept in that shape because a
+        truth table is what you want when a run has just stopped on you. Where a table here and its
+        owner disagree, the markdown is the authority.</p>
+
+        <h3 id="behavior-lifecycle">Behavior lifecycle</h3>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">State</th>
+                <th scope="col">In <code>behavior.json</code>?</th>
+                <th scope="col">Run?</th>
+                <th scope="col">Gates?</th>
+                <th scope="col">Staged in</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td><span class="badge badge--proposed">proposed</span></td><td>no — specs only</td><td>no</td><td>no</td><td>artifacts commit</td></tr>
+              <tr><td><span class="badge badge--confirmed">confirmed</span></td><td>yes, advisory — static coverage if it declares an <code>entry</code></td><td>no</td><td>no</td><td>artifacts commit</td></tr>
+              <tr><td><span class="badge badge--accepted">accepted</span></td><td>yes</td><td>yes</td><td><strong>yes</strong>, on failure</td><td>code commit</td></tr>
+              <tr><td><span class="badge badge--quarantined">quarantined</span></td><td>no — specs only</td><td>no</td><td>no</td><td>—</td></tr>
+              <tr><td><span class="badge badge--deprecated">deprecated</span></td><td>no — specs only</td><td>no</td><td>no</td><td>—</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="small muted">The interactive explorer on
+        <a href="how-it-works.html#the-behavior-layer">How it works</a> walks the same five states.
+        This table exists so the widget is never the only route to the answer.</p>
+
+        <h3 id="coverage-unknown-reasons">Coverage-unknown reasons</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th scope="col">Reason</th><th scope="col">What it means for you</th></tr></thead>
+            <tbody>
+              <tr><td><code>level-deferred</code></td><td>The behavior's level or adapter is not implemented yet. Not a failure.</td></tr>
+              <tr><td><code>test-failed</code></td><td>The test ran and was red. <strong>The only reason that invalidates a prior edge</strong> — every other reason leaves what was already known standing.</td></tr>
+              <tr><td><code>no-coverage</code></td><td>The test passed but produced no coverage file. The reporter is misconfigured.</td></tr>
+              <tr><td><code>no-entry</code></td><td>An integration or <code>confirmed</code> behavior declares no <code>entry</code>, so there is nothing to take a static closure of.</td></tr>
+              <tr><td><code>entry-missing</code></td><td>The declared <code>entry</code> file does not exist on disk. Usually a moved route.</td></tr>
+              <tr><td><code>no-graph</code></td><td>No built code-graph cache. <strong>Run a graph build</strong>; this one is fixed in a single command.</td></tr>
+              <tr><td><code>not-run</code></td><td>Projected into the graph, but the runner emitted nothing for it.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <ul class="md-links">
+          <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/skills/freya-behavior-runner/SKILL.md">skills/freya-behavior-runner/SKILL.md</a> — owns the <code>reason</code> list</li>
+        </ul>
+
+        <h3 id="g1-trigger-rules">When a test edit needs a declared-intent record</h3>
+        <p>The G1 gate is keyed off an accepted behavior's <em>locator</em> changing since the
+        <code>.intent-last-verified</code> baseline commit — committed changes and uncommitted
+        working-tree edits both count — using the behavior's state as it stands in the working tree.
+        With no baseline marker the gate skips entirely.</p>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Locator change</th>
+                <th scope="col">Behavior <code>accepted</code> in the working tree?</th>
+                <th scope="col">INTENT record required?</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td>Modified</td><td>yes</td><td><span class="badge badge--block">required</span> regardless of what the edit is — there is no cosmetic exemption</td></tr>
+              <tr><td>Deleted</td><td>yes</td><td><span class="badge badge--block">required</span> — removing a live guarantee is an intent change</td></tr>
+              <tr><td>Added (a brand-new behavior)</td><td>yes</td><td>no — that is the normal accept flow, not a change to an existing guarantee</td></tr>
+              <tr><td>Pure rename, no content change</td><td>yes</td><td>no — moving a file is not changing the guarantee. A rename <em>with</em> edits counts as modified</td></tr>
+              <tr><td>Any change</td><td>no (<code>proposed</code>, <code>confirmed</code>, <code>quarantined</code>, <code>deprecated</code>)</td><td>no — only accepted guarantees are governed</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="small muted">The gate is path-based, and that is a known blind spot: editing a shared
+        test <em>helper</em> that is not itself a locator is not caught. Quarantining or deprecating a
+        behavior in the same change as its test edit exits the gate legitimately, because the gate
+        reads each behavior's state off disk and it is no longer accepted there.</p>
+        <ul class="md-links">
+          <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/skills/freya-spec-manager/SKILL.md">skills/freya-spec-manager/SKILL.md</a> — its "Scope &amp; rules" list owns these rows</li>
+        </ul>
+
+        <div class="callout callout--info">
+          <span class="callout-label">Not a fourth table</span>
+          <p>The security scan's exit codes are agent-facing and owned by the skill, so they are not
+          reprinted here. The one thing worth memorising: an empty result with exit <code>0</code>
+          means clean; an empty result with <em>any</em> other exit code means the scan did not run.</p>
+          <ul class="md-links">
+            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/skills/freya-codebase-security-scan/SKILL.md">skills/freya-codebase-security-scan/SKILL.md</a></li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ==================== WHERE ARTIFACTS LAND ==================== -->
+      <section>
+        <h2 id="where-artifacts-land">Where every artifact lands</h2>
+        <p>Everything the toolkit generates goes under one <code>knowledge-base/</code> root at the top
+        of the project. The path-by-path layout — every artifact, its owning skill, and whether it is
+        committed — is markdown-owned; the links below are the list. One line of it is worth stating
+        here, because it is the line that surprises people.</p>
+
+        <div class="callout callout--warn">
+          <span class="callout-label">The line that surprises people</span>
+          <p>The graph is <em>not</em> version-controlled. Both graph tools write a
+          <code>.gitignore</code> containing <code>*</code> into <code>.graph/</code> the first time
+          they create it, so an adopting project never has to touch its root <code>.gitignore</code> —
+          and so the graph and the behavior graph are ignored unless you deliberately un-ignore them.
+          Prose that calls the whole knowledge base version-controlled, including the summary on this
+          site's own home page, is loose about that one directory. Everything else in the tree is
+          committed.</p>
+        </div>
+
+        <div class="callout callout--info">
+          <span class="callout-label">In the markdown</span>
+          <p>The full layout is in the repo, with every owner named and every line marked tracked or
+          ignored — an annotated tree in <code>architecture.md</code>, and a per-path table with an
+          <code>In git?</code> column in <code>skill-reference.md</code>.</p>
+          <ul class="md-links">
+            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/architecture.md#output-artifacts">docs/architecture.md#output-artifacts</a></li>
+            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/architecture.md#tracking-files">docs/architecture.md#tracking-files</a></li>
+            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/skill-reference.md#file-locations">docs/skill-reference.md#file-locations</a></li>
+          </ul>
+        </div>
+      </section>
+
+    </div>
+  </main>
+
+  <div id="site-footer"></div>
+
+  <script>
+    (function () {
+      "use strict";
+      // Filter over the markdown map. Ported from the old CLI-command filter:
+      // same .filter-input + row .hide + .filter-empty mechanism, applied to the
+      // docs index instead of a command list. Rows stay in the DOM, so the page
+      // is complete with JavaScript off.
+      var input = document.getElementById("md-filter");
+      var empty = document.getElementById("md-empty");
+      if (!input || !empty) return;
+      var rows = Array.prototype.slice.call(
+        document.querySelectorAll("#md-table tbody tr")
+      );
+      input.addEventListener("input", function () {
+        var q = input.value.trim().toLowerCase();
+        var shown = 0;
+        rows.forEach(function (row) {
+          var match = !q || row.textContent.toLowerCase().indexOf(q) !== -1;
+          row.classList.toggle("hide", !match);
+          if (match) shown++;
+        });
+        empty.classList.toggle("hide", shown !== 0);
+      });
+    })();
+  </script>
+</body>
+</html>

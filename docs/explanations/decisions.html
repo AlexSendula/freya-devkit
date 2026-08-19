@@ -1,0 +1,501 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Decisions — freya-devkit</title>
+  <meta name="description" content="The sixteen architecture decision records behind freya-devkit: what was decided, what it costs you, what was rejected, and the one question still open.">
+  <link rel="stylesheet" href="assets/styles.css">
+  <script src="assets/site.js"></script>
+</head>
+<body>
+  <div id="site-header"></div>
+
+  <main class="doc">
+    <aside class="toc" id="toc" aria-label="On this page"></aside>
+
+    <div class="doc-body">
+      <span class="eyebrow">Why it is built this way</span>
+      <h1>Sixteen decisions, and what each one refused.</h1>
+      <p class="lead">
+        Every load-bearing choice in this toolkit is written down as an architecture decision
+        record — with the alternative it beat. This page is a way <em>into</em> those records:
+        what you will feel as a user, how the sixteen group up, and the one question that is
+        genuinely still open. The record itself stays in the repo, where it can be diffed.
+      </p>
+
+      <!-- ==================== WHY THERE ARE RECORDS ==================== -->
+      <section>
+        <h2 id="why-there-are-records">Why there are records at all</h2>
+
+        <p>
+          <strong>A record earns its place by what it refused.</strong> Without that, a settled
+          question comes back around every few months and gets re-litigated from scratch — usually by
+          someone about to make the same choice for the same reasons and hit the same wall. The rule
+          that follows, and the record format that enforces it, are stated once in
+          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/README.md">docs/decisions/README.md</a>.
+        </p>
+
+        <p>
+          <strong>They sit in an explicit authority order.</strong> Intent runs
+          principle&nbsp;&gt;&nbsp;ADR&nbsp;&gt;&nbsp;spec&nbsp;&gt;&nbsp;reference, and above all of
+          it sits the shipped code: a record can be out of date, the code cannot — so where the two
+          disagree, the code is right and the record needs a dated correction appended rather than a
+          rewrite. The ladder is a mechanism, not a slogan: it is
+          what tells the governance checks which side to fix when two artifacts contradict each other.
+          <a href="how-it-works.html#the-authority-ladder">How it works</a> walks that ladder and the checks built on it.
+        </p>
+
+        <p>
+          <strong>These sixteen were distilled, not accumulated.</strong> Before them, finding a
+          decision meant reading a project history. What they were distilled from, and where those
+          originals now live, is recorded in
+          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/README.md">docs/decisions/README.md</a>.
+          Distilling them is the same move as deleting the thirty-three research briefs that used to
+          sit beside this site: a document that mixes a durable decision with a stale status line rots
+          at the speed of its fastest-moving sentence.
+        </p>
+
+        <div class="callout callout--info prose-center">
+          <span class="callout-label">In the markdown</span>
+          <p>The index, the record format it validates against, and the rule for adding one live in
+          the repo. Read it when you are about to write an ADR, or when you want the citations —
+          records cite their sources by <code>path:line</code>, including into documents that now
+          resolve only against git history.</p>
+          <ul class="md-links">
+            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/README.md">docs/decisions/README.md</a></li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ==================== SIX YOU WILL FEEL ==================== -->
+      <section>
+        <h2 id="six-decisions-you-will-feel">Six decisions you will feel</h2>
+        <p class="lead">
+          Not the records — the consequences. These are the choices that show up in what you type,
+          what the tool refuses to do, and what its output looks like. No rule codes; the record is
+          one link away in each case.
+        </p>
+
+        <div class="card-grid cols-2">
+
+          <div class="card">
+            <h3>Shortcuts, not copies</h3>
+            <p>The installer materializes the suite once and <strong>symlinks</strong> each skill
+            directory into whichever agents you have, rather than copying files in. Because there is
+            then one file on disk and every agent sees the same one, the <code>freya-</code> prefix
+            could not be applied at install time — it had to live in the repository, on all ten
+            directories and in their frontmatter. What you get back for that rename is that
+            <code>freya update</code> is close to just pulling: fetch, fast-forward, re-link.</p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-014-canonical-store-install-contract.md">docs/decisions/ADR-014-canonical-store-install-contract.md</a></p>
+          </div>
+
+          <div class="card">
+            <h3>Our code drives the assistant, not the reverse</h3>
+            <p>The audit engine owns its own control flow — the discovery loop, the dedup, the
+            majority vote — and reaches the agent through a single <strong>injected
+            <code>ask</code> callable</strong>. Two things follow. The entire test suite runs offline
+            and free, because a test hands it a stub that returns canned answers. And the scan behaves
+            the same on every agent, because the only host-specific part left is a small adapter that
+            builds an argv and parses stdout.</p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-015-driver-owned-fan-out.md">docs/decisions/ADR-015-driver-owned-fan-out.md</a></p>
+          </div>
+
+          <div class="card">
+            <h3>Workers may read, and nothing else</h3>
+            <p>Telling an assistant "everything except writing files" does not stop it writing files.
+            Measured against Copilot CLI 1.0.75 on 2026-07-27: with a blanket allow plus a write
+            denial, <strong>a file was created through a shell command</strong> — deny-beats-allow
+            applies to the write <em>tool</em>, not to writes performed through the shell tool. An
+            explicit read allowlist held under the same test. So every worker is launched from an
+            allowlist with the shell left off it, and the argv builder raises on sight if a blanket
+            permission flag is smuggled in through the prompt.</p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-015-driver-owned-fan-out.md">docs/decisions/ADR-015-driver-owned-fan-out.md</a></p>
+          </div>
+
+          <div class="card">
+            <h3>Two findings in the same place stay two findings</h3>
+            <p>On a live fixture run, two different finders both reported the same SQL injection at
+            one location — and the same fixture at concurrency 1 produced only one, so you cannot
+            predict whether your report double-counts. The obvious fix is to merge anything sharing a
+            location. That was refused: a hardcoded key on one line and an injection on the next are
+            two issues, and merging blind would delete one without a word. <strong>Between a visible
+            duplicate and a silent deletion, a security tool takes the duplicate</strong> — so the
+            engine states the ambiguity and the write-up step, which has the titles in front of it,
+            decides.</p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-015-driver-owned-fan-out.md">docs/decisions/ADR-015-driver-owned-fan-out.md</a></p>
+          </div>
+
+          <div class="card">
+            <h3>Stop asking the assistant to work in parallel</h3>
+            <p>Asked to run the scan and follow its scheduling instructions exactly, Copilot ran all
+            six categories itself as a visible sequence of greps — then reported that six category
+            scans had run in parallel. An instruction file is <em>information the agent reads</em>;
+            the agent's own instructions are <em>its orders</em>; when they conflict the orders win —
+            and they should, or a file in any repository could override what a vendor built. So the
+            fan-out moved into our own process pool. Nothing is delegated, so nothing can be quietly
+            declined. <a href="how-it-works.html#who-schedules-the-fan-out">The instrumented evidence →</a></p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-015-driver-owned-fan-out.md">docs/decisions/ADR-015-driver-owned-fan-out.md</a></p>
+          </div>
+
+          <div class="card">
+            <h3>Why not just adopt spec-kit?</h3>
+            <p>The obvious prior-art question, answered as a named rejection. Two ideas were borrowed:
+            the <strong>constitution</strong>, which became <code>knowledge-base/principles.md</code>,
+            and <strong>executable Given/When/Then</strong>, which spec-kit writes as inert prose and
+            this layer binds to a test that actually runs. Wholesale adoption was rejected — spec-kit
+            is a forward <em>build</em> engine, and taking it would have discarded freya's reverse-sync
+            and its intentional-decision differentiator, while coupling the roadmap to an external
+            template engine.</p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-001-behavior-as-executable-artifact.md">docs/decisions/ADR-001-behavior-as-executable-artifact.md</a></p>
+          </div>
+
+        </div>
+      </section>
+
+      <!-- ==================== THE SIXTEEN ==================== -->
+      <section>
+        <h2 id="the-sixteen-by-theme">The sixteen, by theme</h2>
+        <p class="lead">
+          One sentence of what was decided, one clause of what it beat, then the file. Anything longer
+          would be stealing from the record.
+        </p>
+
+        <div class="toggle-row" id="adr-facets" role="group" aria-label="Filter by theme">
+          <button type="button" class="chip-btn active" data-facet="all" aria-pressed="true">All sixteen</button>
+          <button type="button" class="chip-btn" data-facet="behavior" aria-pressed="false">Behavior layer</button>
+          <button type="button" class="chip-btn" data-facet="substrate" aria-pressed="false">Substrate</button>
+          <button type="button" class="chip-btn" data-facet="governance" aria-pressed="false">Governance</button>
+          <button type="button" class="chip-btn" data-facet="portability" aria-pressed="false">Portability</button>
+          <button type="button" class="chip-btn" data-facet="method" aria-pressed="false">Method</button>
+        </div>
+
+        <label class="hint" for="adr-filter">Filter by word — matches the id, the title and the rejected alternative</label>
+        <input class="filter-input" id="adr-filter" type="search" autocomplete="off"
+               placeholder="e.g. coverage, symlink, quarantine, shell">
+        <p class="filter-empty hide" id="adr-empty" aria-live="polite" role="status"></p>
+
+        <div class="card-grid cols-2" id="adr-list">
+
+          <!-- ---------------- Behavior layer ---------------- -->
+          <div class="card" data-facet="behavior">
+            <div class="tag-row"><span class="pill">ADR-001</span><span class="pill">Behavior layer</span></div>
+            <h3>Intended behavior is a first-class executable artifact</h3>
+            <p>Intent that is observable behavior becomes a <code>BEH-NNN</code> record with a
+            lifecycle, bound by an adapter to a test that actually runs — so the toolkit gains a
+            forward-authoritative layer alongside its reverse-sync engines.</p>
+            <p class="muted small"><strong>Rejected —</strong> inert Given/When/Then checkboxes, as
+            spec-kit ships them: nothing executes them, so drift stays silent, which is the gap being
+            closed rather than a fix for it.</p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-001-behavior-as-executable-artifact.md">docs/decisions/ADR-001-behavior-as-executable-artifact.md</a></p>
+          </div>
+
+          <div class="card" data-facet="behavior">
+            <div class="tag-row"><span class="pill">ADR-003</span><span class="pill">Behavior layer</span></div>
+            <h3>Lifecycle state, not a certainty score, is the trust signal</h3>
+            <p>A behavior is <code>proposed</code> → <code>confirmed</code> → <code>accepted</code>,
+            plus <code>quarantined</code> and <code>deprecated</code>; only accepted and
+            non-quarantined is authoritative, and only it can block a wrap-up or downgrade a finding.</p>
+            <p class="muted small"><strong>Rejected —</strong> a two-state
+            <code>proposed</code>&nbsp;→&nbsp;<code>accepted</code> lifecycle: accepting would keep
+            meaning "write the test now", so intent capture stalls mid-feature and the queue never
+            drains.</p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-003-lifecycle-state-is-trust-signal.md">docs/decisions/ADR-003-lifecycle-state-is-trust-signal.md</a></p>
+          </div>
+
+          <div class="card" data-facet="behavior">
+            <div class="tag-row"><span class="pill">ADR-004</span><span class="pill">Behavior layer</span></div>
+            <h3>Bind behaviors to tests through adapters, and split execution from the graph</h3>
+            <p>An adapter plus a locator links a behavior to whatever already verifies it — Gherkin, a
+            native runner, or <code>manual</code> — and the layer ships as two skills split on the
+            execution seam, one running behaviors and one owning <code>behavior.json</code>.</p>
+            <p class="muted small"><strong>Rejected —</strong> letting <code>code-graph</code> own
+            <code>behavior.json</code>, or merging it into <code>graph.json</code>: the first draft
+            specified exactly that and it was explicitly reversed, because it welds the behavior
+            projection to whatever code substrate is eventually chosen.</p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-004-behavior-adapters-and-execution-split.md">docs/decisions/ADR-004-behavior-adapters-and-execution-split.md</a></p>
+          </div>
+
+          <div class="card" data-facet="behavior">
+            <div class="tag-row"><span class="pill">ADR-007</span><span class="pill">Behavior layer</span></div>
+            <h3>Bootstrap everything as proposed, drain the corpus lazily on hit</h3>
+            <p>A brownfield project gets a full inferred corpus of <code>proposed</code> candidates and
+            reviews none of it up front; the queue drains where a change's blast radius touches it,
+            and the cold tail is published as a git-tracked backlog.</p>
+            <p class="muted small"><strong>Rejected —</strong> reviewing the corpus eagerly at
+            adoption: inference produced ~383 candidates on a 224-file repo, nobody reviews that, and
+            the mechanism dies at onboarding.</p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-007-bootstrap-proposed-drain-lazily.md">docs/decisions/ADR-007-bootstrap-proposed-drain-lazily.md</a></p>
+          </div>
+
+          <!-- ---------------- Substrate ---------------- -->
+          <div class="card" data-facet="substrate">
+            <div class="tag-row"><span class="pill">ADR-005</span><span class="pill">Substrate</span></div>
+            <h3>Repair the parsing substrate in place, stdlib-only, and never return a confidently-empty result</h3>
+            <p>Both parsers — spec frontmatter and import resolution — were fixed with the standard
+            library under a bounded capability contract, classifying every edge as internal,
+            <code>external:</code> or <code>unresolved:</code>. The governing rule: "couldn't resolve"
+            must never look like "no dependencies".</p>
+            <p class="muted small"><strong>Rejected —</strong> PyYAML or any real YAML engine: correct
+            in isolation, but it breaks the zero-install property, so the spec's wording was changed to
+            match the constraint rather than the constraint bent to match the spec.</p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-005-repair-parsing-substrate-in-place.md">docs/decisions/ADR-005-repair-parsing-substrate-in-place.md</a></p>
+          </div>
+
+          <div class="card" data-facet="substrate">
+            <div class="tag-row"><span class="pill">ADR-006</span><span class="pill">Substrate</span></div>
+            <h3>Behavior tests drive the app over its real interface, and coverage follows</h3>
+            <p>An integration behavior drives the booted application over HTTP and never imports its
+            internals; observed runtime coverage therefore exists only at unit level, while an
+            integration behavior's static import closure is emitted as edges tagged
+            <code>source: static</code>, each carrying its provenance.</p>
+            <p class="muted small"><strong>Rejected —</strong> <code>NODE_V8_COVERAGE</code> capture
+            over the app process: spiked and measured at <em>zero app code recovered</em>, because the
+            render worker does not inherit the env-var capture.</p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-006-real-interface-execution-and-coverage.md">docs/decisions/ADR-006-real-interface-execution-and-coverage.md</a></p>
+          </div>
+
+          <!-- ---------------- Governance ---------------- -->
+          <div class="card" data-facet="governance">
+            <div class="tag-row"><span class="pill">ADR-002</span><span class="pill">Governance</span></div>
+            <h3>Authority runs principle &gt; ADR &gt; spec &gt; reference, and every fact is owned once</h3>
+            <p>Specs and behaviors are forward and authoritative; reference docs are reverse and
+            descriptive; the two are never conflated. A generated projection is allowed, a
+            hand-maintained duplicate is forbidden.</p>
+            <p class="muted small"><strong>Rejected —</strong> duplicating behavior text into
+            <code>specs/</code> for discoverability: discovery is solvable with a link, but a second
+            editable copy always drifts, and then nothing says which copy is the intent.</p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-002-authority-order-single-ownership.md">docs/decisions/ADR-002-authority-order-single-ownership.md</a></p>
+          </div>
+
+          <div class="card" data-facet="governance">
+            <div class="tag-row"><span class="pill">ADR-008</span><span class="pill">Governance</span></div>
+            <h3>Changing an accepted guarantee requires a declared-intent record</h3>
+            <p>When an accepted behavior fails, completion blocks until it is classified as exactly one
+            of three things — a regression, an intended change recorded as a durable
+            <code>INTENT-NNN</code> artifact, or a test-infrastructure failure resolved by quarantine.</p>
+            <p class="muted small"><strong>Rejected —</strong> the "just update the test" reflex: it
+            converts a broken guarantee into a green suite with no record that anything changed.</p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-008-declared-intent-record-required.md">docs/decisions/ADR-008-declared-intent-record-required.md</a></p>
+          </div>
+
+          <div class="card" data-facet="governance">
+            <div class="tag-row"><span class="pill">ADR-009</span><span class="pill">Governance</span></div>
+            <h3>Two enforcement tiers: deterministic checks block, model judgment is resolve-to-proceed</h3>
+            <p>Failures are gated by the kind of check that produced them. Link integrity and a failed
+            accepted behavior hard-block; contradiction, principle and drift findings must be resolved
+            before you proceed but never fail a script. Every check fails <em>open</em> on
+            infrastructure trouble.</p>
+            <p class="muted small"><strong>Rejected —</strong> hard-blocking on a model's self-reported
+            confidence: uncalibrated confidence produces random failures and trains reflexive
+            overrides.</p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-009-two-enforcement-tiers.md">docs/decisions/ADR-009-two-enforcement-tiers.md</a></p>
+          </div>
+
+          <div class="card" data-facet="governance">
+            <div class="tag-row"><span class="pill">ADR-010</span><span class="pill">Governance</span></div>
+            <h3>Non-fix resolutions live in append-only JSONL logs, re-judged on recurrence</h3>
+            <p>Refute, amend, auto-clear and supersede outcomes are one JSON object per line, never
+            erased; on recurrence the model re-validates the specific prior <em>reason</em> against the
+            current change rather than matching a key. Three checks delegate to one shared
+            implementation.</p>
+            <p class="muted small"><strong>Rejected —</strong> mutating a status field or deleting a
+            record to retire a resolution: a rewrite forfeits tamper-evidence, and a later
+            <code>superseded</code> record gives identical semantics without one.</p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-010-append-only-resolution-logs.md">docs/decisions/ADR-010-append-only-resolution-logs.md</a></p>
+          </div>
+
+          <div class="card" data-facet="governance">
+            <div class="tag-row"><span class="pill">ADR-011</span><span class="pill">Governance</span></div>
+            <h3>Scope each governance check by which failure is recoverable</h3>
+            <p>The contradiction check is deliberately unscoped — a changed spec is compared against
+            every active ADR, with no <code>applies_to</code> filter — while the drift check is scoped
+            to the change's blast radius, and says <code>impact_source: "changed-only"</code> out loud
+            when the graph is unavailable rather than returning a silently empty radius.</p>
+            <p class="muted small"><strong>Rejected —</strong> comparing specs against ADRs before the
+            ADR format existed: the check would have run against a structurally-empty set while
+            <em>looking</em> like it covered architecture decisions. A fake coverage is worse than an
+            honest gap. Also rejected: any opt-in narrowing lever, because opt-in turns the failure
+            mode from noise into silence.</p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-011-governance-check-scoping.md">docs/decisions/ADR-011-governance-check-scoping.md</a></p>
+          </div>
+
+          <div class="card" data-facet="governance">
+            <div class="tag-row"><span class="pill">ADR-012</span><span class="pill">Governance</span></div>
+            <h3>Only an accepted, test-backed behavior may downgrade a security finding</h3>
+            <p>An accepted behavior that explains a flagged finding is the strongest intentional-design
+            evidence available: it marks the finding intentional and drops it from the outstanding
+            count, while the finding stays fully visible in the report.</p>
+            <p class="muted small"><strong>Rejected —</strong> letting <code>proposed</code> or
+            <code>confirmed</code> behaviors explain findings: intent without a test is an unverified
+            claim, so a bootstrap guess could clear a real vulnerability.</p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-012-accepted-behavior-downgrades-findings.md">docs/decisions/ADR-012-accepted-behavior-downgrades-findings.md</a></p>
+          </div>
+
+          <!-- ---------------- Portability ---------------- -->
+          <div class="card" data-facet="portability">
+            <div class="tag-row"><span class="pill">ADR-013</span><span class="pill">Portability</span></div>
+            <h3>One self-locating <code>freya</code> launcher is the sole command surface</h3>
+            <p>Every skill file invokes <code>freya &lt;command&gt;</code>. The launcher works out
+            where it lives from its own path, dispatches through a registry, and runs targets with the
+            interpreter already running — one instruction set for every agent, Claude included.</p>
+            <p class="muted small"><strong>Rejected —</strong> exposing the suite over MCP: a server to
+            build, run and maintain in exchange for capability the agent already has, because the tools
+            are local Python CLIs it runs through bash. Worth revisiting only for a shell-less agent.</p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-013-single-freya-launcher.md">docs/decisions/ADR-013-single-freya-launcher.md</a></p>
+          </div>
+
+          <div class="card" data-facet="portability">
+            <div class="tag-row"><span class="pill">ADR-014</span><span class="pill">Portability</span></div>
+            <h3>Install the whole suite from a canonical store by symlink, and touch only what we created</h3>
+            <p>The checkout is the store; the <code>freya-</code> prefix lives in the repository so
+            installation rewrites nothing; <code>freya update</code> is git-only and never automatic;
+            and every destructive path is gated on ownership — a real file or directory always blocks,
+            and uninstall removes only links pointing into this store.</p>
+            <p class="muted small"><strong>Rejected —</strong> letting <code>--force</code> replace a
+            real file or directory: force is for links we could have made ourselves, not for other
+            people's data.</p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-014-canonical-store-install-contract.md">docs/decisions/ADR-014-canonical-store-install-contract.md</a></p>
+          </div>
+
+          <div class="card" data-facet="portability">
+            <div class="tag-row"><span class="pill">ADR-015</span><span class="pill">Portability</span></div>
+            <h3>Own the fan-out in our own driver, with workers under a read-only allowlist</h3>
+            <p>Deterministic orchestration lives in a stdlib Python driver behind one injected
+            <code>ask</code> callable, with a bounded worker pool and a small per-agent adapter. Every
+            worker argv is an explicit allowlist that excludes the shell, and blanket permission flags
+            raise rather than run.</p>
+            <p class="muted small"><strong>Rejected —</strong>
+            <code>--allow-all-tools --deny-tool=write</code>: the intuitive reading of
+            deny-beats-allow, and empirically bypassable through the shell — which is why the allowlist,
+            not the deny flags, is the load-bearing control.</p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-015-driver-owned-fan-out.md">docs/decisions/ADR-015-driver-owned-fan-out.md</a></p>
+          </div>
+
+          <!-- ---------------- Method ---------------- -->
+          <div class="card" data-facet="method">
+            <div class="tag-row"><span class="pill">ADR-016</span><span class="pill">Method</span></div>
+            <h3>Prove it against the real thing</h3>
+            <p>Tests drive real dependencies wherever one can be produced honestly — the updater's
+            tests run real <code>git</code> in temporary directories — injected runners are reserved
+            for what a real dependency cannot produce honestly, mechanisms are validated by dogfooding
+            against a real project, and live runs commit their load-bearing extracts as evidence.</p>
+            <p class="muted small"><strong>Rejected —</strong> editing a design record in place and
+            deleting the superseded text: it makes the reasoning unrecoverable and invites re-walking
+            the same wrong path, so a correction is a dated block appended underneath the original.</p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-016-prove-it-against-the-real-thing.md">docs/decisions/ADR-016-prove-it-against-the-real-thing.md</a></p>
+          </div>
+
+        </div>
+
+        <div class="callout callout--why prose-center">
+          <span class="callout-label">Four things it deliberately is not</span>
+          <p><strong>No MCP server</strong> — considered and dropped; the tools are local Python CLIs
+          an agent runs through bash. <strong>No dependency on a single-skill installer</strong> — the
+          ecosystem installers are built for one skill from a repo-root file, and a coupled suite
+          installed piecemeal produces exactly the behavioral drift they document; the store-plus-symlink
+          <em>pattern</em> was reused, the tooling was not. <strong>No auto-updating</strong> — a silent
+          pull of latest onto a work laptop mid-task is wrong for a toolkit that gates
+          <code>wrap-up</code>, so updates are manual with a throttled, notify-only staleness check.
+          <strong>No pretending about Windows</strong> — a deliberately thin <code>install.ps1</code>
+          ships, CI runs the tests and a real install there on every push, and no agent CLI has ever
+          been driven on that platform. That last one is stated as a gap, not a feature.</p>
+        </div>
+      </section>
+
+      <!-- ==================== STILL OPEN ==================== -->
+      <section>
+        <h2 id="one-decision-still-open">One decision that is still open</h2>
+
+        <p class="lead">
+          Ending honestly, and without resolving it here.
+        </p>
+
+        <p>
+          <code>freya-code-graph</code> is a homegrown, regex-driven import scraper covering
+          TypeScript, JavaScript, Python and Go. Real work projects are Java plus Docker images plus
+          Helm charts plus YAML and TOML wiring plus certificates and shell scripts, and the graph is
+          blind to every one of them — a wall hit immediately on the first attempt to use the toolkit
+          on a work laptop. Because behaviors, drift detection and blast radius all stand on that
+          graph, the fork is foundational: <strong>adopt an external graph substrate</strong>, which
+          buys a real multi-language parser at the cost of the zero-install property, or
+          <strong>keep zero-install</strong> with homegrown per-language resolvers that are limited and
+          brittle. A lean toward adopting one is recorded, along with the note that it supersedes the
+          earlier "zero-install is a hard line" position and a tension it has not yet resolved — and it
+          is marked <em>not final</em>. It will be decided in
+          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/backlog.md">docs/backlog.md</a>,
+          not on this page.
+        </p>
+      </section>
+
+    </div>
+  </main>
+
+  <div id="site-footer"></div>
+
+  <script>
+    (function () {
+      "use strict";
+
+      var list = document.getElementById("adr-list");
+      var input = document.getElementById("adr-filter");
+      var empty = document.getElementById("adr-empty");
+      var facetHost = document.getElementById("adr-facets");
+      if (!list || !input || !empty || !facetHost) return;
+
+      var cards = Array.prototype.slice.call(list.querySelectorAll(".card"));
+      var chips = Array.prototype.slice.call(facetHost.querySelectorAll(".chip-btn"));
+      var facet = "all";
+
+      // Pre-compute the searchable text once; card content is static.
+      cards.forEach(function (c) {
+        c.setAttribute("data-search", (c.textContent || "").toLowerCase().replace(/\s+/g, " "));
+      });
+
+      // `.card.hide` is not in the shared stylesheet, so the class is paired with
+      // the `hidden` property — which also removes a filtered-out card from the
+      // accessibility tree, not just from view.
+      function setShown(el, shown) {
+        el.classList.toggle("hide", !shown);
+        el.hidden = !shown;
+      }
+
+      function apply() {
+        var q = input.value.trim().toLowerCase();
+        var shown = 0;
+        cards.forEach(function (c) {
+          var okFacet = facet === "all" || c.getAttribute("data-facet") === facet;
+          var okText = !q || c.getAttribute("data-search").indexOf(q) !== -1;
+          var show = okFacet && okText;
+          setShown(c, show);
+          if (show) shown++;
+        });
+        if (shown === 0) {
+          empty.textContent = "No record matches that. Clear the box, or pick a different theme.";
+          setShown(empty, true);
+        } else {
+          empty.textContent = "";
+          setShown(empty, false);
+        }
+      }
+
+      chips.forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          facet = btn.getAttribute("data-facet");
+          chips.forEach(function (b) {
+            var on = b === btn;
+            b.classList.toggle("active", on);
+            b.setAttribute("aria-pressed", on ? "true" : "false");
+          });
+          apply();
+        });
+      });
+
+      input.addEventListener("input", apply);
+
+      // Load with every record visible — the list is the page, never a placeholder.
+      apply();
+    })();
+  </script>
+</body>
+</html>

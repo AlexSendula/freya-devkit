@@ -32,7 +32,7 @@ that reads the Agent Skills standard. Every bundled script is invoked through on
 | [decisions/](decisions/) | **Architecture Decision Records.** What was decided, why, and what was rejected. Sixteen records covering the behavior layer, the graph substrate, governance and portability. |
 | [backlog.md](backlog.md) | **The single live backlog.** Next initiative, deferred capabilities, verified open defects. Nothing outstanding lives anywhere else. |
 | [migrations/](migrations/) | Runnable recipes for projects adopting a new version. **Run these**, don't just read them. |
-| [explanations/](explanations/) | Source of the published explainer sites. Uploaded verbatim as the GitHub Pages site root, so anything added here is published; the four subdirectory names are pinned URLs. |
+| [explanations/](explanations/) | Source of the published explainer site. Uploaded verbatim as the GitHub Pages site root, so anything added here is published; the seven page filenames — `index`, `using`, `how-it-works`, `extending`, `reference`, `decisions`, `evolution` — are pinned URLs. |
 
 ## The shape of it
 
@@ -43,10 +43,12 @@ freya-docs-manager  freya-spec-manager
 freya-behavior-graph  freya-behavior-runner                 (knowledge + behavior)
     ↓
 freya-codebase-security-scan  freya-dependency-vulnerability-check
-freya-codebase-security-resolver                            (analysis)
+                                                            (analysis)
     ↓
 freya-wrap-up    orchestrates everything, incl. behavior integrity
 freya-status     read-only counterpart — what's outstanding
+    ↓
+freya-codebase-security-resolver                            (resolution)
 ```
 
 Skills compose through **on-disk artifacts**, not through calling each other: one writes a

@@ -1,7 +1,8 @@
-name: Deploy explainer sites to GitHub Pages
+name: Deploy the explainer site to GitHub Pages
 
-# Publishes docs/explanations/ (the whole-plugin, behavior-layer, and governance
-# explainers, plus the landing page) to GitHub Pages. Static files only — no build.
+# Publishes docs/explanations/ — the human-facing explainer site — to GitHub Pages.
+# Uploaded verbatim as the site root, so anything added there is published.
+# Static files only — no build.
 
 on:
   push:
@@ -32,7 +33,7 @@ jobs:
         uses: actions/checkout@v7
       - name: Configure Pages
         uses: actions/configure-pages@v5
-      - name: Upload explainer sites
+      - name: Upload the explainer site
         uses: actions/upload-pages-artifact@v3
         with:
           path: docs/explanations

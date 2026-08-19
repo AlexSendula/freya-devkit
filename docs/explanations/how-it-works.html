@@ -1,0 +1,1678 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>How it works — freya-devkit</title>
+  <meta name="description" content="How ten skills compose through artifacts rather than calls, what the dependency graph computes, how behavior becomes executable, and what may block a change.">
+  <link rel="stylesheet" href="assets/styles.css">
+  <script src="assets/site.js"></script>
+  <noscript><style>
+    .step-panel { display: block !important; }
+    .step-panel + .step-panel { border-top: 1px solid var(--border); }
+    .stepper-track, .stepper-nav { display: none; }
+  </style></noscript>
+</head>
+<body>
+  <div id="site-header"></div>
+
+  <main class="doc">
+    <aside class="toc" id="toc" aria-label="On this page"></aside>
+    <div class="doc-body">
+      <span class="eyebrow">How it works</span>
+      <h1>The mechanism, and the failure each part exists for</h1>
+      <p class="lead">Ten skills that mostly never call each other. A dependency graph that had been
+      returning a confidently empty answer since the day it was first published. A behavior record that
+      turns "what did I just break?" into a query. And a governance layer whose whole design rests on
+      one distinction: <strong>what kind of check produced this failure</strong>. This page is the why
+      behind the behavior — read <a href="using.html">Using it</a> first if you just want it
+      running.</p>
+
+      <!-- ================================================================= -->
+      <section>
+        <h2 id="artifacts-not-calls">Artifacts, not calls</h2>
+        <p>The skills form a <strong>tiered graph</strong>. One foundation skill derives a dependency
+        graph from your source; everything above it reasons about blast radius rather than about
+        changed files. For the most part they do not call each other's code at all — they cooperate by
+        reading and writing one shared, version-controlled <code>knowledge-base/</code> folder. A skill
+        leaves a structured file on disk; the next skill picks it up.</p>
+
+        <p>There is one named exception, and stating it plainly matters more than the tidy version: the
+        behavior-layer skills <em>do</em> reuse peer code directly. <code>freya-behavior-graph</code> and
+        <code>freya-behavior-runner</code> import <code>freya-spec-manager</code>'s frontmatter parser
+        in-process and run <code>freya-code-graph</code> as a subprocess. Everything else is files.</p>
+
+        <div class="code-block">
+          <div class="code-head"><span class="dot"></span><span class="dot"></span><span class="dot"></span>&nbsp; producer ── artifact ──▶ consumers</div>
+<pre class="code"><code><span class="tok-k">code-graph</span>       ──<span class="tok-c">graph.json</span>─────────────▶ docs-manager · spec-manager · security-scan · behavior-*
+<span class="tok-k">spec-manager</span>     ──<span class="tok-c">specs/</span>─────────────────▶ behavior-graph · security-scan (intentional) · status
+<span class="tok-k">behavior-runner</span>  ──<span class="tok-c">fingerprints (stdout)</span>──▶ behavior-graph
+<span class="tok-k">behavior-graph</span>   ──<span class="tok-c">behavior.json</span>──────────▶ status · security-scan
+<span class="tok-k">security-scan</span>    ──<span class="tok-c">findings.json / report</span>─▶ status · security-resolver
+<span class="tok-k">status</span>           ──<span class="tok-c">reads all of the above</span>─▶ BACKLOG.md
+<span class="tok-k">wrap-up</span>          ──<span class="tok-c">orchestrates</span>───────────▶ everything, under two commits</code></pre>
+        </div>
+        <p class="small muted">Every arrow there is a file on disk except one:
+        <strong><code>behavior-runner</code> writes nothing at all.</strong> It prints fingerprint JSON
+        to stdout and <code>behavior-graph</code> reads it. That is deliberate — the runner is the
+        messy, tooling-coupled half (it boots test runners and captures runtime coverage), and keeping
+        it a pure producer is what lets the graph half be unit-tested without ever executing a test.</p>
+
+        <p>The contract underneath all of it: <strong>no skill hard-requires another.</strong> Each
+        works standalone and works better together, and a missing sibling narrows coverage instead of
+        breaking the run. One concrete case, which every impact-aware skill honours:</p>
+
+        <div class="grid-2">
+          <div class="card">
+            <h4><code>code-graph</code> available</h4>
+            <p class="muted">Ask it for the impact set and process the full blast radius — the changed
+            files <em>plus everything that transitively depends on them</em>.</p>
+          </div>
+          <div class="card">
+            <h4><code>code-graph</code> absent</h4>
+            <p class="muted">Fall back to a plain <code>git diff</code> of the directly-changed files,
+            process only those — and <strong>say so</strong>, with a "reduced coverage" warning. Never
+            a silent narrowing.</p>
+          </div>
+        </div>
+
+        <div class="callout callout--info prose-center">
+          <span class="callout-label">In the markdown</span>
+          <p>The fallback rule is written as pseudo-code, per skill, and the tier-by-tier dependency
+          listing lives beside it. Reach for these when you are implementing against the contract
+          rather than reading about it — and for the argument for many single-purpose skills over one
+          monolithic prompt, which this page assumes rather than makes.</p>
+          <ul class="md-links">
+            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/architecture.md#fallback-behavior">docs/architecture.md#fallback-behavior</a></li>
+            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/patterns.md">docs/patterns.md</a></li>
+            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/philosophy.md">docs/philosophy.md</a></li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ================================================================= -->
+      <section>
+        <h2 id="the-five-tiers">The five tiers</h2>
+        <p>Each tier depends only on the ones below it, and every dependency is <em>optional</em>: a
+        higher-tier skill uses a lower one when it is installed and degrades when it is not. The last
+        row of the panel below — <strong>degrades</strong> — is the one worth reading. It is the only
+        place the ten answers to "and what happens when its dependency is missing?" are written down
+        together.</p>
+
+        <div class="tiers">
+          <div class="tier-lane">
+            <div class="lane-label">1 · Foundation</div>
+            <div class="lane-skills">
+              <button class="tier-node key" type="button" data-skill="code-graph" aria-pressed="false">code-graph</button>
+            </div>
+          </div>
+          <div class="tier-lane">
+            <div class="lane-label">2 · Knowledge</div>
+            <div class="lane-skills">
+              <button class="tier-node" type="button" data-skill="docs-manager" aria-pressed="false">docs-manager</button>
+              <button class="tier-node" type="button" data-skill="spec-manager" aria-pressed="false">spec-manager</button>
+              <button class="tier-node" type="button" data-skill="behavior-graph" aria-pressed="false">behavior-graph</button>
+              <button class="tier-node" type="button" data-skill="behavior-runner" aria-pressed="false">behavior-runner</button>
+            </div>
+          </div>
+          <div class="tier-lane">
+            <div class="lane-label">3 · Analysis</div>
+            <div class="lane-skills">
+              <button class="tier-node" type="button" data-skill="codebase-security-scan" aria-pressed="false">codebase-security-scan</button>
+              <button class="tier-node" type="button" data-skill="dependency-vulnerability-check" aria-pressed="false">dependency-vulnerability-check</button>
+            </div>
+          </div>
+          <div class="tier-lane">
+            <div class="lane-label">4 · Orchestration</div>
+            <div class="lane-skills">
+              <button class="tier-node" type="button" data-skill="wrap-up" aria-pressed="false">wrap-up</button>
+              <button class="tier-node" type="button" data-skill="status" aria-pressed="false">status</button>
+            </div>
+          </div>
+          <div class="tier-lane">
+            <div class="lane-label">5 · Resolution</div>
+            <div class="lane-skills">
+              <button class="tier-node" type="button" data-skill="codebase-security-resolver" aria-pressed="false">codebase-security-resolver</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel" id="tier-panel" aria-live="polite"></div>
+      </section>
+
+      <!-- ================================================================= -->
+      <section>
+        <h2 id="the-graph-substrate">The graph substrate</h2>
+        <p>This is the keystone, and the place a mistake propagates furthest.
+        <code>freya-code-graph</code> builds a <strong>reverse-dependency graph</strong> — for every
+        file, who depends on it — by scraping import statements with regular expressions across
+        TypeScript/JavaScript, Python and Go. Regular expressions, not a real parser: that is a stated
+        limit, not an oversight, and it is what keeps the whole toolkit stdlib-only with no install
+        step.</p>
+
+        <div class="callout callout--info">
+          <span class="callout-label">Blast radius</span>
+          <p class="result-line">impact(file) = file + direct_dependents(file) + transitive_dependents(file)</p>
+          <p>Computed with a cycle-safe walk over the reverse edges. Consumers ask for the impact set
+          and then process everything in it — never just the files you literally touched.</p>
+        </div>
+
+        <p>The load-bearing detail sits one level down, in <code>graph_ops.py</code>'s
+        <code>_classify_import</code> and its <code>IMPORT_SIGNALS</code> constant. Every import edge is
+        tagged exactly one of three ways: <strong>internal</strong> (no prefix — it resolved to a real
+        file in your project), <strong><code>external:&lt;pkg&gt;</code></strong> (a third-party
+        package, recorded as a leaf and never traversed), or
+        <strong><code>unresolved:&lt;import&gt;</code></strong> (it looked internal but could not be
+        mapped to a real file). An edge counts as internal <em>only when it carries neither prefix</em>
+        — a single predicate, reused well beyond the graph. <code>spec-manager</code>'s onboarding
+        detector uses it to tell a real codebase from a boilerplate scaffold by counting internal edges
+        rather than files. And an import that cannot be resolved is <strong>surfaced, not silently
+        dropped</strong>, which is the entire point of the third tag.</p>
+
+        <p>That third tag exists because of one bug, and the bug is the best single piece of evidence on
+        this site for why the rest of the design looks the way it does.</p>
+
+        <div class="callout callout--danger">
+          <span class="callout-label">The failure a green suite could never have caught</span>
+          <p>On the first real path-alias project — a 229-file Next.js app — the graph built cleanly and
+          reported <strong>1052 import edges and 0 internal edges</strong>. Every internal import in
+          that codebase used the <code>@/</code> alias, and the resolver treated every non-relative
+          import as external. Asking for a route's dependencies returned <code>[]</code> despite three
+          real <code>@/lib/*</code> imports, with no error and no unknown signal.</p>
+          <p>So impact analysis was returning an <strong>empty blast radius that looked complete</strong>,
+          and every consumer standing on it — spec updates, docs updates, all of the behavior layer's
+          impact work — was silently riding on nothing. A <code>git</code> check settled how long: the
+          resolver was unchanged since v0.1.0, so this had been true since the toolkit was first
+          published. Dogfooding did not introduce it; dogfooding was simply the first thing to look.</p>
+        </div>
+
+        <p>The fix taught the resolver to read <code>tsconfig</code> path aliases, anchored resolution to
+        the project rather than the process working directory, and introduced the three-tag taxonomy so
+        that "no dependencies" became distinguishable from "could not resolve". The rebuild:</p>
+        <p class="result-line">before: 0 internal / 1052 external &nbsp;→&nbsp; after: 607 internal / 488 external / 0 unresolved</p>
+
+        <div class="callout callout--why">
+          <span class="callout-label">The rule this teaches, which runs through the rest of the page</span>
+          <p>A <strong>confidently empty answer is the dangerous failure</strong> — worse than an error,
+          because an error stops you and an empty answer gets acted on. Everything downstream is built
+          around refusing to produce one: coverage that cannot be captured is reported as
+          <code>unknown</code> with a reason rather than as an empty file list; a drift check with no
+          dependency graph narrows its scope <em>and says so</em>; a security run where every worker
+          failed exits non-zero rather than reporting a clean codebase.</p>
+        </div>
+
+        <div class="callout callout--info prose-center">
+          <span class="callout-label">In the markdown</span>
+          <p>The decision to repair the homegrown resolver in place rather than adopt an off-the-shelf
+          parser — with the alternative it beat and the conditions that would reopen it — is written up
+          as an ADR.</p>
+          <ul class="md-links">
+            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-005-repair-parsing-substrate-in-place.md">docs/decisions/ADR-005-repair-parsing-substrate-in-place.md</a></li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ================================================================= -->
+      <section>
+        <h2 id="incremental-by-construction">Incremental by construction</h2>
+        <p>Full scans are expensive and most changes are localized, so every re-syncing skill works from
+        the last commit it processed rather than from scratch. Five steps, identical everywhere:</p>
+
+        <ol class="cmd-steps">
+          <li><strong>Read the tracking file</strong> → <code>last_commit</code></li>
+          <li><strong>Diff</strong> — <code>git diff last_commit..HEAD --name-only</code> → the changed files</li>
+          <li><strong>Expand</strong> — if <code>code-graph</code> is available, take the impact set; otherwise the changed files alone, with a warning</li>
+          <li><strong>Process only that set</strong></li>
+          <li><strong>Rewrite the tracking file</strong> with the current commit</li>
+        </ol>
+
+        <p>This is what makes the daily loop cheap enough to actually run after every feature, rather
+        than a thing you promise to do at the end of the sprint. Which skill owns which tracking file,
+        and what each one remembers, is a four-row lookup that the markdown already owns.</p>
+
+        <div class="callout callout--info prose-center">
+          <span class="callout-label">In the markdown</span>
+          <p>The tracking-file table and the naming convention behind it. Reach for these when you are
+          debugging why a skill re-processed more or less than you expected.</p>
+          <ul class="md-links">
+            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/architecture.md#tracking-files">docs/architecture.md#tracking-files</a></li>
+            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/conventions.md#tracking-file-convention">docs/conventions.md#tracking-file-convention</a></li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ================================================================= -->
+      <section>
+        <h2 id="two-commits">Two commits</h2>
+        <p>Generated artifacts <em>reference</em> the code commit they describe. If an artifact shares
+        the commit it describes, that reference is unstable — it points at a commit that did not exist
+        when the artifact was written. So <code>wrap-up</code> splits every run in two: code lands
+        first, artifacts second.</p>
+
+        <div class="grid-2">
+          <div class="card">
+            <h4>Commit 1 — code</h4>
+<pre class="code"><code>src/lib/auth.ts
+src/api/routes.ts
+tests/auth.test.ts</code></pre>
+          </div>
+          <div class="card">
+            <h4>Commit 2 — artifacts</h4>
+<pre class="code"><code>knowledge-base/reference/API.md
+knowledge-base/specs/auth/SPEC-001.md
+knowledge-base/security/…/YYYY-MM-DD.md</code></pre>
+          </div>
+        </div>
+
+        <p>What that buys: cleaner history, a stable commit for the security scan to reference, and no
+        need for tracking-file hacks to work out which commit an artifact described.</p>
+
+        <div class="callout callout--warn">
+          <span class="callout-label">The refinement that catches people out</span>
+          <p>Once the behavior layer is in play, a Gherkin scaffold's commit class follows its
+          <strong>lifecycle state, not its location</strong>. A <code>proposed</code> scaffold still
+          carrying its <code>TODO(scaffold)</code> marker rides the <em>artifacts</em> commit even
+          though it sits in the code tree — and joins the code commit only once the behavior is
+          <code>accepted</code> and the marker is gone.</p>
+        </div>
+
+        <div class="callout callout--info prose-center">
+          <span class="callout-label">In the markdown</span>
+          <p>The pattern write-up, with the problem statement, the file lists, and which skills apply
+          it.</p>
+          <ul class="md-links">
+            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/patterns.md#pattern-two-commit-separation">docs/patterns.md#pattern-two-commit-separation</a></li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ================================================================= -->
+      <section>
+        <h2 id="who-schedules-the-fan-out">Who schedules the fan-out</h2>
+        <p>Three flows fan work out to parallel workers: <code>docs-manager</code> across twelve
+        document types, <code>spec-manager scan</code> across five discovery areas, and
+        <code>codebase-security-scan</code> across six vulnerability categories plus a per-finding
+        refutation pass. All three originally issued parallelism as an unconditional imperative, with no
+        fallback written anywhere. Two of them still ask; one stopped asking. The difference is the most
+        instructive thing in the toolkit.</p>
+
+        <div class="seg" id="fan-seg">
+          <button class="active" type="button" data-fan="prose" aria-pressed="true">Prose fan-out</button>
+          <button type="button" data-fan="driver" aria-pressed="false">Driver-owned fan-out</button>
+        </div>
+        <div class="panel" id="fan-panel" aria-live="polite"></div>
+
+        <div class="callout callout--danger">
+          <span class="callout-label">What was measured</span>
+          <p>Asked to run six category scans in parallel, Copilot ran them itself as a sequence of greps
+          — and then reported that it had run them in parallel. Instrumenting a documented
+          <strong>twelve-way</strong> fan-out with <code>--log-level debug</code> settled it by counting
+          tool calls: <code>view</code> 9, <code>bash</code> 8, <code>skill</code> 1, <code>rg</code> 1,
+          <strong><code>task</code> 0, <code>explore</code> 0</strong>. Zero delegation. All thirteen
+          files were written by the main loop.</p>
+        </div>
+
+        <p>The diagnosis is the point, and the obvious diagnosis is wrong. The problem was never that
+        sequential is slower. It was that <strong>nothing could tell you which mode had run</strong>,
+        because the agent narrates parallelism either way — and a correctness property you cannot
+        observe is a hope, not a property. No amount of careful wording makes it checkable, and no test
+        that reads the agent's reply can catch it failing.</p>
+
+        <div class="callout callout--why">
+          <span class="callout-label">And it is not a capability gap</span>
+          <p>Copilot ships <code>task</code>, an <code>explore</code> agent, <code>/fleet</code> and
+          <code>/subagents</code>; the machinery is all there. Its own system prompt tells it never to
+          delegate parts of a codebase small enough to read directly,
+          <em>"regardless of how it divides into separate areas"</em> — which describes six named
+          categories, twelve named doc types and five named spec areas exactly. A reasonable host policy
+          that happens to disqualify this design.</p>
+          <p><strong>The honest limit:</strong> both clauses of that instruction are conditioned on
+          small scope, and every observation here was taken on a small fixture. So what is established
+          is narrower than "Copilot never delegates" — it is that for scopes small enough to read
+          directly, it will not delegate a labeled-area fan-out, by design.</p>
+        </div>
+
+        <p>The security scan therefore stopped asking, and runs its own worker pool. <code>docs-manager</code>
+        and <code>spec-manager</code> deliberately keep the prose form — not for lack of scale, since
+        docs-manager fans out to twelve workers against the scan's six, but because
+        <strong>their workers write files</strong>, and the driver's guarantee rests on workers that
+        cannot.</p>
+
+        <h3 id="what-the-driver-does">What the driver does once it owns the loop</h3>
+        <p>Stripped of jargon: read the project docs, run six searches at once, merge duplicates, hand
+        each surviving candidate to three challengers, report.</p>
+
+        <div class="flow">
+          <div class="node code">Read the docs<span class="sub">project context first</span></div>
+          <span class="arrow">→</span>
+          <div class="node intent">Six searches<span class="sub">at once, one per category</span></div>
+          <span class="arrow">→</span>
+          <div class="node beh">Merge duplicates<span class="sub">dedup by key</span></div>
+          <span class="arrow">→</span>
+          <div class="node test">Three challengers each<span class="sub">told to disprove it</span></div>
+          <span class="arrow">→</span>
+          <div class="node code">Report</div>
+        </div>
+
+        <p>The challengers are the interesting part. Every candidate finding goes to three separate
+        reviewers, each told to <em>disprove</em> it from a different angle: can an attacker actually
+        reach this, is something already preventing it, was this done deliberately. A finding is
+        discarded only if <strong>all three</strong> reject it. If they disagree it is kept and flagged
+        for a human. If they all failed to answer it is also kept — because no answer is not an answer
+        of no.</p>
+
+        <div class="callout callout--warn">
+          <span class="callout-label">Rounds, never lenses</span>
+          <p>The cheaper-looking saving is fewer skeptics. It is a trap. A finding is deleted on a
+          <em>unanimous</em> refutation, so with one lens a single sceptic having an off moment silently
+          deletes a real vulnerability — and it disappears with no trace in the report. The cheap mode
+          takes its saving out of <strong>discovery</strong> instead, cutting rounds from five to one
+          and leaving verification untouched. One driver, one definition of a finding: two definitions
+          would drift, and the cheaper one would drift toward missing things.</p>
+        </div>
+
+        <div class="callout callout--info prose-center">
+          <span class="callout-label">In the markdown</span>
+          <p>The decision to own the fan-out in code, including the read-only allowlist the workers run
+          under and why "deny beats allow" was not sufficient.</p>
+          <ul class="md-links">
+            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-015-driver-owned-fan-out.md">docs/decisions/ADR-015-driver-owned-fan-out.md</a></li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ================================================================= -->
+      <section>
+        <h2 id="the-behavior-layer">The behavior layer, and the failure it exists for</h2>
+        <p>Ordinary tests are written <em>from the code</em>, so they mirror what the code does rather
+        than what it should do — and a test that mirrors the implementation cannot notice the
+        implementation being wrong. Behavior drifts while a green, high-coverage suite stays green.
+        Coverage measures how much code you executed; it never measures whether the code was supposed to
+        do that.</p>
+
+        <p>A <code>BEH-NNN</code> record fixes that by being a stable, id'd statement of
+        <em>intended</em> behavior that carries a lifecycle and links through a real test down to the
+        code it exercises. Which makes two questions answerable that a plain test suite cannot answer:
+        <em>what intended behavior does this change touch?</em> and <em>is this behavior still
+        verified?</em></p>
+
+        <figure class="diagram">
+          <div class="flow">
+            <div class="node intent">SPEC-001<span class="sub">the feature, and why</span></div>
+            <span class="arrow">→</span>
+            <div class="node beh">BEH-003<span class="sub">intended behavior · lifecycle</span></div>
+            <span class="arrow">→</span>
+            <div class="node test">a test<span class="sub">adapter + locator</span></div>
+            <span class="arrow">→</span>
+            <div class="node code">code<span class="sub">files it exercises</span></div>
+          </div>
+          <figcaption><code>behavior-graph</code> projects the <code>SPEC → BEHAVIOR → TEST</code> half
+          from your spec frontmatter — those edges are <strong>authored and deterministic</strong> — and
+          merges in the <code>TEST → CODE</code> half from real coverage. That last edge is the one
+          genuinely new thing here, and it is <strong>never asserted as certain</strong>: it carries a
+          provenance and a confidence, and says so when it cannot be established. Having both halves is
+          what lets impact flow in both directions.</figcaption>
+        </figure>
+
+        <p>The record itself lives in a spec's frontmatter. One concrete artifact teaches the model
+        faster than a paragraph about it:</p>
+
+        <div class="code-block">
+          <div class="code-head"><span class="dot"></span><span class="dot"></span><span class="dot"></span>&nbsp; knowledge-base/specs/auth/SPEC-001-passkey-login.md</div>
+<pre class="code"><code><span class="tok-k">behaviors:</span>
+  - <span class="tok-k">behavior_id:</span> <span class="tok-n">BEH-003</span>          <span class="tok-c"># stable across renames; never renumbered</span>
+    <span class="tok-k">title:</span> Unknown email does not reveal whether a user exists
+    <span class="tok-k">state:</span> <span class="tok-s">accepted</span>          <span class="tok-c"># proposed | confirmed | accepted | quarantined | deprecated</span>
+    <span class="tok-k">adapter:</span> <span class="tok-s">cucumber</span>        <span class="tok-c"># required only when state == accepted</span>
+    <span class="tok-k">level:</span> <span class="tok-s">integration</span>       <span class="tok-c"># the runner's dispatch key</span>
+    <span class="tok-k">locator:</span> features/auth/passkey-login.feature#unknown-email-does-not-reveal-whether-a-user-exists</code></pre>
+        </div>
+
+        <p>The projection lands in <code>behavior.json</code>, a <strong>sibling</strong> of
+        <code>graph.json</code> under the git-ignored <code>knowledge-base/.graph/</code> — kept
+        deliberately separate so the code substrate stays swappable. <code>code-graph</code> never
+        learns about behaviors at all: <code>behavior-graph</code> queries it for impact and queries
+        <code>behavior-runner</code> for coverage, and the dependency points one way only.</p>
+
+        <div class="callout callout--warn">
+          <span class="callout-label">A question this design has not closed</span>
+          <p>The next planned initiative — a polyglot substrate that can see Java, Helm and
+          config-as-code — leans toward <strong>unifying the code graph and the behavior graph into one
+          graph</strong>, which runs directly against the sibling decision above: schema, ownership and
+          degradation behaviour would all change. That tension is recorded rather than resolved.
+          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/backlog.md">docs/backlog.md</a></p>
+        </div>
+
+        <div class="callout callout--info prose-center">
+          <span class="callout-label">In the markdown</span>
+          <p>Why intended behavior is modelled as an executable artifact at all, and why execution is
+          split from the graph across two skills.</p>
+          <ul class="md-links">
+            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-001-behavior-as-executable-artifact.md">docs/decisions/ADR-001-behavior-as-executable-artifact.md</a></li>
+            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-004-behavior-adapters-and-execution-split.md">docs/decisions/ADR-004-behavior-adapters-and-execution-split.md</a></li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ================================================================= -->
+      <section>
+        <h2 id="four-kinds-of-intent">Four kinds of intent</h2>
+        <p>Not all intent is a testable behavior, and confusing an executable guarantee with a prose
+        decision is how governance turns into noise. The toolkit sorts intent into four kinds, each with
+        a home and a way it is verified.</p>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th scope="col">Kind</th><th scope="col">Example</th><th scope="col">Home</th><th scope="col">Verified by</th></tr></thead>
+            <tbody>
+              <tr>
+                <td><strong>Executable behavior</strong></td>
+                <td>"an unknown email does not reveal whether a user exists"</td>
+                <td>a <code>BEH-NNN</code> record in a spec, linked to a test in the code tree</td>
+                <td>running the test, through its adapter — automated regression</td>
+              </tr>
+              <tr>
+                <td><strong>Declarative decision</strong><br><span class="muted">feature-local</span></td>
+                <td>"this feature offers no password fallback"</td>
+                <td>a spec's <code>## Intentional Design Decisions</code></td>
+                <td>human review, plus a certainty score</td>
+              </tr>
+              <tr>
+                <td><strong>ADR</strong><br><span class="muted">cross-cutting</span></td>
+                <td>"we use Postgres, not Mongo"</td>
+                <td><code>decisions/ADR-NNN.md</code></td>
+                <td>human review, plus the contradiction check</td>
+              </tr>
+              <tr>
+                <td><strong>Principle</strong><br><span class="muted">project-wide</span></td>
+                <td>"every endpoint is authenticated by default"</td>
+                <td><code>principles.md</code></td>
+                <td>applies to all of the above</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p>The middle two are where people get lost, because <strong>"decisions" means two different
+        things</strong>. A <em>per-feature</em> decision is tied to exactly one feature — "no password
+        fallback, it's a phishing vector"; "uniform 404 to prevent user enumeration" — and lives inside
+        that feature's spec. A <em>cross-cutting</em> decision constrains the whole project — "we use
+        Postgres"; "multi-tenancy is row-level, not schema-per-tenant" — and has no single feature to
+        live in, which is why it needs its own file and its own numbering.</p>
+
+        <h3 id="the-authority-ladder">The authority ladder</h3>
+        <p>When two intents collide, the higher one wins by default and you fix the lower one — or you
+        consciously amend the higher one.</p>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th scope="col">Rank</th><th scope="col">Record</th><th scope="col">Scope</th></tr></thead>
+            <tbody>
+              <tr><td>1 — highest</td><td><code>principles.md</code></td><td>The constitution. Project-wide rules, above every spec and decision.</td></tr>
+              <tr><td>2</td><td><code>decisions/</code> — ADRs</td><td>Cross-cutting architecture decisions. Only <code>accepted</code> ADRs are authoritative.</td></tr>
+              <tr><td>3</td><td><code>specs/</code></td><td>Per-feature intent, its behaviors, and its feature-local decisions.</td></tr>
+              <tr><td>4 — lowest</td><td><code>reference/</code></td><td><strong>Never authoritative.</strong> It describes how the code <em>currently is</em> and is reverse-synced from it.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p>The case people get wrong is the same-tier one: <strong>two items on the same rung have no
+        automatic winner.</strong> A spec contradicting a peer spec, or an ADR contradicting a peer ADR,
+        is a consistency conflict to reconcile — fix either side, or refute the finding if they do not
+        truly conflict. There is no default.</p>
+
+        <div class="callout callout--why">
+          <span class="callout-label">This used to be three rungs, and the flat one was the bug</span>
+          <p>An earlier design put specs and cross-cutting decisions on a single middle rung, as equals.
+          That was refined away deliberately: without an order between them, an ADR would be the one
+          authoritative artifact that nothing governs, and the contradiction check would have nothing to
+          resolve against. The four-tier order is what makes the resolution defaults fall out
+          mechanically — spec contradicts an ADR, fix the spec; ADR contradicts a principle, fix the
+          ADR; peer contradicts peer, reconcile.</p>
+        </div>
+
+        <div class="callout callout--info prose-center">
+          <span class="callout-label">In the markdown</span>
+          <p>The authority order and the single-ownership rule that travels with it — a generated
+          projection is allowed, a hand-maintained duplicate is forbidden.</p>
+          <ul class="md-links">
+            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-002-authority-order-single-ownership.md">docs/decisions/ADR-002-authority-order-single-ownership.md</a></li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ================================================================= -->
+      <section>
+        <h2 id="adapters">Adapters: link, don't re-author</h2>
+        <p>An <strong>adapter</strong> is how a behavior reaches whatever verifies it. The layer detects
+        a project's tooling rather than hardcoding a stack, and there are three shapes.</p>
+
+        <div class="stepper" id="adapter-tabs">
+          <div class="stepper-track" role="tablist" aria-label="Adapter kinds">
+            <button class="step-tab active" type="button" role="tab" id="ad-tab-0" aria-controls="ad-panel-0" aria-selected="true"><span class="n">1</span>Gherkin scaffold</button>
+            <button class="step-tab" type="button" role="tab" id="ad-tab-1" aria-controls="ad-panel-1" aria-selected="false" tabindex="-1"><span class="n">2</span>Native link</button>
+            <button class="step-tab" type="button" role="tab" id="ad-tab-2" aria-controls="ad-panel-2" aria-selected="false" tabindex="-1"><span class="n">3</span>Manual</button>
+          </div>
+
+          <div class="step-panel active" role="tabpanel" id="ad-panel-0" aria-labelledby="ad-tab-0">
+            <h4>Author a tagged scaffold — the default for new, user-visible behavior</h4>
+            <p><code>spec-manager</code> writes a skeleton <code>.feature</code> into your code tree
+            carrying the <code>@SPEC</code>/<code>@BEH</code> reverse-link tags and a
+            <code>TODO(scaffold)</code> marker — but <strong>no real steps and no step definitions</strong>.
+            Authoring those is human forward-design work. The tags <em>are</em> the reverse link.</p>
+            <div class="code-block">
+              <div class="code-head"><span class="dot"></span><span class="dot"></span><span class="dot"></span>&nbsp; features/auth/passkey-login.feature</div>
+<pre class="code"><code><span class="tok-p">@SPEC-001</span>
+<span class="tok-k">Feature:</span> Passkey Login
+  <span class="tok-c"># Intent and rationale live in knowledge-base/specs/auth/SPEC-001-passkey-login.md</span>
+
+  <span class="tok-p">@BEH-001</span>
+  <span class="tok-k">Scenario:</span> Successful passkey login
+    <span class="tok-c"># TODO(scaffold): replace with real steps. Step definitions are not generated.</span>
+    <span class="tok-k">Given</span> &lt;initial state&gt;
+    <span class="tok-k">When</span> &lt;action&gt;
+    <span class="tok-k">Then</span> &lt;expected outcome&gt;</code></pre>
+            </div>
+            <p class="small muted">The <code>TODO(scaffold)</code> marker is load-bearing: a behavior
+            that reaches <code>accepted</code> while still carrying it is a
+            <strong>deterministic verify-time error</strong>. That is a lie about a guarantee, and the
+            gate catches it even though the suite is perfectly green — because nothing ran.</p>
+          </div>
+
+          <div class="step-panel" role="tabpanel" id="ad-panel-1" aria-labelledby="ad-tab-1" hidden>
+            <h4>Point a locator at a test that already exists</h4>
+            <p><strong>No file is written and nothing is rewritten.</strong> Set <code>adapter</code> to
+            the runner and <code>locator</code> to <code>path#scenario-slug</code> or
+            <code>path::node</code>. The locator <em>is</em> the link — no reverse tag required. This is
+            what keeps adoption cheap for a project that already has tests.</p>
+            <div class="code-block">
+              <div class="code-head"><span class="dot"></span><span class="dot"></span><span class="dot"></span>&nbsp; BEH-002 — linked to an existing vitest test</div>
+<pre class="code"><code><span class="tok-k">adapter:</span> <span class="tok-s">vitest</span>
+<span class="tok-k">locator:</span> lib/webauthn.test.ts::rejects an expired challenge</code></pre>
+            </div>
+          </div>
+
+          <div class="step-panel" role="tabpanel" id="ad-panel-2" aria-labelledby="ad-tab-2" hidden>
+            <h4>Human-verified, no runner</h4>
+            <p>The <code>manual</code> adapter is for behavior that genuinely cannot be automated. It
+            carries the intent and is skipped by locator resolution — the honest ceiling of what tests
+            can reach, recorded rather than pretended away.</p>
+          </div>
+        </div>
+
+        <p>The adoption fact worth stating plainly, because it is the one that decides whether anyone
+        can use this on an existing codebase: <strong>the toolkit never writes real test steps, and you
+        do not have to rewrite the tests you already have.</strong></p>
+
+        <div class="callout callout--warn">
+          <span class="callout-label">Inference can only ever mint <code>proposed</code></span>
+          <p>A <code>scan</code> or <code>bootstrap</code> produces a review queue of
+          <code>proposed</code> records inside spec frontmatter — never <code>accepted</code>, and never
+          files written into the code tree. A human accepting a candidate is the only thing that
+          promotes it and lets a scaffold or a link land as code. The reason is not caution for its own
+          sake: auto-generating authoritative-looking tests from the implementation would reintroduce
+          the exact "tests mirror code" problem the whole layer exists to fix.</p>
+        </div>
+
+        <div class="callout callout--info prose-center">
+          <span class="callout-label">In the markdown</span>
+          <p>The adapter binding and the execution split; and the bootstrap-as-proposed, drain-lazily
+          adoption model with the alternatives it beat.</p>
+          <ul class="md-links">
+            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-004-behavior-adapters-and-execution-split.md">docs/decisions/ADR-004-behavior-adapters-and-execution-split.md</a></li>
+            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-007-bootstrap-proposed-drain-lazily.md">docs/decisions/ADR-007-bootstrap-proposed-drain-lazily.md</a></li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ================================================================= -->
+      <section>
+        <h2 id="both-directions">Both directions of blast radius</h2>
+        <p>Because behaviors are linked to the code they exercise, impact runs both ways. Below is the
+        real dogfooding graph: <code>SPEC-001</code> owns three behaviors, two <code>accepted</code> and
+        fingerprinted, one still <code>proposed</code>. Click a <strong>code file</strong> for
+        Direction A — which accepted behaviors exercise it, the regression question
+        <code>wrap-up</code> asks — or a <strong>behavior</strong> for Direction B, which files it
+        exercises, the planning question.</p>
+
+        <div class="explorer">
+          <div class="stage">
+            <div class="bgraph" id="bgraph"></div>
+            <div class="hint">Blue = the picked node and everything it reaches · teal = an accepted,
+            fingerprinted behavior · grey = code. Click, or focus a node and press Enter.</div>
+          </div>
+          <div class="panel" id="bgraph-panel" aria-live="polite"></div>
+        </div>
+
+        <div class="callout callout--success">
+          <span class="callout-label">Measured on the testbed</span>
+          <p>Editing <code>lib/webauthn.ts</code> flagged exactly the two behaviors that depend on it;
+          editing an unrelated lib flagged none; editing the route flagged only <code>BEH-003</code>.
+          <strong>False-positive rate: 0.</strong> An incremental <code>--check</code> on a change
+          touching no exercised code took <strong>0.07 s</strong> with zero re-runs, against roughly
+          1.4–2.4 s for a full graph build.</p>
+        </div>
+
+        <div class="callout callout--warn">
+          <span class="callout-label">Read those numbers with the caveat attached</span>
+          <p>FP=0 and 0.07 s come from <strong>2 behaviors and 3 changes</strong>. That validates the
+          <em>mechanism</em>; it says nothing about trustworthiness at scale. Which is exactly why
+          fingerprint-driven governance stays <strong>advisory</strong> — only a real
+          <code>test-failed</code> of an accepted behavior blocks anything.</p>
+        </div>
+      </section>
+
+      <!-- ================================================================= -->
+      <section>
+        <h2 id="coverage">Coverage you can trust, or an honest unknown</h2>
+        <p>A fingerprint is the set of files a behavior's test exercises. It is one of exactly three
+        honest values, and the third one is never faked.</p>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th scope="col">Coverage</th><th scope="col">Confidence</th><th scope="col">What it actually is</th></tr></thead>
+            <tbody>
+              <tr>
+                <td><span class="badge badge--accepted">observed</span></td>
+                <td><strong>0.8</strong></td>
+                <td>Real runtime V8/istanbul coverage under vitest — every file with at least one
+                executed statement. Exactly the files the test <em>ran</em>.</td>
+              </tr>
+              <tr>
+                <td><span class="badge badge--confirmed">static</span></td>
+                <td><strong>0.5</strong></td>
+                <td>The transitive import closure of a declared <code>entry</code>, from code-graph.
+                Analysis, no execution: everything the entry <em>could</em> reach.</td>
+              </tr>
+              <tr>
+                <td><span class="badge badge--proposed">unknown</span></td>
+                <td>—</td>
+                <td>No usable coverage. Always carries a machine-readable reason, and an
+                <strong>empty</strong> exercises list — never attributed to code falsely.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="callout callout--why">
+          <span class="callout-label">Over-approximation is the safe direction</span>
+          <p>When the layer cannot observe exactly which code a test runs — an integration test against
+          a bundled app — it falls back to the whole import closure and flags too much. That is fine. A
+          false "might be affected" costs you one extra test run; a false "not affected" misses a
+          regression. The two errors are not symmetric, so the design is not symmetric either.</p>
+        </div>
+
+        <h3 id="merge-by-trust">Merge by trust</h3>
+        <p>Rebuilding the graph must never quietly lose good data, so a new run is merged against the
+        prior edge rather than replacing it:</p>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th scope="col">Incoming run</th><th scope="col">Result</th></tr></thead>
+            <tbody>
+              <tr><td><code>observed</code></td><td>Take it — highest trust.</td></tr>
+              <tr><td><code>static</code></td><td>Take it, <em>unless</em> the prior edge was <code>observed</code> — never downgrade.</td></tr>
+              <tr><td><code>unknown</code> + <code>test-failed</code></td><td><strong>Invalidate.</strong> The test is red.</td></tr>
+              <tr><td><code>unknown</code> + any other reason</td><td><strong>Preserve</strong> the prior fingerprint.</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p>That last row is the whole idea: a transient capture failure must not erase good data. Only a
+        genuinely red test invalidates a fingerprint.</p>
+
+        <p>There are seven reasons an edge can come back <code>unknown</code> — a level not yet
+        implemented, a red test, a missing coverage file, an <code>entry</code> that was never
+        declared, a declared <code>entry</code> that is not on disk, no built graph, or a behavior the
+        runner simply emitted nothing for. You do not need the list to
+        understand the design; you need the rule behind it. An unresolvable edge is reported as
+        <code>unknown</code> with an empty <code>exercises</code> list <em>rather than faked</em>,
+        because governance leaning on a small, confident, empty answer is the dangerous failure — the
+        same failure the graph substrate had. The enumeration is on
+        <a href="reference.html">Reference</a>.</p>
+
+        <div class="callout callout--info prose-center">
+          <span class="callout-label">In the markdown</span>
+          <p>Why behavior tests drive the app over its real interface rather than by importing
+          internals, and why coverage follows that choice — observed at unit, static closure at
+          integration.</p>
+          <ul class="md-links">
+            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-006-real-interface-execution-and-coverage.md">docs/decisions/ADR-006-real-interface-execution-and-coverage.md</a></li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ================================================================= -->
+      <section>
+        <h2 id="the-life-of-one-behavior">The life of one behavior</h2>
+        <p>Trust in a behavior is not a number — it is the lifecycle <strong>state</strong>. Five states,
+        and each one is a different set of machine facts:</p>
+
+        <div class="toggle-row" id="lc-states"></div>
+        <div class="panel" id="lc-panel" aria-live="polite"></div>
+
+        <p>Now the same thing as a story. <code>BEH-003</code>, end to end, from a machine's guess to a
+        standing guarantee:</p>
+
+        <div class="stepper" id="lb-stepper">
+          <div class="stepper-track" role="tablist" aria-label="The life of BEH-003">
+            <button class="step-tab active" type="button" role="tab" id="lb-tab-0" aria-controls="lb-panel-0" aria-selected="true"><span class="n">1</span>Born proposed</button>
+            <button class="step-tab" type="button" role="tab" id="lb-tab-1" aria-controls="lb-panel-1" aria-selected="false" tabindex="-1"><span class="n">2</span>Confirmed on hit</button>
+            <button class="step-tab" type="button" role="tab" id="lb-tab-2" aria-controls="lb-panel-2" aria-selected="false" tabindex="-1"><span class="n">3</span>Accepted</button>
+            <button class="step-tab" type="button" role="tab" id="lb-tab-3" aria-controls="lb-panel-3" aria-selected="false" tabindex="-1"><span class="n">4</span>Standing guard</button>
+            <button class="step-tab" type="button" role="tab" id="lb-tab-4" aria-controls="lb-panel-4" aria-selected="false" tabindex="-1"><span class="n">5</span>Governed change</button>
+            <button class="step-tab" type="button" role="tab" id="lb-tab-5" aria-controls="lb-panel-5" aria-selected="false" tabindex="-1"><span class="n">6</span>Off-ramps</button>
+          </div>
+
+          <div class="step-panel active" role="tabpanel" id="lb-panel-0" aria-labelledby="lb-tab-0">
+            <h4>Inference mints a candidate</h4>
+            <p>A <code>bootstrap</code> of the existing codebase infers <strong>BEH-003</strong> —
+            "unknown email does not reveal whether a user exists" — and writes it as a
+            <span class="badge badge--proposed">proposed</span> record in <code>SPEC-001</code>'s
+            frontmatter. No file enters the code tree. Nothing is trusted, and nothing needs reviewing
+            yet; the certainty score only prioritizes the pile.</p>
+          </div>
+          <div class="step-panel" role="tabpanel" id="lb-panel-1" aria-labelledby="lb-tab-1" hidden>
+            <h4>A change touches its code — confirm on hit</h4>
+            <p>Weeks later a change touches the authenticate route. Wrap-up's validate-on-hit lists
+            BEH-003 as one of the two or three candidates <em>this change</em> touched. You re-read the
+            intent against the current code and confirm it:
+            <span class="badge badge--proposed">proposed</span> →
+            <span class="badge badge--confirmed">confirmed</span>. The intent is now real and a test is
+            owed. With a declared <code>entry</code> it already appears in blast radius — static,
+            advisory — but it is never executed and can never block.</p>
+          </div>
+          <div class="step-panel" role="tabpanel" id="lb-panel-2" aria-labelledby="lb-tab-2" hidden>
+            <h4>The test lands — accepted</h4>
+            <p>You author the cucumber scenario that drives the authenticate endpoint over real HTTP
+            against a running instance. The tags round-trip, the scaffold marker is gone, the test
+            passes: <span class="badge badge--confirmed">confirmed</span> →
+            <span class="badge badge--accepted">accepted</span>. The <code>.feature</code> file now
+            moves out of the artifacts commit and rides the <strong>code commit</strong> — its class
+            followed its state, not its location — and the behavior carries a static fingerprint of
+            three files.</p>
+          </div>
+          <div class="step-panel" role="tabpanel" id="lb-panel-3" aria-labelledby="lb-tab-3" hidden>
+            <h4>Standing guard</h4>
+            <p>Months later someone edits <code>lib/webauthn.ts</code>. Direction A flags BEH-002 and
+            BEH-003, and wrap-up re-runs the affected accepted behaviors it can execute — not the
+            suite. BEH-002's vitest unit test runs; BEH-003 is <code>level: integration</code>, so
+            today the runner refreshes its static closure rather than executing the cucumber
+            scenario, and it therefore cannot report <code>test-failed</code>. If an executed
+            behavior goes red, wrap-up blocks until the failure is <strong>classified</strong>: a
+            regression (fix the code), an intended change (declare it), or a test-infrastructure
+            failure (quarantine). It cannot fail silently, and it cannot fail unclassified.</p>
+          </div>
+          <div class="step-panel" role="tabpanel" id="lb-panel-4" aria-labelledby="lb-tab-4" hidden>
+            <h4>The guarantee changes — on the record</h4>
+            <p>The threat model changes, so the code <em>and</em> its test are edited together. The suite
+            stays green — and that is the problem. The <a href="#g1-declared-intent">G1 gate</a> blocks:
+            an accepted test changed with no record. One command mints <code>INTENT-001</code> naming
+            BEH-003 with an approver and a rationale, and wrap-up passes. A silently redefined guarantee
+            became a visible, deliberate, auditable one.</p>
+          </div>
+          <div class="step-panel" role="tabpanel" id="lb-panel-5" aria-labelledby="lb-tab-5" hidden>
+            <h4>Off-ramps, never silence</h4>
+            <p>A flaky fixture starts failing the test for infrastructure reasons?
+            <span class="badge badge--quarantined">quarantined</span> — out of the authoritative set
+            until repaired, so a known-flaky test cannot block everyone. The feature is retired?
+            <span class="badge badge--deprecated">deprecated</span>. Both preserve history. Neither is a
+            silent deletion.</p>
+          </div>
+
+          <div class="stepper-nav">
+            <button class="btn btn-ghost" type="button" id="lb-prev">← Prev</button>
+            <button class="btn btn-primary" type="button" id="lb-next">Next →</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================================================================= -->
+      <section>
+        <h2 id="governance">Governance: block on facts, resolve on judgment</h2>
+        <p>Capturing intent is half the job. The other half is enforcing it when code and specs change —
+        and the defining rule of that half is: <strong>a failure is gated by what kind of check produced
+        it, not by a model's self-reported confidence.</strong></p>
+
+        <div class="grid-2">
+          <div class="card">
+            <div class="tag-row"><span class="badge badge--block">hard-block · fail-closed</span></div>
+            <h4>Block on facts</h4>
+            <p>A broken test link, a duplicate ID, an accepted behavior's test regressing, an accepted
+            test edited with no record. These are <strong>cheap and certain</strong>. A non-zero script
+            exit stops wrap-up until you fix it or reclassify the behavior.</p>
+          </div>
+          <div class="card">
+            <div class="tag-row"><span class="badge badge--advisory">resolve to proceed · fail-open</span></div>
+            <h4>Resolve on judgment</h4>
+            <p>Does this violate a principle? contradict a decision? drift from a declared choice? These
+            are never script hard-blocks. Each finding must be <strong>fixed, refuted or amended</strong>
+            before wrap-up completes, and they fail <em>open</em> on missing inputs.</p>
+          </div>
+        </div>
+
+        <p>The reasoning is what makes this a position rather than a description. A model's "high
+        certainty" is not a calibrated probability, and blocking on it would train people to
+        rubber-stamp whatever escape hatch exists in order to get past the noise. Once bypass is
+        reflexive, <em>real</em> violations get waved through too. Confidence becomes a hard gate only
+        after its false-positive rate has been measured on a real project and shown to be acceptable —
+        which is a piece of evidence that does not exist yet, so the promotion waits by design.</p>
+
+        <p>The obvious objection — <em>so the model check is toothless?</em> — has a specific answer. A
+        flagged violation hides two questions: <strong>is it real</strong> (the model's fallible
+        judgment) and <strong>what should happen</strong> (non-negotiable). Not hard-blocking answers
+        only the first. So <strong>"ignore and push" is not a resolution</strong>, model findings are
+        never carried forward as backlog debt — each is resolved in the wrap-up that raised it — and
+        refuting a false positive is a first-class, legitimate resolution. That last one is precisely
+        what removes the reflexive-bypass pressure: if disagreeing is a supported move, nobody needs a
+        hack.</p>
+
+        <div class="callout callout--why">
+          <span class="callout-label">The orthogonal axis, and the best one-line map of the guard set</span>
+          <p><strong>G1 and G2 compare a recorded intent against code</strong> — a test, a diff.
+          <strong>G3 compares one recorded intent against another recorded intent.</strong> Which is why
+          the question "which intents does G3 know about?" is the whole ballgame for that check, and why
+          it is the only one whose scoping argument is about recall rather than noise.</p>
+        </div>
+
+        <div class="callout callout--info prose-center">
+          <span class="callout-label">In the markdown</span>
+          <p>The two-tier enforcement decision, including why model checks fail open and what evidence
+          would be required to promote one to a hard gate.</p>
+          <ul class="md-links">
+            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-009-two-enforcement-tiers.md">docs/decisions/ADR-009-two-enforcement-tiers.md</a></li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ================================================================= -->
+      <section>
+        <h2 id="the-six-checks">The six checks</h2>
+        <p>Six checks, each protecting a different kind of intent. Pick one to see what it compares,
+        what it guards, and whether it can block:</p>
+
+        <div class="toggle-row" id="guard-btns"></div>
+        <div class="panel" id="guard-panel" aria-live="polite"></div>
+
+        <h3 id="g1-declared-intent">G1 — declared-intent records</h3>
+        <p>Name the hole first. Code-versus-test disagreement is a fact you can run, and a red accepted
+        test is the strongest check in the system. But that fact layer has exactly one blind spot:
+        <strong>editing the test itself</strong>. Change the code and its test together and the suite
+        stays green, so the strongest check sees nothing at all while the guarantee is silently
+        redefined. That is the only way to slip a changed guarantee past every fact-check.</p>
+
+        <p>G1 plugs it by giving an accepted test <strong>one sanctioned way to change</strong>: a
+        durable <code>INTENT-NNN</code> record created in the same change-set, naming the behavior. And
+        because G1's own question — "was an accepted test edited, and does a record name it?" — is
+        itself a fact, the gate stays fully deterministic and <strong>hard-blocks</strong>.</p>
+
+        <p>Three specifics decide how far it reaches:</p>
+        <ul>
+          <li>Only <strong><code>accepted</code></strong> behaviors are governed. The others have no
+          standing guarantee to protect.</li>
+          <li><strong>Temporal self-scoping.</strong> The record must be new since the baseline — a past
+          record cannot bless a future edit.</li>
+          <li>The gate verifies that a record <strong>exists</strong>, not that its rationale is honest.
+          Honesty is a separate, model-judgment track.</li>
+        </ul>
+
+        <div class="code-block">
+          <div class="code-head"><span class="dot"></span><span class="dot"></span><span class="dot"></span>&nbsp; the gate firing, and the way through it</div>
+<pre class="code"><code><span class="tok-c"># You changed BEH-003's anti-enumeration response — code and test together.</span>
+<span class="tok-c"># The suite is GREEN. wrap-up commits the code, including the test edit.</span>
+<span class="tok-c"># Then, in phase 3.5:</span>
+
+$ freya verify-intent --project .
+1 accepted test change(s) without an intent record:
+
+  [BEH-003] SPEC-001: features/auth/passkey-login.feature changed —
+  file knowledge-base/intents/INTENT-NNN.md naming BEH-003
+  (freya intent new --behavior BEH-003), or revert the test edit.
+<span class="tok-c"># exit 1 — blocked</span>
+
+$ freya intent new --behavior BEH-003 --approver Alex \
+    --rationale <span class="tok-s">"Anti-enumeration response changed 404 → uniform 200</span>
+<span class="tok-s">                per the revised threat model."</span>
+
+$ freya verify-intent --project .
+OK — no accepted test changed without an authorizing intent record.
+<span class="tok-c"># exit 0 — the artifacts commit carries INTENT-001;</span>
+<span class="tok-c"># the code commit's trailer points at it.</span></code></pre>
+        </div>
+
+        <p>The control case is worth more than another example of it firing, because a control case is
+        what proves a gate is narrow: editing a <strong><code>proposed</code></strong> behavior's test is
+        never blocked. And chat history saying you meant to does not count — the record is the source of
+        truth, because a file is auditable six months later and a conversation is not.</p>
+
+        <div class="callout callout--warn">
+          <span class="callout-label">Three blind spots, volunteered</span>
+          <p>Quarantining or deprecating a behavior in the same change-set takes it out of the
+          <code>accepted</code> set the gate reads off disk, so the gate no longer applies to it. G1 is
+          <strong>path-based</strong>, so an assertion that lives in a shared test helper rather than in
+          the declared locator escapes it. And with no baseline marker yet — a fresh repo, or a
+          first full scan — the gate <strong>skips rather than false-blocks</strong>.</p>
+        </div>
+
+        <h3 id="g2-principles">G2 — principles</h3>
+        <p><code>principles.md</code> is the highest-authority record in the project, and a passive file
+        is not enforcement. So it is enforced two ways: <strong>soft injection</strong>, where the
+        constitution is loaded into the working context when you create or scan so you draft against the
+        rules rather than discovering them afterwards; and a <strong>resolve-to-proceed checkpoint</strong>
+        at wrap-up, where the change diff is judged against each principle and every finding must be
+        resolved before wrap-up completes.</p>
+        <p>An empty constitution means the step skips. You cannot check against an empty room.</p>
+
+        <h3 id="g3-and-p4a">G3 and P4a — contradictions and ADRs</h3>
+        <p><strong>G3</strong> is the uniquely intent-versus-intent check. It fires when a spec's or an
+        ADR's intent is created or changed, and compares it against <code>principles.md</code> plus the
+        intentional decisions of other specs <em>in the same category</em>. It is scoped, deliberately:
+        a whole-repo re-derivation on every spec edit would be slow and noisy, and noise erodes trust in
+        a gate faster than anything else.</p>
+
+        <p><strong>P4a</strong> takes the opposite line on ADRs, and the argument for it is the
+        strongest piece of reasoning in the governance layer. A changed spec is compared against
+        <strong>all</strong> accepted ADRs, with no scoping whatsoever — no <code>applies_to</code>
+        field, no tag filter, only lifecycle status. The reason is asymmetric cost. Scoping only decides
+        what reaches the model; the model still makes the judgment. So <strong>over-scoping is a silent
+        miss</strong> — which is unrecoverable, and is the exact failure the whole layer exists to
+        prevent — while under-scoping is noise the model dismisses in one line. Malformed ADRs surface
+        as warnings rather than being silently dropped, and the deterministic <code>adr verify</code>
+        (duplicate ids, dangling supersede links, bad status) is a Tier-1 integrity fact that
+        <strong>hard-blocks</strong>, separately from the advisory contradiction judgment.</p>
+
+        <p>What that combination covers, with the worked example for each — all four rows now caught:</p>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th scope="col">A change that contradicts…</th><th scope="col">Example</th></tr></thead>
+            <tbody>
+              <tr><td>a <strong>principle</strong></td><td>a new spec adds a public endpoint; the constitution says "authenticated by default"</td></tr>
+              <tr><td>a <strong>same-category peer spec</strong></td><td>a new auth spec allows password fallback; a peer spec says never — phishing vector</td></tr>
+              <tr><td>an <strong>accepted ADR</strong></td><td>a spec assumes Mongo; the ADR chose Postgres</td></tr>
+              <tr><td>a <strong>principle, from an ADR</strong></td><td>a changed ADR contradicts the constitution above it</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 id="p4b-declarative-drift">P4b — declarative drift</h3>
+        <p>The mirror of G3. Where G3 is intent-versus-intent, <strong>P4b is code-versus-declared
+        intent</strong>: does the changed code contradict a decision a spec or an ADR declared? Because
+        it is triggered by a code change it is code-anchored, and therefore
+        <strong>blast-radius scoped</strong> — a decision's <code>related_code</code> intersected with
+        the impact set — deliberately not always-global like P4a.</p>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th scope="col"></th><th scope="col">P4a · intent ↔ ADR</th><th scope="col">P4b · code ↔ declared intent</th></tr></thead>
+            <tbody>
+              <tr><td>Nature</td><td>intent-vs-intent, no code anchor</td><td>code-vs-intent, triggered by a code change</td></tr>
+              <tr><td>Scope</td><td><strong>always-global</strong> — every accepted ADR</td><td><strong>blast-radius-scoped</strong> — <code>related_code ∩ impact</code></td></tr>
+              <tr><td>Errs toward</td><td>recall — a missed ADR is unrecoverable</td><td>quiet — a code-triggered check must stay incremental</td></tr>
+              <tr><td>Refuses</td><td>a silent miss</td><td>whole-repo re-nagging</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p>Two checks that look inconsistent, each correct in the opposite direction, for stated reasons.
+        And when <code>code-graph</code> is absent, P4b narrows to changed-files-only <strong>and says
+        so</strong> in its output rather than returning a silently empty set.</p>
+
+        <div class="callout callout--warn">
+          <span class="callout-label">Its honest limit</span>
+          <p>Because P4b follows <code>related_code</code>, a spec or ADR that declares intent but
+          carries no <code>related_code</code> is <strong>invisible</strong> to the check — its
+          intersection is always empty. Rather than hide that, <code>freya drift gaps</code> lists
+          exactly those drift-blind items on demand. The recall gap is published, not silent.</p>
+        </div>
+
+        <h3 id="resolution-logs">Resolution logs</h3>
+        <p>Three append-only JSONL logs sit at the <code>knowledge-base/</code> root — one per
+        resolve-to-proceed guard: <code>principle-resolutions.jsonl</code>,
+        <code>contradiction-resolutions.jsonl</code>, <code>drift-resolutions.jsonl</code>. All three
+        share one implementation (<code>resolution_log.py</code>) doing the same three things: append a
+        line, load the latest record per key, drop the superseded ones. Four verdicts:
+        <code>refuted</code>, <code>amended</code>, <code>auto-cleared</code>,
+        <code>superseded</code>.</p>
+
+        <p>The asymmetry that matters: <strong>a straight code fix leaves no log entry, because git is
+        the record</strong> — the code changed and the finding is gone. The log's only job is to stop
+        the check re-nagging about an already-refuted false positive on every later change. And
+        retirement is a <em>later</em> superseding record, never a mutated field, so the audit trail is
+        never erased.</p>
+
+        <p>Then the trichotomy that stops governance becoming a re-litigation treadmill. On the next
+        wrap-up a prior resolution is re-judged against the <em>current</em> code and lands in one of
+        three places: it <strong>auto-clears</strong> if the flagged code is materially unchanged, is
+        <strong>retired</strong> if the code moved out from under it, or <strong>escalates</strong> if
+        the reason no longer excuses what is there. Four guardrails keep that honest — re-judge against
+        the specific prior reason rather than the whole file, bias to escalate on any ambiguity, always
+        log an auto-clear, and a finding with no prior <em>always</em> reaches the human. That last one
+        is the safety floor.</p>
+
+        <div class="callout callout--info prose-center">
+          <span class="callout-label">In the markdown</span>
+          <p>The three decisions this section rests on: what each guard requires, how each check is
+          scoped and why the two scopings differ, and the append-only log format with its recurrence
+          rules.</p>
+          <ul class="md-links">
+            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-008-declared-intent-record-required.md">docs/decisions/ADR-008-declared-intent-record-required.md</a></li>
+            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-011-governance-check-scoping.md">docs/decisions/ADR-011-governance-check-scoping.md</a></li>
+            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-010-append-only-resolution-logs.md">docs/decisions/ADR-010-append-only-resolution-logs.md</a></li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- ================================================================= -->
+      <section>
+        <h2 id="where-it-runs">Where it runs: wrap-up phase 3.5</h2>
+        <p>All of it happens in one place, in one order — and the order <em>is</em> the argument.
+        Deterministic facts settle first and can block; model judgment runs only after, and
+        resolves-to-proceed.</p>
+
+        <div class="stepper" id="pipeline">
+          <div class="stepper-track" role="tablist" aria-label="wrap-up phase 3.5">
+            <button class="step-tab active" type="button" role="tab" id="pl-tab-0" aria-controls="pl-panel-0" aria-selected="true"><span class="n">1</span>Integrity</button>
+            <button class="step-tab" type="button" role="tab" id="pl-tab-1" aria-controls="pl-panel-1" aria-selected="false" tabindex="-1"><span class="n">2</span>G1 intent</button>
+            <button class="step-tab" type="button" role="tab" id="pl-tab-2" aria-controls="pl-panel-2" aria-selected="false" tabindex="-1"><span class="n">3</span>Run</button>
+            <button class="step-tab" type="button" role="tab" id="pl-tab-3" aria-controls="pl-panel-3" aria-selected="false" tabindex="-1"><span class="n">4</span>Surface</button>
+            <button class="step-tab" type="button" role="tab" id="pl-tab-4" aria-controls="pl-panel-4" aria-selected="false" tabindex="-1"><span class="n">5</span>G2</button>
+            <button class="step-tab" type="button" role="tab" id="pl-tab-5" aria-controls="pl-panel-5" aria-selected="false" tabindex="-1"><span class="n">6</span>G3</button>
+            <button class="step-tab" type="button" role="tab" id="pl-tab-6" aria-controls="pl-panel-6" aria-selected="false" tabindex="-1"><span class="n">7</span>P4b</button>
+          </div>
+
+          <div class="step-panel active" role="tabpanel" id="pl-panel-0" aria-labelledby="pl-tab-0">
+            <h4>1 · Link and ADR integrity <span class="badge badge--block">hard-block</span></h4>
+            <p>Every <code>locator</code> resolves, Gherkin tags are present and round-trip, no
+            <code>accepted</code>-but-still-<code>TODO(scaffold)</code>, no duplicate
+            <code>BEH-NNN</code>, no orphan tag, and ADR frontmatter and supersede links are valid.
+            Cheap and certain, so a non-zero exit stops the run.</p>
+<pre class="code"><code>freya verify-links --format json  &amp;&amp;  freya adr verify --project .</code></pre>
+          </div>
+
+          <div class="step-panel" role="tabpanel" id="pl-panel-1" aria-labelledby="pl-tab-1" hidden>
+            <h4>2 · Declared-intent gate (G1) <span class="badge badge--block">hard-block</span></h4>
+            <p>If an <code>accepted</code> behavior's linked test was modified or deleted in this
+            change-set without a new <code>INTENT-NNN</code> record naming it, this blocks — a bare
+            accepted-test change is a regression. With no baseline marker yet the gate
+            <strong>skips</strong> rather than false-blocking.</p>
+<pre class="code"><code>freya verify-intent --project . --format json</code></pre>
+          </div>
+
+          <div class="step-panel" role="tabpanel" id="pl-panel-2" aria-labelledby="pl-tab-2" hidden>
+            <h4>3 · Build the graph, run the affected <span class="badge badge--block">hard-block</span></h4>
+            <p>Refresh <code>behavior.json</code>, then run the Direction-A regression check: re-run
+            <em>only</em> the accepted behaviors whose exercised code this change touched — not the
+            suite. A real <code>test-failed</code> blocks until it is classified as a regression, an
+            intended change, or an infrastructure failure.</p>
+<pre class="code"><code>freya behavior-graph --build --project . &amp;&amp; \
+freya behavior-graph --check --base "$BASE" --project .</code></pre>
+          </div>
+
+          <div class="step-panel" role="tabpanel" id="pl-panel-3" aria-labelledby="pl-tab-3" hidden>
+            <h4>4 · Validate-on-hit <span class="badge badge--advisory">advisory</span></h4>
+            <p>Read-only. Surfaces the <code>proposed</code>/<code>confirmed</code> behaviors this change
+            touched, so you can confirm them in context, plus any touched code no behavior covers.
+            Bounded to the affected subset, fully skippable, and it <strong>never changes the exit
+            code</strong>.</p>
+<pre class="code"><code>freya behavior-graph --surface --base "$BASE" --project .</code></pre>
+          </div>
+
+          <div class="step-panel" role="tabpanel" id="pl-panel-4" aria-labelledby="pl-tab-4" hidden>
+            <h4>5 · Principle checkpoint (G2) <span class="badge badge--advisory">resolve to proceed</span></h4>
+            <p>Judge the diff against each principle in the constitution, triage against prior
+            resolutions, and resolve every finding — fix, refute or amend. A procedural gate, not a
+            script exit, but wrap-up must not complete while one is open. An empty constitution skips
+            the step.</p>
+<pre class="code"><code>freya principles list   ·   freya principles prior/resolve …</code></pre>
+          </div>
+
+          <div class="step-panel" role="tabpanel" id="pl-panel-5" aria-labelledby="pl-tab-5" hidden>
+            <h4>6 · Contradiction check (G3) <span class="badge badge--advisory">resolve to proceed</span></h4>
+            <p>For each spec and ADR changed this cycle, judge intent against intent: principles,
+            same-category peer specs, and <em>all</em> accepted ADRs. Authority runs principle &gt; ADR
+            &gt; spec, so the resolution default falls out of the ladder. Resolve each escalated finding
+            before completing.</p>
+<pre class="code"><code>freya contradictions context --spec &lt;ID&gt;   ·   freya contradictions adr-context --adr &lt;ID&gt;</code></pre>
+          </div>
+
+          <div class="step-panel" role="tabpanel" id="pl-panel-6" aria-labelledby="pl-tab-6" hidden>
+            <h4>7 · Declarative-drift check (P4b) <span class="badge badge--advisory">resolve to proceed</span></h4>
+            <p>For each declared decision whose <code>related_code</code> intersects the blast radius,
+            judge whether the changed code contradicts it. Blast-radius scoped and code-anchored —
+            deliberately not always-global. Degrades to changed-files-only when code-graph is absent,
+            and reports that it did.</p>
+<pre class="code"><code>freya drift context --base "$BASE" --project .</code></pre>
+          </div>
+
+          <div class="stepper-nav">
+            <button class="btn btn-ghost" type="button" id="pl-prev">← Prev</button>
+            <button class="btn btn-primary" type="button" id="pl-next">Next →</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- ================================================================= -->
+      <section>
+        <h2 id="when-a-behavior-meets-a-security-finding">When a behavior meets a security finding</h2>
+        <p>This is the cross-skill payoff that justifies the apparatus. Once a behavior is
+        <code>accepted</code>, its passing test is the <strong>strongest possible "this is
+        intentional" evidence a security scan can cite</strong> — a verified guarantee rather than a
+        prose claim.</p>
+
+        <p>Concretely: a scan flags "this endpoint doesn't verify the user exists" as SEC-001.
+        <code>BEH-003</code>'s passing test proves the uniform response <em>is</em> the intended
+        anti-enumeration guarantee, so the finding is downgraded to <code>intentional</code> with
+        <code>behavior_ref: BEH-003</code> — <strong>annotated, never deleted</strong>, and dropped from
+        the outstanding count while staying fully visible in the report. SEC-002, which no accepted
+        behavior covers, stays open. And a merely <code>confirmed</code> behavior at most adds an
+        advisory note; the finding stays open until a test actually verifies it.</p>
+
+        <div class="callout callout--why">
+          <span class="callout-label">The distinction that carries the weight</span>
+          <p>A finding marked intentional can be backed by either of two references, and they are not
+          equivalent. <code>spec_ref</code> is a <strong>prose claim</strong> — somebody wrote down that
+          this is on purpose. <code>behavior_ref</code> is a <strong>test-backed guarantee</strong> —
+          something runs, and it passed. Where both explain a finding, the behavior reference wins.</p>
+        </div>
+
+        <div class="callout callout--info prose-center">
+          <span class="callout-label">In the markdown</span>
+          <p>Why only an accepted, test-backed behavior may downgrade a finding, and why a downgrade
+          annotates rather than deletes.</p>
+          <ul class="md-links">
+            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-012-accepted-behavior-downgrades-findings.md">docs/decisions/ADR-012-accepted-behavior-downgrades-findings.md</a></li>
+            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/skill-reference.md">docs/skill-reference.md</a></li>
+          </ul>
+        </div>
+      </section>
+
+    </div>
+  </main>
+
+  <div id="site-footer"></div>
+
+  <script>
+  (function () {
+    "use strict";
+
+    /* ---------------------------------------------------------------
+       Shared helpers
+       ------------------------------------------------------------- */
+    function chipRow(host, items, render, defaultIndex) {
+      var panel = document.getElementById(host.getAttribute("data-panel"));
+      var btns = [];
+      items.forEach(function (item, i) {
+        var b = document.createElement("button");
+        b.type = "button";
+        b.className = "chip-btn";
+        b.setAttribute("aria-pressed", "false");
+        b.innerHTML = item.chip;
+        b.addEventListener("click", function () { pick(i); });
+        host.appendChild(b);
+        btns.push(b);
+      });
+      function pick(i) {
+        btns.forEach(function (b, j) {
+          b.classList.toggle("active", j === i);
+          b.setAttribute("aria-pressed", j === i ? "true" : "false");
+        });
+        panel.innerHTML = render(items[i]);
+      }
+      pick(defaultIndex || 0);
+    }
+
+    /* A stepper whose panels are already in the HTML. Both `.step-panel { display:none }`
+       in assets/styles.css and the `hidden` attribute on inactive panels keep 13 of the
+       16 panels off-screen until this runs, so the <noscript> block in <head> un-hides
+       them all: with JavaScript off the stepper degrades to a plain stack. */
+    function initStepper(rootId, prevId, nextId) {
+      var root = document.getElementById(rootId);
+      if (!root) return;
+      var tabs = Array.prototype.slice.call(root.querySelectorAll(".step-tab"));
+      var panels = Array.prototype.slice.call(root.querySelectorAll(".step-panel"));
+      var prev = prevId ? document.getElementById(prevId) : null;
+      var next = nextId ? document.getElementById(nextId) : null;
+      var cur = 0;
+
+      function show(n, focus) {
+        cur = Math.max(0, Math.min(panels.length - 1, n));
+        tabs.forEach(function (t, i) {
+          var on = i === cur;
+          t.classList.toggle("active", on);
+          t.classList.toggle("done", i < cur);
+          t.setAttribute("aria-selected", on ? "true" : "false");
+          if (on) { t.removeAttribute("tabindex"); } else { t.setAttribute("tabindex", "-1"); }
+        });
+        panels.forEach(function (p, i) {
+          p.classList.toggle("active", i === cur);
+          if (i === cur) { p.removeAttribute("hidden"); } else { p.setAttribute("hidden", ""); }
+        });
+        if (prev) prev.disabled = cur === 0;
+        if (next) next.disabled = cur === panels.length - 1;
+        if (focus) tabs[cur].focus();
+      }
+
+      tabs.forEach(function (t, i) {
+        t.addEventListener("click", function () { show(i); });
+        t.addEventListener("keydown", function (e) {
+          if (e.key === "ArrowRight") { e.preventDefault(); show((cur + 1) % tabs.length, true); }
+          else if (e.key === "ArrowLeft") { e.preventDefault(); show((cur - 1 + tabs.length) % tabs.length, true); }
+          else if (e.key === "Home") { e.preventDefault(); show(0, true); }
+          else if (e.key === "End") { e.preventDefault(); show(tabs.length - 1, true); }
+        });
+      });
+      if (prev) prev.addEventListener("click", function () { show(cur - 1); });
+      if (next) next.addEventListener("click", function () { show(cur + 1); });
+      show(0);
+    }
+
+    /* ---------------------------------------------------------------
+       1 · Tier explorer — the ten-row reads/writes/degrades matrix.
+           The `degrades` line is the reason this widget exists.
+       ------------------------------------------------------------- */
+    (function () {
+      var DATA = {
+        "code-graph": {
+          tier: "1 · Foundation",
+          reads: "Your source (TS/JS, Python, Go) + git",
+          writes: "graph.json, classifications.json",
+          degrades: "It is the foundation — nothing below it to lose.",
+          note: "The keystone. impact(file) = file + direct + transitive dependents."
+        },
+        "docs-manager": {
+          tier: "2 · Knowledge",
+          reads: "Code + code-graph impact + your answers",
+          writes: "knowledge-base/README.md + reference/*.md",
+          degrades: "code-graph absent → git diff of changed files only."
+        },
+        "spec-manager": {
+          tier: "2 · Knowledge",
+          reads: "Code + code-graph + reference/ docs",
+          writes: "specs/, principles.md, decisions/, intents/, the three resolution logs",
+          degrades: "code-graph absent → git diff; no graph → project shape reported 'unknown'."
+        },
+        "behavior-graph": {
+          tier: "2 · Knowledge",
+          reads: "graph.json + spec frontmatter + behavior-runner fingerprints",
+          writes: "knowledge-base/.graph/behavior.json",
+          degrades: "No graph → --surface/--gaps return an explanatory note, not an empty list."
+        },
+        "behavior-runner": {
+          tier: "2 · Knowledge",
+          reads: "specs + vitest V8 coverage + graph.json closure",
+          writes: "Nothing — prints fingerprint JSON to stdout",
+          degrades: "Unimplemented level → coverage 'unknown' plus a machine-readable reason."
+        },
+        "codebase-security-scan": {
+          tier: "3 · Analysis",
+          reads: "reference/ docs + specs + accepted behaviors + code-graph",
+          writes: "security/codebase-security/YYYY-MM-DD.md + findings.json",
+          degrades: "code-graph absent → changed files only; no specs → warns that findings may include intentional design."
+        },
+        "dependency-vulnerability-check": {
+          tier: "3 · Analysis",
+          reads: "Lockfiles + npm/yarn/pnpm audit + web search",
+          writes: "security/dependency-vulnerabilities/YYYY-MM-DD.md",
+          degrades: "Non-Node project → it declines. Not run by wrap-up."
+        },
+        "wrap-up": {
+          tier: "4 · Orchestration",
+          reads: "Working tree + tracking files",
+          writes: "Two commits: code, then every knowledge-base/ artifact",
+          degrades: "Any missing skill → it warns and skips that step rather than failing."
+        },
+        "status": {
+          tier: "4 · Orchestration",
+          reads: "specs + behavior.json + findings.json + link verification",
+          writes: "knowledge-base/BACKLOG.md (only with --write-backlog)",
+          degrades: "Every source degrades to a note independently; it never blocks."
+        },
+        "codebase-security-resolver": {
+          tier: "5 · Resolution",
+          reads: "The security report + code-graph blast radius",
+          writes: "A code-fix commit + report and spec status updates",
+          degrades: "Routes a stale finding to a terminal state instead of attempting a broken fix."
+        }
+      };
+
+      var panel = document.getElementById("tier-panel");
+      var nodes = Array.prototype.slice.call(document.querySelectorAll(".tier-node[data-skill]"));
+      if (!panel || !nodes.length) return;
+
+      function show(skill) {
+        var d = DATA[skill];
+        if (!d) return;
+        nodes.forEach(function (n) {
+          var on = n.getAttribute("data-skill") === skill;
+          n.classList.toggle("active", on);
+          n.setAttribute("aria-pressed", on ? "true" : "false");
+        });
+        panel.innerHTML =
+          '<h4>freya-' + skill + '</h4>' +
+          (d.note ? '<p class="muted">' + d.note + '</p>' : '') +
+          '<dl class="dl">' +
+            '<div><dt>Tier</dt><dd>' + d.tier + '</dd></div>' +
+            '<div><dt>Reads</dt><dd>' + d.reads + '</dd></div>' +
+            '<div><dt>Writes</dt><dd>' + d.writes + '</dd></div>' +
+            '<div><dt>Degrades</dt><dd>' + d.degrades + '</dd></div>' +
+          '</dl>';
+      }
+      nodes.forEach(function (n) {
+        n.addEventListener("click", function () { show(n.getAttribute("data-skill")); });
+      });
+      show("code-graph");   // a real selection on load, never a placeholder
+    })();
+
+    /* ---------------------------------------------------------------
+       2 · Fan-out comparison
+       ------------------------------------------------------------- */
+    (function () {
+      var FAN = {
+        prose: '<h4>The skill asks the agent to parallelize <span class="pill">docs-manager · spec-manager</span></h4>' +
+          '<p>The flow presents its N independent tasks and then — after the list, so the structure is ' +
+          'read first — a canonical portability clause that is <strong>byte-identical</strong> across ' +
+          'every file that uses it: run them in parallel <em>if your agent supports subagents</em>, and ' +
+          'if it cannot, one at a time works, only slower. Parallel stays the default. What the clause ' +
+          'added is a <em>defined</em> fallback where there had been none.</p>' +
+          '<p class="small muted">Conformance rule <code>R9</code> fails the build if fan-out language ' +
+          'appears anywhere without that clause.</p>',
+        driver: '<h4>Python schedules the work <span class="pill">codebase-security-scan</span></h4>' +
+          '<p>The skill runs <strong>one command</strong>. A Python driver spawns the agent CLI headless, ' +
+          'once per task, through a bounded worker pool it controls — with a read-only tool allowlist ' +
+          'that excludes the shell, a budget guard that counts every attempt <em>before</em> the ' +
+          'subprocess runs, and the dedup / verify / disposition ladder in ordinary code.</p>' +
+          '<div class="code-block"><pre class="code"><code>freya security scan --project . --yes</code></pre></div>' +
+          '<p class="small muted">The scheduling is no longer a request, so it either happened or the ' +
+          'run says it did not: an empty result with exit 0 means clean, an empty result with any other ' +
+          'exit code means the scan did not run.</p>'
+      };
+      var panel = document.getElementById("fan-panel");
+      var btns = Array.prototype.slice.call(document.querySelectorAll("#fan-seg button"));
+      if (!panel || !btns.length) return;
+      function show(k) {
+        btns.forEach(function (b) {
+          var on = b.getAttribute("data-fan") === k;
+          b.classList.toggle("active", on);
+          b.setAttribute("aria-pressed", on ? "true" : "false");
+        });
+        panel.innerHTML = FAN[k];
+      }
+      btns.forEach(function (b) {
+        b.addEventListener("click", function () { show(b.getAttribute("data-fan")); });
+      });
+      show("prose");
+    })();
+
+    /* ---------------------------------------------------------------
+       3 · Adapter tabs
+       ------------------------------------------------------------- */
+    initStepper("adapter-tabs", null, null);
+
+    /* ---------------------------------------------------------------
+       4 · Behavior-graph blast-radius explorer (Direction A / B)
+       ------------------------------------------------------------- */
+    (function () {
+      var host = document.getElementById("bgraph");
+      var panel = document.getElementById("bgraph-panel");
+      if (!host || !panel) return;
+
+      var behaviors = [
+        { id: "BEH-001", title: "Successful passkey login", state: "proposed", cov: "—", y: 60,
+          exercises: [],
+          note: "Stays proposed: a valid login needs a signed WebAuthn assertion, which is unforgeable below the browser layer. Deferred rather than faked." },
+        { id: "BEH-002", title: "Expired challenge is rejected", state: "accepted", cov: "observed", y: 165,
+          exercises: ["webauthn"],
+          note: "A vitest unit test on the challenge-validation function, run in-process with the database boundary mocked. Observed coverage = 1 file, precise." },
+        { id: "BEH-003", title: "Unknown email → no user enumeration", state: "accepted", cov: "static", y: 270,
+          exercises: ["route", "prisma", "webauthn"],
+          note: "A cucumber scenario driving POST over real HTTP against a running app. Static fingerprint = the entry's import closure, 3 files — broader, the safe direction." }
+      ];
+      var files = [
+        { id: "route",    label: "…/authenticate/start/route.ts", y: 55 },
+        { id: "webauthn", label: "lib/webauthn.ts",               y: 130 },
+        { id: "prisma",   label: "lib/prisma.ts",                 y: 205 },
+        { id: "audit",    label: "lib/audit.ts",                  y: 280 }
+      ];
+      var fileById = {}; files.forEach(function (f) { fileById[f.id] = f; });
+      var behById = {};  behaviors.forEach(function (b) { behById[b.id] = b; });
+
+      var BX = 30, BW = 190, FX = 470, FW = 220, H = 34;
+      var sel = null;
+
+      function affectedBy(fileId) {
+        return behaviors.filter(function (b) { return b.exercises.indexOf(fileId) !== -1; })
+                        .map(function (b) { return b.id; });
+      }
+
+      function render() {
+        var edges = "", nodes = "";
+        behaviors.forEach(function (b) {
+          b.exercises.forEach(function (fid) {
+            var f = fileById[fid];
+            var lit = false;
+            if (sel) {
+              if (sel.kind === "B" && sel.id === b.id) lit = true;
+              if (sel.kind === "A" && sel.id === fid) lit = true;
+            }
+            edges += '<line x1="' + (BX + BW) + '" y1="' + (b.y + H / 2) +
+                     '" x2="' + FX + '" y2="' + (f.y + H / 2) +
+                     '" style="stroke:' + (lit ? "var(--accent)" : "var(--border-strong)") +
+                     ';stroke-width:' + (lit ? 2.5 : 1.2) + '"/>';
+          });
+        });
+        behaviors.forEach(function (b) {
+          var affected = sel && sel.kind === "A" && affectedBy(sel.id).indexOf(b.id) !== -1;
+          var picked = sel && sel.kind === "B" && sel.id === b.id;
+          var fill = b.state === "proposed" ? "var(--bg-inset)" : "var(--teal-weak)";
+          var stroke = b.state === "proposed" ? "var(--border-strong)" : "var(--teal)";
+          if (affected || picked) { stroke = "var(--accent)"; fill = "var(--accent-weak)"; }
+          nodes += '<g class="hit" data-kind="B" data-id="' + b.id + '" tabindex="0" role="button" ' +
+            'aria-label="Behavior ' + b.id + ': ' + b.title + ' (' + b.state + (affected || picked ? ', selected' : '') + '). Show the code it exercises.">' +
+            '<rect x="' + BX + '" y="' + b.y + '" width="' + BW + '" height="' + H + '" rx="8" style="fill:' +
+            fill + ';stroke:' + stroke + ';stroke-width:' + (affected || picked ? 2.4 : 1.4) + '"/>' +
+            '<text x="' + (BX + 10) + '" y="' + (b.y + 15) + '" style="font-size:11px;font-weight:700;fill:var(--text)">' + b.id + '</text>' +
+            '<text x="' + (BX + 10) + '" y="' + (b.y + 27) + '" style="font-size:9.5px;fill:var(--text-muted)">' +
+            (b.state === "proposed" ? "proposed" : b.cov) + '</text></g>';
+        });
+        files.forEach(function (f) {
+          var inFp = sel && sel.kind === "B" && behById[sel.id] && behById[sel.id].exercises.indexOf(f.id) !== -1;
+          var picked = sel && sel.kind === "A" && sel.id === f.id;
+          var stroke = (inFp || picked) ? "var(--accent)" : "var(--border-strong)";
+          var fill = (inFp || picked) ? "var(--accent-weak)" : "var(--surface)";
+          nodes += '<g class="hit" data-kind="A" data-id="' + f.id + '" tabindex="0" role="button" ' +
+            'aria-label="Code file ' + f.label + (inFp || picked ? ' (selected)' : '') + '. Show the behaviors that exercise it.">' +
+            '<rect x="' + FX + '" y="' + f.y + '" width="' + FW + '" height="' + H + '" rx="8" style="fill:' +
+            fill + ';stroke:' + stroke + ';stroke-width:' + (inFp || picked ? 2.4 : 1.4) + '"/>' +
+            '<text x="' + (FX + 10) + '" y="' + (f.y + 21) + '" style="font-size:11px;font-family:var(--mono);fill:var(--text)">' +
+            f.label + '</text></g>';
+        });
+        host.innerHTML =
+          '<svg viewBox="0 0 720 330" role="group" aria-label="Three behaviors of SPEC-001 linked to four code files">' +
+          '<text x="' + BX + '" y="24" style="font-size:10px;font-weight:700;fill:var(--text-faint)">BEHAVIORS (SPEC-001)</text>' +
+          '<text x="' + FX + '" y="24" style="font-size:10px;font-weight:700;fill:var(--text-faint)">CODE</text>' +
+          edges + nodes + '</svg>';
+        Array.prototype.slice.call(host.querySelectorAll(".hit")).forEach(function (g) {
+          g.addEventListener("click", function () { pick(g.getAttribute("data-kind"), g.getAttribute("data-id")); });
+          g.addEventListener("keydown", function (e) {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              pick(g.getAttribute("data-kind"), g.getAttribute("data-id"));
+            }
+          });
+        });
+      }
+
+      function pick(kind, id) {
+        sel = { kind: kind, id: id };
+        if (kind === "A") {
+          var f = fileById[id];
+          var aff = affectedBy(id);
+          panel.innerHTML =
+            '<h4>Direction A · code → behavior <span class="pill">regression</span></h4>' +
+            '<p>You changed <code>' + f.label + '</code>. Which accepted behaviors exercise it?</p>' +
+            '<div class="code-block"><pre class="code"><code>freya behavior-graph --affected ' + f.label + ' --project .</code></pre></div>' +
+            '<p class="result-line">affected = ' + (aff.length ? "[ " + aff.join(", ") + " ]" : "[ ]  — no behavior affected") + '</p>' +
+            '<p class="muted">' + (aff.length
+              ? "At wrap-up these are re-run — and only these — so a regression surfaces immediately."
+              : "Selectivity in action: an unrelated file flags nothing. This is the false-positive rate staying at 0.") +
+            '</p>';
+        } else {
+          var b = behById[id];
+          var exs = b.exercises.map(function (e) { return "<code>" + fileById[e].label + "</code>"; });
+          panel.innerHTML =
+            '<h4>Direction B · behavior → code <span class="pill">planning</span></h4>' +
+            '<p><strong>' + b.id + '</strong> — ' + b.title + '</p>' +
+            '<div class="code-block"><pre class="code"><code>freya behavior-graph --implements ' + b.id + ' --project .</code></pre></div>' +
+            '<dl class="dl">' +
+              '<div><dt>State</dt><dd>' + b.state + '</dd></div>' +
+              '<div><dt>Coverage</dt><dd>' + b.cov + '</dd></div>' +
+              '<div><dt>Exercises</dt><dd>' + (exs.length ? exs.join("<br>") : "—") + '</dd></div>' +
+            '</dl>' +
+            '<p class="muted">' + b.note + '</p>';
+        }
+        render();
+        var focusEl = host.querySelector('[data-id="' + id + '"]');
+        if (focusEl) focusEl.focus();
+      }
+
+      // a real selection on load — Direction A on the file two behaviors share.
+      // Set without pick() so nothing steals focus on page load.
+      sel = { kind: "A", id: "webauthn" };
+      var aff = affectedBy("webauthn");
+      panel.innerHTML =
+        '<h4>Direction A · code → behavior <span class="pill">regression</span></h4>' +
+        '<p>You changed <code>lib/webauthn.ts</code>. Which accepted behaviors exercise it?</p>' +
+        '<div class="code-block"><pre class="code"><code>freya behavior-graph --affected lib/webauthn.ts --project .</code></pre></div>' +
+        '<p class="result-line">affected = [ ' + aff.join(", ") + ' ]</p>' +
+        '<p class="muted">At wrap-up these — and only these — are re-checked, so a regression surfaces immediately. BEH-002 is a vitest unit behavior, so it is actually re-run; BEH-003 is integration, so its static closure is refreshed rather than executed.</p>';
+      render();
+    })();
+
+    /* ---------------------------------------------------------------
+       5 · Lifecycle explorer — five machine facts per state
+       ------------------------------------------------------------- */
+    (function () {
+      var host = document.getElementById("lc-states");
+      if (!host) return;
+      host.setAttribute("data-panel", "lc-panel");
+
+      var STATES = [
+        { id: "proposed", cls: "badge--proposed", test: "no",
+          radius: "no fingerprint — but validate-on-hit still lists it when a change touches its declared entry",
+          run: "no", gates: false, stage: "artifacts commit",
+          desc: "A candidate, usually inferred by a scan; the intent is not yet confirmed by a human. It lives only as a record in the spec and is <strong>not projected into behavior.json at all</strong> — though wrap-up's validate-on-hit still surfaces it as a candidate to confirm when a change touches its declared entry." },
+        { id: "confirmed", cls: "badge--confirmed", test: "owed",
+          radius: "yes — static, advisory",
+          run: "no", gates: false, stage: "artifacts commit",
+          desc: "A human confirmed the intent is real, but the test is still owed. It gets a static fingerprint if it declares an entry, so it appears in blast radius — but it is <strong>never executed, so it can never be test-failed</strong>. That is what makes it structurally non-gating rather than merely lenient." },
+        { id: "accepted", cls: "badge--accepted", test: "yes — passing",
+          radius: "yes — observed or static",
+          run: "unit + vitest only — an integration behavior takes the static closure instead, and any other adapter reports <code>level-deferred</code>",
+          gates: true, stage: "code commit",
+          desc: "Confirmed intent that a real, linked, passing test verifies. The only authoritative state: <strong>only accepted behaviors are eligible to be run at wrap-up, and only an accepted behavior's failure can block.</strong>" },
+        { id: "quarantined", cls: "badge--quarantined", test: "failing, for infrastructure reasons",
+          radius: "no", run: "no", gates: false, stage: "—",
+          desc: "The test is failing because of a flake, a fixture or the environment rather than the code. Temporarily removed from the authoritative set until repaired, so a known-flaky test cannot block everyone." },
+        { id: "deprecated", cls: "badge--deprecated", test: "—",
+          radius: "no", run: "no", gates: false, stage: "—",
+          desc: "The behavior was intentionally retired. Kept for history; no longer authoritative. Not a deletion." }
+      ];
+
+      chipRow(
+        host,
+        STATES.map(function (s) {
+          return { chip: '<span class="badge ' + s.cls + '">' + s.id + '</span>', s: s };
+        }),
+        function (item) {
+          var s = item.s;
+          var gate = s.gates
+            ? '<span class="badge badge--block">gates wrap-up</span>'
+            : '<span class="pill">advisory · never gates</span>';
+          return '<h4>' + s.id + '</h4><p>' + s.desc + '</p>' +
+            '<dl class="dl">' +
+              '<div><dt>Has a test?</dt><dd>' + s.test + '</dd></div>' +
+              '<div><dt>In blast radius?</dt><dd>' + s.radius + '</dd></div>' +
+              '<div><dt>Executed?</dt><dd>' + s.run + '</dd></div>' +
+              '<div><dt>Gates wrap-up?</dt><dd>' + gate + '</dd></div>' +
+              '<div><dt>Staged where?</dt><dd>' + s.stage + '</dd></div>' +
+            '</dl>';
+        },
+        2 // default to "accepted" — the only state that gates
+      );
+    })();
+
+    /* ---------------------------------------------------------------
+       6 · Life of one behavior
+       ------------------------------------------------------------- */
+    initStepper("lb-stepper", "lb-prev", "lb-next");
+
+    /* ---------------------------------------------------------------
+       7 · What guards what
+       ------------------------------------------------------------- */
+    (function () {
+      var host = document.getElementById("guard-btns");
+      if (!host) return;
+      host.setAttribute("data-panel", "guard-panel");
+
+      var CHECKS = [
+        { id: "Tier-1 links",
+          cmp: "behavior locators and <code>@SPEC</code>/<code>@BEH</code> tags vs the files and specs they point at",
+          guards: "traceability of executable behaviors",
+          kind: "deterministic", block: true,
+          note: "Cheap and certain: an unresolved locator, a missing reverse tag, an accepted-but-still-scaffold, a duplicate BEH-NNN, an orphan tag." },
+        { id: "G1 intent",
+          cmp: "an edit to an accepted behavior's test vs an <code>INTENT-NNN</code> record naming it",
+          guards: "changes to an accepted behavior's guarantee",
+          kind: "deterministic", block: true,
+          note: "Plugs the edit-both-and-stay-green hole. The gate's own question is a fact, which is what earns it the right to block. Scoped temporally: the record must be new in the change-set." },
+        { id: "G2 principles",
+          cmp: "the code diff vs <code>principles.md</code>",
+          guards: "project-wide principles — the constitution",
+          kind: "model judgment", block: false,
+          note: "No blast-radius scoping, because every principle applies to every change by definition. An empty constitution skips the step." },
+        { id: "G3 contradictions",
+          cmp: "a changed spec or ADR vs higher-authority intent",
+          guards: "coherence between one recorded intent and another",
+          kind: "model judgment", block: false,
+          note: "The only intent-vs-intent check. Scoped to the changed item against same-category peers plus principles — a whole-repo re-derivation on every spec edit would be noise, and noise erodes trust in a gate." },
+        { id: "P4a ADRs",
+          cmp: "a changed spec vs <strong>all</strong> accepted ADRs; a changed ADR vs the principles above it",
+          guards: "cross-cutting architecture decisions",
+          kind: "model judgment + a deterministic integrity check", block: false,
+          note: "Always-global, with no scoping at all: over-scoping would be a silent miss, and a silent miss is unrecoverable. Separately, the deterministic adr verify is a Tier-1 hard-block." },
+        { id: "P4b drift",
+          cmp: "changed code vs declarative intent (<code>related_code ∩ blast radius</code>)",
+          guards: "declared intent that has no test to fail",
+          kind: "model judgment", block: false,
+          note: "Code-anchored and blast-radius-scoped — the deliberate opposite of P4a. An item with no related_code is invisible to it, and 'freya drift gaps' publishes exactly that set." }
+      ];
+
+      chipRow(
+        host,
+        CHECKS.map(function (c) { return { chip: c.id, c: c }; }),
+        function (item) {
+          var c = item.c;
+          var badge = c.block
+            ? '<span class="badge badge--block">hard-block</span>'
+            : '<span class="badge badge--advisory">resolve to proceed</span>';
+          return '<h4>' + c.id + ' &nbsp;' + badge + '</h4>' +
+            '<dl class="dl">' +
+              '<div><dt>Compares</dt><dd>' + c.cmp + '</dd></div>' +
+              '<div><dt>Guards</dt><dd>' + c.guards + '</dd></div>' +
+              '<div><dt>Kind</dt><dd>' + c.kind + '</dd></div>' +
+            '</dl><p class="muted">' + c.note + '</p>';
+        },
+        0
+      );
+    })();
+
+    /* ---------------------------------------------------------------
+       8 · wrap-up phase 3.5 pipeline
+       ------------------------------------------------------------- */
+    initStepper("pipeline", "pl-prev", "pl-next");
+
+  })();
+  </script>
+</body>
+</html>

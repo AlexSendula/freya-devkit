@@ -155,10 +155,11 @@ worker wall, so only the "consume existing traces" form is worth building.
 
 **What.** Only the **vitest** unit runner is actually implemented (V8 →
 `coverage-final.json` → observed fingerprint). `KNOWN_ADAPTERS`
-(`skills/freya-spec-manager/scripts/frontmatter.py:94-100`) allow-lists eleven adapters —
-cucumber, behave, pytest-bdd, jest, vitest, mocha, jasmine, playwright, cypress, pytest,
-unittest — but everything except vitest-unit falls through to `level-deferred` in
-`fingerprint_behavior()` (`run_behaviors.py:229`): unknown coverage, never run. Integration is
+(`skills/freya-spec-manager/scripts/frontmatter.py:94-100`) allow-lists eleven runner
+adapters — cucumber, behave, pytest-bdd, jest, vitest, mocha, jasmine, playwright, cypress,
+pytest, unittest — plus `manual` (human-verified, no runner), but everything except
+vitest-unit falls through to `level-deferred` in `fingerprint_behavior()`
+(`run_behaviors.py:229`): unknown coverage, never run. Integration is
 static via code-graph and therefore adapter-agnostic; authoring already handles all of them
 (Gherkin scaffold plus native link).
 
@@ -270,7 +271,7 @@ inventory measurement already done), collapse per-field-validation behaviors int
 
 ## Open defects
 
-All six re-verified against shipped code on 2026-08-19.
+All eight re-verified against shipped code on 2026-08-19.
 
 ### 1. A `--copy` install is re-copied on every `update`, even when nothing changed
 
@@ -308,9 +309,12 @@ Reference. The Commands section (`:86` onward) defines only the default interact
 `list` (`:567`), `fix <ids...>` (`:605`, including the `--critical` / `--high` shortcuts) and
 `fix --dry-run` (`:634`). Neither advertised command has a phase, an example, or any statement
 of where it reads prior-session state from — git log, a diff between dated reports, something
-else — so an agent invoked with `review` has to improvise. The published explainer does not
-preserve the gap either: `docs/explanations/plugin/reference.html` and `skills.html` list only
-the four defined commands, silently dropping two the skill still ships. Pick one: specify both
+else — so an agent invoked with `review` has to improvise. The consolidated explainer does not
+preserve the gap either — `docs/explanations/using.html` (the `codebase-security-resolver`
+entry) and `docs/explanations/reference.html` describe the skill without listing its command
+surface at all, and the `docs/skill-reference.md#codebase-security-resolver` they link out to
+has no command table either, so neither the four defined commands nor the two undefined ones
+are visible anywhere. Pick one: specify both
 with a phase and an example, or remove them from the table.
 
 ### 5. Repairing a copy install with `--force` silently converts it to symlinks
@@ -354,8 +358,38 @@ two artifact kinds were never separated.
 (`graph.json`, `classifications.json`, rather than `*`). Moving it is cleaner — the directory
 then means one thing, "regenerable cache" — but it touches `behavior_graph.py`'s write path,
 `collect_status.py`, and the `.graph/` references in `docs/architecture.md` and
-`docs/skill-reference.md`. Worth an ADR either way, since the current state has no recorded
-reasoning.
+`docs/skill-reference.md`. Worth an ADR either way, though the gap is narrower than "nobody
+decided": ADR-004 records only the *placement* (`behavior.json` as a sibling of `graph.json`
+under `.graph/`) and ADR-006 justifies the ignore on the grounds that the file is generated and
+can be "rebuilt from scratch". Neither weighs the fact that decides it — observed fingerprints
+cannot be recovered by re-reading source, only by re-running a green suite.
+
+### 8. Redacted content is still reachable in `main`'s history
+
+Two commits removed sensitive content from the design records — `05ff480` (a client/project
+name) and `2c3b512` (a private email address used in `git -c user.email=…` command examples).
+**Neither is an ancestor of `main`.** The portability branch was squash-merged as `51bdadb`,
+whose sole parent is `bd6bdfb`, so main's own earlier history still holds the pre-redaction
+blobs:
+
+- `bd6bdfb:docs/design/behavior-layer/parking-lot.md` is `ed587af`, the exact blob `05ff480`
+  replaced with `903d62a`.
+- `bd6bdfb:docs/design/behavior-layer/02b-phase-2-plan.md` is `a79fe56`, the exact blob
+  `2c3b512` replaced with `dd41ade`.
+
+`bd6bdfb` is a direct ancestor of the `origin/main` tip, not an unreferenced object, so every
+default clone of the public repo fetches it. Verify with `git merge-base --is-ancestor 05ff480
+main` (exit 1) and `git cat-file -p bd6bdfb:docs/design/behavior-layer/02b-phase-2-plan.md`.
+
+The working tree is clean; the history is not, and the repo is public. Deleting the files in a
+later commit does not help, and the "decide before merging" window closed when `51bdadb`
+landed. The only remedies left are a history rewrite plus force-push — which breaks every
+existing clone and every `freya update` consumer tracking the branch — or a deliberate decision
+to accept the exposure. Decide it explicitly rather than by default.
+
+**Do not restate the address or the client name here or anywhere else in the repo;** the commit
+and blob references above are enough to act on, and writing the values into a live file would
+re-create the leak this entry exists to track.
 
 ---
 

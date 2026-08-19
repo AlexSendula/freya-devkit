@@ -97,10 +97,12 @@ one full driver stderr transcript per adapter.
 
 ## Revisit Conditions
 
-- The evidence clause is currently **unfulfilled**: `docs/design/portability/evidence/` holds only
-  a README and a `.gitkeep`, so it is a convention with no instance behind it. The next live
-  validation run must produce the first committed extract, or the clause should be withdrawn rather
-  than left aspirational.
+- The evidence clause is currently **unfulfilled**: no committed extract exists anywhere in the
+  tree, and the `docs/design/portability/evidence/` drop zone — which never held more than a
+  README and a `.gitkeep` — went with the design tree on 2026-08-19. The next live validation run
+  must create `docs/evidence/` and produce the first committed extract (see
+  [`../backlog.md`](../backlog.md) § "Whatever runs live next"), or the clause should be withdrawn
+  rather than left aspirational.
 - If real-git tests become slow enough to hurt the suite, or CI environments without `git` stop
   being an edge case, the skip-when-absent posture is worth revisiting.
 - If provisional choices start requiring expensive migrations rather than cheap corrections, the

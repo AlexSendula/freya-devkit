@@ -279,10 +279,12 @@ skills/
 ├── freya-docs-manager/
 │   ├── SKILL.md
 │   ├── evals/
+│   ├── references/
 │   └── scripts/
 │       └── detect_project.py
 ├── freya-spec-manager/
 │   ├── SKILL.md
+│   ├── evals/
 │   ├── scripts/
 │   │   ├── search_specs.py       # spec CRUD / search
 │   │   ├── frontmatter.py        # schema + validation

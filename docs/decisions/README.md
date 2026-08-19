@@ -12,7 +12,7 @@ status and superseded reasoning. The originals are in git history; what mattered
 
 ## Format
 
-Each record follows freya's own ADR format, validated by
+Each record follows freya's own ADR format, defined by
 [`frontmatter.py`](../../skills/freya-spec-manager/scripts/frontmatter.py) (`ADR_SCHEMA`) and
 [`adr.py`](../../skills/freya-spec-manager/scripts/adr.py):
 
@@ -26,6 +26,13 @@ tags: [...]
 ---
 ## Decision   ## Rationale   ## Rejected Alternatives   ## Revisit Conditions
 ```
+
+**The tooling does not see this directory.** `adr.py` reads `knowledge-base/decisions/`
+(`DECISIONS_RELDIR`, `adr.py:29`) — the layout it writes into an *adopting* project. This repo
+deliberately keeps its root free of `knowledge-base/`, so `freya adr verify --project .` here
+checks zero files and exits 0, and `freya adr list` prints an empty table. These sixteen
+records do satisfy `ADR_SCHEMA`; nothing checks that automatically. The format is shared, the
+tooling is not — write new records by hand.
 
 **Authority order: shipped code beats an ADR beats a spec.** An ADR records the decision, not
 the implementation. Where they disagree, the code is right and the ADR needs a correction —

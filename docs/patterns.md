@@ -118,8 +118,8 @@ Commit 2 (artifacts):
 
 **The rule that makes it hold: only `freya-wrap-up` stages or commits.** Every other
 skill writes its artifacts and stops. This belongs in the body of every artifact-writing
-skill — four of the six carry it today; `freya-codebase-security-scan` and `freya-status`
-are the gap — because phase-6 validation watched an agent with
+skill — see [conventions.md](conventions.md#artifacts-not-commits) for which skills
+carry the paragraph today — because phase-6 validation watched an agent with
 broad tool permissions infer a `git commit` no skill had asked for, and prose is the only
 lever a skill has against that. A new artifact-writing skill needs its own
 "Artifacts, not commits" paragraph; no conformance rule can check for one.
@@ -164,10 +164,10 @@ knowledge-base/.graph/graph.json (has commit field)
 
 | Score | Meaning | Action |
 |-------|---------|--------|
-| 90-100 | High confidence | Accept automatically |
+| 90-100 | High confidence | Auto-accept |
 | 70-89 | Good confidence | Brief review |
 | 50-69 | Medium confidence | Ask user to confirm |
-| 0-49 | Low confidence | Needs detailed review |
+| 0-49 | Low confidence | Detailed review needed |
 
 **Factors that increase certainty**:
 - Code comments explain intent

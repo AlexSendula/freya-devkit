@@ -1,6 +1,6 @@
 # Skill Reference
 
-Quick reference for all ten skills, grouped by the five tiers of the ecosystem.
+Quick reference for all ten skills, in tier order — see [Skill Relationships](#skill-relationships) for the five tiers.
 
 > **Invocation & namespacing.** Skill names are `freya-<skill>` (e.g. `freya-code-graph`). Installed portably via `install.sh` (any agent), a skill is named `freya-<skill>` and how you invoke it is the host's business — name it in the request ("run the freya-code-graph skill and build the graph"), or use whatever invocation syntax your agent offers. There is no cross-agent slash form. Installed via the Claude marketplace plugin, Claude namespaces it: `/freya-devkit:freya-<skill> [args]` (e.g. `/freya-devkit:freya-code-graph build`). See the [README](../README.md#installation) for both install paths.
 
@@ -159,21 +159,21 @@ Its exit code is the first thing to read, and only one value means "fall back":
 An empty array with exit `0` means clean. An empty array with any other code means the
 scan did not run.
 
+**Severity is the worker's word, not the driver's.** The driver normalises *confidence*
+— `confirmed` / `needs-review` / `intentional-design` are computed from the skeptic vote
+— but `severity` passes straight through from the finder that reported it.
+`audit_engine.py` never references it and `audit_io.py` only checks it against the enum,
+and the four-level scale in the skill's own Severity Guidelines is never included in the
+finder prompt, so a driver-spawned worker rates on its own priors. Observed on one phase-7
+fixture: the `claude` adapter returned every finding as `critical` where `copilot` returned
+the same issues as `high`, and Claude produced 8 candidates in a round against Copilot's 4
+— enough to hit `--max-findings 6` and discard the excess. Neither rating is wrong. Treat a
+severity mix as a property of the worker that ran, not of the codebase, and do not compare
+severities across adapters or across runs that used different `--agent`/`--model`.
+
 **Output**: `knowledge-base/security/codebase-security/YYYY-MM-DD.md`
 
-**Uses**: code-graph (impact analysis), spec-manager (intentional design)
-
----
-
-### codebase-security-resolver
-
-**Purpose**: Fix security issues found by codebase-security-scan.
-
-**Triggers**: "fix security issues", "resolve security findings", "remediate vulnerabilities"
-
-**Workflow**: Reads security report, proposes fixes, applies with user approval.
-
-**Uses**: codebase-security-scan (reads reports)
+**Uses**: code-graph (impact analysis), spec-manager (intentional design), behavior-graph (`--covering` — accepted, test-backed behaviors are the stronger intentional-design evidence)
 
 ---
 
@@ -223,6 +223,18 @@ scan did not run.
 **Output**: `knowledge-base/BACKLOG.md`
 
 **Uses**: behavior-graph, spec-manager, security-scan (all read-only)
+
+---
+
+### codebase-security-resolver
+
+**Purpose**: Fix security issues found by codebase-security-scan.
+
+**Triggers**: "fix security issues", "resolve security findings", "remediate vulnerabilities"
+
+**Workflow**: Reads security report, proposes fixes, applies with user approval.
+
+**Uses**: codebase-security-scan (reads reports)
 
 ---
 
@@ -283,6 +295,7 @@ Everything under `knowledge-base/` is committed except `.graph/`, which ignores 
 | Security reports | `knowledge-base/security/codebase-security/YYYY-MM-DD.md` | tracked |
 | Resolution logs | `knowledge-base/*-resolutions.jsonl` | tracked |
 | Spec tracking | `knowledge-base/specs/.spec-last-update` | tracked |
+| Declared-intent tracking | `knowledge-base/intents/.intent-last-verified` | tracked |
 | Security tracking | `knowledge-base/security/.security-last-scan` | tracked |
 | Update-check throttle | `~/.freya/update-check.json` | outside the repo |
 | Project agent primer | `AGENTS.md` (managed block only) | tracked |

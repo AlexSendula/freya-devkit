@@ -2,6 +2,13 @@
 __pycache__/
 *.py[cod]
 
+# pytest's cache. Ignored here rather than relying on the .gitignore pytest writes
+# inside each cache dir: that marker is written only when the cache is first created
+# and is never restored if it is removed, so the cache becomes committable. Same
+# reasoning as **/.graph/ below. CONTRIBUTING tells every contributor to run pytest,
+# and it leaves a cache in each directory it is run from.
+**/.pytest_cache/
+
 # macOS
 .DS_Store
 

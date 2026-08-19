@@ -18,7 +18,7 @@ tags:
 
 One distribution contract, five clauses.
 
-**The checkout is the store.** The installer materializes the suite once, then symlinks each `freya-<skill>` directory into every agent's skills directory (`~/.claude/skills`, `~/.copilot/skills`, preferring the cross-agent `~/.agents/skills`), with `--copy` as the fallback where symlinks are hostile. Default scope is global. The Claude marketplace plugin remains a second install path over the same skills. The skills are standard-*conformant* but not standard-*separable*: you install the suite, never an individual skill.
+**The checkout is the store.** The installer materializes the suite once, then symlinks each `freya-<skill>` directory into every agent's skills directory — `~/.claude/skills` for Claude Code, and the cross-agent `~/.agents/skills` for Copilot, which reads both that and `~/.copilot/skills`, so the shared location is used and `~/.copilot/skills` is deliberately skipped to avoid registering twice (`bin/installer.py:36`) — with `--copy` as the fallback where symlinks are hostile. Default scope is global. The Claude marketplace plugin remains a second install path over the same skills. The skills are standard-*conformant* but not standard-*separable*: you install the suite, never an individual skill.
 
 **The `freya-` prefix lives in the repository.** All ten skill directories and their frontmatter `name:` values carry it on disk; installation rewrites nothing.
 
@@ -26,7 +26,7 @@ One distribution contract, five clauses.
 
 **`freya init` writes `AGENTS.md` and installs nothing.** Run explicitly inside a project, it emits a fixed preamble plus a skill table rendered at run time from each SKILL.md description, inside `freya-devkit:begin`/`end` markers. No file means create; no markers means append with existing prose never rewritten; markers present means replace between them, so a second run produces no diff. Malformed markers — unpaired, or `end` before `begin` — refuse with exit 2 and change nothing.
 
-**Every destructive path is gated on ownership.** Targets classify as `create` / `ok` / `foreign` / `occupied` (`bin/installer.py:50`). A real file or directory is *always* `occupied` and always blocks (`bin/installer.py:146`); `--force` may replace a foreign symlink and nothing else; `uninstall` removes only symlinks pointing into this store. A multi-agent install plans every agent and the launcher before mutating anything.
+**Every destructive path is gated on ownership.** Targets classify as `create` / `ok` / `foreign` / `occupied` (`bin/installer.py:50`). A real file or directory is `occupied` and always blocks *unless* it carries proof it is ours — the `.freya-install` marker naming this exact store for a `--copy` skill directory (`bin/installer.py:146`), or the shim tag line naming it for a copied launcher (`bin/installer.py:611`); proof naming *another* store reads `foreign`. `--force` may replace a foreign symlink, a foreign marker-carrying copy directory (deleted whole, edits and all) or a foreign launcher shim, and nothing else (`bin/installer.py:354`); `uninstall` removes only symlinks pointing into this store's `skills/`, copy directories whose marker names it, and a launcher shim tagged with it (`bin/installer.py:446`). A multi-agent install plans every agent and the launcher before mutating anything.
 
 ## Rationale
 
