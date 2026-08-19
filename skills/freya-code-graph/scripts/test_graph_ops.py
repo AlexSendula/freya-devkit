@@ -158,7 +158,7 @@ class TestGraphCacheIgnored(Base):
         gi = Path(proj) / "knowledge-base" / ".graph" / ".gitignore"
         self.assertTrue(gi.exists(), ".graph/.gitignore not written")
         self.assertEqual(self._lines(gi),
-                         ["graph.json", "graph.*.json", "classifications.json"])
+                         ["graph.json", "graph.*.json", "classifications.json", "docs.json"])
 
     def test_upgrades_a_legacy_blanket_ignore(self):
         """An already-onboarded project carries `*`; the build must upgrade it."""
@@ -171,7 +171,7 @@ class TestGraphCacheIgnored(Base):
         # and build() would otherwise prompt on stdin (F6).
         CodeGraph(proj).build(non_interactive=True)
         self.assertEqual(self._lines(gdir / ".gitignore"),
-                         ["graph.json", "graph.*.json", "classifications.json"])
+                         ["graph.json", "graph.*.json", "classifications.json", "docs.json"])
 
     def test_leaves_a_customised_gitignore_alone(self):
         proj = self.mk({"src/b.ts": "export const b = 1\n"})
