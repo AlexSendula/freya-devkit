@@ -10,13 +10,13 @@
 
 ## Context
 
-Designed in [`../specs/2026-08-17-driver-owned-scan-design.md`](../specs/2026-08-17-driver-owned-scan-design.md). Motivated by [`../../design/portability/phase-6-validation-log.md`](../../design/portability/phase-6-validation-log.md), where Copilot ran the six category scans itself as a sequence of greps and then reported them as "six category scans run in parallel".
+Designed in [`../specs/2026-08-17-driver-owned-scan-design.md`](../specs/2026-08-17-driver-owned-scan-design.md). Motivated by [`../../design/portability/phase-6-validation-log.md`](../../../design/portability/phase-6-validation-log.md), where Copilot ran the six category scans itself as a sequence of greps and then reported them as "six category scans run in parallel".
 
 ### Three facts verified against the tree (2026-08-17), each of which shapes a task
 
-**1. `disposition()` drops on unanimous refutation.** `upheld == 0` → `"drop"`, and a dropped finding never leaves the engine ([`audit_engine.py:238`](../../../skills/freya-codebase-security-scan/scripts/audit_engine.py)). With one lens, one refutation *is* unanimous. That is why the preset cuts rounds and not lenses — the cheap-looking alternative silently deletes real vulnerabilities.
+**1. `disposition()` drops on unanimous refutation.** `upheld == 0` → `"drop"`, and a dropped finding never leaves the engine ([`audit_engine.py:238`](../../../../skills/freya-codebase-security-scan/scripts/audit_engine.py)). With one lens, one refutation *is* unanimous. That is why the preset cuts rounds and not lenses — the cheap-looking alternative silently deletes real vulnerabilities.
 
-**2. `verification.lenses` is the module constant.** `disposition()` writes `{"lenses": SKEPTICS}` regardless of which skeptic calls actually answered ([`audit_engine.py:83`](../../../skills/freya-codebase-security-scan/scripts/audit_engine.py)). A finding whose exploitability lens timed out still reports all three, so the report claims a verification that did not happen. Task 2 fixes this independently of the preset.
+**2. `verification.lenses` is the module constant.** `disposition()` writes `{"lenses": SKEPTICS}` regardless of which skeptic calls actually answered ([`audit_engine.py:83`](../../../../skills/freya-codebase-security-scan/scripts/audit_engine.py)). A finding whose exploitability lens timed out still reports all three, so the report claims a verification that did not happen. Task 2 fixes this independently of the preset.
 
 **3. `bin/commands.json` maps `security` → `audit.py`.** So `freya security scan` needs no launcher change at all: it arrives as `argv[0] == "scan"` and the existing `mode` positional — today `choices=["audit"]` — is the only gate.
 

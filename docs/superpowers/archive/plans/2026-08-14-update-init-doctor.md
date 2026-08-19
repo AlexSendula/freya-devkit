@@ -10,7 +10,7 @@
 
 ## Context
 
-This is **Phase 5 of 6** of the portability track ([`docs/design/portability/01-design.md`](../../design/portability/01-design.md) §8, §11), designed in [`docs/superpowers/specs/2026-08-14-phase-5-update-init-design.md`](../specs/2026-08-14-phase-5-update-init-design.md). Branch `feat/polyglot-portability` stays open. Phases 1–4b are built and reviewed; phase 6 is end-to-end validation on Copilot and Claude and depends on this phase existing.
+This is **Phase 5 of 6** of the portability track ([`docs/design/portability/01-design.md`](../../../design/portability/01-design.md) §8, §11), designed in [`docs/superpowers/specs/2026-08-14-phase-5-update-init-design.md`](../specs/2026-08-14-phase-5-update-init-design.md). Branch `feat/polyglot-portability` stays open. Phases 1–4b are built and reviewed; phase 6 is end-to-end validation on Copilot and Claude and depends on this phase existing.
 
 ### Three facts verified against the tree (2026-08-14), each of which shapes a task
 
@@ -26,7 +26,7 @@ description: |
 
 `frontmatter_name()` in `bin/check_skill_conformance.py` only reads inline values, so a naive generalization returns `"|"` for every skill and the `AGENTS.md` table ships ten empty cells. Task 8 handles both forms.
 
-**3. `update` and `init` are already in `BUILTIN_COMMANDS`** ([`bin/check_skill_conformance.py:20`](../../../bin/check_skill_conformance.py)), so documenting them cannot trip rule R3. (`uninstall` is *not* in that set — out of scope, carried forward.)
+**3. `update` and `init` are already in `BUILTIN_COMMANDS`** ([`bin/check_skill_conformance.py:20`](../../../../bin/check_skill_conformance.py)), so documenting them cannot trip rule R3. (`uninstall` is *not* in that set — out of scope, carried forward.)
 
 ## Global Constraints
 

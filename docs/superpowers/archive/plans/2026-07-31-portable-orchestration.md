@@ -10,7 +10,7 @@
 
 ## Context
 
-This is **Phase 4 of 6** ([`docs/design/portability/01-design.md`](../../design/portability/01-design.md) §6, §11). Branch `feat/polyglot-portability` stays open through all six phases. Phase 2 made the skill layer agent-neutral; Phase 3 renamed the skills and built the installer.
+This is **Phase 4 of 6** ([`docs/design/portability/01-design.md`](../../../design/portability/01-design.md) §6, §11). Branch `feat/polyglot-portability` stays open through all six phases. Phase 2 made the skill layer agent-neutral; Phase 3 renamed the skills and built the installer.
 
 ### What is actually wrong today
 

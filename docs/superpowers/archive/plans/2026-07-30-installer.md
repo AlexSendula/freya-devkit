@@ -10,7 +10,7 @@
 
 ## Context
 
-This is **Phase 3 of 6** ([`docs/design/portability/01-design.md`](../../design/portability/01-design.md) §4, §11). Branch `feat/polyglot-portability` stays open through all six phases. Phase 1 shipped the launcher; Phase 2 made the skill layer agent-neutral and left every cross-reference reading `freya-<skill>`.
+This is **Phase 3 of 6** ([`docs/design/portability/01-design.md`](../../../design/portability/01-design.md) §4, §11). Branch `feat/polyglot-portability` stays open through all six phases. Phase 1 shipped the launcher; Phase 2 made the skill layer agent-neutral and left every cross-reference reading `freya-<skill>`.
 
 ### Two findings that reshaped this phase (verified 2026-07-30)
 

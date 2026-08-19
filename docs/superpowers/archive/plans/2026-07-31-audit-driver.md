@@ -10,7 +10,7 @@
 
 ## Context
 
-This is **Phase 4b of the portability track** ([`docs/design/portability/01-design.md`](../../design/portability/01-design.md) §6.1, §6.1.1). Branch `feat/polyglot-portability` stays open. Phase 4 made the three prose fan-out flows portable; `audit` was carved out because it is not prose — it runs on `workflows/codebase-security-audit.js` via the Workflow tool.
+This is **Phase 4b of the portability track** ([`docs/design/portability/01-design.md`](../../../design/portability/01-design.md) §6.1, §6.1.1). Branch `feat/polyglot-portability` stays open. Phase 4 made the three prose fan-out flows portable; `audit` was carved out because it is not prose — it runs on `workflows/codebase-security-audit.js` via the Workflow tool.
 
 ### Why a driver rather than prose
 

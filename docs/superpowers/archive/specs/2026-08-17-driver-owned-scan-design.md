@@ -1,7 +1,7 @@
 # Driver-owned fan-out for `codebase-security-scan`
 
 **Portability follow-on (phase 7). Status: design — 2026-08-17.** Motivated by a phase 6
-finding: [`../../design/portability/phase-6-validation-log.md`](../../design/portability/phase-6-validation-log.md).
+finding: [`../../design/portability/phase-6-validation-log.md`](../../../design/portability/phase-6-validation-log.md).
 
 ---
 

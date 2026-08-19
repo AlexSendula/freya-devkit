@@ -10,7 +10,7 @@
 
 ## Context
 
-This is **Phase 2 of 6** in the portability track ([`docs/design/portability/01-design.md`](../../design/portability/01-design.md) §11). Branch `feat/polyglot-portability` stays open through all six phases.
+This is **Phase 2 of 6** in the portability track ([`docs/design/portability/01-design.md`](../../../design/portability/01-design.md) §11). Branch `feat/polyglot-portability` stays open through all six phases.
 
 Verified counts against the tree on 2026-07-28:
 

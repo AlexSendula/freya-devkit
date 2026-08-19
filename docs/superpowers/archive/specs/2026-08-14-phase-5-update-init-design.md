@@ -1,8 +1,8 @@
 # Phase 5 — `freya update`, the notify check, `freya init`, and a doctor that sees orphans
 
 **Portability Track A, phase 5. Status: design — 2026-08-14.** Builds on
-[`../../design/portability/01-design.md`](../../design/portability/01-design.md) §8 and
-[`00-vision.md`](../../design/portability/00-vision.md) §4.4. Phases 1–4b are built and
+[`../../design/portability/01-design.md`](../../../design/portability/01-design.md) §8 and
+[`00-vision.md`](../../../design/portability/00-vision.md) §4.4. Phases 1–4b are built and
 reviewed; this is the last build phase before validation (phase 6).
 
 ---
