@@ -267,18 +267,26 @@ Tier 5  codebase-security-resolver
 
 ## File Locations
 
-| Type | Location |
-|------|----------|
-| Dependency graph | `knowledge-base/.graph/graph.json` |
-| Behavior graph | `knowledge-base/.graph/behavior.json` |
-| Project docs | `knowledge-base/reference/*.md` |
-| Feature specs | `knowledge-base/specs/<category>/SPEC-*.md` |
-| ADRs (decisions) | `knowledge-base/decisions/ADR-*.md` |
-| Declared intents | `knowledge-base/intents/INTENT-*.md` |
-| Principles (constitution) | `knowledge-base/principles.md` |
-| Backlog (generated) | `knowledge-base/BACKLOG.md` |
-| Security reports | `knowledge-base/security/codebase-security/YYYY-MM-DD.md` |
-| Spec tracking | `knowledge-base/specs/.spec-last-update` |
-| Security tracking | `knowledge-base/security/.security-last-scan` |
-| Update-check throttle | `~/.freya/update-check.json` |
-| Project agent primer | `AGENTS.md` (managed block only) |
+Everything under `knowledge-base/` is committed except `.graph/`, which ignores itself.
+
+| Type | Location | In git? |
+|------|----------|---------|
+| Dependency graph | `knowledge-base/.graph/graph.json` | ignored |
+| Graph classifications | `knowledge-base/.graph/classifications.json` | ignored |
+| Behavior graph | `knowledge-base/.graph/behavior.json` | ignored ⚠ |
+| Project docs | `knowledge-base/reference/*.md` | tracked |
+| Feature specs | `knowledge-base/specs/<category>/SPEC-*.md` | tracked |
+| ADRs (decisions) | `knowledge-base/decisions/ADR-*.md` | tracked |
+| Declared intents | `knowledge-base/intents/INTENT-*.md` | tracked |
+| Principles (constitution) | `knowledge-base/principles.md` | tracked |
+| Backlog (generated) | `knowledge-base/BACKLOG.md` | tracked |
+| Security reports | `knowledge-base/security/codebase-security/YYYY-MM-DD.md` | tracked |
+| Resolution logs | `knowledge-base/*-resolutions.jsonl` | tracked |
+| Spec tracking | `knowledge-base/specs/.spec-last-update` | tracked |
+| Security tracking | `knowledge-base/security/.security-last-scan` | tracked |
+| Update-check throttle | `~/.freya/update-check.json` | outside the repo |
+| Project agent primer | `AGENTS.md` (managed block only) | tracked |
+
+⚠ `behavior.json` holds observed coverage captured by running the tests, so it cannot be
+rebuilt by re-reading source like its `.graph/` neighbours can. See
+[architecture.md](architecture.md#output-artifacts) and [backlog.md](backlog.md).
