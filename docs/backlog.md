@@ -93,6 +93,12 @@ still baked in, verifiably:
 - **security-scan heuristics** — Next-flavoured worked examples throughout
   `skills/freya-codebase-security-scan/SKILL.md:638-668`.
 
+### Working record
+
+While Track B is in flight, decisions, reversals and measurements are logged in
+[`polyglot/`](polyglot/) — a temporary directory that is distilled into ADRs, these docs and
+the explainer site when the feature ships, then deleted.
+
 ### How to pick it up
 
 Its own vision/brainstorm, **opening with the substrate decision** — that fork gates the

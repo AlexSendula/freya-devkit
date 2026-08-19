@@ -29,7 +29,8 @@ that reads the Agent Skills standard. Every bundled script is invoked through on
 | [patterns.md](patterns.md) | Reusable patterns — coordinator + workers, the two-commit rule, incremental updates |
 | [conventions.md](conventions.md) | Integration conventions for writing a skill that fits |
 | [skill-reference.md](skill-reference.md) | Every skill, its commands, and what it reads and writes |
-| [decisions/](decisions/) | **Architecture Decision Records.** What was decided, why, and what was rejected. Sixteen records covering the behavior layer, the graph substrate, governance and portability. |
+| [decisions/](decisions/) | **Architecture Decision Records.** What was decided, why, and what was rejected. Seventeen records covering the behavior layer, the graph substrate, governance and portability. |
+| [polyglot/](polyglot/) | **Temporary.** Working record for the in-flight Track B feature — decisions, reversals and measurements as they happen. Distilled into ADRs, these docs and the site when it ships, then deleted. |
 | [backlog.md](backlog.md) | **The single live backlog.** Next initiative, deferred capabilities, verified open defects. Nothing outstanding lives anywhere else. |
 | [migrations/](migrations/) | Runnable recipes for projects adopting a new version. **Run these**, don't just read them. |
 | [explanations/](explanations/) | Source of the published explainer site. Uploaded verbatim as the GitHub Pages site root, so anything added here is published; the seven page filenames — `index`, `using`, `how-it-works`, `extending`, `reference`, `decisions`, `evolution` — are pinned URLs. |

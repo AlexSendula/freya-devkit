@@ -6,7 +6,7 @@ The rejected alternatives are the point. Anyone can read the code to learn what 
 does; only these records say what it could have been and why it isn't. When a question comes
 back around, start here so it doesn't get re-litigated from scratch.
 
-These sixteen records were distilled from the design documents, specs and implementation plans
+These seventeen records were distilled from the design documents, specs and implementation plans
 accumulated between 2026-06 and 2026-08 — roughly fifty files that mixed decisions with tasks,
 status and superseded reasoning. The originals are in git history; what mattered is here.
 
@@ -30,7 +30,7 @@ tags: [...]
 **The tooling does not see this directory.** `adr.py` reads `knowledge-base/decisions/`
 (`DECISIONS_RELDIR`, `adr.py:29`) — the layout it writes into an *adopting* project. This repo
 deliberately keeps its root free of `knowledge-base/`, so `freya adr verify --project .` here
-checks zero files and exits 0, and `freya adr list` prints an empty table. These sixteen
+checks zero files and exits 0, and `freya adr list` prints an empty table. These seventeen
 records do satisfy `ADR_SCHEMA`; nothing checks that automatically. The format is shared, the
 tooling is not — write new records by hand.
 

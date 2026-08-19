@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Decisions — freya-devkit</title>
-  <meta name="description" content="The sixteen architecture decision records behind freya-devkit: what was decided, what it costs you, what was rejected, and the one question still open.">
+  <meta name="description" content="The seventeen architecture decision records behind freya-devkit: what was decided, what it costs you, what was rejected, and the one question still open.">
   <link rel="stylesheet" href="assets/styles.css">
   <script src="assets/site.js"></script>
 </head>
@@ -16,11 +16,11 @@
 
     <div class="doc-body">
       <span class="eyebrow">Why it is built this way</span>
-      <h1>Sixteen decisions, and what each one refused.</h1>
+      <h1>Seventeen decisions, and what each one refused.</h1>
       <p class="lead">
         Every load-bearing choice in this toolkit is written down as an architecture decision
         record — with the alternative it beat. This page is a way <em>into</em> those records:
-        what you will feel as a user, how the sixteen group up, and the one question that is
+        what you will feel as a user, how they group up, and the one question that is
         genuinely still open. The record itself stays in the repo, where it can be diffed.
       </p>
 
@@ -47,7 +47,7 @@
         </p>
 
         <p>
-          <strong>These sixteen were distilled, not accumulated.</strong> Before them, finding a
+          <strong>These were distilled, not accumulated.</strong> Before them, finding a
           decision meant reading a project history. What they were distilled from, and where those
           originals now live, is recorded in
           <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/README.md">docs/decisions/README.md</a>.
@@ -155,14 +155,14 @@
 
       <!-- ==================== THE SIXTEEN ==================== -->
       <section>
-        <h2 id="the-sixteen-by-theme">The sixteen, by theme</h2>
+        <h2 id="by-theme">The decisions, by theme</h2>
         <p class="lead">
           One sentence of what was decided, one clause of what it beat, then the file. Anything longer
           would be stealing from the record.
         </p>
 
         <div class="toggle-row" id="adr-facets" role="group" aria-label="Filter by theme">
-          <button type="button" class="chip-btn active" data-facet="all" aria-pressed="true">All sixteen</button>
+          <button type="button" class="chip-btn active" data-facet="all" aria-pressed="true">All</button>
           <button type="button" class="chip-btn" data-facet="behavior" aria-pressed="false">Behavior layer</button>
           <button type="button" class="chip-btn" data-facet="substrate" aria-pressed="false">Substrate</button>
           <button type="button" class="chip-btn" data-facet="governance" aria-pressed="false">Governance</button>
