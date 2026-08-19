@@ -129,10 +129,10 @@ class _Backend:
     def available(self):
         return True
 
-    def build(self, exclusions=None, non_interactive=False):
+    def build(self, exclusions=None, non_interactive=False, selection_metadata=None):
         return {}
 
-    def update(self, exclusions=None, non_interactive=False):
+    def update(self, exclusions=None, non_interactive=False, selection_metadata=None):
         return {}
 
 
@@ -167,6 +167,33 @@ class TestConformance(unittest.TestCase):
 
         b.coverage = boom
         self.assertTrue(any('raised RuntimeError' in e for e in conformance_errors(b)))
+
+    def test_a_backend_the_caller_cannot_actually_call_is_rejected(self):
+        """"Callable" is not a contract.
+
+        This exact stub passed conformance and then crashed the CLI with an unexpected
+        keyword. A check that green-lights something the only caller cannot invoke is
+        checking the wrong thing.
+        """
+        b = _Backend()
+        b.build = lambda exclusions=None: {}
+        errors = conformance_errors(b)
+        self.assertTrue(any('cannot be called as the contract calls it' in e
+                            for e in errors), errors)
+
+    def test_a_backend_taking_kwargs_is_accepted(self):
+        b = _Backend()
+        b.build = lambda **kw: {}
+        b.update = lambda **kw: {}
+        self.assertEqual(conformance_errors(b), [])
+
+    def test_the_shipped_backend_satisfies_its_own_contract(self):
+        """The floor has to pass the check every other backend is held to."""
+        import tempfile as _tf
+        from graph_ops import CodeGraph
+        d = _tf.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        self.assertEqual(conformance_errors(CodeGraph(d)), [])
 
 
 class TestGraphValidation(unittest.TestCase):
@@ -530,10 +557,10 @@ class _FakeBackend:
     def available(self):
         return self._available
 
-    def build(self, exclusions=None, non_interactive=False):
+    def build(self, exclusions=None, non_interactive=False, selection_metadata=None):
         return {}
 
-    def update(self, exclusions=None, non_interactive=False):
+    def update(self, exclusions=None, non_interactive=False, selection_metadata=None):
         return {}
 
 

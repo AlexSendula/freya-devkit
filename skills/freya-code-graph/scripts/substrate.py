@@ -220,6 +220,29 @@ class Exclusions:
 
 REQUIRED_BACKEND_ATTRS = ('name', 'coverage', 'available', 'build', 'update')
 
+# The call the caller actually makes. Written down because "callable" is not a contract: a
+# backend can pass an attribute check and still be uninvokable, which is what happened — this
+# repo's own reference backend satisfied `conformance_errors()` and then crashed the CLI on
+# an unexpected keyword. A contract that green-lights something the only caller cannot call
+# is not checking the thing that matters.
+BUILD_KWARGS = ('exclusions', 'non_interactive', 'selection_metadata')
+UPDATE_KWARGS = ('exclusions', 'non_interactive', 'selection_metadata')
+
+
+def _accepts(func: Any, kwargs: Sequence[str]) -> Optional[str]:
+    """None if `func` can be called with all of `kwargs`, else why not."""
+    import inspect
+
+    try:
+        signature = inspect.signature(func)
+    except (TypeError, ValueError):
+        return None  # builtins and C callables cannot be introspected; do not fail them
+    try:
+        signature.bind(**{name: None for name in kwargs})
+    except TypeError as exc:
+        return str(exc)
+    return None
+
 
 def conformance_errors(backend: Any) -> List[str]:
     """Ways `backend` fails the contract. Empty list means it conforms.
@@ -242,6 +265,15 @@ def conformance_errors(backend: Any) -> List[str]:
             errors.append('%s: missing' % attr)
         elif attr != 'name' and not callable(getattr(backend, attr)):
             errors.append('%s: must be callable' % attr)
+
+    for attr, kwargs in (('build', BUILD_KWARGS), ('update', UPDATE_KWARGS)):
+        func = getattr(backend, attr, None)
+        if callable(func):
+            why = _accepts(func, kwargs)
+            if why:
+                errors.append('%s: cannot be called as the contract calls it — %s '
+                              '(expected keywords: %s)'
+                              % (attr, why, ', '.join(kwargs)))
 
     if hasattr(backend, 'coverage') and callable(getattr(backend, 'coverage')):
         try:

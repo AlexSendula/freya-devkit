@@ -686,6 +686,69 @@ material at feature end; the reasoning is in the findings, not reconstructed her
    produce spurious diffs. It also writes only to `graphify-out/`, so **ADR-017's revisit
    trigger does not fire** and `behavior.json` stays where it is.
 
+## The open fork — decide before Phase 2 starts
+
+Phase 1's review reached a blunt verdict, and it is right: **the contract is homegrown's shape
+wearing an interface.** The vocabulary and the metadata block are real, but the executable part
+stops exactly where the incumbent's private methods begin. Demonstrated, not argued — a second
+backend built to the contract, shaped like this repo's own reference stub:
+
+1. crashed on a method the contract never mentions (fixed),
+2. crashed on a keyword the contract never specified (fixed — the signature is now part of the
+   contract and checked),
+3. **then exited 0, printed `{"files_scanned": 3}`, and wrote no graph at all.**
+
+The third is the one that matters, and it is a design question rather than a defect.
+
+### What has to be decided
+
+**A. Who owns the post-build step?** Persistence, validation and the `dependents` index all
+live inside `CodeGraph`. `_write_graph` is a private method of the incumbent;
+`substrate.validate_graph` has zero production callers; `dependents` — the reverse index every
+consumer actually reads for blast radius — is not mentioned in the contract at all. A
+conforming backend therefore produces nothing and reports success, which is ADR-005's
+confident-empty failure one level up.
+
+The fix is to move build → validate → derive `dependents` → persist into the socket, so a
+backend returns a graph and the socket owns everything after it. `dependents` is a pure
+function of `imports`, so deriving it centrally is strictly better than requiring every
+backend to emit it correctly.
+
+**B. Is the contract's unit a file or a node?** `RELATION_KINDS` offers `calls`, `inherits` and
+`references`, but the shape `{files: {path: {imports: [str]}}}` has nowhere to put one — they
+fold to a file pair and the kind is discarded. Measured against Phase 0's own numbers, the
+vocabulary can name **2,102 of graphify's 5,027 real links and cannot express 58%**.
+
+Related and sharper: obligation 3 mandates **per-edge provenance**, `PROVENANCE` is referenced
+by no code, and it cannot be — `validate_graph` requires each specifier to be a *string*, so an
+edge object is rejected. Spec §10 lists provenance tagging as a **Phase 2 deliverable**, so
+Phase 2 as written cannot ship without reopening the contract Phase 1 existed to close.
+
+Three coherent answers, and the choice is genuinely open:
+
+| | Means | Cost |
+|---|---|---|
+| **File-level, honestly** | Drop `calls`/`inherits`/`references` from the vocabulary and strike provenance from the obligations and from Phase 2 | Loses CD-16's finer promise and most of what graphify knows. Cheapest, and matches spec §5's deliberate file-level floor |
+| **Edge as an object now** | `{'to': …, 'kind': …, 'provenance': …}` instead of a bare string | One producer and one consumer today, so the migration is cheapest it will ever be. Touches every reader of `imports` |
+| **Defer to Phase 3** | Keep strings, add the richer shape with symbols | Spec §10 already scopes the edge change to Phase 3 — but then Phase 2 must ship without the provenance it promises |
+
+**Recommendation: A regardless, and B as "edge as an object now".** A is not really optional —
+without it the socket cannot run anything but the plug it was moulded around. For B, the
+argument for doing it now is that the cost only rises: every phase after this adds a reader.
+
+### Everything else from that review
+
+Fixed in `832029c` and the commit after it: the un-upgraded `.gitignore` that made
+`graph.<backend>.json` committable, degradation never reaching the artifact, `--clear` leaving
+a copy behind, the census running when it could not change the answer, exclusions never being
+passed by the only production caller, and two workspace-glob defects.
+
+Left deliberately: `Selection.metadata()` and `summarise_coverage()` still have no production
+caller, and `coverage.relations` is written and read by nothing. All three are downstream of
+decision A — wiring them before the socket exists would be wiring them to the wrong place.
+
+---
+
 ## Decisions still to come
 
 Raised by the spike rather than answered by it. All are Phase 2 gates.

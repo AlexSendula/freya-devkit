@@ -2066,6 +2066,11 @@ def main():
     # from a thin repo. Today there is one backend and this is plumbing; Phase 2 is what it
     # is plumbing for.
     selection_metadata = None
+    # Derived from the project by the floor, before any backend substitution. Exclusions are
+    # a project fact (obligation 6), so reading them must not require a method only the
+    # incumbent has — and calling `selection.backend.project_exclusions()` did exactly that,
+    # crashing the CLI on this repo's own reference backend.
+    project_exclusions = graph.project_exclusions()
     if args.build or args.update:
         try:
             import backends
@@ -2075,7 +2080,7 @@ def main():
             census = None
             if len(backends.available_backends(str(graph.project_dir))) > 1:
                 census = backends.extension_census(
-                    str(graph.project_dir), graph.project_exclusions())
+                    str(graph.project_dir), project_exclusions)
             selection = backends.select(str(graph.project_dir), present_extensions=census)
             for warning in selection.warnings:
                 print(warning, file=sys.stderr)
@@ -2108,13 +2113,13 @@ def main():
         # Every other caller relied on the backend deriving them, which meant the only
         # production path never exercised the obligation it documents.
         output = graph.build(non_interactive=non_interactive,
-                             exclusions=graph.project_exclusions(),
+                             exclusions=project_exclusions,
                              selection_metadata=selection_metadata)
         operation = 'build'
 
     elif args.update:
         output = graph.update(non_interactive=non_interactive,
-                              exclusions=graph.project_exclusions(),
+                              exclusions=project_exclusions,
                               selection_metadata=selection_metadata)
         operation = 'update'
 
