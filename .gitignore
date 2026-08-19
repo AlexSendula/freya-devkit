@@ -5,8 +5,10 @@ __pycache__/
 # macOS
 .DS_Store
 
-# Generated code-graph cache (should never be committed)
-docs/.code-graph/
+# Generated dependency-graph caches (regenerable; should never be committed).
+# .graph/ is the shipped location (knowledge-base/.graph/); .code-graph/ is the
+# pre-0.2.0 name, kept so an un-migrated clone stays clean.
+**/.graph/
 **/.code-graph/
 
 # Plugin runtime marker (created when this repo is symlinked as a local-dev plugin install)
