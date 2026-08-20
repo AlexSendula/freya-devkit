@@ -2079,6 +2079,86 @@ class TestUnmappedSourceWalk(Base):
         self.assertEqual(block["error"], "OSError")
 
 
+class TestScaleAndScopeDefects(Base):
+    """Four defects the final review found, each reproduced before it was fixed."""
+
+    def test_a_long_import_chain_does_not_blow_the_stack(self):
+        """A recursive DFS is bounded by the size of the reachable component, not by depth.
+        A 2,000-file chain — an ordinary monorepo — raised RecursionError and exited non-zero,
+        which `run_behaviors` (check=True) turns into `graph-query-failed`, then
+        `coverage: unknown` for every integration behaviour, then a frozen committed
+        behavior.json. A stack overflow here narrows every blast radius elsewhere."""
+        n = 1500
+        files = {}
+        for i in range(n):
+            imp = 'import { x%d } from "./f%d";\n' % (i + 1, i + 1) if i + 1 < n else ''
+            files['src/f%d.ts' % i] = imp + 'export const x%d = 1;\n' % i
+        g = CodeGraph(self.mk(files))
+        graph_ops.run_build(g, non_interactive=True)
+        self.assertEqual(len(g.get_dependents('src/f%d.ts' % (n - 1))), n - 1)
+        self.assertEqual(len(g.get_dependencies('src/f0.ts')), n - 1)
+
+    def test_update_works_when_the_project_is_below_the_git_root(self):
+        """`git diff --name-only` emits repository-relative paths; everything downstream is
+        project-relative. In a monorepo package every path carried an extra prefix, so nothing
+        matched, `update()` found no work and reported success — and the graph froze at the
+        last full build while continuing to answer confidently."""
+        root = self.mk({"pkg/src/a.ts": "export const a = 1\n",
+                        "pkg/src/b.ts": 'import { a } from "./a"\nexport const b = a\n'})
+        proj = os.path.join(root, "pkg")
+        for cmd in (["init", "-q"], ["add", "-A"],
+                    ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "one"]):
+            subprocess.run(["git", *cmd], cwd=root, capture_output=True)
+        graph_ops.run_build(CodeGraph(proj), non_interactive=True)
+
+        with open(os.path.join(proj, "src", "b.ts"), "w") as f:
+            f.write('import { a } from "./a"\nexport const b = a\nexport const NEW = 2\n')
+        for cmd in (["add", "-A"],
+                    ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "two"]):
+            subprocess.run(["git", *cmd], cwd=root, capture_output=True)
+        graph_ops.run_update(CodeGraph(proj), non_interactive=True)
+
+        with open(os.path.join(proj, "knowledge-base", ".graph", "graph.json")) as f:
+            graph = json.load(f)
+        self.assertIn("NEW", graph["files"]["src/b.ts"]["exports"])
+
+    def test_the_built_in_exclusions_reach_every_backend(self):
+        """OBLIGATION 6. The built-in name lists were applied only inside the floor's own
+        `_should_exclude`, so a project running graphify graphed `vendor/`, `target/` and the
+        toolkit's own `knowledge-base/` while the floor on the same repository did not. Two
+        backends disagreeing about scope is exactly what CD-11 exists to prevent."""
+        proj = self.mk({"src/a.ts": "export const a = 1\n",
+                        "vendor/v.ts": "export const v = 1\n",
+                        "deep/nested/node_modules/pkg/m.ts": "export const m = 1\n",
+                        "docs/site.ts": "export const d = 1\n"})
+        excl = CodeGraph(proj).project_exclusions()
+        self.assertFalse(excl.excludes("src/a.ts"))
+        for out in ("vendor/v.ts", "deep/nested/node_modules/pkg/m.ts", "docs/site.ts"):
+            self.assertTrue(excl.excludes(out), out)
+
+    def test_an_override_does_not_admit_the_vendored_tree_beneath_it(self):
+        """`Exclusions._excluded_under_override` documents a measured 50,000-file blowup and
+        the fix was applied to the contract's copy of the rule only. The floor's own
+        `_should_exclude` still skipped the artifact check outright under a `user` override,
+        at any depth. Asserts the two implementations agree, which is the property that was
+        missing rather than either answer alone."""
+        proj = self.mk({
+            ".gitignore": "/node_modules\n",
+            "packages/app/src/p.ts": "export const p = 1\n",
+            "packages/app/node_modules/lodash/m.ts": "export const m = 1\n",
+            "knowledge-base/.graph/classifications.json":
+                '{"directories":{"packages":{"type":"source","source":"user"}}}',
+        })
+        g = CodeGraph(proj)
+        gi = g._parse_gitignore()
+        cl = g._load_classifications().get("directories") or {}
+        excl = g.project_exclusions()
+        for path, expected in (("packages/app/src/p.ts", False),
+                               ("packages/app/node_modules/lodash/m.ts", True)):
+            self.assertEqual(g._should_exclude(path, gi, cl), expected, path)
+            self.assertEqual(excl.excludes(path), expected, path)
+
+
 class TestReadableBy(Base):
     """The remedy has to be nameable on a machine that has never installed the remedy.
 

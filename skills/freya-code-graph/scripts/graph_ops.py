@@ -439,13 +439,31 @@ class CodeGraph:
 
         Obligation 6 says a backend is *given* its exclusions rather than deciding them, on the
         grounds that "vendor/ is not mine" is true whichever parser runs. This assembles that
-        input from the two places the project states it: directory classifications, and
-        `.gitignore`.
+        input from the three places the project states it: the built-in name lists, directory
+        classifications, and `.gitignore`.
+
+        The built-in lists used to be missing here, and were applied only inside
+        `CodeGraph._should_exclude` — i.e. only by the backend that happens to own them. So a
+        project running graphify graphed `vendor/`, `target/` and the toolkit's own
+        `knowledge-base/`, while the floor on the same repository did not. Measured on a
+        fixture: three files graphed, two of which the floor excludes. Two backends disagreeing
+        about scope on the same repository is exactly the outcome CD-11 exists to prevent, and
+        the obligation that says so was being honoured by one implementation only.
+
+        The three tiers map onto the contract's two:
+          - `always_exclude_dirs` match at any depth, which is gitignore semantics -> patterns.
+          - `top_level_exclude_dirs` match only from the root, which is what `Exclusions`
+            `directories` already means -> directories.
+          - `always_exclude_files` are globs -> patterns.
 
         Classifications are read in both directions. `exclude` narrows scope; `source` from a
         person or a model widens it back over `.gitignore`, and travels as `overrides` so that
-        every backend honours it and not only this one.
+        every backend honours it and not only this one. Carrying the built-ins as patterns is
+        also what makes an override safe: `Exclusions._excluded_under_override` re-matches
+        patterns against the path *below* the override root, so declaring `packages/` source
+        still does not admit `packages/*/node_modules/**`.
         """
+        rules = self._get_exclusion_rules()
         classified = (self._load_classifications().get('directories') or {})
         verdicts = [(name, verdict) for name, verdict in classified.items()
                     if isinstance(verdict, dict)]
@@ -468,8 +486,14 @@ class CodeGraph:
             directories=[name for name, verdict in verdicts
                          if verdict.get('type') == 'exclude'
                          and not (shadowed(name) and verdict.get('source')
-                                  not in _OVERRIDES_CONVENTIONS)],
-            patterns=self._parse_gitignore(),
+                                  not in _OVERRIDES_CONVENTIONS)]
+            # Top-level-only, and an override still beats them: `overrides` is consulted
+            # first, and a depth-0 name cannot re-exclude the override it names.
+            + [name for name in sorted(rules['top_level_exclude_dirs'])
+               if name not in overrides],
+            patterns=sorted(rules['always_exclude_files'])
+            + ['%s/' % name for name in sorted(rules['always_exclude_dirs'])]
+            + self._parse_gitignore(),
             matcher=gitignore_excludes,
             overrides=overrides,
         )
@@ -525,7 +549,16 @@ class CodeGraph:
         """
         try:
             result = subprocess.run(
-                ['git', 'diff', f'{since_commit}..HEAD', '--name-only', '--no-renames'],
+                # `--relative` because `--name-only` emits paths from the *repository* root
+                # while everything downstream — `graph['files']` keys, `project_dir / path` —
+                # is project-relative. Whenever the project is a subdirectory of the repo
+                # (`--dir pkg`, or a monorepo package, or this toolkit run against a
+                # sub-project) every returned path carried an extra prefix, so no file ever
+                # matched, `update()` found nothing to do and reported success. The graph then
+                # froze at the last full build while continuing to answer confidently.
+                # A no-op at the repository root, so it cannot regress the common case.
+                ['git', 'diff', f'{since_commit}..HEAD', '--name-only', '--no-renames',
+                 '--relative'],
                 cwd=self.project_dir,
                 capture_output=True,
                 text=True,
@@ -1186,6 +1219,21 @@ class CodeGraph:
 
         return found_source_dirs
 
+    def _override_root(self, rel_path: str, classified: Dict[str, Any]) -> Optional[str]:
+        """The deepest ancestor of `rel_path` a person declared source, if any.
+
+        Needed so an artifact-tree name can be re-matched against the path *below* that
+        root — see `_should_exclude` step 3.
+        """
+        ancestors = rel_path.split('/')[:-1]
+        for depth in range(len(ancestors), 0, -1):
+            name = '/'.join(ancestors[:depth])
+            verdict = classified.get(name)
+            if (isinstance(verdict, dict) and verdict.get('type') == 'source'
+                    and verdict.get('source') in _OVERRIDES_EVERYTHING):
+                return name
+        return None
+
     def _stated_verdict(self, rel_path: str,
                         classified: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """The verdict that governs `rel_path`, from its classified ancestors.
@@ -1274,10 +1322,25 @@ class CodeGraph:
 
         # 3. Artifact trees, wherever the name appears. A nested node_modules is still
         #    node_modules, so unlike the convention names these match at any depth.
-        if stated != 'source' or source not in _OVERRIDES_EVERYTHING:
-            for exc_dir in rules['always_exclude_dirs']:
-                if exc_dir in path_parts:
-                    return True
+        #
+        #    Under a `user` override the check is re-applied *below the override root*
+        #    rather than skipped. An override says "this directory is in scope, whatever the
+        #    convention decided"; it does not say "and nothing inside it can ever be out of
+        #    scope". Skipping it outright is the 50,000-file blowup
+        #    `Exclusions._excluded_under_override` was written to close — measured on an
+        #    npm-workspaces tree, where `{"packages": "source"}` admitted every
+        #    `packages/*/node_modules/**` — and the fix had been applied to the contract's
+        #    copy of the rule and not to this one. Two implementations of one rule, which is
+        #    how they came to disagree; verified by asserting the two agree.
+        override_root = self._override_root(rel_path, classified or {}) \
+            if stated == 'source' and source in _OVERRIDES_EVERYTHING else None
+        if override_root is None:
+            checked_parts = path_parts
+        else:
+            checked_parts = Path(rel_path).parts[len(override_root.split('/')):]
+        for exc_dir in rules['always_exclude_dirs']:
+            if exc_dir in checked_parts:
+                return True
 
         # 4. Convention directories, at the repo root only. See the set's comment.
         if stated != 'source' or source not in _OVERRIDES_CONVENTIONS:
@@ -2161,10 +2224,17 @@ Respond with ONLY a JSON object, no markdown formatting:
             print('File not found in graph: %s' % file_path, file=sys.stderr)
             return None
 
+        # Iterative, not recursive. A recursive DFS is bounded by the size of the reachable
+        # component rather than by any notion of depth, so a 2,000-file import chain — an
+        # ordinary monorepo, and reproduced on a fixture — raised RecursionError and exited
+        # non-zero. That is not merely a crash: `run_behaviors` runs `--dependencies` with
+        # `check=True`, so it becomes `graph-query-failed`, then `coverage: unknown` for every
+        # integration behaviour, then a frozen committed `behavior.json`. The blast radius of a
+        # stack overflow here is a silently narrower blast radius everywhere else.
         result = set()
-
-        def traverse(path: str):
-            info = graph['files'].get(path, {})
+        pending = [file_path]
+        while pending:
+            info = graph['files'].get(pending.pop(), {})
             # Paths, not edges. This is a *node* query — "which files are affected" — and
             # three other skills feed its output straight into set arithmetic. Returning
             # edge objects here would break them for no gain: the caller asked which files,
@@ -2173,9 +2243,7 @@ Respond with ONLY a JSON object, no markdown formatting:
                 if dep not in result:
                     result.add(dep)
                     if transitive:
-                        traverse(dep)
-
-        traverse(file_path)
+                        pending.append(dep)
         # A bare array has nowhere to qualify itself, so the caveat goes to stderr. See
         # `_announce_unmapped` for why the shape must not change instead.
         #
@@ -2200,18 +2268,17 @@ Respond with ONLY a JSON object, no markdown formatting:
             print('File not found in graph: %s' % file_path, file=sys.stderr)
             return None
 
+        # Iterative — see `get_dependents` for why a recursive walk was a real defect.
         result = set()
-
-        def traverse(path: str):
-            info = graph['files'].get(path, {})
+        pending = [file_path]
+        while pending:
+            info = graph['files'].get(pending.pop(), {})
             # Paths again, and internal ones only — see `get_dependents`.
             for imp in substrate.internal_ends(info.get('imports')):
                 if imp not in result:
                     result.add(imp)
                     if transitive:
-                        traverse(imp)
-
-        traverse(file_path)
+                        pending.append(imp)
         # A bare array has nowhere to qualify itself, so the caveat goes to stderr. See
         # `_announce_unmapped` for why the shape must not change instead.
         _announce_unmapped(graph)
