@@ -785,3 +785,96 @@ were defects introduced by the fixes for previous findings.
 - **New: `docs/polyglot/explainer/` rebuilt as a five-page feature explainer** — the problem
   and the plan, how it works, how it was built and tested, and all 25 decisions with their
   rejected alternatives. `details.html` is folded into those and deleted.
+
+---
+
+## 2026-08-20 (later) — how anybody actually chooses a backend
+
+**Status:** shipped. Distilled as CD-26 in [`decisions.md`](decisions.md).
+
+Raised by the user as three questions in a row, each sharper than the last: *how do we know
+which backend the user wants* → *do we prompt, on install or per project* → *I don't want the
+agent reasoning about this on every prompt*.
+
+### What the questions exposed
+
+Phase 2 made the backend a per-project setting and CD-23 made naming one the opt-in. Nothing
+said how a person was supposed to do that, and checking rather than assuming turned up:
+
+- `settings.write()` had **zero production callers**. Its own docstring said the file "is
+  created when they ask for it, not as a side effect of running a graph" — and there was no way
+  to ask. The only route was hand-authoring JSON.
+- The discovery hint fires only when the other backend is **already installed**, because
+  `select()` skips the census when only one backend is available. You had to own the thing
+  before being told you might want it.
+- The shipped skill layer never says how to install graphify. The only `uv tool install` line
+  in the repository is in `spec.md`, which is scheduled for deletion.
+- `summarise_coverage()` — which packages `blind_spots()`, the honest answer to "what did this
+  backend not read?" — still has no production caller. The build knows it read 0 of 412 `.java`
+  files and says nothing.
+
+### The design turn, and it was the user's
+
+My first answer was a global default that *seeds* rather than applies, on the grounds that
+writing into someone's repository as a side effect of a build breaks CD-15's "created when they
+ask for it". The user's counter was better: **`settings.json` is committed, so recording the
+choice there is exactly the point** — it travels on clone, CI and colleagues agree, and it
+dissolves the machine-divergence hazard rather than working around it. The docstring I quoted
+was written in a world with no way to ask; adding one makes writing the answer down the whole
+purpose.
+
+The second turn was also theirs. I proposed asking through the agent — the script emits a
+"needs decision" payload, the agent asks in chat — which works headless, unlike a terminal
+prompt. They pushed back on the standing cost: the one line of `SKILL.md` telling the agent
+what to do is **read on every invocation to say nothing on almost all of them**. That is
+correct, and it killed the expensive half of the design: the deferred-prompt protocol is not
+needed here at all. `freya install` is run by a person at a keyboard. Ask there.
+
+| Reversal | Why |
+|---|---|
+| Global default *applies*, project file untouched | Global default is **recorded** into the project on first build | Otherwise the same commit graphs differently per machine, and static fingerprints land in a committed `behavior.json` |
+| Ask through the agent, finishing the deferred-prompt protocol | Ask at `freya install` | A per-machine question does not belong in the middle of somebody's commit, and the instruction would cost every invocation forever |
+| One line in `SKILL.md` describing the protocol | The instruction rides in the **output** of the one run that needs it | Self-describing output costs nothing on the runs where it does not appear |
+
+### Worth carrying
+
+- **Ask where the keyboard is.** `--non-interactive` auto-enables whenever stdin is not a TTY,
+  which is every agent-driven run and every wrap-up run. Any design that prompts mid-workflow
+  is designing for a path that almost never executes. `install` and `update` are the only two
+  commands a human types on purpose.
+- **A question with one answer trains people to skip questions.** The prompt fires only when
+  more than one backend is available; otherwise a single line says what is missing and how to
+  get it.
+- **"Not yet asked" and "asked and declined" must not look the same**, or the prompt recurs
+  forever. `Settings.file_backend` exists because merging over `DEFAULTS` had collapsed
+  "absent" into "auto", which would also have let seeding freeze a deliberate `auto` into a
+  fixed name on the next build.
+- **The suite was reading the developer's own machine.** `settings.load()` now consults
+  `~/.freya/settings.json`, so without isolation the answer to "does an unconfigured project
+  resolve to the floor?" depends on whose laptop is running the tests. A root `conftest.py`
+  points `FREYA_HOME` at a throwaway directory for the session. A suite whose result depends on
+  unversioned state outside the checkout is not a regression gate.
+- **`~/.freya` already existed** — the updater's throttle stamp has lived there since
+  2026-08-19, chosen with the same reasoning ("deliberately outside any agent's directory").
+  `STATE_DIR` became `state_dir()` so one override relocates both, pinned by a test that
+  asserts the two agree.
+- **`graph_ops.py` discarded `main()`'s return code.** `if __name__ == '__main__': main()`.
+  Invisible while every failure path called `sys.exit` directly — until `--use` wanted to
+  *return* 2 and instead printed an error and exited 0.
+
+### Still open, and named rather than fixed
+
+- `blind_spots()` is computed and never reported at build time. It is the one nudge that works
+  without the other backend already being installed, and it is still not wired up.
+- CD-5 says the semantic pass has per-agent default models (`gpt-5.6-luna` on Copilot, Sonnet 5
+  on Claude). No code implements that: `--model` is optional with no default, so the CLI's own
+  default is used. Second documented-but-unimplemented claim found this session, after the
+  provenance tier.
+
+### Doc impact — applied
+
+- `skills/freya-code-graph/SKILL.md` — the three-layer precedence table, `--use`, and what may
+  live at machine level
+- `docs/polyglot/decisions.md` — CD-26
+- `docs/polyglot/explainer/how-it-works.html` — a new "who decides" section with the four
+  places the question could be asked and why three are wrong

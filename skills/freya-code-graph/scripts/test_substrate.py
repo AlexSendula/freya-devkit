@@ -458,7 +458,37 @@ class TestIsInternal(unittest.TestCase):
         self.assertTrue(is_internal('src/a.ts'))
 
 
-class TestSettings(unittest.TestCase):
+class MachineHome(unittest.TestCase):
+    """Give this test its own empty machine-level home, and say so.
+
+    `settings.load()` consults `~/.freya/settings.json`, which is real state outside the
+    checkout. Any test asserting what happens "with nothing configured" is therefore asserting
+    something about the machine it runs on unless it takes control — and the failure is the
+    worst kind: green on a laptop that never answered the install question, red on one that
+    did, for a reason nothing in the repository records.
+
+    The root `conftest.py` sandboxes the whole session as a safety net, but it only applies
+    when pytest's rootdir is the repository — running `pytest .` from inside `skills/` bypasses
+    it, and did: ten tests failed against a real machine default. So the isolation lives with
+    the tests that depend on it, where it is visible and cannot be routed around.
+    """
+
+    def setUp(self):
+        self.home = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.home, ignore_errors=True)
+        previous = os.environ.get(settings_mod.GLOBAL_ENV_VAR)
+        os.environ[settings_mod.GLOBAL_ENV_VAR] = self.home
+        self.addCleanup(self._restore_home, previous)
+
+    @staticmethod
+    def _restore_home(previous):
+        if previous is None:
+            os.environ.pop(settings_mod.GLOBAL_ENV_VAR, None)
+        else:
+            os.environ[settings_mod.GLOBAL_ENV_VAR] = previous
+
+
+class TestSettings(MachineHome):
     def mk(self, contents=None):
         d = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, d, ignore_errors=True)
@@ -511,6 +541,148 @@ class TestSettings(unittest.TestCase):
         path = settings_mod.settings_path('/proj')
         self.assertEqual(Path(path).parent.name, 'knowledge-base')
         self.assertNotIn('.graph', path)
+
+
+class TestTheMachineLevelDefault(MachineHome):
+    """One answer, given once at install time, used by every project that has not decided.
+
+    The alternative was asking mid-workflow, which cannot work: code-graph goes
+    non-interactive whenever stdin is not a TTY, and that is every agent-driven run and every
+    wrap-up run. So the question is asked where a human demonstrably is — `freya install` —
+    and this is the layer that carries the answer to every project afterwards.
+    """
+
+    def project(self, contents=None):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        if contents is not None:
+            kb = Path(d) / 'knowledge-base'
+            kb.mkdir(parents=True, exist_ok=True)
+            (kb / 'settings.json').write_text(contents, encoding='utf-8')
+        return d
+
+    def set_global(self, text):
+        Path(settings_mod.global_settings_path()).write_text(text, encoding='utf-8')
+
+    # -- precedence --------------------------------------------------------
+
+    def test_nothing_anywhere_is_the_floor(self):
+        s = settings_mod.load(self.project())
+        self.assertEqual(s.backend, 'auto')
+        self.assertEqual(s.backend_source, settings_mod.SOURCE_DEFAULT)
+
+    def test_the_machine_default_answers_a_project_that_has_not_decided(self):
+        self.set_global('{"substrate": {"backend": "graphify"}}')
+        s = settings_mod.load(self.project())
+        self.assertEqual(s.backend, 'graphify')
+        self.assertEqual(s.backend_source, settings_mod.SOURCE_GLOBAL)
+
+    def test_a_project_that_has_decided_wins(self):
+        self.set_global('{"substrate": {"backend": "graphify"}}')
+        s = settings_mod.load(self.project('{"substrate": {"backend": "homegrown"}}'))
+        self.assertEqual(s.backend, 'homegrown')
+        self.assertEqual(s.backend_source, settings_mod.SOURCE_PROJECT)
+
+    def test_an_explicit_auto_defers_to_the_machine(self):
+        """`auto` is an answer — "keep following whatever the machine says" — and it is the
+        one form of opting *in* that survives the machine changing its mind."""
+        self.set_global('{"substrate": {"backend": "graphify"}}')
+        s = settings_mod.load(self.project('{"substrate": {"backend": "auto"}}'))
+        self.assertEqual(s.backend, 'graphify')
+        self.assertTrue(s.decided)
+
+    def test_absent_and_explicit_auto_are_different_answers(self):
+        """Only the first is something to seed into. Collapsing them would rewrite a
+        project's deliberate `auto` into a frozen name the next time anything built."""
+        self.assertFalse(settings_mod.load(self.project('{}')).decided)
+        self.assertTrue(
+            settings_mod.load(self.project('{"substrate": {"backend": "auto"}}')).decided)
+
+    def test_symbols_follow_the_same_layering(self):
+        self.set_global('{"substrate": {"symbols": true}}')
+        self.assertTrue(settings_mod.load(self.project()).symbols)
+        self.assertFalse(
+            settings_mod.load(self.project('{"substrate": {"symbols": false}}')).symbols)
+
+    # -- what may live at machine level ------------------------------------
+
+    def test_scope_is_never_a_machine_level_setting(self):
+        """A global `directories` would apply to repositories nobody has looked at — and a
+        global `node_modules: source` is a 50,000-file graph on every project on the machine.
+        Scope is a fact about one project; a parser preference is a fact about the person."""
+        self.set_global('{"directories": {"node_modules": "source"}}')
+        s = settings_mod.load(self.project())
+        self.assertEqual(s.directories, {})
+        self.assertTrue(any('not a machine-level setting' in w for w in s.warnings))
+
+    def test_an_unknown_substrate_key_is_reported_not_honoured(self):
+        self.set_global('{"substrate": {"backend": "graphify", "excludes": ["x"]}}')
+        s = settings_mod.load(self.project())
+        self.assertEqual(s.backend, 'graphify')
+        self.assertTrue(any('substrate.excludes' in w for w in s.warnings))
+
+    def test_a_broken_machine_file_never_stops_a_project_building(self):
+        self.set_global('{not json')
+        s = settings_mod.load(self.project())
+        self.assertEqual(s.backend, 'auto')
+        self.assertTrue(s.warnings)
+
+    # -- writing -----------------------------------------------------------
+
+    def test_setting_a_backend_keeps_everything_else_in_the_file(self):
+        d = self.project('{"directories": {"docs": "source"}}')
+        settings_mod.set_backend('graphify', project_dir=d)
+        s = settings_mod.load(d)
+        self.assertEqual(s.backend, 'graphify')
+        self.assertEqual(s.directories, {'docs': 'source'})
+
+    def test_setting_the_machine_default_keeps_everything_else(self):
+        self.set_global('{"substrate": {"symbols": true}}')
+        settings_mod.set_backend('graphify', scope=settings_mod.SOURCE_GLOBAL)
+        s = settings_mod.load(self.project())
+        self.assertEqual(s.backend, 'graphify')
+        self.assertTrue(s.symbols)
+
+    def test_an_unparseable_project_file_is_not_silently_overwritten(self):
+        d = self.project('{not json')
+        with self.assertRaises(ValueError):
+            settings_mod.set_backend('graphify', project_dir=d)
+
+    # -- seeding -----------------------------------------------------------
+
+    def test_seeding_writes_the_machine_answer_into_the_project(self):
+        """This is what makes a machine default safe. Left implicit, the same commit graphs
+        differently on a machine that has one and a machine that does not — and integration
+        fingerprints come from the graph closure into behavior.json, which is committed."""
+        self.set_global('{"substrate": {"backend": "graphify"}}')
+        d = self.project()
+        path = settings_mod.seed_project_backend(d)
+        self.assertIsNotNone(path)
+        self.assertEqual(json.loads(Path(path).read_text())['substrate']['backend'],
+                         'graphify')
+
+    def test_seeding_leaves_a_project_that_already_decided_alone(self):
+        self.set_global('{"substrate": {"backend": "graphify"}}')
+        d = self.project('{"substrate": {"backend": "homegrown"}}')
+        self.assertIsNone(settings_mod.seed_project_backend(d))
+        self.assertEqual(settings_mod.load(d).backend, 'homegrown')
+
+    def test_seeding_does_not_freeze_a_deliberate_auto(self):
+        self.set_global('{"substrate": {"backend": "graphify"}}')
+        d = self.project('{"substrate": {"backend": "auto"}}')
+        self.assertIsNone(settings_mod.seed_project_backend(d))
+
+    def test_no_machine_answer_writes_nothing_at_all(self):
+        """A headless run with nothing configured must not record the floor as though
+        somebody chose it. A committed file naming a decision nobody made is the
+        confidently-wrong failure this whole substrate exists to refuse."""
+        d = self.project()
+        self.assertIsNone(settings_mod.seed_project_backend(d))
+        self.assertFalse(os.path.exists(settings_mod.settings_path(d)))
+
+    def test_the_machine_home_is_overridable(self):
+        """Without this the suite's own result would depend on whose laptop it ran on."""
+        self.assertTrue(settings_mod.global_settings_path().startswith(self.home))
 
 
 class TestHomegrownIsAConformingBackend(unittest.TestCase):
@@ -819,7 +991,7 @@ class _FakeBackend:
         return {}
 
 
-class TestBackendSelection(unittest.TestCase):
+class TestBackendSelection(MachineHome):
     """CD-15, and spec §2.2's rule that selection is never silent."""
 
     def mk(self, settings_json=None):
@@ -909,8 +1081,13 @@ class TestBackendSelection(unittest.TestCase):
         self.assertIn('graphify', hint)
         self.assertIn('.java', hint)
         self.assertIn('40', hint)
-        self.assertIn('substrate.backend', hint)
         self.assertNotIn('.ts', hint)   # the floor already reads those
+        # The runnable command, not a description of a file to hand-edit. This text is the
+        # whole discovery path — there is deliberately nothing in the skill layer about
+        # choosing a backend, because that would be read on every invocation to say nothing
+        # on almost all of them.
+        self.assertIn('--use graphify', hint)
+        self.assertIn('--global', hint)
 
     def test_auto_stays_quiet_when_there_is_nothing_to_offer(self):
         import backends

@@ -19,7 +19,7 @@
   <a href="#backends">The two backends</a>
   <div class="grp">Running it</div>
   <a href="#selection">Choosing a backend</a>
-  <a href="#settings">settings.json</a>
+  <a href="#settings">Who decides</a>
   <a href="#scope">What is in scope</a>
   <div class="grp">The data</div>
   <a href="#edge">An edge, anatomised</a>
@@ -174,9 +174,10 @@ and pinned by a test that reads that table out of graphify's own interpreter.</p
 <p>Three rules, and the third is the one that was reversed after being built the other way.</p>
 
 <ol>
-  <li><strong>A named backend is used if it is available.</strong> Naming it in
-  <code>settings.json</code> <em>is</em> the opt-in; there is no separate permission list,
-  because a project that has written the name down has decided.</li>
+  <li><strong>A named backend is used if it is available.</strong> Naming it — in the project's
+  <code>settings.json</code>, or in the machine default it inherits from — <em>is</em> the
+  opt-in; there is no separate permission list, because writing the name down is deciding.
+  <a class="more" href="#settings">where that name comes from →</a></li>
   <li><strong>A named backend that is unavailable degrades to the floor</strong>, and the run
   continues. It says so on stderr, and — more importantly — the fallback is recorded in the
   artifact as <code>degraded_from</code>, so a graph produced this way says on its face that it
@@ -201,8 +202,13 @@ to say what it is leaving on the table, which is the one thing a project cannot 
 itself:</p>
 
 <pre><code>code-graph: 'graphify' is installed and declares it reads 5 file(s) here that
-'homegrown' cannot (.java, .kt). It is opt-in: set substrate.backend to 'graphify'
-in knowledge-base/settings.json to use it.</code></pre>
+'homegrown' cannot (.java, .kt).
+  → freya code-graph --use graphify            (this project)
+  → freya code-graph --use graphify --global   (and every future one)</code></pre>
+
+<p>The instruction rides in <em>this run's output</em> rather than living in the skill layer,
+where it would be read on every invocation to say nothing on almost all of them. It appears
+exactly when it is actionable, and it names a command rather than a file to hand-edit.</p>
 
 <p>The hint counts only extensions that are real evidence. A backend may declare an extension
 whose selection is really <em>name</em>-based — <code>package.json</code> produces nodes, an
@@ -210,7 +216,81 @@ arbitrary <code>x.json</code> does not — and those are excluded from the evide
 in the declaration. Otherwise the hint would fire on every repository in the world on the
 strength of a manifest the backend may well ignore.</p>
 
-<h2 id="settings">settings.json</h2>
+<h2 id="settings">Who decides, and where it is written down</h2>
+
+<p>Three layers, and only the middle one is new:</p>
+
+<div class="ascii">  this project's knowledge-base/settings.json     committed, travels with the repo
+            ↓ (absent, or says "auto")
+  the machine's ~/.freya/settings.json            answered once, when you installed freya
+            ↓ (absent)
+  the floor                                       homegrown, always available
+</div>
+
+<p>An explicit name in the project file — <em>including</em> <code>homegrown</code> — is that
+project deciding for itself, which is how one repository opts out without changing the others.
+<code>auto</code> means <em>defer</em>. Absent means nobody has decided yet, and that is the
+only state the first build will write into.</p>
+
+<h3>Why the question is asked at install</h3>
+
+<p>Somebody has to choose, and three of the four places to ask are wrong:</p>
+
+<table>
+  <tr><th>Where</th><th>Why not</th></tr>
+  <tr><td>Mid-workflow, in the terminal</td>
+      <td><code>code-graph</code> goes non-interactive whenever stdin is not a TTY — which is
+      every agent-driven run and every wrap-up run. The prompt would fire almost exclusively
+      for someone typing the command by hand.</td></tr>
+  <tr><td>Mid-workflow, through the agent</td>
+      <td>Works, but the instruction telling the agent to do it lives in the skill layer, which
+      is <strong>read on every invocation to say nothing on almost all of them</strong>. A
+      standing cost for a question asked once per machine.</td></tr>
+  <tr><td>Per project, every time</td>
+      <td>The same answer retyped in every repository.</td></tr>
+  <tr><td><strong>At <code>freya install</code></strong></td>
+      <td><span class="pill ok">chosen</span> Run by a person, in a terminal, on purpose. The
+      one moment a keyboard is guaranteed. <code>freya update</code> asks too, which is the
+      whole migration for anyone installed before the question existed.</td></tr>
+</table>
+
+<pre><code>Which parser should freya use to read your code?
+
+  [1] homegrown   4 languages — TypeScript, JavaScript, Python, Go. Built in
+  [2] graphify    40 languages — adds Java, Kotlin, Swift, Rust, C#, Scala, …
+
+Your choice (1-2, or Enter to skip):</code></pre>
+
+<p>It asks only when there is a real choice — a question with one answer trains people to skip
+questions — and only when the machine has not already answered. Enter skips, nothing is
+written, and it never blocks: a scripted install must not hang, and must not answer on your
+behalf either.</p>
+
+<div class="card ok">
+  <span class="card-label">The half that makes a machine default safe</span>
+  <p>The first build in a project <strong>writes the machine answer into that project's own
+  committed file.</strong></p>
+  <p style="margin-bottom:0">Left implicit, the same commit would graph differently on a
+  machine that has a default and one that does not — and integration behaviours' static
+  fingerprints come from the graph closure into <code>behavior.json</code>, which
+  <em>is</em> committed. The divergence would arrive as a diff that reads like behaviour
+  drift. Written down, the repository is self-describing: a clone and CI resolve the same
+  backend without sharing anyone's machine configuration.</p>
+</div>
+
+<p>A run with nothing configured writes <strong>nothing</strong>. "Not yet decided" is an
+honest state; a committed file recording the floor as though somebody chose it is the
+confidently-wrong answer this whole substrate exists to refuse.</p>
+
+<pre><code>freya code-graph --use graphify            # this project
+freya code-graph --use graphify --global   # and every future one
+freya code-graph --use homegrown           # opt this project out</code></pre>
+
+<p>The name is checked against the registry as it is written — the moment somebody is present
+to be told they typed it wrong, rather than a week later when it resolved to nothing and the
+project quietly ran the floor.</p>
+
+<h3>The file itself</h3>
 
 <p><code>knowledge-base/settings.json</code>. Optional; absent, every default below applies.</p>
 

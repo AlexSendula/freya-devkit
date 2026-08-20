@@ -973,6 +973,17 @@ def main(argv=None):
         print(f"install failed: {exc}", file=sys.stderr)
         return 2
 
+    if not args.dry_run:
+        # Asked here because this is the one moment a person is definitely at a keyboard.
+        # Every run afterwards — agent-driven, wrap-up, CI — has no TTY, so a prompt there
+        # would never fire; and putting the instruction in the skill layer would charge
+        # every invocation for a question asked once. Best-effort throughout: an install
+        # that worked must not be reported as failed because a preference could not be
+        # saved.
+        import backend_setup
+
+        backend_setup.offer_quietly(store)
+
     return 0
 
 

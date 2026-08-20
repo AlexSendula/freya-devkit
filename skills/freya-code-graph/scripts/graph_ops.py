@@ -2574,6 +2574,83 @@ def format_summary(data: Any, operation: str) -> str:
     return str(data)
 
 
+def _seed_from_machine_default(project_dir: str) -> None:
+    """Write the machine-level backend into a project that has not answered for itself.
+
+    Only ever carries an answer somebody actually gave — `seed_project_backend` returns None
+    when there is no machine default, or when the project has already decided. A headless run
+    with nothing configured writes nothing at all: recording the floor as though it were a
+    choice is how a default becomes a decision nobody made.
+
+    Never fatal. A read-only checkout is a perfectly good place to build a graph, and failing
+    to persist a preference is not a reason to refuse.
+    """
+    try:
+        path = settings.seed_project_backend(project_dir)
+    except (OSError, ValueError) as exc:
+        _announce_once('code-graph: could not record the machine default in this project '
+                       '(%s); using it for this run only' % exc.__class__.__name__)
+        return
+    if path:
+        _announce_once(
+            'code-graph: recorded your machine default in %s. Commit it so a clone and CI '
+            'resolve the same backend — a project that leaves this implicit graphs '
+            'differently on different machines.' % path)
+
+
+def known_backend_names() -> List[str]:
+    """Every name `--use` will accept, plus `auto`. Empty on an unimportable registry."""
+    try:
+        import backends
+        return sorted(backends._registry()) + [settings.BACKEND_AUTO]
+    except Exception:
+        return []
+
+
+def record_backend(name: str, project_dir: str, global_scope: bool) -> int:
+    """`--use`: write the backend choice down, for this project or for the machine.
+
+    Validated against the registry here rather than at read time, because this is the moment
+    somebody is present to be told they typed it wrong. A name that reaches `settings.json`
+    unchecked resolves to nothing, degrades to the floor, and the project spends a week
+    believing it opted into something.
+    """
+    known = known_backend_names()
+    if known and name not in known:
+        print('code-graph: %r is not a backend. Known: %s'
+              % (name, ', '.join(known)), file=sys.stderr)
+        return 2
+
+    scope = settings.SOURCE_GLOBAL if global_scope else settings.SOURCE_PROJECT
+    try:
+        path = settings.set_backend(name, project_dir=project_dir, scope=scope)
+    except (OSError, ValueError) as exc:
+        print('code-graph: could not record the backend (%s)' % exc, file=sys.stderr)
+        return 1
+
+    if global_scope:
+        print('Machine default is now %r (%s).\nEvery project that has not decided for '
+              'itself will use it, and the first build in each will record it there.'
+              % (name, path))
+    else:
+        print('This project now uses %r (%s).\nCommit that file so a clone, a colleague and '
+              'CI all resolve the same backend.' % (name, path))
+
+    # Said after the write, not instead of it: setting a backend before installing it is a
+    # legitimate thing to do — a repository can declare what it wants and a machine can catch
+    # up later, degrading to the floor and saying so in the meantime.
+    if name != settings.BACKEND_AUTO:
+        try:
+            import backends
+            if name not in {b.name for b in backends.available_backends(project_dir)}:
+                print("\nNote: %r is not available on this machine yet, so builds here will "
+                      "fall back to the floor and record that they did." % name,
+                      file=sys.stderr)
+        except Exception:
+            pass
+    return 0
+
+
 def choose_backend(floor: Any, project_exclusions: Any) -> Tuple[Any, Optional[Dict[str, Any]]]:
     """Pick the backend to build with, and the degradation metadata to record.
 
@@ -2648,7 +2725,13 @@ def main():
     group.add_argument('--dependents', metavar='FILE', help='Get dependents')
     group.add_argument('--dependencies', metavar='FILE', help='Get dependencies')
     group.add_argument('--clear', action='store_true', help='Clear cache')
+    group.add_argument('--use', metavar='BACKEND',
+                       help='Record which substrate backend this project uses '
+                            "(or 'auto' to follow the machine default)")
 
+    parser.add_argument('--global', dest='global_scope', action='store_true',
+                        help='With --use: set the machine-level default for every project '
+                             'that has not decided for itself')
     parser.add_argument('--dir', metavar='PATH', help='Project directory')
     parser.add_argument('--format', choices=['json', 'summary'], default='json',
                        help='Output format (default: json)')
@@ -2663,6 +2746,9 @@ def main():
 
     graph = CodeGraph(args.dir)
 
+    if args.use:
+        return record_backend(args.use, str(graph.project_dir), args.global_scope)
+
     selection_metadata = None
     # Derived from the project by the floor, before any backend substitution. Exclusions are
     # a project fact (obligation 6), so reading them must not require a method only the
@@ -2670,6 +2756,7 @@ def main():
     # crashing the CLI on this repo's own reference backend.
     project_exclusions = graph.project_exclusions()
     if args.build or args.update:
+        _seed_from_machine_default(str(graph.project_dir))
         graph, selection_metadata = choose_backend(graph, project_exclusions)
     output = None
     operation = None
@@ -2732,4 +2819,8 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    # `sys.exit(main())`, not `main()`: the return value is the exit code. Every other
+    # failure path here reaches `sys.exit` directly, so discarding it went unnoticed until
+    # a path wanted to *return* one — `--use` with a name that is not a backend printed the
+    # error and exited 0, which is a shell script's definition of success.
+    sys.exit(main())

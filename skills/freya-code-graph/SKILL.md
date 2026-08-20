@@ -31,6 +31,7 @@ A lightweight dependency graph skill that tracks import/export relationships in 
 | `dependents <file>` | Show all files that depend on this one |
 | `dependencies <file>` | Show all files this one depends on |
 | `clear` | Delete cached graph |
+| `--use <backend> [--global]` | Record which substrate backend this project (or this machine) uses |
 | `help` | Display help and usage information |
 
 ## How It Works
@@ -82,9 +83,26 @@ sixty symbol pairs and one dependency. A backend that cannot see symbols is unaf
 this asks for refinement, it does not require it, and the node queries answer identically
 either way.
 
-`auto` is the built-in backend. Naming another one *is* the opt-in — see
-[Backends](#backends). Naming one that is not installed does not fail the build; it falls back,
-and says so on stderr:
+`backend` resolves in three layers: **this project's file, then the machine default, then the
+built-in floor.**
+
+| Value in the project file | Means |
+|---|---|
+| a backend name (incl. `homegrown`) | this project decided for itself |
+| `auto` | defer to the machine default, then the floor |
+| absent | not yet decided — the first build records the machine default here, if there is one |
+
+The machine default is answered once, when `freya install` runs, and lives in
+`~/.freya/settings.json`. To change it, or to set one project apart:
+
+```bash
+freya code-graph --use graphify            # this project
+freya code-graph --use graphify --global   # and every future one
+freya code-graph --use homegrown           # opt this project out
+```
+
+Naming a backend that is not installed does not fail the build; it falls back, and says so on
+stderr:
 
 ```
 code-graph: 'graphify' unavailable (not installed) — using 'homegrown' instead, with reduced coverage
@@ -93,6 +111,20 @@ code-graph: 'graphify' unavailable (not installed) — using 'homegrown' instead
 The file is committed, so a clone gets the same backend. It sits in `knowledge-base/` rather
 than the project root, and outside `.graph/` because that is regenerable cache and `--clear`
 would take a real decision with it.
+
+**That is why the first build writes the machine default in rather than just using it.** Left
+implicit, the same commit would graph differently on a machine that has a default and one that
+does not — and integration behaviours' static fingerprints come from the graph closure into
+`behavior.json`, which *is* committed, so the divergence would surface as a diff that reads
+like behaviour drift. A run with nothing configured writes nothing: "not yet decided" is an
+honest state, and recording the floor as though somebody chose it is not.
+
+| Machine-level (`~/.freya/settings.json`) | Project-level |
+|---|---|
+| `substrate.backend`, `substrate.symbols` | those, plus `directories` |
+
+Scope is never a machine-level setting — a global `docs: source` would apply to repositories
+nobody has looked at. Anything else in that file is ignored and reported.
 
 ### Backends
 

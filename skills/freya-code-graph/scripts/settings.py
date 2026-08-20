@@ -42,21 +42,53 @@ silently graphed a smaller codebase and were told it succeeded.
 import json
 import os
 import posixpath
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 SETTINGS_DIRNAME = 'knowledge-base'
 SETTINGS_FILENAME = 'settings.json'
 
+# The machine-level default, answered once when the suite is installed and used by every
+# project that has not decided for itself. `FREYA_HOME` overrides it, which is what lets the
+# tests exercise this without writing into the real home directory — and what lets someone
+# keep a per-checkout answer if they ever want one.
+#
+# Its own directory, not one belonging to an agent: this suite installs for more than one
+# host and the answer is the same on all of them, so it must not live inside any single
+# host's skills directory. Deliberately not inside the checkout either — `freya update`
+# fast-forwards that tree, and configuration a `git pull` can clobber is not configuration.
+GLOBAL_ENV_VAR = 'FREYA_HOME'
+GLOBAL_DIRNAME = '.freya'
+
+# What the machine-level file is allowed to say. Only preferences that mean the same thing in
+# every repository: which parser to use, and how much detail to record.
+#
+# `directories` is deliberately excluded, and the reason matters. A global "docs is source"
+# would apply to repositories nobody has looked at, and a global `node_modules: source` would
+# be a 50,000-file graph on every project on the machine. Scope is a fact about *one* project;
+# a parser preference is a fact about the person.
+GLOBAL_KEYS = (('substrate', 'backend'), ('substrate', 'symbols'))
+
 # What a project may say about one of its directories.
 DIRECTORY_VERDICTS = ('source', 'exclude')
 
-# `auto` is the default and means **the floor** — the backend that is always installed.
-# It deliberately does not go shopping: scoring the installed backends against the repo and
+# `auto` means **defer**: to the machine-level default if one is set, and otherwise to the
+# floor — the backend that is always installed.
+#
+# It deliberately does not go shopping. Scoring the installed backends against the repo and
 # picking the widest meant that installing a binary anywhere on PATH silently changed the
 # substrate, and therefore every blast radius, for every project on the machine at once
-# (CD-23 removed that behaviour after it had already shipped). Resolved at selection time,
-# not here — this module reads a file, it does not know which backends exist.
+# (CD-23 removed that behaviour after it had already shipped). A machine-level default is the
+# opposite of that: somebody answered a question, once, on purpose.
+#
+# Naming a backend explicitly — including `homegrown` — is how a project opts *out* of the
+# machine default. That is why "not set" and "set to homegrown" have to stay distinguishable.
 BACKEND_AUTO = 'auto'
+
+# Where a resolved backend came from. Carried so the caller can say so, and so the seeding in
+# `seed_project_backend` knows whether there is anything to write down.
+SOURCE_PROJECT = 'project'
+SOURCE_GLOBAL = 'global'
+SOURCE_DEFAULT = 'default'
 
 DEFAULTS = {
     'substrate': {
@@ -94,6 +126,82 @@ def settings_path(project_dir: str) -> str:
     return os.path.join(project_dir, SETTINGS_DIRNAME, SETTINGS_FILENAME)
 
 
+def global_home() -> str:
+    """The directory holding the machine-level answer."""
+    override = os.environ.get(GLOBAL_ENV_VAR)
+    if override and override.strip():
+        return override.strip()
+    return os.path.join(os.path.expanduser('~'), GLOBAL_DIRNAME)
+
+
+def global_settings_path() -> str:
+    return os.path.join(global_home(), SETTINGS_FILENAME)
+
+
+def _dig(data: Any, path: Sequence[str]) -> Any:
+    for key in path:
+        if not isinstance(data, dict):
+            return None
+        data = data.get(key)
+    return data
+
+
+def load_global() -> Tuple[Dict[str, Any], List[str]]:
+    """The machine-level preferences, filtered to what may legitimately be global.
+
+    Returns `(data, warnings)`. Unreadable, malformed or absent all yield `({}, ...)`: a
+    machine-level file must never be able to stop a build in a project that has nothing to do
+    with it, and the whole point of the floor is that everything works before anyone
+    configures anything.
+
+    Keys outside `GLOBAL_KEYS` are dropped **and reported**, rather than silently honoured.
+    Somebody who writes `directories` in here has a reasonable expectation it does something,
+    and the answer — that scope belongs to a project because it is a fact about that project —
+    is worth one line of stderr.
+    """
+    path = global_settings_path()
+    if not os.path.exists(path):
+        return {}, []
+    try:
+        with open(path, encoding='utf-8') as handle:
+            raw = json.load(handle)
+    except OSError as exc:
+        return {}, ['%s: could not be read (%s); ignoring the machine-level default'
+                    % (path, exc.__class__.__name__)]
+    except ValueError as exc:
+        return {}, ['%s: is not valid JSON (%s); ignoring the machine-level default'
+                    % (path, exc)]
+    if not isinstance(raw, dict):
+        return {}, ['%s: top level must be an object; ignoring it' % path]
+
+    allowed = {}  # type: Dict[str, Any]
+    warnings = []  # type: List[str]
+    for keys in GLOBAL_KEYS:
+        value = _dig(raw, keys)
+        if value is None:
+            continue
+        node = allowed
+        for key in keys[:-1]:
+            node = node.setdefault(key, {})
+        node[keys[-1]] = value
+
+    for section, value in raw.items():
+        wanted = {k[0] for k in GLOBAL_KEYS}
+        if section not in wanted:
+            warnings.append(
+                '%s: %r is not a machine-level setting and was ignored — only %s apply '
+                'everywhere; anything about *this* project belongs in its own settings.json'
+                % (path, section, ', '.join('.'.join(k) for k in GLOBAL_KEYS)))
+            continue
+        if isinstance(value, dict):
+            for key in value:
+                if (section, key) not in GLOBAL_KEYS:
+                    warnings.append(
+                        '%s: %s.%s is not a machine-level setting and was ignored'
+                        % (path, section, key))
+    return allowed, warnings
+
+
 class Settings:
     """Project settings, with defaults for everything.
 
@@ -103,13 +211,26 @@ class Settings:
     it is not.
     """
 
-    __slots__ = ('data', 'path', 'present', 'warnings', 'directories')
+    __slots__ = ('data', 'path', 'present', 'warnings', 'directories',
+                 'global_data', 'file_backend', 'file_symbols')
 
     def __init__(self, data: Dict[str, Any], path: str, present: bool,
-                 warnings: Optional[List[str]] = None):
+                 warnings: Optional[List[str]] = None,
+                 global_data: Optional[Dict[str, Any]] = None,
+                 file_backend: Optional[str] = None,
+                 file_symbols: Optional[bool] = None):
         self.data = data
         self.path = path
         self.present = present
+        self.global_data = global_data or {}
+        # What the file on disk literally said, or None where it said nothing. `data` cannot
+        # answer this: it is merged over `DEFAULTS`, which supplies `auto` and `False`, so
+        # "absent" and "explicitly chosen" look identical there — and for `backend` that is
+        # the difference between a project nobody has answered for and one that asked to keep
+        # following the machine, while for `symbols` it decides whether an explicit `false`
+        # can turn the machine default back off.
+        self.file_backend = file_backend
+        self.file_symbols = file_symbols
         self.warnings = warnings or []
         # Parsed here, eagerly, and not behind a property. It used to be one, and the
         # property was what *appended* the warnings — so every caller that read `.warnings`
@@ -144,14 +265,46 @@ class Settings:
 
     @property
     def backend(self) -> str:
-        """The configured backend name, or `auto`."""
-        substrate = self.data.get('substrate')
-        if not isinstance(substrate, dict):
-            return BACKEND_AUTO
-        name = substrate.get('backend')
-        if not isinstance(name, str) or not name.strip():
-            return BACKEND_AUTO
-        return name.strip()
+        """The backend to use here: the project's answer, the machine's, or `auto`.
+
+        `auto` from the project means *defer*, so the machine-level default answers it. An
+        explicit name — including `homegrown` — is the project deciding for itself, which is
+        how one repository opts out of a machine default without changing it for the others.
+        """
+        name = self.declared_backend
+        if name is not None:
+            return name
+        name = _clean_backend(_dig(self.global_data, ('substrate', 'backend')))
+        return name or BACKEND_AUTO
+
+    @property
+    def declared_backend(self) -> Optional[str]:
+        """The backend *this project* decided on, or None if it defers.
+
+        `None` and `'homegrown'` are different answers and must stay that way: the first
+        means nobody has decided, and the second means somebody decided against the machine
+        default.
+        """
+        return None if self.file_backend in (None, BACKEND_AUTO) else self.file_backend
+
+    @property
+    def decided(self) -> bool:
+        """Has this project answered the backend question at all, even with `auto`?
+
+        `seed_project_backend` writes only when this is False. An explicit `auto` is an
+        answer — "keep following whatever the machine says" — and overwriting it with the
+        concrete name would silently unsubscribe the project from the thing it asked for.
+        """
+        return self.file_backend is not None
+
+    @property
+    def backend_source(self) -> str:
+        """Which layer supplied `backend`. Carried so a run can say so out loud."""
+        if self.declared_backend is not None:
+            return SOURCE_PROJECT
+        if _clean_backend(_dig(self.global_data, ('substrate', 'backend'))):
+            return SOURCE_GLOBAL
+        return SOURCE_DEFAULT
 
     def _parse_directories(self) -> Dict[str, str]:
         """Committed directory verdicts, keyed the way the graph keys paths.
@@ -190,10 +343,9 @@ class Settings:
         A backend that cannot see symbols is unaffected — this asks for refinement, it does
         not require it, so turning it on never makes a graph worse or a build fail.
         """
-        substrate = self.data.get('substrate')
-        if not isinstance(substrate, dict):
-            return False
-        return substrate.get('symbols') is True
+        if isinstance(self.file_symbols, bool):
+            return self.file_symbols
+        return _dig(self.global_data, ('substrate', 'symbols')) is True
 
     def to_dict(self) -> Dict[str, Any]:
         return json.loads(json.dumps(self.data))  # deep copy, plain types only
@@ -205,27 +357,31 @@ class Settings:
 
 
 def load(project_dir: str) -> Settings:
-    """Read `<project>/knowledge-base/settings.json`, falling back to defaults."""
+    """Read this project's settings, layered over the machine-level default."""
     path = settings_path(project_dir)
+    global_data, global_warnings = load_global()
+
+    def fallback(warnings):
+        return Settings(_defaults(), path, present=os.path.exists(path),
+                        warnings=global_warnings + warnings, global_data=global_data)
+
     if not os.path.exists(path):
-        return Settings(_defaults(), path, present=False)
+        return Settings(_defaults(), path, present=False, warnings=list(global_warnings),
+                        global_data=global_data)
 
     try:
         with open(path, encoding='utf-8') as handle:
             raw = json.load(handle)
     except OSError as exc:
-        return Settings(_defaults(), path, present=True,
-                        warnings=['%s: could not be read (%s); using defaults'
-                                  % (path, exc.__class__.__name__)])
+        return fallback(['%s: could not be read (%s); using defaults'
+                         % (path, exc.__class__.__name__)])
     except ValueError as exc:
-        return Settings(_defaults(), path, present=True,
-                        warnings=['%s: is not valid JSON (%s); using defaults' % (path, exc)])
+        return fallback(['%s: is not valid JSON (%s); using defaults' % (path, exc)])
 
     if not isinstance(raw, dict):
-        return Settings(_defaults(), path, present=True,
-                        warnings=['%s: top level must be an object; using defaults' % path])
+        return fallback(['%s: top level must be an object; using defaults' % path])
 
-    warnings = []  # type: List[str]
+    warnings = list(global_warnings)
     merged = _defaults()
     for section, value in raw.items():
         if section not in DEFAULTS:
@@ -239,14 +395,20 @@ def load(project_dir: str) -> Settings:
             continue
         merged[section].update(value)
 
-    return Settings(merged, path, present=True, warnings=warnings)
+    raw_symbols = _dig(raw, ('substrate', 'symbols'))
+    return Settings(merged, path, present=True, warnings=warnings,
+                    global_data=global_data,
+                    file_backend=_clean_backend(_dig(raw, ('substrate', 'backend'))),
+                    file_symbols=raw_symbols if isinstance(raw_symbols, bool) else None)
 
 
 def write(project_dir: str, settings: Dict[str, Any]) -> str:
-    """Write settings, creating `knowledge-base/` if needed. Returns the path.
+    """Write this project's settings, creating `knowledge-base/` if needed.
 
-    Never called during a build. This file is committed and belongs to the engineer, so it is
-    created when they ask for it, not as a side effect of running a graph.
+    Called when somebody answers the question — `--use`, or the seeding below carrying a
+    machine-level answer into a project that had none. Never called to record a default
+    nobody chose: a committed file saying `homegrown` because a headless run needed
+    *something* is a decision attributed to a person who never made it.
     """
     path = settings_path(project_dir)
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -254,6 +416,80 @@ def write(project_dir: str, settings: Dict[str, Any]) -> str:
         json.dump(settings, handle, indent=2, sort_keys=True)
         handle.write('\n')
     return path
+
+
+def write_global(data: Dict[str, Any]) -> str:
+    """Write the machine-level default, creating `~/.freya/` if needed."""
+    path = global_settings_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, 'w', encoding='utf-8') as handle:
+        json.dump(data, handle, indent=2, sort_keys=True)
+        handle.write('\n')
+    return path
+
+
+def set_backend(name: str, project_dir: Optional[str] = None,
+                scope: str = SOURCE_PROJECT) -> str:
+    """Record a backend choice. Returns the path written.
+
+    Merges rather than replaces, so setting a backend never discards the directory verdicts
+    or anything a newer version wrote alongside them.
+    """
+    if scope == SOURCE_GLOBAL:
+        data, _ = load_global()
+        data.setdefault('substrate', {})['backend'] = name
+        return write_global(data)
+
+    path = settings_path(str(project_dir))
+    data = {}  # type: Dict[str, Any]
+    if os.path.exists(path):
+        try:
+            with open(path, encoding='utf-8') as handle:
+                loaded = json.load(handle)
+            if isinstance(loaded, dict):
+                data = loaded
+        except (OSError, ValueError):
+            # A file we cannot parse is not one to silently overwrite with two keys. Say so
+            # rather than destroying whatever the engineer had in there.
+            raise ValueError('%s exists and is not readable JSON; fix or remove it first'
+                             % path)
+    substrate = data.get('substrate')
+    data['substrate'] = substrate if isinstance(substrate, dict) else {}
+    data['substrate']['backend'] = name
+    return write(str(project_dir), data)
+
+
+def seed_project_backend(project_dir: str) -> Optional[str]:
+    """Carry the machine-level answer into a project that has not answered. Returns the path.
+
+    This is what makes a machine-level default safe to have. Left implicit, the same commit
+    would graph differently on a machine with the default and one without — and integration
+    behaviours' static fingerprints come from the code-graph closure into `behavior.json`,
+    which is committed, so the divergence would arrive as a diff that reads like behaviour
+    drift.
+
+    Writing it down makes the repository self-describing: a colleague who clones it, and CI,
+    resolve the same backend without having to share anyone's machine configuration. That is
+    the same property CD-15 was written for.
+
+    None when there is nothing to do — no machine default, or the project has already
+    answered (including with an explicit `auto`, which is an answer meaning "keep following
+    the machine").
+    """
+    conf = load(project_dir)
+    if conf.decided:
+        return None
+    name = _clean_backend(_dig(conf.global_data, ('substrate', 'backend')))
+    if not name or name == BACKEND_AUTO:
+        return None
+    return set_backend(name, project_dir=project_dir, scope=SOURCE_PROJECT)
+
+
+def _clean_backend(value: Any) -> Optional[str]:
+    """A backend name as written, or None if the value is not one."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    return value.strip()
 
 
 def _defaults() -> Dict[str, Any]:

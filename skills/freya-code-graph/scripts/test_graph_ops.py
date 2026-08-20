@@ -25,6 +25,7 @@ from pathlib import Path, PurePosixPath, PureWindowsPath
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import graph_ops  # noqa: E402
+import settings  # noqa: E402
 import substrate  # noqa: E402
 from graph_ops import CodeGraph, normalize_import, normalize_key  # noqa: E402
 from substrate import edge_ends as ends  # noqa: E402
@@ -1895,6 +1896,85 @@ class TestImpactSaysWhenItHasNeverSeenAFile(Base):
         proj = self.mk({"src/a.ts": "export const a = 1\n"})
         graph_ops.run_build(CodeGraph(proj))
         self.assertEqual(CodeGraph(proj).get_impact(["src/a.ts"])["not_in_graph"], set())
+
+
+class TestRecordingTheBackendChoice(Base):
+    """`--use` is the whole reason `settings.write` finally has a caller.
+
+    Before it, the only way to opt into a backend was hand-authoring JSON — a writer existed,
+    with no way to invoke it, and the sole discovery path was a stderr hint that fired only
+    once you had already installed the thing it was recommending.
+    """
+
+    def setUp(self):
+        self.home = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.home, ignore_errors=True)
+        self.previous = os.environ.get("FREYA_HOME")
+        os.environ["FREYA_HOME"] = self.home
+        self.addCleanup(self._restore)
+
+    def _restore(self):
+        if self.previous is None:
+            os.environ.pop("FREYA_HOME", None)
+        else:
+            os.environ["FREYA_HOME"] = self.previous
+
+    def run_cli(self, *args, cwd=None):
+        env = dict(os.environ, FREYA_HOME=self.home)
+        return subprocess.run(
+            [sys.executable, graph_ops.__file__, *args],
+            capture_output=True, text=True, env=env, cwd=cwd)
+
+    def project(self):
+        return self.mk({"src/a.ts": "export const a = 1\n"})
+
+    def test_an_unknown_name_is_refused_with_a_non_zero_exit(self):
+        """A name that reaches settings.json unchecked resolves to nothing, degrades to the
+        floor, and the project spends a week believing it opted into something."""
+        proj = self.project()
+        out = self.run_cli("--use", "grapheefy", "--dir", proj)
+        self.assertEqual(out.returncode, 2)
+        self.assertIn("not a backend", out.stderr)
+        self.assertFalse(os.path.exists(settings.settings_path(proj)))
+
+    def test_a_known_name_is_written_to_the_project(self):
+        proj = self.project()
+        out = self.run_cli("--use", "graphify", "--dir", proj)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertEqual(settings.load(proj).backend, "graphify")
+        self.assertIn("Commit", out.stdout)
+
+    def test_global_scope_writes_the_machine_default(self):
+        proj = self.project()
+        out = self.run_cli("--use", "graphify", "--global", "--dir", proj)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertFalse(os.path.exists(settings.settings_path(proj)),
+                         "--global must not also write into whatever project happens to be "
+                         "the working directory")
+        data, _ = settings.load_global()
+        self.assertEqual(data["substrate"]["backend"], "graphify")
+
+    def test_a_build_carries_the_machine_default_into_the_project(self):
+        proj = self.project()
+        self.run_cli("--use", "graphify", "--global", "--dir", proj)
+        out = self.run_cli("--build", "--dir", proj, "--non-interactive")
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertEqual(settings.load(proj).backend, "graphify")
+        self.assertIn("Commit it", out.stderr)
+
+    def test_a_build_with_nothing_configured_writes_nothing(self):
+        """The floor recorded as though somebody chose it is a decision nobody made."""
+        proj = self.project()
+        out = self.run_cli("--build", "--dir", proj, "--non-interactive")
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertFalse(os.path.exists(settings.settings_path(proj)))
+
+    def test_a_project_that_opted_out_is_not_re_seeded(self):
+        proj = self.project()
+        self.run_cli("--use", "homegrown", "--dir", proj)
+        self.run_cli("--use", "graphify", "--global", "--dir", proj)
+        self.run_cli("--build", "--dir", proj, "--non-interactive")
+        self.assertEqual(settings.load(proj).backend, "homegrown")
 
 
 if __name__ == "__main__":

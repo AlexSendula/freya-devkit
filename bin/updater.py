@@ -264,6 +264,18 @@ def update(store, *, dry_run=False, out=print, run=git, state=None):
         # unwritable $HOME here just means the next command re-checks a day
         # early, not that this update gets reported as broken.
         pass
+    if not dry_run:
+        # The migration path for everyone installed before the question existed. It asks
+        # once, only if the machine has never answered and there is more than one backend
+        # available — so it is silent for anyone who has already chosen, and silent again on
+        # every update after the first. No version check and no separate migration command:
+        # "has this machine answered?" is the only state that matters.
+        try:
+            import backend_setup
+
+            backend_setup.offer_quietly(store)
+        except Exception:  # noqa: BLE001 — never the reason an update reports failure
+            pass
     return 1 if relinked.failed else 0
 
 
@@ -418,8 +430,22 @@ def _relink_agent(store, agent, entries, *, copy, dry_run, out):
 #: Where the throttle lives. One file, one job: when we last asked, and what we
 #: were told. Deliberately outside any agent's directory — the answer is about
 #: the store, not about an agent.
-STATE_DIR = Path.home() / ".freya"
+#:
+#: `~/.freya` is now shared with the machine-level settings file, whose location is defined
+#: by `settings.global_home()` in the code-graph skill. The two must agree, including about
+#: the `FREYA_HOME` override — otherwise pointing that variable somewhere would relocate one
+#: and not the other, and a test run would isolate its configuration while still writing a
+#: throttle stamp into the real home. `test_the_machine_level_home_has_one_definition` is
+#: what keeps them from drifting apart.
+FREYA_HOME_ENV = "FREYA_HOME"
 STATE_FILE = "update-check.json"
+
+
+def state_dir():
+    override = os.environ.get(FREYA_HOME_ENV)
+    if override and override.strip():
+        return Path(override.strip())
+    return Path.home() / ".freya"
 CHECK_INTERVAL = 24 * 60 * 60
 OPT_OUT = "FREYA_NO_UPDATE_CHECK"
 #: Opt-in traceback for the one code path that is designed to fail silently.
@@ -428,7 +454,7 @@ MESSAGE = "freya: an update is available — run `freya update`"
 
 
 def state_path():
-    return STATE_DIR / STATE_FILE
+    return state_dir() / STATE_FILE
 
 
 def read_state(path):

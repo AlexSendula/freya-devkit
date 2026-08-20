@@ -162,12 +162,16 @@ def select(project_dir: str,
                 continue
             unseen = _unseen_by_floor(floor, other, present_extensions)
             if unseen:
+                # The instruction rides in this one run's output rather than living in the
+                # skill layer, where it would be read on every invocation forever to say
+                # nothing on almost all of them. It appears exactly when it is actionable.
                 warnings.append(
                     'code-graph: %r is installed and declares it reads %d file(s) here that '
-                    '%r cannot (%s). It is opt-in: set substrate.backend to %r in '
-                    'knowledge-base/settings.json to use it.'
+                    '%r cannot (%s).\n'
+                    '  → freya code-graph --use %s            (this project)\n'
+                    '  → freya code-graph --use %s --global   (and every future one)'
                     % (other.name, sum(unseen.values()), floor.name,
-                       ', '.join(sorted(unseen)), other.name))
+                       ', '.join(sorted(unseen)), other.name, other.name))
     return Selection(floor, requested, warnings=warnings)
 
 

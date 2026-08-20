@@ -361,9 +361,21 @@ class StaticFingerprintTest(unittest.TestCase):
         self.proj = self.tmp.name
         os.makedirs(os.path.join(self.proj, "app", "api", "x"))
         open(os.path.join(self.proj, "app", "api", "x", "route.ts"), "w").close()
+        # These shell out to code-graph, which reads the machine-level backend default from
+        # `~/.freya/settings.json` — real state outside the checkout. Left alone, whether this
+        # class passes depends on whether the person running it ever answered the install
+        # question, which is not a property of the code under test.
+        self.home = tempfile.TemporaryDirectory()
+        self.previous_home = os.environ.get("FREYA_HOME")
+        os.environ["FREYA_HOME"] = self.home.name
 
     def tearDown(self):
         self.tmp.cleanup()
+        if self.previous_home is None:
+            os.environ.pop("FREYA_HOME", None)
+        else:
+            os.environ["FREYA_HOME"] = self.previous_home
+        self.home.cleanup()
 
     def test_no_entry_is_unknown_with_reason(self):
         fp = run_behaviors.static_fingerprint({"behavior_id": "BEH-X"}, self.proj)

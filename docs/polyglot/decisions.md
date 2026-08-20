@@ -1133,3 +1133,106 @@ direction.
 - Spec §10's "thread it through the fingerprint comparison" describes something that does not
   exist — nothing compares two fingerprints' exercise sets. Recorded in the log rather than
   silently reinterpreted.
+
+---
+
+## CD-26 — the backend is chosen once, at install, and recorded per project
+
+**Status:** accepted 2026-08-20 · raised by the user, not by the plan
+
+### Context
+
+Phase 2 made the backend a per-project setting and CD-23 made naming one the opt-in. Neither
+said how anybody was supposed to *do* that, and the answer turned out to be: by hand.
+`settings.write()` existed with **zero production callers** — its own docstring said the file
+"is created when they ask for it", and there was no way to ask. The only discovery path was a
+stderr hint that fires when another backend is *already installed*, so you had to own the thing
+before being told you might want it. The shipped skill layer never said how to install it.
+
+Four places could ask, and three are wrong:
+
+| Where | Why not |
+|---|---|
+| **Mid-workflow, in the terminal** | `code-graph` auto-enables non-interactive mode whenever stdin is not a TTY. That is every agent-driven run and every `wrap-up` run, which is to say the workflow. A prompt there fires almost exclusively for someone typing the command by hand |
+| **Mid-workflow, through the agent** | Works — the script says "I need a decision", the agent asks in chat. But the instruction telling the agent to do that lives in the skill layer, **read on every invocation to say nothing on almost all of them**. Standing token cost for a question asked once per machine |
+| **Per project, every time** | The same answer, retyped in every repository. The user's objection, and a fair one |
+
+### Decision
+
+**`freya install` asks, once.** It is run by a person, in a terminal, deliberately — the one
+moment a keyboard is guaranteed. A numbered menu, the same shape as the directory classifier's
+existing prompt. `freya update` asks too, which is the migration path for anyone installed
+before the question existed: no version check and no migration command, because "has this
+machine answered?" is the only state that matters.
+
+The answer is the **machine-level default**, `~/.freya/settings.json` — a directory the updater
+already owned for its throttle stamp, and deliberately not inside any single agent's skills
+folder, because the suite installs for more than one host and the answer is the same on all of
+them. `FREYA_HOME` overrides it, which is what makes the test suite independent of whose
+laptop it runs on.
+
+**Precedence: project, then machine, then floor.** In a project file, `auto` means *defer to
+the machine*; an explicit name — including `homegrown` — means the project decided for itself,
+which is how one repository opts out without changing the others.
+
+**The first build in a project records the machine answer in that project's own committed
+`settings.json`.** This is the load-bearing half. A machine default that stayed implicit would
+mean the same commit graphs differently on a machine that has one and a machine that does not
+— and integration behaviours' static fingerprints come from the code-graph closure into
+`behavior.json`, which is committed, so that divergence would arrive as a diff reading like
+behaviour drift (spec §11's own recorded risk). Writing it down makes the repository
+self-describing: a clone and CI resolve the same backend without sharing anyone's machine
+configuration. That is the property CD-15 exists for.
+
+`freya code-graph --use <backend> [--global]` is the command, and it validates the name against
+the registry — the moment somebody is present to be told they typed it wrong is the moment to
+check, not a week later when the name resolved to nothing and the project quietly ran the floor.
+
+### Rejected
+
+**Ask through the agent, via the deferred-prompt protocol.** `needs_classification()` /
+`get_classification_prompt()` / `classify_with_ai_response()` already exist for exactly this
+shape — and have no CLI flag and no caller, which is the fourth instance of this codebase
+writing an API whose effect does not exist. Finishing it would have been the bulk of the work
+and it buys nothing here: the question is per machine, and install is a better place to ask a
+per-machine question than the middle of somebody's commit. The protocol is still the right
+answer for *directory* classification, which is genuinely per project and still stuck.
+
+**A standing line in `SKILL.md` telling the agent what to do when a decision is needed.**
+Rejected on cost: the skill layer is read on every invocation. An instruction that is relevant
+once per machine, forever, is the wrong thing to put where everything is read every time. The
+instruction rides in the *output* of the one run that needs it instead.
+
+**Ask on first build instead of at install.** Same TTY problem, and it asks per project what
+is a per-machine question.
+
+**Let the machine default apply without recording it.** Cheaper, and it reintroduces exactly
+the divergence the committed file prevents. Two engineers, same commit, different graphs, and
+a committed `behavior.json` diff nobody can explain.
+
+**Write the floor into `settings.json` when nobody answers.** Rejected firmly. A headless run
+with nothing configured writes *nothing*: a committed file recording a decision no person made
+is the confidently-wrong failure this whole substrate exists to refuse. "Not yet asked" is an
+honest state and the build handles it.
+
+**Allow `directories` at machine level.** A global "docs is source" would apply to
+repositories nobody has looked at, and a global `node_modules: source` is a 50,000-file graph
+on every project on the machine. Scope is a fact about one project; a parser preference is a
+fact about the person. The key is dropped *and reported*, because someone who writes it has a
+reasonable expectation it does something.
+
+### Consequences
+
+- `settings.write()` finally has a caller, and `Settings` grew `file_backend` / `file_symbols`
+  so that "the key is absent" and "the key is explicitly set" stay distinguishable. Merging
+  over `DEFAULTS` had collapsed them, which would have let seeding freeze a deliberate `auto`
+  into a fixed name on the next build.
+- A root `conftest.py` points `FREYA_HOME` at a throwaway directory for the whole session.
+  Without it the suite's own result depends on unversioned state outside the checkout — green
+  on one laptop, red on another, for a reason nothing in the repository records.
+- `updater.STATE_DIR` became `state_dir()` honouring the same variable, so the override
+  relocates both files rather than one. Pinned by a test that asserts the two agree, because
+  two independent computations of one path is the shape this repository keeps paying for.
+- `graph_ops.py` now does `sys.exit(main())`. It discarded the return code, which went
+  unnoticed while every failure path called `sys.exit` directly — until one wanted to *return*
+  a code, and `--use` with an invalid name printed its error and exited 0.
