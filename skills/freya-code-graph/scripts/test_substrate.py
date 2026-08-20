@@ -19,6 +19,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import graph_ops  # noqa: E402
 import settings as settings_mod  # noqa: E402
+import substrate  # noqa: E402
 from substrate import (  # noqa: E402
     Coverage,
     Exclusions,
@@ -477,6 +478,71 @@ class TestHomegrownIsAConformingBackend(unittest.TestCase):
         g = CodeGraph(d)
         graph_ops.run_build(g, non_interactive=True, exclusions=Exclusions(directories=['vendor']))
         self.assertIn('vendor', g.graph['substrate']['exclusions']['directories'])
+
+
+class TestTheRunnerSurvivesAHostileBackend(unittest.TestCase):
+    """The contract exists because the *second* backend will not be this repo's.
+
+    Phase 1's review proved the point by building one: it satisfied every documented
+    obligation, then crashed twice and exited 0 having written nothing. So the runner is
+    tested against outputs the shipped backend would never produce.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def backend(self, result):
+        class B(_Backend):
+            project_dir = self.tmp
+
+            def build(self, exclusions=None, non_interactive=False,
+                      selection_metadata=None):
+                return result
+        return B()
+
+    def test_up_to_date_with_no_graph_writes_nothing_rather_than_crashing(self):
+        """`Result` permits it, so eventually something will do it. Testing staleness before
+        checking for a graph would try to stamp a version onto None."""
+        out = graph_ops.run_build(
+            self.backend(substrate.Result(None, substrate.Result.UP_TO_DATE, 0)))
+        self.assertEqual(out["status"], "up_to_date")
+        self.assertFalse(os.path.exists(
+            os.path.join(self.tmp, "knowledge-base", ".graph", "graph.json")))
+
+    def test_a_non_dict_substrate_block_does_not_turn_a_diagnostic_into_a_crash(self):
+        """This graph is already broken — that is what the branch is reporting. Indexing
+        whatever the backend put in `substrate` would replace the report with a traceback."""
+        out = graph_ops.run_build(self.backend(substrate.Result({
+            "version": substrate.GRAPH_SCHEMA_VERSION,
+            "substrate": "not a dict",
+            "files": {"a.py": {"imports": [{"to": "gone.py", "kind": "imports",
+                                            "provenance": "extracted"}],
+                               "dependents": []}},
+        })))
+        self.assertEqual(out["files_scanned"], 1)
+        written = json.load(open(os.path.join(
+            self.tmp, "knowledge-base", ".graph", "graph.json"), encoding="utf-8"))
+        self.assertGreaterEqual(written["substrate"]["validation"]["error_count"], 1)
+
+    def test_a_backend_returning_a_bare_dict_is_rejected_by_name(self):
+        """The old return type. It must fail loudly, not be half-understood."""
+        with self.assertRaises(TypeError) as ctx:
+            graph_ops.run_build(self.backend({"files": {}}))
+        self.assertIn("substrate.Result", str(ctx.exception))
+
+    def test_a_dangling_edge_is_recorded_in_the_artifact_not_only_on_stderr(self):
+        out = graph_ops.run_build(self.backend(substrate.Result({
+            "version": substrate.GRAPH_SCHEMA_VERSION,
+            "substrate": graph_metadata("stub", Coverage(["python"], [".py"],
+                                                         ["imports"], True)),
+            "files": {"a.py": {"imports": [{"to": "gone.py", "kind": "imports",
+                                            "provenance": "extracted"}],
+                               "dependents": []}},
+        })))
+        written = json.load(open(out["cached_to"], encoding="utf-8"))
+        self.assertIn("names no file in the graph",
+                      written["substrate"]["validation"]["errors"][0])
 
 
 class TestPerBackendArtifacts(unittest.TestCase):

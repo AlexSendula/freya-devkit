@@ -2120,11 +2120,14 @@ def _finalise(backend: Any, result: Any) -> Dict[str, Any]:
         # it is brought forward again on every read, forever, and every direct reader that
         # does not go through `load()` keeps seeing the old shape. `--update` is the command
         # the steady-state workflow runs, so without this the migration reaches almost nobody.
-        if not substrate.is_stale(result.graph or {}):
+        # `Result` permits a null graph on this status, and a backend that is not this repo's
+        # will eventually use that. There is then nothing to rewrite, and `is_stale({})` says
+        # True — so testing staleness first would try to stamp a version onto None.
+        if not isinstance(result.graph, dict) or not substrate.is_stale(result.graph):
             return {'status': result.status, 'files_changed': 0}
         migrated = True
         print('code-graph: rewriting the cached graph in the current schema (was v%s, now v%d)'
-              % ((result.graph or {}).get('version'), substrate.GRAPH_SCHEMA_VERSION),
+              % (result.graph.get('version'), substrate.GRAPH_SCHEMA_VERSION),
               file=sys.stderr)
         result.graph['version'] = substrate.GRAPH_SCHEMA_VERSION
 
@@ -2140,7 +2143,12 @@ def _finalise(backend: Any, result: Any) -> Dict[str, Any]:
         # and the run that produced it is the only place its stderr exists; whoever reads
         # the graph a week later needs to be able to see that it was already known to be
         # broken, rather than trusting it and finding out downstream.
-        graph.setdefault('substrate', {})['validation'] = {
+        # Not `setdefault`: a backend that put something other than a dict in `substrate` is
+        # exactly the kind of backend this branch is reporting on, and indexing its value
+        # would turn a diagnostic into a crash.
+        if not isinstance(graph.get('substrate'), dict):
+            graph['substrate'] = {}
+        graph['substrate']['validation'] = {
             'error_count': len(errors),
             'errors': errors[:_MAX_RECORDED_VALIDATION_ERRORS],
         }
