@@ -42,7 +42,7 @@ silently graphed a smaller codebase and were told it succeeded.
 import json
 import os
 import posixpath
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 SETTINGS_DIRNAME = 'knowledge-base'
 SETTINGS_FILENAME = 'settings.json'
@@ -94,11 +94,12 @@ DEFAULTS = {
     'substrate': {
         'backend': BACKEND_AUTO,
         # Off by default. Symbol refinement is genuinely useful and genuinely not free:
-        # measured on this repository it turns 73 file-level edges into 417, because a test
-        # module calling one helper sixty times is sixty distinct symbol pairs and one
-        # dependency. Nothing downstream reads them yet, so switching it on for everybody
-        # would be paying the size now for a consumer that does not exist. Spec §5 is
-        # explicit that file-level behaviour is the floor and symbols only refine it.
+        # measured on this repository it turns 120 file-level edges into 698, over the same
+        # 77 file pairs, because a test module calling one helper sixty times is sixty
+        # distinct symbol pairs and one dependency. Nothing downstream reads them yet, so
+        # switching it on for everybody would be paying the size now for a consumer that does
+        # not exist. Spec §5 is explicit that file-level behaviour is the floor and symbols
+        # only refine it.
         'symbols': False,
     },
     'directories': {},
@@ -193,12 +194,26 @@ def load_global() -> Tuple[Dict[str, Any], List[str]]:
                 'everywhere; anything about *this* project belongs in its own settings.json'
                 % (path, section, ', '.join('.'.join(k) for k in GLOBAL_KEYS)))
             continue
-        if isinstance(value, dict):
-            for key in value:
-                if (section, key) not in GLOBAL_KEYS:
-                    warnings.append(
-                        '%s: %s.%s is not a machine-level setting and was ignored'
-                        % (path, section, key))
+        if not isinstance(value, dict):
+            warnings.append('%s: "%s" must be an object; ignoring it' % (path, section))
+            continue
+        for key in value:
+            if (section, key) not in GLOBAL_KEYS:
+                warnings.append(
+                    '%s: %s.%s is not a machine-level setting and was ignored'
+                    % (path, section, key))
+
+    # The same audibility the project file has. A wrong-typed machine default was dropped in
+    # complete silence — no seeding, no message, the floor used — which is precisely how
+    # somebody ends up convinced their machine is set to something it is not.
+    backend = _dig(allowed, ('substrate', 'backend'))
+    if backend is not None and _clean_backend(backend) is None:
+        warnings.append('%s: substrate.backend: %r is not a backend name; ignoring it'
+                        % (path, backend))
+    symbols = _dig(allowed, ('substrate', 'symbols'))
+    if symbols is not None and not isinstance(symbols, bool):
+        warnings.append('%s: substrate.symbols: %r is not true or false; ignoring it'
+                        % (path, symbols))
     return allowed, warnings
 
 
@@ -435,31 +450,40 @@ def set_backend(name: str, project_dir: Optional[str] = None,
     Merges rather than replaces, so setting a backend never discards the directory verdicts
     or anything a newer version wrote alongside them.
     """
-    if scope == SOURCE_GLOBAL:
-        data, _ = load_global()
-        data.setdefault('substrate', {})['backend'] = name
-        return write_global(data)
-
-    path = settings_path(str(project_dir))
-    data = {}  # type: Dict[str, Any]
-    if os.path.exists(path):
-        try:
-            with open(path, encoding='utf-8') as handle:
-                loaded = json.load(handle)
-            if isinstance(loaded, dict):
-                data = loaded
-        except (OSError, ValueError):
-            # A file we cannot parse is not one to silently overwrite with two keys. Say so
-            # rather than destroying whatever the engineer had in there.
-            raise ValueError('%s exists and is not readable JSON; fix or remove it first'
-                             % path)
+    path = global_settings_path() if scope == SOURCE_GLOBAL else settings_path(str(project_dir))
+    # The file as written, not as *interpreted*. `load_global()` filters to `GLOBAL_KEYS`, so
+    # merging into its result and writing that back deleted every other key in the machine
+    # file — including a forward-compatible section a newer freya had put there. Reading the
+    # raw file is the only way this stays a merge rather than a replacement.
+    data = _read_object(path)
     substrate = data.get('substrate')
     data['substrate'] = substrate if isinstance(substrate, dict) else {}
     data['substrate']['backend'] = name
-    return write(str(project_dir), data)
+    return write_global(data) if scope == SOURCE_GLOBAL else write(str(project_dir), data)
 
 
-def seed_project_backend(project_dir: str) -> Optional[str]:
+def _read_object(path: str) -> Dict[str, Any]:
+    """The JSON object at `path`, or `{}` if there is nothing there.
+
+    Raises rather than returning `{}` for a file that exists and is not a readable object. A
+    settings file is hand-editable and committed, so overwriting one we could not understand
+    would throw away work — and "valid JSON but not an object" is exactly the case that used
+    to slip through the parse check and get silently replaced.
+    """
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, encoding='utf-8') as handle:
+            loaded = json.load(handle)
+    except (OSError, ValueError):
+        raise ValueError('%s exists and is not readable JSON; fix or remove it first' % path)
+    if not isinstance(loaded, dict):
+        raise ValueError('%s exists and is not a JSON object; fix or remove it first' % path)
+    return loaded
+
+
+def seed_project_backend(project_dir: str,
+                         is_known: Optional[Callable[[str], bool]] = None) -> Optional[str]:
     """Carry the machine-level answer into a project that has not answered. Returns the path.
 
     This is what makes a machine-level default safe to have. Left implicit, the same commit
@@ -472,6 +496,15 @@ def seed_project_backend(project_dir: str) -> Optional[str]:
     resolve the same backend without having to share anyone's machine configuration. That is
     the same property CD-15 was written for.
 
+    `symbols` rides along when the machine sets it, for the same reason and with more force:
+    it changes graph *content* several-fold, so a machine-level `symbols: true` left implicit
+    is the same commit producing a different graph on two laptops.
+
+    `is_known` is an optional predicate the caller supplies to validate the name. This module
+    cannot check the registry itself — `backends` imports *this*, so reaching the other way
+    would be a cycle — and a typo in a hand-edited machine file must not be copied into a
+    project's committed settings, where it becomes permanent and per-repository.
+
     None when there is nothing to do — no machine default, or the project has already
     answered (including with an explicit `auto`, which is an answer meaning "keep following
     the machine").
@@ -482,7 +515,18 @@ def seed_project_backend(project_dir: str) -> Optional[str]:
     name = _clean_backend(_dig(conf.global_data, ('substrate', 'backend')))
     if not name or name == BACKEND_AUTO:
         return None
-    return set_backend(name, project_dir=project_dir, scope=SOURCE_PROJECT)
+    if is_known is not None and not is_known(name):
+        return None
+
+    path = settings_path(project_dir)
+    data = _read_object(path)
+    substrate = data.get('substrate')
+    data['substrate'] = substrate if isinstance(substrate, dict) else {}
+    data['substrate']['backend'] = name
+    symbols = _dig(conf.global_data, ('substrate', 'symbols'))
+    if isinstance(symbols, bool) and conf.file_symbols is None:
+        data['substrate']['symbols'] = symbols
+    return write(project_dir, data)
 
 
 def _clean_backend(value: Any) -> Optional[str]:

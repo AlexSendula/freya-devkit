@@ -2,7 +2,7 @@
 """The graphify backend — the second substrate, and the reason the contract exists.
 
 `graphify` is an external, stdlib-independent tool that extracts a symbol-level graph from a
-repository with no model in the loop. It reads ninety-two file extensions across forty
+repository with no model in the loop. It reads ninety-three file extensions across forty
 languages where the homegrown resolver reads six across four, which is the whole polyglot
 argument: a Java or Rust repository is otherwise graphed as empty and reported as a success.
 
@@ -177,7 +177,7 @@ CODE_NODE = 'code'
 ANCHOR_NODE_TYPES = ('module', 'namespace')
 
 # Derived from graphify's own suffix dispatch table (`extract._DISPATCH`), not hand-written
-# from what two fixtures happened to produce. The hand-written version declared 34 of the 92
+# from what two fixtures happened to produce. The hand-written version declared 34 of the 93
 # extensions graphify has real extractors for, and the 59 it left out failed in the direction
 # the comment below calls the dangerous one: a `.groovy`, `.kts`, `.f90` or `.razor` file that
 # graphify *did* parse was written into the artifact, reported by `validate_graph` as

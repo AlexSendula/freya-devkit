@@ -40,13 +40,19 @@ class Base(unittest.TestCase):
         path = Path(self.home) / "settings.json"
         return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
 
-    def offer(self, answers=("1",), interactive=True):
+    #: Injected rather than read off PATH. Written against the real registry, five of these
+    #: tests passed here and failed on every CI runner, which installs nothing but pytest and
+    #: therefore has exactly one backend to choose between.
+    OPTIONS = ["homegrown", "graphify"]
+
+    def offer(self, answers=("1",), interactive=True, options=None):
         """Run the question with a scripted set of answers."""
         queue = list(answers)
         return backend_setup.offer(
             STORE, stream=self.out,
             reader=lambda: queue.pop(0) if queue else "",
-            interactive=interactive)
+            interactive=interactive,
+            options=self.OPTIONS if options is None else options)
 
 
 class TestItAsksOnce(Base):
@@ -94,6 +100,18 @@ class TestItNeverBlocksAndNeverGuesses(Base):
         self.assertIsNone(self.offer(["x", "9", "nope"]))
         self.assertIsNone(self.saved())
 
+    def test_a_digit_that_is_not_a_number_is_re_asked_not_raised(self):
+        """`"²".isdigit()` is True and `int("²")` raises, so the guard let exactly
+        the input it was meant to catch through — and turned a typo into a traceback out of
+        an install."""
+        self.assertIsNone(self.offer(["²", "", ""]))
+        self.assertIsNone(self.saved())
+
+    def test_it_does_not_depend_on_what_is_installed_on_this_machine(self):
+        """The regression that matters most here: written against the real registry, this
+        suite passed locally and failed on every CI runner."""
+        self.assertEqual(self.offer(["2"], options=["homegrown", "graphify"]), "graphify")
+
     def test_an_interrupted_prompt_is_a_skip_not_a_crash(self):
         def interrupt():
             raise KeyboardInterrupt
@@ -109,41 +127,59 @@ class TestItNeverBlocksAndNeverGuesses(Base):
 
 
 class TestOneOptionIsNotAQuestion(Base):
-    def setUp(self):
-        super().setUp()
-        original = backend_setup._choices
-        backend_setup._choices = lambda store, mod: ["homegrown"]
-        self.addCleanup(setattr, backend_setup, "_choices", original)
+    ONLY_FLOOR = ["homegrown"]
 
     def test_it_does_not_ask_when_there_is_nothing_to_choose(self):
         """Asking a question with one answer trains people to skip questions."""
         asked = []
         self.assertIsNone(backend_setup.offer(
             STORE, stream=self.out, reader=lambda: asked.append(1) or "1",
-            interactive=True))
+            interactive=True, options=self.ONLY_FLOOR))
         self.assertEqual(asked, [])
         self.assertIsNone(self.saved())
 
     def test_it_still_closes_the_discovery_gap(self):
         """Nothing else in the toolkit tells you another backend exists before you have
         already installed it, so this line is the whole discovery path."""
-        backend_setup.offer(STORE, stream=self.out, reader=lambda: "", interactive=True)
+        backend_setup.offer(STORE, stream=self.out, reader=lambda: "", interactive=True,
+                            options=self.ONLY_FLOOR)
         shown = self.out.getvalue()
         self.assertIn("graphify", shown)
         self.assertIn("--use graphify --global", shown)
+
+    def test_a_scripted_install_is_silent_even_with_nothing_to_offer(self):
+        """The upsell used to be written before the interactive check, so it landed in the
+        log of every CI install and every `freya update`, forever — advice nobody running
+        those was in a position to act on."""
+        self.assertIsNone(backend_setup.offer(
+            STORE, stream=self.out, reader=lambda: "", interactive=False,
+            options=self.ONLY_FLOOR))
+        self.assertEqual(self.out.getvalue(), "")
 
 
 class TestItSharesOneDefinitionOfTheMachineHome(unittest.TestCase):
     def test_the_machine_level_home_has_one_definition(self):
         """`~/.freya` holds both the update throttle and the settings file. Two independent
         computations of that path would let `FREYA_HOME` relocate one and not the other — so
-        a test run would isolate its configuration and still write into the real home."""
+        a test run would isolate its configuration and still write into the real home.
+
+        Compared with the variable **unset**, because that is the only state where the two
+        fallbacks are exercised. With it set — which the session-wide conftest does — both
+        sides trivially return the sandbox and the test proves nothing, which is what it did
+        when it was first written.
+        """
         sys.path.insert(0, str(STORE / "skills" / "freya-code-graph" / "scripts"))
         import settings as settings_mod
         import updater
 
-        self.assertEqual(Path(settings_mod.global_home()).resolve(),
-                         updater.state_dir().resolve())
+        previous = os.environ.pop("FREYA_HOME", None)
+        try:
+            self.assertEqual(Path(settings_mod.global_home()).resolve(),
+                             updater.state_dir().resolve())
+            self.assertEqual(Path(settings_mod.global_home()).name, ".freya")
+        finally:
+            if previous is not None:
+                os.environ["FREYA_HOME"] = previous
 
     def test_the_override_moves_both(self):
         sys.path.insert(0, str(STORE / "skills" / "freya-code-graph" / "scripts"))

@@ -134,19 +134,21 @@ The graph is produced by a **substrate backend** behind a fixed contract
 | Backend | Languages | Requires |
 |---|---|---|
 | `homegrown` | 4 — TypeScript, JavaScript, Python, Go (6 extensions) | nothing — stdlib only |
-| `graphify` | 40 across 92 extensions, incl. Java, Rust, C#, Kotlin, Swift, Scala, Ruby, PHP, SQL, Terraform, Fortran, Elixir | the `graphify` binary on PATH |
+| `graphify` | 40 across 93 extensions, incl. Java, Rust, C#, Kotlin, Swift, Scala, Ruby, PHP, SQL, Terraform, Fortran, Elixir | the `graphify` binary on PATH |
 
 `graphify` also emits `calls`, `inherits` and `references` — relations the homegrown resolver
 has no notion of, because it resolves module references between files and has no idea what a
 symbol is.
 
-**It is opt-in, deliberately.** `auto` stays on the floor even when another backend would read
-more of your repository, and tells you what it is leaving out:
+**It is opt-in, deliberately.** With no machine default set, `auto` stays on the floor even
+when another backend would read more of your repository — and tells you what it is leaving
+out:
 
 ```
 code-graph: 'graphify' is installed and declares it reads 2 file(s) here that 'homegrown'
-cannot (.ps1, .sh). It is opt-in: set substrate.backend to 'graphify' in
-knowledge-base/settings.json to use it.
+cannot (.ps1, .sh).
+  → freya code-graph --use graphify            (this project)
+  → freya code-graph --use graphify --global   (and every future one)
 ```
 
 The count excludes extensions the other backend declares but selects by *name* —

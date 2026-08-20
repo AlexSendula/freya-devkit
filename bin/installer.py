@@ -979,10 +979,15 @@ def main(argv=None):
         # would never fire; and putting the instruction in the skill layer would charge
         # every invocation for a question asked once. Best-effort throughout: an install
         # that worked must not be reported as failed because a preference could not be
-        # saved.
-        import backend_setup
+        # saved — which is why even the import is guarded: under `-P`, `-I` or
+        # PYTHONSAFEPATH the script's own directory is off sys.path, so an unguarded import
+        # would turn a completed install into a traceback and exit 1.
+        try:
+            import backend_setup
 
-        backend_setup.offer_quietly(store)
+            backend_setup.offer_quietly(store)
+        except Exception:  # noqa: BLE001
+            pass
 
     return 0
 

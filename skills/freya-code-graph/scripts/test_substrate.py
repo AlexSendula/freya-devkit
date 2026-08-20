@@ -648,6 +648,62 @@ class TestTheMachineLevelDefault(MachineHome):
         with self.assertRaises(ValueError):
             settings_mod.set_backend('graphify', project_dir=d)
 
+    def test_valid_json_that_is_not_an_object_is_also_refused(self):
+        """The parse check let this through and replaced the file. A settings file is
+        hand-editable and committed; overwriting one we could not understand throws away
+        somebody's work."""
+        d = self.project('["not", "an", "object"]')
+        with self.assertRaises(ValueError):
+            settings_mod.set_backend('graphify', project_dir=d)
+
+    def test_setting_the_machine_default_keeps_keys_it_does_not_understand(self):
+        """`set_backend` merged into `load_global()`'s *filtered* view and wrote that back,
+        so answering the install question deleted every other key in the machine file —
+        including a section a newer freya had written for forward compatibility."""
+        self.set_global('{"substrate": {"backend": "homegrown"}, "future": {"x": 1}}')
+        settings_mod.set_backend('graphify', scope=settings_mod.SOURCE_GLOBAL)
+        raw = json.loads(Path(settings_mod.global_settings_path()).read_text())
+        self.assertEqual(raw['substrate']['backend'], 'graphify')
+        self.assertEqual(raw['future'], {'x': 1})
+
+    def test_a_wrong_typed_machine_default_is_reported(self):
+        """Silence here is how somebody ends up convinced their machine is set to something
+        it is not — the same defect `_check_substrate` fixed at project level."""
+        self.set_global('{"substrate": {"backend": 42}}')
+        s = settings_mod.load(self.project())
+        self.assertEqual(s.backend, 'auto')
+        self.assertTrue(any('substrate.backend' in w for w in s.warnings), s.warnings)
+
+    def test_a_wrong_shaped_machine_section_is_reported(self):
+        self.set_global('{"substrate": "graphify"}')
+        s = settings_mod.load(self.project())
+        self.assertEqual(s.backend, 'auto')
+        self.assertTrue(any('must be an object' in w for w in s.warnings))
+
+    def test_seeding_carries_symbols_too(self):
+        """`symbols` changes graph *content* several-fold. Carrying the backend but not this
+        leaves exactly the divergence the seeding exists to prevent."""
+        self.set_global('{"substrate": {"backend": "graphify", "symbols": true}}')
+        d = self.project()
+        settings_mod.seed_project_backend(d)
+        raw = json.loads(Path(settings_mod.settings_path(d)).read_text())
+        self.assertEqual(raw['substrate'], {'backend': 'graphify', 'symbols': True})
+
+    def test_seeding_keeps_the_rest_of_the_project_file(self):
+        self.set_global('{"substrate": {"backend": "graphify"}}')
+        d = self.project('{"directories": {"docs": "source"}}')
+        settings_mod.seed_project_backend(d)
+        self.assertEqual(settings_mod.load(d).directories, {'docs': 'source'})
+
+    def test_seeding_refuses_a_name_the_caller_does_not_recognise(self):
+        """One typo in a hand-edited machine file would otherwise become a permanent,
+        per-repository, committed mistake."""
+        self.set_global('{"substrate": {"backend": "grapheefy"}}')
+        d = self.project()
+        self.assertIsNone(settings_mod.seed_project_backend(
+            d, is_known=lambda n: n in ('homegrown', 'graphify')))
+        self.assertFalse(os.path.exists(settings_mod.settings_path(d)))
+
     # -- seeding -----------------------------------------------------------
 
     def test_seeding_writes_the_machine_answer_into_the_project(self):

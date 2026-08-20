@@ -896,7 +896,7 @@ class TestAgainstTheRealBinary(Base):
 class TestTheDeclaredCoverageMatchesTheTool(unittest.TestCase):
     """The coverage block is only worth having if it is true.
 
-    It was hand-written from what two fixtures produced, and declared 34 of the 92
+    It was hand-written from what two fixtures produced, and declared 34 of the 93
     extensions graphify actually dispatches — so a `.groovy`, `.kts` or `.f90` file the tool
     had successfully parsed was written into the artifact, flagged by `validate_graph` as
     outside the declared coverage, and given `language: null`. Under-claiming is the

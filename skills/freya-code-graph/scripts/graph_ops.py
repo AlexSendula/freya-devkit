@@ -2585,8 +2585,14 @@ def _seed_from_machine_default(project_dir: str) -> None:
     Never fatal. A read-only checkout is a perfectly good place to build a graph, and failing
     to persist a preference is not a reason to refuse.
     """
+    known = set(known_backend_names())
     try:
-        path = settings.seed_project_backend(project_dir)
+        # The registry check is passed in, because `backends` imports `settings` and the
+        # reverse would be a cycle. Without it a typo in a hand-edited machine file gets
+        # copied into a project's *committed* settings, where it stops being one person's
+        # mistake and becomes the repository's.
+        path = settings.seed_project_backend(
+            project_dir, is_known=(lambda n: n in known) if known else None)
     except (OSError, ValueError) as exc:
         _announce_once('code-graph: could not record the machine default in this project '
                        '(%s); using it for this run only' % exc.__class__.__name__)
@@ -2621,6 +2627,14 @@ def record_backend(name: str, project_dir: str, global_scope: bool) -> int:
               % (name, ', '.join(known)), file=sys.stderr)
         return 2
 
+    if not global_scope and not os.path.isdir(project_dir):
+        # A typo'd `--dir` used to be created from scratch, written to, and reported as
+        # success — leaving the project the engineer meant still unconfigured, and a stray
+        # `knowledge-base/` somewhere they never looked.
+        print('code-graph: %s is not a directory. Pass --dir <project>, or --global to set '
+              'the machine default.' % project_dir, file=sys.stderr)
+        return 2
+
     scope = settings.SOURCE_GLOBAL if global_scope else settings.SOURCE_PROJECT
     try:
         path = settings.set_backend(name, project_dir=project_dir, scope=scope)
@@ -2629,9 +2643,14 @@ def record_backend(name: str, project_dir: str, global_scope: bool) -> int:
         return 1
 
     if global_scope:
-        print('Machine default is now %r (%s).\nEvery project that has not decided for '
-              'itself will use it, and the first build in each will record it there.'
-              % (name, path))
+        # Careful about what this promises. A project that has already been built has the
+        # previous answer *recorded in its own settings.json*, and the project file wins —
+        # so this changes what happens in projects that have not decided yet, not everywhere.
+        print('Machine default is now %r (%s).\n'
+              'Projects that have not decided for themselves will use it, and the first '
+              'build in each records it there.\n'
+              'A project already carrying a different answer keeps it — change that one with '
+              '`freya code-graph --use %s` inside it.' % (name, path, name))
     else:
         print('This project now uses %r (%s).\nCommit that file so a clone, a colleague and '
               'CI all resolve the same backend.' % (name, path))
@@ -2746,7 +2765,10 @@ def main():
 
     graph = CodeGraph(args.dir)
 
-    if args.use:
+    if args.use is not None:
+        # `is not None`, not truthiness: `--use ""` is a mistake, and testing truthiness sent
+        # it past every dispatch branch to the terminal `sys.exit(1)` — exit 1 with nothing on
+        # stdout or stderr, which is the least useful way to be told anything.
         return record_backend(args.use, str(graph.project_dir), args.global_scope)
 
     selection_metadata = None

@@ -94,11 +94,16 @@ def _choices(store, backends_mod):
     return ([floor] if floor in names else []) + [n for n in names if n != floor]
 
 
-def offer(store, stream=None, reader=None, interactive=None):
+def offer(store, stream=None, reader=None, interactive=None, options=None):
     """Ask which backend to use, once per machine. Returns the name chosen, or None.
 
-    `reader` and `interactive` are injection points so the whole flow is testable without a
-    terminal; production passes neither.
+    `reader`, `interactive` and `options` are injection points so the whole flow is testable
+    without a terminal *and without depending on what happens to be installed on the machine
+    running the tests*; production passes none of them.
+
+    That last one is not hypothetical: written against `_choices` directly, five of these
+    tests passed here and failed on every CI runner, because the runner installs nothing but
+    pytest and so has only one backend to choose between.
     """
     out = stream or sys.stdout
     if interactive is None:
@@ -110,15 +115,19 @@ def offer(store, stream=None, reader=None, interactive=None):
     if already_answered(store):
         return None
 
-    options = _choices(store, backends_mod)
+    if not interactive:
+        # A scripted or piped install must not block, must not answer on the user's behalf,
+        # and must not talk either. Checked *before* the single-option branch below, which
+        # otherwise printed the upsell into the log of every CI install and every `freya
+        # update`, forever — advice nobody was in a position to act on.
+        return None
+
+    if options is None:
+        options = _choices(store, backends_mod)
     if len(options) < 2:
         # Nothing to choose between. Say what is missing and how to get it, then stop —
         # asking a question with one answer trains people to skip questions.
         out.write("\n" + _UPSELL + "\n")
-        return None
-    if not interactive:
-        # A scripted or piped install must not block, and must not answer on the user's
-        # behalf either. It stays unanswered, which is a state the build handles.
         return None
 
     out.write("\nWhich parser should freya use to read your code?\n\n")
@@ -157,8 +166,15 @@ def _ask(out, reader, count):
             return None
         if not raw:
             return None
-        if raw.isdigit() and 1 <= int(raw) <= count:
-            return int(raw)
+        # `int()` rather than `isdigit()` then `int()`: `"²".isdigit()` is True and
+        # `int("²")` raises, so the guard let exactly the input it was meant to catch through
+        # and turned a typo into a traceback out of an install.
+        try:
+            value = int(raw)
+        except ValueError:
+            value = None
+        if value is not None and 1 <= value <= count:
+            return value
         out.write("  Please enter a number between 1 and %d, or press Enter to skip.\n" % count)
     return None
 
