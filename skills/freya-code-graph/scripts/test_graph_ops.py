@@ -1770,5 +1770,132 @@ class TestThisRepoGraphsItself(Base):
              "skills/thing/scripts/behavior_graph.py"), internal)
 
 
+class TestRenamesLeaveNoGhostNode(Base):
+    """`--update` asks git which paths changed, and git answers with rename *semantics*.
+
+    With detection on — the default — a moved file is reported once, as its destination,
+    and the path it vanished from is never named. `update()` only removes an entry when git
+    names it, so the old path stayed in the graph forever: `--dependents` on it answered
+    confidently with files that no longer import it, and only a full `--build` cleared it.
+    """
+
+    def _commit(self, proj, message):
+        env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@e",
+                   GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@e")
+        subprocess.run(["git", "add", "-A"], cwd=proj, env=env, capture_output=True)
+        subprocess.run(["git", "commit", "-qm", message], cwd=proj, env=env,
+                       capture_output=True, check=True)
+
+    def test_the_old_path_leaves_the_graph(self):
+        proj = self.mk({
+            "src/a.ts": "export const a = 1\n",
+            "src/b.ts": "import { a } from './a'\nexport const b = a\n",
+        })
+        _git_repo(proj)
+        g = CodeGraph(proj)
+        graph_ops.run_build(g)
+        self.assertIn("src/a.ts", g.load()["files"])
+
+        env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@e",
+                   GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@e")
+        subprocess.run(["git", "mv", "src/a.ts", "src/renamed.ts"], cwd=proj, env=env,
+                       capture_output=True, check=True)
+        (Path(proj) / "src" / "b.ts").write_text(
+            "import { a } from './renamed'\nexport const b = a\n", encoding="utf-8")
+        self._commit(proj, "rename")
+
+        graph_ops.run_update(CodeGraph(proj))
+        files = CodeGraph(proj).load()["files"]
+        self.assertIn("src/renamed.ts", files)
+        self.assertNotIn("src/a.ts", files, "the vanished path is still a graph node")
+
+
+class TestASettingsVerdictCanBeWithdrawn(Base):
+    """A committed verdict was folded into the gitignored cache and persisted there.
+
+    It then outlived the file that declared it: deleting the entry from settings.json
+    changed nothing, because the cached copy still outranked every rule, survived the
+    RULES_VERSION discard (only `rule`/`gitignore` are dropped) and survived `--clear`.
+    The only way back was to hand-edit a cache the toolkit says is regenerable — which
+    inverts CD-15 exactly.
+    """
+
+    def test_removing_the_entry_takes_effect_on_the_next_build(self):
+        proj = self.mk({
+            "src/a.ts": "export const a = 1\n",
+            "docs/d.ts": "export const d = 1\n",
+            "knowledge-base/settings.json": '{"directories": {"docs": "source"}}\n',
+        })
+        graph_ops.run_build(CodeGraph(proj), non_interactive=True)
+        self.assertIn("docs/d.ts", CodeGraph(proj).load()["files"])
+
+        (Path(proj) / "knowledge-base" / "settings.json").write_text("{}\n",
+                                                                     encoding="utf-8")
+        graph_ops.run_build(CodeGraph(proj), non_interactive=True)
+        self.assertNotIn("docs/d.ts", CodeGraph(proj).load()["files"])
+
+    def test_the_verdict_is_never_written_into_the_cache(self):
+        proj = self.mk({
+            "src/a.ts": "export const a = 1\n",
+            "docs/d.ts": "export const d = 1\n",
+            "knowledge-base/settings.json": '{"directories": {"docs": "source"}}\n',
+        })
+        graph_ops.run_build(CodeGraph(proj), non_interactive=True)
+        cached = json.loads(
+            (Path(proj) / "knowledge-base" / ".graph" / "classifications.json")
+            .read_text(encoding="utf-8"))
+        self.assertNotIn("docs", cached["directories"])
+
+
+class TestRefusingToEraseIsARefusalNotACrash(Base):
+    """Excluding the last source directory is an ordinary thing to commit.
+
+    The refusal is right — an empty graph over a populated one is the confident-empty
+    failure — but it reached the user as an unhandled `EmptiedTheGraph` traceback and exit
+    1, with the composed explanation buried inside it.
+    """
+
+    def test_it_reports_and_exits_rather_than_raising(self):
+        proj = self.mk({
+            "src/a.ts": "export const a = 1\n",
+            "knowledge-base/settings.json": "{}\n",
+        })
+        graph_ops.run_build(CodeGraph(proj), non_interactive=True)
+        (Path(proj) / "knowledge-base" / "settings.json").write_text(
+            '{"directories": {"src": "exclude"}}\n', encoding="utf-8")
+
+        out = subprocess.run(
+            [sys.executable, str(Path(graph_ops.__file__)), "--build", "--dir", proj,
+             "--non-interactive"],
+            capture_output=True, text=True)
+        self.assertEqual(out.returncode, 1)
+        self.assertIn("refusing to overwrite", out.stderr)
+        self.assertNotIn("Traceback", out.stderr)
+        # And the previous graph is still there.
+        self.assertIn("src/a.ts", CodeGraph(proj).load()["files"])
+
+
+class TestImpactSaysWhenItHasNeverSeenAFile(Base):
+    """`--dependents` on an unknown file has always said so; `--impact` did not.
+
+    It returned `all_affected: []` with exit 0 and nothing on stderr, which reads as
+    "nothing depends on this" and means "I have never seen this file" — and `--impact` is
+    the one wrap-up calls.
+    """
+
+    def test_an_unindexed_input_is_reported(self):
+        proj = self.mk({"src/a.ts": "export const a = 1\n"})
+        g = CodeGraph(proj)
+        graph_ops.run_build(g)
+        result = CodeGraph(proj).get_impact(["src/a.ts", "Main.java"])
+        self.assertEqual(result["not_in_graph"], {"Main.java"})
+        self.assertNotIn("Main.java", result["all_affected"])
+
+    def test_a_fully_known_input_reports_nothing_extra(self):
+        proj = self.mk({"src/a.ts": "export const a = 1\n"})
+        graph_ops.run_build(CodeGraph(proj))
+        self.assertEqual(CodeGraph(proj).get_impact(["src/a.ts"])["not_in_graph"], set())
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -63,8 +63,19 @@ class Selection:
 def _registry() -> Dict[str, Callable[[str], Any]]:
     """name -> factory. Imported lazily so a broken optional backend cannot break a build."""
     def homegrown(project_dir):
-        import graph_ops
-        return graph_ops.CodeGraph(project_dir)
+        # The already-loaded module, when there is one. `graph_ops.py` is executed as a
+        # script by the CLI, so it lives in `sys.modules` under `__main__`; importing it
+        # by name here built a *second* module object with its own module-level state.
+        # The visible symptom was every settings warning printed twice, from a helper
+        # whose whole contract is "said once per process" — but two copies of a module
+        # that owns caches and constants is a class of bug, not one bug.
+        module = sys.modules.get('graph_ops')
+        if module is None:
+            main = sys.modules.get('__main__')
+            module = main if hasattr(main, 'CodeGraph') else None
+        if module is None:
+            import graph_ops as module  # noqa: F811
+        return module.CodeGraph(project_dir)
 
     def graphify(project_dir):
         import backend_graphify

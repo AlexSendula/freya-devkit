@@ -347,8 +347,17 @@ def link_dependents(graph: Dict[str, Any]) -> Dict[str, Any]:
                 # duplicates, one file listing the same dependent 60 times, and `--query`
                 # printing that line 60 times. The information that made them distinct was
                 # thrown away at precisely the point it was needed.
-                reverse = make_edge(path, kind=edge_kind(edge),
-                                    provenance=edge_provenance(edge), reverse=True)
+                #
+                # Built directly rather than through `make_edge`, which raises for a kind or
+                # provenance outside the vocabulary. Linking runs one line *before*
+                # `validate_graph`, so routing this through the constructor meant a backend
+                # emitting `mixes_in` died here with a bare ValueError — and the validator's
+                # own message, which names the file and the offending kind and is the whole
+                # point of having one, was unreachable. The reverse edge mirrors whatever the
+                # forward edge said; if that is wrong, the validator is what says so.
+                reverse = {'from': path,
+                           'kind': edge_kind(edge),
+                           'provenance': edge_provenance(edge)}
                 for field in SYMBOL_FIELDS + ('line',):
                     if field in edge:
                         reverse[field] = edge[field]
@@ -507,14 +516,45 @@ class Exclusions:
         # `packages/legacy/` when that one is separately excluded.
         for directory in sorted(self.overrides, key=lambda d: -d.count('/')):
             if self._under(parts, directory):
-                deeper = [x for x in self.directories
-                          if x.count('/') > directory.count('/') and self._under(parts, x)]
-                return bool(deeper)
+                return self._excluded_under_override(rel, parts, directory)
         for directory in self.directories:
             if self._under(parts, directory):
                 return True
         if self._matcher and self.patterns:
             return bool(self._matcher(rel, self.patterns))
+        return False
+
+    def _excluded_under_override(self, rel: str, parts: Sequence[str], override: str) -> bool:
+        """Is a path *inside* an overridden directory still excluded by something?
+
+        An override says "this directory is in scope, whatever the convention lists and
+        `.gitignore` decided". It does **not** say "and nothing inside it can ever be out of
+        scope", and reading it that way was a real defect: this method used to return
+        `bool(deeper)` and never reach the pattern matcher at all, so
+        `{"directories": {"packages": "source"}}` on an npm-workspaces tree pulled every
+        `packages/*/node_modules/**` into the graph. Measured on a two-package fixture: the
+        override admitted the whole vendored tree, and the control build without it did not.
+
+        That is the 50,000-file blast radius CD-21's two-tier design exists to prevent,
+        reached through an ordinary ancestor verdict — and nothing could switch it back off,
+        because the classifier does not descend into a directory whose ancestor already
+        carries a stated verdict, so no nested `exclude` is ever derived to catch it.
+
+        The rule instead: a rule aimed **at the override or above it** is what the override
+        overrules; a rule that describes something **inside** it still applies. So the
+        patterns are re-matched against the path *relative to the override root* —
+        `node_modules/` still catches `packages/app/node_modules/lodash/index.js` via its
+        tail, while `packages/` (the entry the override exists to beat) matches no tail at
+        all and is correctly ignored.
+        """
+        # A carve-out the project stated itself, deeper than the override it sits in.
+        depth = override.count('/')
+        if any(x.count('/') > depth and self._under(parts, x) for x in self.directories):
+            return True
+        if self._matcher and self.patterns:
+            tail = '/'.join(parts[len(override.split('/')):])
+            if tail:
+                return bool(self._matcher(tail, self.patterns))
         return False
 
     def to_dict(self) -> Dict[str, Any]:
@@ -739,6 +779,19 @@ def validate_graph(graph: Dict[str, Any], coverage: Optional[Coverage] = None) -
                 elif source not in files:
                     errors.append('files[%r]: dependent %r names no file in the graph'
                                   % (path, source))
+                # The comment above names "one that lost its kind on the way back" as a
+                # reason to validate the reverse index, and then only the key and the source
+                # were checked — so the stated reason was the one thing not covered. A
+                # reverse edge is an edge; it is held to the same vocabulary as a forward one.
+                if isinstance(edge, dict):
+                    if edge.get('kind') not in RELATION_KINDS:
+                        errors.append('files[%r]: dependent %r has kind %r, which is not in %s'
+                                      % (path, source, edge.get('kind'), list(RELATION_KINDS)))
+                    if edge.get('provenance') not in PROVENANCE:
+                        errors.append('files[%r]: dependent %r has provenance %r, not one of %s'
+                                      % (path, source, edge.get('provenance'), list(PROVENANCE)))
+                    errors.extend('files[%r]: dependent %r %s' % (path, source, why)
+                                  for why in _symbol_errors(edge))
 
         # Extensionless files are exempt, for the same reason `Coverage.blind_spots` skips
         # them: this model keys on extension, so about `bin/freya` or `Makefile` it has

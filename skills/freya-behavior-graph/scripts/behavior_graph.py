@@ -69,7 +69,10 @@ def project_behaviors(specs_dir):
             try:
                 with open(os.path.join(root, name), encoding="utf-8") as f:
                     fm, _body = frontmatter.parse_frontmatter(f.read())
-            except FrontmatterError:
+            except (FrontmatterError, UnicodeDecodeError, OSError):
+                # A read failure is not a frontmatter failure. Strict UTF-8 decoding means
+                # one spec with a stray byte raised out of this walk entirely, taking the
+                # whole behaviour projection with it — one bad file must cost one file.
                 continue
             for b in fm.get("behaviors") or []:
                 # accepted (authoritative) + confirmed (advisory, test owed) both
@@ -161,8 +164,8 @@ def _write_cache_gitignore(path):
         f.write(CACHE_GITIGNORE)
 
 
-def _sorted_exercises(data):
-    """Return `data` with every behavior's exercises ordered by path.
+def _stable(data):
+    """Return `data` with the behaviors mapping and every exercise list in a fixed order.
 
     behavior.json is committed, so it has to be byte-stable: two builds of
     unchanged input must produce an identical file or every rebuild shows a
@@ -170,6 +173,13 @@ def _sorted_exercises(data):
     is assembled from a set — proven to vary run to run in ordering while being
     identical in content. Sorting here is the single choke point that fixes it
     for every producer.
+
+    The *keys* needed the same treatment and did not get it. `project_behaviors` fills the
+    mapping in `os.walk` dirent order, which is directory order on APFS and hash order on
+    ext4 — so the same specs produced a different key order on a colleague's machine or in
+    CI, and `json.dump(..., indent=2)` preserved it. That is a whole-file diff on a tracked
+    artifact whose diffs are supposed to *mean* something: behaviour drift is what a change
+    to this file is read as.
     """
     behaviors = data.get("behaviors")
     if not isinstance(behaviors, dict):
@@ -179,6 +189,8 @@ def _sorted_exercises(data):
         if isinstance(ex, list):
             entry["exercises"] = sorted(
                 ex, key=lambda e: e.get("path", "") if isinstance(e, dict) else str(e))
+    data = dict(data)
+    data["behaviors"] = {bid: behaviors[bid] for bid in sorted(behaviors)}
     return data
 
 
@@ -188,7 +200,7 @@ def write_behavior_json(project_dir, data):
     os.makedirs(graph_dir, exist_ok=True)
     _write_cache_gitignore(os.path.join(graph_dir, ".gitignore"))
     with open(path, "w", encoding="utf-8") as f:
-        json.dump(_sorted_exercises(data), f, indent=2)
+        json.dump(_stable(data), f, indent=2)
 
 
 def _run_behavior_runner(project_dir, only=None):
@@ -262,6 +274,20 @@ def direction_a(behaviors, changed_files, project_dir):
     return _affected_from_impact(behaviors, _code_graph_impact(changed_files, project_dir))
 
 
+# Graph nodes that are not code a behaviour could ever exercise. The homegrown backend only
+# ever indexed source, so "graph node" and "source file" were the same set and this
+# distinction did not exist. A polyglot backend indexes manifests and project files too —
+# `package.json`, `pom.xml`, `app.csproj`, a solution file — and every one of them then
+# appeared in `--gaps` as source with no behaviour, and from there into a tracked BACKLOG.md
+# and into wrap-up's "write a behavior for this" prompt. Asking someone to write a behaviour
+# for `package.json` is noise, and noise in a gap report is how the report stops being read.
+#
+# Keyed on the language the graph itself recorded, not on a guess from the extension: the
+# backend already decided what each file is, and re-deciding it here is how two copies of one
+# idea drift apart.
+_NON_SOURCE_LANGUAGES = frozenset({"json", "xml", "msbuild"})
+
+
 def _graph_files(project_dir):
     """Project-relative source files code-graph tracks (graph.json keys); empty if absent."""
     path = os.path.join(project_dir, "knowledge-base", ".graph", "graph.json")
@@ -269,9 +295,14 @@ def _graph_files(project_dir):
         return set()
     try:
         with open(path, encoding="utf-8") as f:
-            return set(json.load(f).get("files", {}).keys())
+            files = json.load(f).get("files", {})
     except (json.JSONDecodeError, OSError):
         return set()
+    return {
+        rel for rel, info in files.items()
+        if not (isinstance(info, dict)
+                and info.get("language") in _NON_SOURCE_LANGUAGES)
+    }
 
 
 def _covered(behaviors, specs_behaviors):

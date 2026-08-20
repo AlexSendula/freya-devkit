@@ -2,9 +2,9 @@
 """The graphify backend — the second substrate, and the reason the contract exists.
 
 `graphify` is an external, stdlib-independent tool that extracts a symbol-level graph from a
-repository with no model in the loop. It reads seventeen languages where the homegrown
-resolver reads four, which is the whole polyglot argument: a Java or Rust repository is
-currently graphed as empty and reported as a success.
+repository with no model in the loop. It reads ninety-two file extensions across forty
+languages where the homegrown resolver reads six across four, which is the whole polyglot
+argument: a Java or Rust repository is otherwise graphed as empty and reported as a success.
 
 This module owns exactly one thing — translating `graphify-out/graph.json` into the shape
 `substrate.py` specifies. It does not persist, validate or link `dependents`; the contract
@@ -149,41 +149,72 @@ PROVENANCE = {
 # `concept` is a clustering artifact.
 CODE_NODE = 'code'
 
-# A node marked `type: module` is an *external* module — `Foundation`, `express` — not a file
-# in this project. It carries a `source_file` anyway, and that field is whichever project file
-# the module happened to be seen in first, because graphify emits one node per module and not
-# one per importer.
+# Node types that are *aggregate anchors*, not files. Each carries a `source_file` anyway,
+# and that field is whichever project file the thing happened to be seen in first — graphify
+# emits one node per module and per namespace, not one per file that mentions it.
 #
-# Reading it as a file fabricates edges, and the fabrication is silent and wrong in the worst
-# direction. Three Swift files that each `import Foundation` produced:
+# Reading one as a file fabricates edges, silently and in the worst direction. Three Swift
+# files that each `import Foundation` produced:
 #     src/s1.swift -> src/s3.swift  (imports)
 #     src/s2.swift -> src/s3.swift  (imports)
 # Neither edge exists in the source. Blast radius on `s3.swift` would have claimed two files
 # that have never heard of it.
 #
-# So a module node becomes an `external:` signal instead — which is exactly what the contract
-# has for this, and what the homegrown resolver already does with `import react`.
-EXTERNAL_NODE_TYPE = 'module'
-
-# Measured, not declared. Two fixtures — one symbol per language — were extracted and these
-# are the extensions that produced `code` nodes, unioned with a census of what graphify emits
-# on this repository. Twenty-odd of them are languages the homegrown resolver cannot see at
-# all, which is the entire reason this backend exists.
+# `namespace` is the same shape one language over: graphify canonicalises C# namespaces to one
+# node per label across every file that declares it, so `using App.Core;` in twenty files
+# resolves to whichever `.cs` file was parsed first. It was missed when `module` was fixed
+# because the fix enumerated the case it had seen rather than the class it belonged to.
+# graphify's own resolver skips namespace nodes in two places for the same reason.
 #
-# Declaring this by hand at all is a compromise, and the reason is worth writing down: the
-# extractor's file selection is partly *name*-based, not purely extension-based. An arbitrary
-# `x.json` produces nothing while `package.json` (and `pom.xml`) produce nodes, so `.json` and
-# `.xml` appear here and over-claim — a project full of unrecognised JSON would be reported as covered when it is
-# not. The alternative, leaving `.json` out, under-claims on every repository that has a
-# manifest, and the contract's whole purpose is to stop a backend under-reporting what it saw.
-# Over-claiming is the direction where the graph merely looks emptier than expected; under-
-# claiming is the direction where a missing file looks like an absent dependency.
+# `package` deliberately stays a file: its `source_file` is the manifest it was parsed from —
+# a real path — and graphify prunes dependency edges whose target manifest is not in the
+# corpus, so `packages/a/package.json -> packages/b/package.json` is a true statement about
+# two files that exist.
+#
+# An anchor becomes an `external:` signal instead, which is exactly what the contract has for
+# "a real dependency that is not a file of ours", and what the homegrown resolver already does
+# with `import react`.
+ANCHOR_NODE_TYPES = ('module', 'namespace')
+
+# Derived from graphify's own suffix dispatch table (`extract._DISPATCH`), not hand-written
+# from what two fixtures happened to produce. The hand-written version declared 34 of the 92
+# extensions graphify has real extractors for, and the 59 it left out failed in the direction
+# the comment below calls the dangerous one: a `.groovy`, `.kts`, `.f90` or `.razor` file that
+# graphify *did* parse was written into the artifact, reported by `validate_graph` as
+# "outside the declared coverage", and given `language: null`. A backend contradicting its own
+# coverage block on files it successfully read is the one thing that block cannot survive.
+#
+# `extract_markdown`'s extensions (`.md`, `.mdx`, `.qmd`, `.skill`) are deliberately excluded:
+# they produce `document` and `rationale` nodes, which this projection filters out. Declaring
+# them would claim coverage of files that can never appear in the graph — which is the *other*
+# failure, "no docs edges" made indistinguishable from "we do not read docs". docs.json (CD-7)
+# owns that question.
+#
+# Two extensions are still name-based rather than suffix-based, and they knowingly over-claim:
+# `package.json` and `pom.xml` produce nodes while an arbitrary `x.json` or `x.xml` produces
+# nothing. Declaring them is still right — under-reporting what a backend saw is the failure
+# the contract exists to prevent — but they are listed in `OVER_CLAIMED_EXTENSIONS` so they
+# are never used as evidence that a project would gain from switching.
+#
+# Pinned by a test that reads `_DISPATCH` out of graphify's own interpreter, the same way the
+# relation table is pinned against `DEFAULT_AFFECTED_RELATIONS`. A hand-maintained mirror of
+# somebody else's registry drifts silently; one that fails the build when it drifts does not.
 EXTENSIONS = (
-    '.bash', '.c', '.cjs', '.cpp', '.cs', '.dart', '.ex', '.go', '.h', '.hpp',
-    '.java', '.js', '.json', '.jsx', '.kt', '.lua', '.mjs', '.mts', '.php', '.ps1',
-    '.py', '.rb', '.rs', '.scala', '.sh', '.sql', '.svelte', '.swift', '.tf',
-    '.ts', '.tsx', '.vue', '.xml', '.zig',
+    '.asd', '.astro', '.bash', '.c', '.cc', '.cjs', '.cl', '.cls', '.cpp', '.cs',
+    '.cshtml', '.csproj', '.cts', '.cu', '.cuh', '.cxx', '.dart', '.dfm', '.dm', '.dme',
+    '.dmf', '.dmi', '.dmm', '.dpk', '.dpr', '.ex', '.exs', '.f', '.f03', '.f08', '.f90',
+    '.f95', '.fsproj', '.go', '.gradle', '.groovy', '.h', '.hcl', '.hpp', '.inc', '.java',
+    '.jl', '.js', '.json', '.jsx', '.kt', '.kts', '.lfm', '.lisp', '.lpk', '.lpr', '.lsp',
+    '.lua', '.luau', '.m', '.metal', '.mjs', '.ml', '.mli', '.mm', '.mts', '.pas', '.php',
+    '.pp', '.ps1', '.psd1', '.psm1', '.py', '.rake', '.razor', '.rb', '.rs', '.scala',
+    '.sh', '.sln', '.slnx', '.sql', '.sv', '.svelte', '.svh', '.swift', '.tf', '.tfvars',
+    '.toc', '.trigger', '.ts', '.tsx', '.v', '.vbproj', '.vue', '.xaml', '.xml', '.zig',
 )
+
+# Extensions graphify dispatches to a *document* extractor. Excluded from the declaration
+# above rather than forgotten — naming them here is what stops the next person "fixing" the
+# gap by adding them back.
+DOCUMENT_EXTENSIONS = ('.md', '.mdx', '.qmd', '.skill')
 
 # Extensions this backend declares but whose selection is *name*-based, so the declaration
 # knowingly over-claims: `package.json` produces nodes and an arbitrary `x.json` produces
@@ -193,21 +224,63 @@ EXTENSIONS = (
 OVER_CLAIMED_EXTENSIONS = ('.json', '.xml')
 
 LANGUAGES = (
-    'c', 'cpp', 'csharp', 'dart', 'elixir', 'go', 'java', 'javascript', 'json',
-    'kotlin', 'lua', 'php', 'powershell', 'python', 'ruby', 'rust', 'scala',
-    'shell', 'sql', 'svelte', 'swift', 'terraform', 'typescript', 'vue', 'xml', 'zig',
+    'apex', 'astro', 'c', 'commonlisp', 'cpp', 'csharp', 'dart', 'dm', 'elixir', 'fortran',
+    'go', 'groovy', 'java', 'javascript', 'json', 'julia', 'kotlin', 'lua', 'msbuild',
+    'objectivec', 'ocaml', 'pascal', 'php', 'powershell', 'python', 'razor', 'ruby',
+    'rust', 'scala', 'shell', 'sql', 'svelte', 'swift', 'terraform', 'typescript',
+    'verilog', 'vue', 'xaml', 'xml', 'zig',
 )
 
+# One name per extension, for the per-file `language` field. graphify's own dispatch groups
+# by *extractor*, which is coarser than what a reader wants: `extract_js` handles `.ts` and
+# `.js` alike, and labelling a TypeScript file `javascript` is a worse answer than the
+# question deserves. So the extractor is the authority for *which* extensions exist and this
+# table is the authority for what to call them.
 _LANGUAGE_BY_EXT = {
-    '.bash': 'shell', '.c': 'c', '.cjs': 'javascript', '.cpp': 'cpp', '.cs': 'csharp',
-    '.dart': 'dart', '.ex': 'elixir', '.go': 'go', '.h': 'c', '.hpp': 'cpp',
-    '.java': 'java', '.js': 'javascript', '.json': 'json', '.jsx': 'javascript',
-    '.kt': 'kotlin', '.lua': 'lua', '.mjs': 'javascript', '.mts': 'typescript',
-    '.php': 'php', '.ps1': 'powershell', '.py': 'python', '.rb': 'ruby', '.rs': 'rust',
-    '.scala': 'scala', '.sh': 'shell', '.sql': 'sql', '.svelte': 'svelte',
-    '.swift': 'swift', '.tf': 'terraform', '.ts': 'typescript', '.tsx': 'typescript',
-    '.vue': 'vue', '.xml': 'xml', '.zig': 'zig',
+    '.asd': 'commonlisp', '.astro': 'astro', '.bash': 'shell', '.c': 'c', '.cc': 'cpp',
+    '.cjs': 'javascript', '.cl': 'commonlisp', '.cls': 'apex', '.cpp': 'cpp',
+    '.cs': 'csharp', '.cshtml': 'razor', '.csproj': 'msbuild', '.cts': 'typescript',
+    '.cu': 'cpp', '.cuh': 'cpp', '.cxx': 'cpp', '.dart': 'dart', '.dfm': 'pascal',
+    '.dm': 'dm', '.dme': 'dm', '.dmf': 'dm', '.dmi': 'dm', '.dmm': 'dm', '.dpk': 'pascal',
+    '.dpr': 'pascal', '.ex': 'elixir', '.exs': 'elixir', '.f': 'fortran',
+    '.f03': 'fortran', '.f08': 'fortran', '.f90': 'fortran', '.f95': 'fortran',
+    '.fsproj': 'msbuild', '.go': 'go', '.gradle': 'groovy', '.groovy': 'groovy', '.h': 'c',
+    '.hcl': 'terraform', '.hpp': 'cpp', '.inc': 'pascal', '.java': 'java', '.jl': 'julia',
+    '.js': 'javascript', '.json': 'json', '.jsx': 'javascript', '.kt': 'kotlin',
+    '.kts': 'kotlin', '.lfm': 'pascal', '.lisp': 'commonlisp', '.lpk': 'pascal',
+    '.lpr': 'pascal', '.lsp': 'commonlisp', '.lua': 'lua', '.luau': 'lua',
+    '.m': 'objectivec', '.metal': 'cpp', '.mjs': 'javascript', '.ml': 'ocaml',
+    '.mli': 'ocaml', '.mm': 'objectivec', '.mts': 'typescript', '.pas': 'pascal',
+    '.php': 'php', '.pp': 'pascal', '.ps1': 'powershell', '.psd1': 'powershell',
+    '.psm1': 'powershell', '.py': 'python', '.rake': 'ruby', '.razor': 'razor',
+    '.rb': 'ruby', '.rs': 'rust', '.scala': 'scala', '.sh': 'shell', '.sln': 'msbuild',
+    '.slnx': 'msbuild', '.sql': 'sql', '.sv': 'verilog', '.svelte': 'svelte',
+    '.svh': 'verilog', '.swift': 'swift', '.tf': 'terraform', '.tfvars': 'terraform',
+    '.toc': 'lua', '.trigger': 'apex', '.ts': 'typescript', '.tsx': 'typescript',
+    '.v': 'verilog', '.vbproj': 'msbuild', '.vue': 'vue', '.xaml': 'xaml', '.xml': 'xml',
+    '.zig': 'zig',
 }
+
+
+# `graphify update` writes its extraction, an HTML viewer, a cache and dated backups into
+# `graphify-out/` at the project *root* — outside `knowledge-base/`, which is the only place
+# this toolkit's own ignore rules reach. Nothing marked it, so the first build in an adopting
+# project left a multi-megabyte generated tree that `git add -A` stages: verified on a fresh
+# repository, `graphify-out/graph.json` was staged alongside the source.
+#
+# That is the same defect this repository already fixed once, for `graph.<backend>.json`, and
+# it recurred one directory over at ~9.3 KB per file. Opting into a backend must not quietly
+# make a cache committable.
+#
+# `*` rather than a list of names, because the whole directory is graphify's regenerable
+# output and we do not own its filenames — enumerating them would go stale the first time it
+# writes something new, which is exactly how the last one happened.
+OUTPUT_GITIGNORE = (
+    '# graphify\'s extraction output — regenerable, not committed.\n'
+    '# Written by freya-code-graph\'s graphify backend. Delete this file to keep the\n'
+    '# directory; it is only rewritten when it is absent or unchanged from this text.\n'
+    '*\n'
+)
 
 
 class GraphifyUnavailable(RuntimeError):
@@ -278,8 +351,22 @@ class GraphifyBackend:
         result = self.build(non_interactive=non_interactive, exclusions=exclusions,
                             selection_metadata=selection_metadata)
         changed = _changed_files(previous.get('files') or {}, result.graph.get('files') or {})
-        if not changed and previous.get('files'):
-            return substrate.Result(result.graph, substrate.Result.UP_TO_DATE, 0)
+
+        # "Nothing changed" is about the *source*, and it is not the only reason to write.
+        # An artifact from an older schema, or from a different backend, has to be replaced
+        # whatever the source did — and reporting `up_to_date` over one left it in place
+        # indefinitely, since every later update reached this same short-circuit. A
+        # pre-substrate artifact stayed permanently without a `substrate` block: no backend,
+        # no coverage, and therefore no way to tell a thin graph from a thin repo, which is
+        # the whole point of the block.
+        obsolete = bool(previous) and (substrate.is_stale(previous)
+                                       or substrate.produced_by(previous) != self.name)
+        if not changed and previous.get('files') and not obsolete:
+            # The graph *on disk*, not the one just built. Nothing is written on this path,
+            # so the only thing the returned graph is used for is the contract's staleness
+            # check — and handing it a freshly-built v2 graph made that check answer about
+            # something other than the artifact it was asked about.
+            return substrate.Result(previous, substrate.Result.UP_TO_DATE, 0)
         return substrate.Result(result.graph, substrate.Result.UPDATED, changed)
 
     # -- extraction --------------------------------------------------------
@@ -295,6 +382,28 @@ class GraphifyBackend:
 
     def output_path(self) -> str:
         return os.path.join(self.project_dir, OUTPUT_DIR, OUTPUT_FILE)
+
+    def _mark_output_ignored(self) -> None:
+        """Keep `graphify-out/` out of the project's commits. Never fails a build.
+
+        Written after the tool has run, because the directory is graphify's to create. A
+        file that is present and is not ours was edited by hand and is left alone — the
+        same rule the cache directory's own marker follows, and for the same reason: a
+        project that has deliberately changed it should not have that undone every build.
+        """
+        marker = os.path.join(self.project_dir, OUTPUT_DIR, '.gitignore')
+        try:
+            if os.path.exists(marker):
+                with open(marker, encoding='utf-8') as handle:
+                    if handle.read() != OUTPUT_GITIGNORE:
+                        return
+            elif not os.path.isdir(os.path.dirname(marker)):
+                return
+            with open(marker, 'w', encoding='utf-8') as handle:
+                handle.write(OUTPUT_GITIGNORE)
+        except OSError:
+            # A cache marker is not worth failing a build over; the graph is the product.
+            pass
 
     def _extract(self) -> Dict[str, Any]:
         """Run graphify and read what it wrote.
@@ -324,6 +433,8 @@ class GraphifyBackend:
                 '%r exited %d: %s' % (BINARY, proc.returncode,
                                       tail[-1] if tail else 'no output'))
 
+        self._mark_output_ignored()
+
         path = self.output_path()
         try:
             with open(path, encoding='utf-8') as handle:
@@ -337,6 +448,20 @@ class GraphifyBackend:
             raise GraphifyUnavailable('%s is not valid JSON (%s)' % (path, exc))
         if not isinstance(raw, dict):
             raise GraphifyUnavailable('%s is not an object' % path)
+
+        # A shape assertion, not a heuristic. This projection reads exactly two keys, and
+        # `nodes` without `links` is what an upstream rename of the edge container looks
+        # like from here: every file still present, every edge gone, `status: built`, exit
+        # 0. `_refuse_to_erase` cannot catch it — the file set is full — so the graph would
+        # be written and every blast radius in the project would quietly become empty.
+        #
+        # A genuinely edgeless repository is not caught by this: graphify writes
+        # `"links": []`, which is a list and passes.
+        if raw.get('nodes') and not isinstance(raw.get('links'), list):
+            raise GraphifyUnavailable(
+                '%s has %d node(s) and no `links` list (%s) — the output shape this backend '
+                'reads has changed' % (path, len(raw['nodes']),
+                                       type(raw.get('links')).__name__))
         return raw
 
     # -- projection --------------------------------------------------------
@@ -437,8 +562,8 @@ class GraphifyBackend:
                 continue
             label = node.get('label')
             label = label if isinstance(label, str) else ''
-            if node.get('type') == EXTERNAL_NODE_TYPE:
-                # Its `source_file` is a coincidence of which importer was parsed first.
+            if node.get('type') in ANCHOR_NODE_TYPES:
+                # Its `source_file` is a coincidence of which file was parsed first.
                 external[node_id] = 'external:%s' % (label or node_id)
                 continue
             source_file = node.get('source_file')

@@ -455,6 +455,45 @@ class TestFailureIsReportedNotSwallowed(Base):
         self.assertEqual(written['substrate']['backend'], 'homegrown')
         self.assertEqual(written['substrate']['degraded_from'], 'graphify')
 
+    def test_nodes_without_a_links_list_is_a_failure_not_a_thin_graph(self):
+        """A shape assertion on the one key this projection cannot do without.
+
+        `nodes` and no `links` is what an upstream rename of the edge container looks like
+        from here: every file still present, every edge gone, `status: built`, exit 0.
+        `_refuse_to_erase` cannot catch it — the file set is full — so a project's entire
+        blast radius would quietly become empty and the run would report success.
+        """
+        os.makedirs(os.path.join(self.tmp, backend_graphify.OUTPUT_DIR))
+        with open(self.backend.output_path(), 'w', encoding='utf-8') as handle:
+            json.dump({'nodes': [node('a', 'src/a.py')], 'edges': []}, handle)
+        self.backend.available = lambda: True
+        original = subprocess.run
+
+        def fake(*a, **kw):
+            return original([sys.executable, '-c', ''], capture_output=True, text=True)
+
+        backend_graphify.subprocess.run = fake
+        self.addCleanup(setattr, backend_graphify.subprocess, 'run', original)
+        with self.assertRaises(GraphifyUnavailable) as ctx:
+            self.backend.build()
+        self.assertIn('links', str(ctx.exception))
+
+    def test_an_edgeless_repository_is_not_mistaken_for_a_shape_change(self):
+        """graphify writes `"links": []` for a repo with nothing to connect. That is a
+        list, and it passes."""
+        os.makedirs(os.path.join(self.tmp, backend_graphify.OUTPUT_DIR))
+        with open(self.backend.output_path(), 'w', encoding='utf-8') as handle:
+            json.dump({'nodes': [node('a', 'src/a.py')], 'links': []}, handle)
+        self.backend.available = lambda: True
+        original = subprocess.run
+
+        def fake(*a, **kw):
+            return original([sys.executable, '-c', ''], capture_output=True, text=True)
+
+        backend_graphify.subprocess.run = fake
+        self.addCleanup(setattr, backend_graphify.subprocess, 'run', original)
+        self.assertIn('src/a.py', self.backend.build().graph['files'])
+
     def test_the_floor_failing_is_not_silently_swallowed(self):
         """There is nothing left to fall back to, so it must surface."""
         class BrokenFloor(graph_ops.CodeGraph):
@@ -569,6 +608,47 @@ class TestTheUnderReportingGate(unittest.TestCase):
         self.assertNotIn('src/s2.swift', [t for _, t, _ in self.kinded(translated)])
         self.assertIn(('src/s1.swift', 'external:Foundation', 'imports'),
                       self.kinded(translated))
+
+    def test_a_namespace_anchor_is_a_signal_not_a_file(self):
+        """The same defect as the module node, one language over.
+
+        graphify canonicalises C# namespaces to one node per label across every file that
+        declares it, and that node keeps a `source_file` — whichever `.cs` file was parsed
+        first. Read as a file, `using App.Core;` in twenty files all became edges into that
+        one file. The original fix enumerated the case it had seen (`module`) rather than
+        the class it belonged to; graphify's own resolver skips namespace nodes in two
+        places for exactly this reason.
+        """
+        nodes = [
+            node('ns', 'src/Core/Thing.cs', label='App.Core'),
+            node('a', 'src/A.cs', label='A'),
+            node('b', 'src/B.cs', label='B'),
+        ]
+        nodes[0]['type'] = 'namespace'
+        translated = GraphifyBackend(self.tmp).translate({
+            'nodes': nodes,
+            'links': [link('a', 'ns', relation='imports'),
+                      link('b', 'ns', relation='imports')],
+        })
+        pairs = {(src, substrate.edge_other(e))
+                 for src, info in translated['files'].items() for e in info['imports']}
+        self.assertEqual(pairs, {('src/A.cs', 'external:App.Core'),
+                                 ('src/B.cs', 'external:App.Core')})
+        self.assertNotIn('src/Core/Thing.cs', {t for _, t in pairs})
+
+    def test_a_package_node_stays_a_file(self):
+        """A manifest node is anchored to a real path, and graphify prunes dependency edges
+        whose target manifest is not in the corpus — so `a/package.json ->
+        b/package.json` is a true statement about two files that exist."""
+        nodes = [node('pa', 'packages/a/package.json', label='@x/a'),
+                 node('pb', 'packages/b/package.json', label='@x/b')]
+        for n in nodes:
+            n['type'] = 'package'
+        translated = GraphifyBackend(self.tmp).translate({
+            'nodes': nodes, 'links': [link('pa', 'pb', relation='depends_on')]})
+        self.assertEqual(
+            substrate.edge_other(translated['files']['packages/a/package.json']['imports'][0]),
+            'packages/b/package.json')
 
     def test_a_method_symbol_carries_its_owning_class(self):
         """`Service.run()`, not `.run()`. A bare method label describes a symbol without
@@ -752,6 +832,130 @@ class TestAgainstTheRealBinary(Base):
         again = GraphifyBackend(self.tmp).update()
         self.assertEqual(again.status, substrate.Result.UPDATED)
         self.assertIn('src/a.py', again.graph['files'])
+
+    def test_an_artifact_from_another_backend_is_replaced_rather_than_reported_current(self):
+        """"Nothing changed" is about the *source*. An artifact written by a different
+        backend, or against an older schema, has to be replaced whatever the source did —
+        and reporting `up_to_date` over one left it in place indefinitely, because every
+        later update reached the same short-circuit."""
+        self.project({'src/a.py': 'def m(): return 1\n'})
+        graph_ops.run_build(GraphifyBackend(self.tmp), non_interactive=True,
+                            exclusions=None, selection_metadata=None)
+        active = substrate.active_graph_path(self.tmp)
+        with open(active, encoding='utf-8') as handle:
+            stale = json.load(handle)
+        stale['substrate']['backend'] = 'homegrown'
+        with open(active, 'w', encoding='utf-8') as handle:
+            json.dump(stale, handle)
+
+        again = GraphifyBackend(self.tmp).update()
+        self.assertEqual(again.status, substrate.Result.UPDATED)
+        self.assertEqual(again.graph['substrate']['backend'], 'graphify')
+
+    def test_up_to_date_reports_on_the_artifact_on_disk(self):
+        """The staleness guard in `_finalise` asks the returned graph what version it is.
+        Handing it a freshly-built one made that check answer about something other than
+        the artifact it was asked about."""
+        self.project({'src/a.py': 'def m(): return 1\n'})
+        graph_ops.run_build(GraphifyBackend(self.tmp), non_interactive=True,
+                            exclusions=None, selection_metadata=None)
+        active = substrate.active_graph_path(self.tmp)
+        with open(active, encoding='utf-8') as handle:
+            downgraded = json.load(handle)
+        downgraded['version'] = 1
+        with open(active, 'w', encoding='utf-8') as handle:
+            json.dump(downgraded, handle)
+
+        again = GraphifyBackend(self.tmp).update()
+        self.assertEqual(again.status, substrate.Result.UPDATED,
+                         'a schema-old artifact must be rewritten, not reported current')
+
+    def test_the_output_directory_is_marked_not_committable(self):
+        """`graphify-out/` lands at the project root, outside every ignore rule this
+        toolkit writes, so `git add -A` staged a multi-megabyte generated tree in any
+        project that opted in. Same defect as the per-backend artifact once was, one
+        directory over."""
+        self.project({'src/a.py': 'def m(): return 1\n'})
+        GraphifyBackend(self.tmp).build()
+        marker = os.path.join(self.tmp, backend_graphify.OUTPUT_DIR, '.gitignore')
+        self.assertTrue(os.path.exists(marker))
+        with open(marker, encoding='utf-8') as handle:
+            self.assertIn('*', handle.read().split('\n'))
+
+    def test_a_hand_edited_marker_is_left_alone(self):
+        self.project({'src/a.py': 'def m(): return 1\n'})
+        GraphifyBackend(self.tmp).build()
+        marker = os.path.join(self.tmp, backend_graphify.OUTPUT_DIR, '.gitignore')
+        with open(marker, 'w', encoding='utf-8') as handle:
+            handle.write('# mine\n!graph.json\n')
+        GraphifyBackend(self.tmp).build()
+        with open(marker, encoding='utf-8') as handle:
+            self.assertEqual(handle.read(), '# mine\n!graph.json\n')
+
+
+class TestTheDeclaredCoverageMatchesTheTool(unittest.TestCase):
+    """The coverage block is only worth having if it is true.
+
+    It was hand-written from what two fixtures produced, and declared 34 of the 92
+    extensions graphify actually dispatches — so a `.groovy`, `.kts` or `.f90` file the tool
+    had successfully parsed was written into the artifact, flagged by `validate_graph` as
+    outside the declared coverage, and given `language: null`. Under-claiming is the
+    direction the module's own comment calls dangerous, and this is the check that keeps it
+    from happening again as graphify grows.
+    """
+
+    def dispatch(self):
+        """`extract._DISPATCH`, read out of graphify's own interpreter.
+
+        Executed rather than parsed: the table maps a suffix to a *function reference*, so
+        the interpreter that owns those functions is the only place it can be read honestly.
+        This is the same shape as the relation table's pin against
+        `DEFAULT_AFFECTED_RELATIONS` — and it exists because the previous attempt to verify
+        graphify's vocabulary with a regex reported four real relations as invented.
+        """
+        binary = shutil.which(backend_graphify.BINARY)
+        if not binary:
+            self.skipTest('graphify is not installed')
+        shebang = pathlib.Path(binary).read_text(errors='replace').splitlines()[0]
+        if not shebang.startswith('#!'):
+            self.skipTest('graphify is not a shebang script on this machine')
+        out = subprocess.run(
+            [shebang[2:].strip(), '-c',
+             'from graphify import extract; import json;'
+             ' print(json.dumps({k.lower(): getattr(v, "__name__", "?")'
+             ' for k, v in extract._DISPATCH.items()'
+             ' if isinstance(k, str) and k.startswith(".")}))'],
+            capture_output=True, text=True, timeout=120)
+        if out.returncode != 0:
+            self.skipTest('graphify._DISPATCH is not readable: %s' % out.stderr.strip())
+        return json.loads(out.stdout)
+
+    @needs_graphify
+    def test_every_code_extension_graphify_dispatches_is_declared(self):
+        dispatch = self.dispatch()
+        expected = {ext for ext, fn in dispatch.items() if fn != 'extract_markdown'}
+        missing = expected - set(backend_graphify.EXTENSIONS)
+        self.assertEqual(missing, set(),
+                         'graphify parses these and the coverage block does not claim them')
+
+    @needs_graphify
+    def test_document_extensions_are_excluded_deliberately(self):
+        """Claiming `.md` would say we cover files that can never reach the graph — the
+        projection keeps `code` nodes only. docs.json owns that question."""
+        dispatch = self.dispatch()
+        docs = {ext for ext, fn in dispatch.items() if fn == 'extract_markdown'}
+        self.assertEqual(docs, set(backend_graphify.DOCUMENT_EXTENSIONS))
+        self.assertEqual(docs & set(backend_graphify.EXTENSIONS), set())
+
+    def test_every_declared_extension_has_a_language(self):
+        """A declared extension with no language writes `language: null` onto real files."""
+        missing = [e for e in backend_graphify.EXTENSIONS
+                   if e not in backend_graphify._LANGUAGE_BY_EXT]
+        self.assertEqual(missing, [])
+
+    def test_the_declared_languages_are_exactly_what_the_table_produces(self):
+        self.assertEqual(set(backend_graphify.LANGUAGES),
+                         set(backend_graphify._LANGUAGE_BY_EXT.values()))
 
 
 if __name__ == '__main__':

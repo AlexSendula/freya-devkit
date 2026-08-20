@@ -43,8 +43,13 @@ def load_behaviors(specs_dir, states=("accepted",), level=None):
             try:
                 with open(path, encoding="utf-8") as f:
                     fm, _body = frontmatter.parse_frontmatter(f.read())
-            except FrontmatterError as e:
-                sys.stderr.write(f"[behavior-runner] skipping unparseable spec {path}: {e}\n")
+            except (FrontmatterError, UnicodeDecodeError, OSError) as e:
+                # `UnicodeDecodeError` and `OSError` alongside the parse error: strict UTF-8
+                # decoding is a *read* failure, not a frontmatter one, so a single spec with
+                # a stray byte — or one that cannot be opened at all — took down the whole
+                # behaviour layer with an unhandled traceback rather than skipping the one
+                # file it could not read. One bad file must cost one file.
+                sys.stderr.write(f"[behavior-runner] skipping unreadable spec {path}: {e}\n")
                 continue
             behaviors = fm.get("behaviors")
             if not isinstance(behaviors, list):
@@ -218,9 +223,41 @@ def run_unit_behavior(behavior, project_dir):
     with open(cov_path, encoding="utf-8") as f:
         coverage_final = json.load(f)
     keys = coverage_files_to_keys(coverage_final, project_dir, exclude={test_file})
+    if not keys:
+        # A coverage report that maps onto nothing inside `--project`. Every other failure
+        # path here carries a `reason`; this one returned a bare `unknown`, which is the
+        # single value the merge treats as "no news" — so the previous `observed`
+        # fingerprint was preserved indefinitely and nothing ever said the measurement had
+        # stopped landing. Real causes: a monorepo where the test exercises a sibling
+        # package outside the project root, or a reporter emitting paths this cannot
+        # resolve.
+        sys.stderr.write(
+            f"[behavior-runner] {behavior['behavior_id']}: the test passed and produced"
+            f" coverage, but none of it maps inside {project_dir} — the fingerprint is"
+            f" unknown rather than empty\n")
+        return shape_fingerprint([], commit, reason="coverage-outside-project")
     return shape_fingerprint(
         keys, commit,
         symbols=coverage_symbols(coverage_final, project_dir, exclude={test_file}))
+
+
+def _portable(detail, project_dir):
+    """One line of another tool's stderr, made safe to commit.
+
+    `reason` is written into behavior.json, which is tracked (ADR-017). Splicing raw stderr
+    in put whatever that line contained into git: a traceback tail carries the absolute path
+    of the machine that produced it, so the same failure produced a different committed
+    string on every developer's laptop and leaked a home directory into the repository.
+
+    The project root becomes `.`; anything still absolute is dropped to its basename. The
+    diagnostic survives, the machine does not.
+    """
+    text = " ".join(str(detail or "").split())[:200]
+    root = str(project_dir or "").rstrip(os.sep)
+    if root:
+        text = text.replace(root + os.sep, "").replace(root, ".")
+    return " ".join(
+        os.path.basename(word) if os.path.isabs(word) else word for word in text.split())
 
 
 def _code_graph_deps(entry, project_dir):
@@ -256,7 +293,8 @@ def _code_graph_deps(entry, project_dir):
         # excludes, which is a coverage gap and not an absence of dependencies. Its message
         # goes through verbatim so the operator sees which of the two it was.
         detail = (exc.stderr or "").strip().splitlines()
-        return None, "graph-query-failed: %s" % (detail[-1] if detail else "no detail")
+        return None, "graph-query-failed: %s" % _portable(detail[-1] if detail else
+                                                          "no detail", project_dir)
     except (json.JSONDecodeError, FileNotFoundError, OSError):
         return None, "graph-query-failed"
     if not isinstance(data, list) or not all(isinstance(k, str) for k in data):

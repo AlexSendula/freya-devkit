@@ -240,6 +240,38 @@ class WriteBehaviorJsonGitignoreTest(unittest.TestCase):
         paths = [e["path"] for e in written["behaviors"]["BEH-001"]["exercises"]]
         self.assertEqual(paths, ["lib/a.ts", "lib/m.ts", "lib/z.ts"])
 
+    def test_the_behaviors_mapping_is_sorted_by_id(self):
+        """The exercises were sorted and the keys they sit under were not.
+
+        `project_behaviors` fills this mapping in `os.walk` dirent order — directory order
+        on APFS, hash order on ext4 — so identical specs produced a different key order on
+        a colleague's machine or in CI. On a tracked artifact whose diffs are read as
+        behaviour drift, that is a whole-file false alarm.
+        """
+        data = {"version": 1, "behaviors": {
+            "BEH-003": {"coverage": "unknown", "exercises": []},
+            "BEH-001": {"coverage": "unknown", "exercises": []},
+            "BEH-002": {"coverage": "unknown", "exercises": []},
+        }}
+        behavior_graph.write_behavior_json(self.proj, data)
+        with open(behavior_graph._behavior_json_path(self.proj), encoding="utf-8") as f:
+            written = json.load(f)
+        self.assertEqual(list(written["behaviors"]), ["BEH-001", "BEH-002", "BEH-003"])
+
+    def test_key_order_does_not_change_the_file(self):
+        first = None
+        for order in (["BEH-002", "BEH-001"], ["BEH-001", "BEH-002"]):
+            behavior_graph.write_behavior_json(self.proj, {
+                "version": 1,
+                "behaviors": {bid: {"coverage": "unknown", "exercises": []}
+                              for bid in order},
+            })
+            with open(behavior_graph._behavior_json_path(self.proj), encoding="utf-8") as f:
+                text = f.read()
+            if first is None:
+                first = text
+            self.assertEqual(text, first, "key order leaked into the committed file")
+
     def test_two_writes_of_the_same_content_are_byte_identical(self):
         """The property that matters: rebuild with no change produces no diff."""
         import random
@@ -549,6 +581,24 @@ behaviors:
         self.assertIn("note", r)
         self.assertEqual(r["gaps"], [])
         self.assertEqual(r["total"], 0)
+
+    def test_a_manifest_node_is_not_a_gap(self):
+        """"Graph node" and "source file" were the same set under the homegrown backend,
+        which only ever indexed source. A polyglot backend indexes manifests too, and every
+        `package.json` and `pom.xml` then arrived in the gap report as source with no
+        behaviour — into a tracked BACKLOG.md, and into wrap-up asking someone to write a
+        behaviour for `package.json`."""
+        path = os.path.join(self.proj, "knowledge-base", ".graph", "graph.json")
+        with open(path, encoding="utf-8") as f:
+            graph = json.load(f)
+        graph["files"]["package.json"] = {"imports": [], "dependents": [],
+                                          "exports": [], "language": "json"}
+        graph["files"]["pom.xml"] = {"imports": [], "dependents": [],
+                                     "exports": [], "language": "xml"}
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(graph, f)
+        r = behavior_graph.gaps(self.proj)
+        self.assertEqual(r["gaps"], ["lib/util.ts"])
 
     def test_covering_returns_accepted_behavior_for_file(self):
         r = behavior_graph.covering(self.proj, "lib/webauthn.ts")

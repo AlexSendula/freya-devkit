@@ -23,7 +23,7 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path, PurePosixPath
-from typing import Any, Dict, List, Optional, Sequence, Set
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import settings  # noqa: E402  — knowledge-base/settings.json, the committed half
@@ -148,6 +148,12 @@ IMPORT_SIGNALS = ('external:', 'unresolved:')
 # projects that were already graphed instead of only fresh clones. Any string works;
 # a date is readable in the file.
 RULES_VERSION = '2026-08-20b'
+
+# The marker a settings-declared verdict carries. It is the one thing that distinguishes a
+# decision the project committed from a verdict this module derived, and `_save_classifications`
+# uses it to keep the former out of the cache — a copy in there outlives the file that declared
+# it, and then nothing can withdraw it.
+_DECLARED_IN_SETTINGS = 'declared in knowledge-base/settings.json'
 
 # Classification sources that outrank the built-in name lists in `_get_exclusion_rules`.
 #
@@ -508,10 +514,18 @@ class CodeGraph:
         (rebased away, squashed, a graph carried between checkouts, git not installed)
         produced "Graph is up to date. No changes detected." forever. The graph never
         refreshed and never said why.
+
+        `--no-renames` because this asks *which paths moved*, not *what the author meant*.
+        With rename detection on — git's default — a moved file is reported once, as its
+        destination, and the path it vanished from is never named. `update()` only removes
+        an entry when git names it, so the old path stayed in the graph as a ghost node:
+        `--dependents` on it answered confidently with files that no longer import it, and
+        every blast radius through it was computed against a file that does not exist.
+        Only a full `--build` cleared it.
         """
         try:
             result = subprocess.run(
-                ['git', 'diff', f'{since_commit}..HEAD', '--name-only'],
+                ['git', 'diff', f'{since_commit}..HEAD', '--name-only', '--no-renames'],
                 cwd=self.project_dir,
                 capture_output=True,
                 text=True,
@@ -1384,7 +1398,7 @@ class CodeGraph:
             _announce_once('code-graph: %s' % warning)
         return {
             name: {'type': verdict, 'confidence': 1.0, 'source': 'user',
-                   'reasoning': 'declared in knowledge-base/settings.json'}
+                   'reasoning': _DECLARED_IN_SETTINGS}
             for name, verdict in conf.directories.items()
         }
 
@@ -1433,11 +1447,40 @@ class CodeGraph:
         return data
 
     def _save_classifications(self, classifications: Dict[str, Any]) -> None:
-        """Save classifications to file."""
+        """Save classifications to file, minus anything `settings.json` declared.
+
+        `_load_classifications` folds the committed verdicts over the cached ones so the
+        build sees both. Persisting the result baked them into the cache as ordinary `user`
+        entries — and then they outlived the file that declared them: deleting
+        `"docs": "source"` from `settings.json` changed nothing, because the copy in
+        `classifications.json` still outranked every rule, survived the `RULES_VERSION`
+        discard (only `rule` and `gitignore` verdicts are dropped) and survived `--clear`
+        (which deliberately keeps this file). The only way back was to hand-edit a
+        gitignored cache.
+
+        That inverts CD-15 exactly: the committed file is supposed to be the source of
+        truth, and the cache had quietly become the one that won. So the cache never holds
+        a settings-declared verdict — it is not cache, it is a decision, and it has a home.
+        """
         self._ensure_graph_dir()
         classifications['version'] = 1
         classifications['rules_version'] = RULES_VERSION
         classifications['classified_at'] = datetime.now(timezone.utc).isoformat()
+
+        declared = set(self._declared_directories())
+        directories = classifications.get('directories')
+        if isinstance(directories, dict):
+            classifications = dict(classifications)
+            classifications['directories'] = {
+                name: verdict for name, verdict in directories.items()
+                # By key for what is declared now, and by marker for what an older version
+                # already baked in — otherwise a stale entry from before this fix would
+                # keep winning forever, which is the defect itself.
+                if name not in declared
+                and not (isinstance(verdict, dict)
+                         and verdict.get('reasoning') == _DECLARED_IN_SETTINGS)
+            }
+
         with open(self.classifications_path, 'w') as f:
             json.dump(classifications, f, indent=2)
 
@@ -1820,11 +1863,32 @@ Respond with ONLY a JSON object, no markdown formatting:
         return sorted(set(filtered))
 
     def _build_file_info(self, file_path: Path) -> Dict[str, Any]:
-        """Build file info dict for a single file."""
+        """Build file info dict for a single file.
+
+        A file that cannot be read — a broken symlink, a permission denial, an I/O error —
+        still gets a node, because it is genuinely part of the project and dropping it
+        would silently shrink the file set. But it gets an *honest* one: the failure is
+        announced and recorded on the node, rather than producing an entry that is
+        indistinguishable from a real file which happens to import nothing.
+
+        The difference matters because blast radius walks edges. A zero-edge node cuts
+        every dependency chain that ran through it, and the build reported success with
+        nothing on stderr and nothing in `substrate.validation` — a confidently empty
+        answer about one file, which is the failure ADR-005 exists to prevent, scoped
+        down small enough that nobody notices it.
+        """
         try:
             content = file_path.read_text(encoding='utf-8', errors='ignore')
-        except Exception:
-            return {'imports': [], 'dependents': [], 'exports': []}
+        except Exception as exc:
+            try:
+                rel = normalize_key(file_path.relative_to(self.project_dir))
+            except ValueError:
+                rel = str(file_path)
+            _announce_once('code-graph: could not read %s (%s); it is in the graph with no '
+                           'edges, so anything that depends through it will look '
+                           'unaffected' % (rel, exc.__class__.__name__))
+            return {'imports': [], 'dependents': [], 'exports': [],
+                    'unreadable': exc.__class__.__name__}
 
         language = self._detect_language(file_path)
         rel_path = normalize_key(file_path.relative_to(self.project_dir))
@@ -2060,12 +2124,14 @@ Respond with ONLY a JSON object, no markdown formatting:
             print(f'File not found in graph: {file_path}', file=sys.stderr)
             return None
 
+        # No `category`. CD-12 removed the field from the graph, and this kept reporting it
+        # anyway — always as the literal string 'unknown', for every file, because nothing
+        # writes it any more. A field that can only ever hold a placeholder is not a field.
         return {
             'file': file_path,
             'exports': info.get('exports', []),
             'imports': info.get('imports', []),
             'dependents': info.get('dependents', []),
-            'category': info.get('category', 'unknown'),
             'language': info.get('language'),
         }
 
@@ -2150,6 +2216,7 @@ Respond with ONLY a JSON object, no markdown formatting:
 
         all_dependents = set()
         direct = set()
+        unknown = set()
 
         for file_path in file_paths:
             info = graph['files'].get(file_path)
@@ -2159,12 +2226,30 @@ Respond with ONLY a JSON object, no markdown formatting:
                 # `info` is truthy, so the file is a node and this cannot be None. Guarded
                 # anyway: the two are three lines apart today and will not always be.
                 all_dependents.update(self.get_dependents(file_path, transitive=True) or ())
+            else:
+                unknown.add(file_path)
+
+        if unknown:
+            # Said out loud, because the alternative is the failure this whole substrate
+            # exists to remove. An input the backend never indexed used to contribute
+            # nothing and vanish: `--impact Main.java` under the floor returned
+            # `all_affected: []` with exit 0 and no stderr, which reads as "nothing depends
+            # on this" and means "I have never seen this file". Its sibling `--dependents`
+            # has always said so; this one did not, and it is the one wrap-up calls.
+            _announce_once(
+                'code-graph: %d of %d file(s) given to --impact are not in the graph (%s). '
+                'They contribute no blast radius — which is not the same as having none.'
+                % (len(unknown), len(file_paths),
+                   ', '.join(sorted(unknown)[:5]) + (', …' if len(unknown) > 5 else '')))
 
         return {
             'input_files': set(file_paths),
             'direct_dependents': direct,
             'transitive_dependents': all_dependents - set(file_paths) - direct,
             'all_affected': all_dependents,
+            # Reported in the payload as well as on stderr: the caller is usually another
+            # skill reading `--format json`, and stderr is not part of what it parses.
+            'not_in_graph': unknown,
         }
 
     def clear(self) -> bool:
@@ -2373,6 +2458,23 @@ def run_update(backend: Any, **kwargs: Any) -> Dict[str, Any]:
     return _finalise(backend, backend.update(**kwargs))
 
 
+def _edge_annotation(edge: Any) -> str:
+    """The `[kind]` / `[kind: from → to]` tail on one printed edge.
+
+    The symbols were dropped here, which meant that with `substrate.symbols` enabled a file
+    pair joined by sixty distinct symbol edges printed sixty byte-identical lines — the very
+    symptom the reverse index was fixed to stop producing in the artifact, reintroduced one
+    layer up in the only place a person actually reads.
+    """
+    kind = substrate.edge_kind(edge)
+    from_symbol, to_symbol = substrate.edge_symbols(edge)
+    detail = ' → '.join(s for s in (from_symbol, to_symbol) if s)
+    if not detail:
+        return '' if kind == _IMPORTS else '  [%s]' % kind
+    line = edge.get('line') if isinstance(edge, dict) else None
+    return '  [%s: %s%s]' % (kind, detail, ':%d' % line if isinstance(line, int) else '')
+
+
 def format_summary(data: Any, operation: str) -> str:
     """Format output as human-readable summary."""
     if operation == 'build':
@@ -2408,21 +2510,18 @@ def format_summary(data: Any, operation: str) -> str:
             lines.append("Dependencies (imports from):")
             for edge in data['imports']:
                 target = substrate.edge_other(edge)
-                kind = substrate.edge_kind(edge)
                 arrow = "" if target.startswith('external:') else " →"
-                suffix = "" if kind == _IMPORTS else f"  [{kind}]"
-                lines.append(f"  -{arrow} {target}{suffix}")
+                lines.append(f"  -{arrow} {target}{_edge_annotation(edge)}")
             lines.append("")
 
         if data.get('dependents'):
             lines.append("Dependents (imported by):")
             for edge in data['dependents']:
-                kind = substrate.edge_kind(edge)
-                suffix = "" if kind == _IMPORTS else f"  [{kind}]"
-                lines.append(f"  - {substrate.edge_other(edge)}{suffix}")
+                lines.append(f"  - {substrate.edge_other(edge)}{_edge_annotation(edge)}")
             lines.append("")
 
-        lines.append(f"Category: {data.get('category', 'unknown')}")
+        if data.get('language'):
+            lines.append(f"Language: {data['language']}")
         return '\n'.join(lines)
 
     elif operation == 'impact':
@@ -2441,6 +2540,14 @@ def format_summary(data: Any, operation: str) -> str:
             lines.append("")
 
         lines.append(f"Total blast radius: {len(data['all_affected'])} files affected")
+        if data.get('not_in_graph'):
+            # A file the backend never indexed contributes nothing, and a bare zero reads
+            # as "nothing depends on this" rather than "I have not seen this".
+            lines.append("")
+            lines.append(f"Not in the graph ({len(data['not_in_graph'])} files) — "
+                         f"no blast radius could be computed for these:")
+            for path in sorted(data['not_in_graph']):
+                lines.append(f"  - {path}")
         return '\n'.join(lines)
 
     elif operation == 'dependents':
@@ -2465,6 +2572,66 @@ def format_summary(data: Any, operation: str) -> str:
         return "Cleared dependency graph cache for this project."
 
     return str(data)
+
+
+def choose_backend(floor: Any, project_exclusions: Any) -> Tuple[Any, Optional[Dict[str, Any]]]:
+    """Pick the backend to build with, and the degradation metadata to record.
+
+    Returns `(backend, selection_metadata)`. Announced on stderr rather than stdout so it
+    never contaminates `--format json`, and announced at all because spec §2.2 requires the
+    choice to be visible: a caller must be able to tell a thin graph from a thin repo.
+
+    Lifted out of `main()` so it can be tested. It could not be before — it was inline in an
+    argparse entry point — and the one branch nobody exercised was the one that silently
+    dropped the metadata.
+    """
+    try:
+        import backends
+        # The census only matters when there is something to choose between. With a
+        # single installed backend it cannot change the answer, so walking the tree
+        # before every build and every update would be pure cost.
+        census = None
+        if len(backends.available_backends(str(floor.project_dir))) > 1:
+            census = backends.extension_census(str(floor.project_dir), project_exclusions)
+        selection = backends.select(str(floor.project_dir), present_extensions=census)
+        for warning in selection.warnings:
+            _announce_once(warning if warning.startswith('code-graph:')
+                           else 'code-graph: %s' % warning)
+
+        errors = substrate.conformance_errors(selection.backend)
+        if errors:
+            # Announced before it is used, not after: a backend that fails the contract
+            # must not be named as the one that ran.
+            print('code-graph: %r does not satisfy the substrate contract (%s); '
+                  'using %r' % (getattr(selection.backend, 'name', '?'),
+                                '; '.join(errors), CodeGraph.name), file=sys.stderr)
+            # And recorded, not merely printed. This is a degradation like any other: the
+            # project asked for a backend and did not get it. Leaving the metadata unset
+            # wrote a graph indistinguishable from an ordinary floor build, so a week later
+            # nothing said the configured backend never ran — the one thing `degraded_from`
+            # exists to preserve. Selection's own degradation is folded in here too, because
+            # this branch used to skip the block that recorded it.
+            return floor, {
+                'degraded_from': (selection.degraded_from
+                                  or getattr(selection.backend, 'name', '?')),
+                'degraded_reason': 'does not satisfy the substrate contract: %s'
+                                   % '; '.join(errors),
+            }
+
+        if selection.degraded or selection.backend.name != CodeGraph.name:
+            print(selection.describe(), file=sys.stderr)
+        metadata = None
+        if selection.degraded:
+            metadata = {'degraded_from': selection.degraded_from,
+                        'degraded_reason': selection.reason}
+        chosen = selection.backend if hasattr(selection.backend, 'build') else floor
+        return chosen, metadata
+    except Exception as exc:
+        # Selection is an optimisation over "run the floor". It must never be the reason a
+        # build fails, because the floor is what the build would have used anyway.
+        print('code-graph: backend selection failed (%s); using %r'
+              % (exc.__class__.__name__, CodeGraph.name), file=sys.stderr)
+        return floor, None
 
 
 def main():
@@ -2496,11 +2663,6 @@ def main():
 
     graph = CodeGraph(args.dir)
 
-    # Backend selection, on the operations that produce a graph. Announced on stderr rather
-    # than stdout so it never contaminates `--format json`, and announced at all because
-    # spec §2.2 requires the choice to be visible: a caller must be able to tell a thin graph
-    # from a thin repo. Today there is one backend and this is plumbing; Phase 2 is what it
-    # is plumbing for.
     selection_metadata = None
     # Derived from the project by the floor, before any backend substitution. Exclusions are
     # a project fact (obligation 6), so reading them must not require a method only the
@@ -2508,55 +2670,31 @@ def main():
     # crashing the CLI on this repo's own reference backend.
     project_exclusions = graph.project_exclusions()
     if args.build or args.update:
-        try:
-            import backends
-            # The census only matters when there is something to choose between. With a
-            # single installed backend it cannot change the answer, so walking the tree
-            # before every build and every update would be pure cost.
-            census = None
-            if len(backends.available_backends(str(graph.project_dir))) > 1:
-                census = backends.extension_census(
-                    str(graph.project_dir), project_exclusions)
-            selection = backends.select(str(graph.project_dir), present_extensions=census)
-            for warning in selection.warnings:
-                _announce_once(warning if warning.startswith('code-graph:')
-                               else 'code-graph: %s' % warning)
-
-            errors = substrate.conformance_errors(selection.backend)
-            if errors:
-                # Announced before it is used, not after: a backend that fails the contract
-                # must not be named as the one that ran.
-                print('code-graph: %r does not satisfy the substrate contract (%s); '
-                      'using %r' % (getattr(selection.backend, 'name', '?'),
-                                    '; '.join(errors), CodeGraph.name), file=sys.stderr)
-            else:
-                if selection.degraded or selection.backend.name != CodeGraph.name:
-                    print(selection.describe(), file=sys.stderr)
-                if selection.degraded:
-                    selection_metadata = {'degraded_from': selection.degraded_from,
-                                          'degraded_reason': selection.reason}
-                if hasattr(selection.backend, 'build'):
-                    graph = selection.backend
-        except Exception as exc:
-            # Selection is an optimisation over "run the floor". It must never be the reason
-            # a build fails, because the floor is what the build would have used anyway.
-            print('code-graph: backend selection failed (%s); using %r'
-                  % (exc.__class__.__name__, CodeGraph.name), file=sys.stderr)
+        graph, selection_metadata = choose_backend(graph, project_exclusions)
     output = None
     operation = None
 
-    if args.build:
+    if args.build or args.update:
         # Obligation 6: exclusions are passed in, not left for the backend to decide.
         # Every other caller relied on the backend deriving them, which meant the only
         # production path never exercised the obligation it documents.
-        output = _run_or_degrade(run_build, graph, CodeGraph(args.dir), non_interactive,
-                                 project_exclusions, selection_metadata)
-        operation = 'build'
-
-    elif args.update:
-        output = _run_or_degrade(run_update, graph, CodeGraph(args.dir), non_interactive,
-                                 project_exclusions, selection_metadata)
-        operation = 'update'
+        runner = run_build if args.build else run_update
+        operation = 'build' if args.build else 'update'
+        try:
+            output = _run_or_degrade(runner, graph, CodeGraph(args.dir), non_interactive,
+                                     project_exclusions, selection_metadata)
+        except EmptiedTheGraph as exc:
+            # A refusal, not a crash. `_run_or_degrade` re-raises this when the running
+            # backend is already the floor, and nothing caught it — so an entirely ordinary
+            # action (committing `{"directories": {"src": "exclude"}}`, or deleting the last
+            # source file) ended every subsequent build in a Python traceback and exit 1,
+            # with the carefully composed message buried in it. The refusal is right; the
+            # presentation was not.
+            print('code-graph: %s\n'
+                  '  The previous graph is kept. If the codebase really is empty now, or '
+                  'the exclusions are intentional, run --clear first.' % exc,
+                  file=sys.stderr)
+            sys.exit(1)
 
     elif args.query:
         output = graph.query(args.query)

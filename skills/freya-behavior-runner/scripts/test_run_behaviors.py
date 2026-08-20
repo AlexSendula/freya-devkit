@@ -182,6 +182,42 @@ title: Unterminated fence
         self.assertEqual(len(got), 1)
         self.assertEqual(got[0]["behavior_id"], "BEH-GOOD")
 
+    def test_a_spec_that_is_not_utf8_costs_one_file_not_the_batch(self):
+        """Only `FrontmatterError` was caught, and strict decoding raises
+        `UnicodeDecodeError` — which is not one. A single spec with a stray byte took the
+        entire behaviour layer down with an unhandled traceback."""
+        with open(os.path.join(self.specs_dir, "auth", "bytes.md"), "wb") as f:
+            f.write(b"---\nid: SPEC-BYTES\ntitle: caf\xe9\n---\n")
+        got = run_behaviors.load_accepted_behaviors(self.specs_dir)
+        self.assertEqual([b["behavior_id"] for b in got], ["BEH-GOOD"])
+
+
+class ReasonStringsAreCommittableTest(unittest.TestCase):
+    """`reason` is written into behavior.json, which is tracked (ADR-017).
+
+    Raw stderr was spliced in verbatim, so a traceback tail put the absolute path of
+    whichever machine produced it into git — a different committed string per developer,
+    and a home directory leaked into the repository.
+    """
+
+    def test_the_project_root_becomes_a_dot(self):
+        got = run_behaviors._portable(
+            "OSError: [Errno 13] /home/alex/proj/knowledge-base/.graph/graph.json",
+            "/home/alex/proj")
+        self.assertNotIn("/home/alex", got)
+        self.assertIn("knowledge-base/.graph/graph.json", got)
+
+    def test_an_unrelated_absolute_path_is_reduced_to_its_basename(self):
+        got = run_behaviors._portable("could not read /Users/someone/other/graph.json",
+                                      "/home/alex/proj")
+        self.assertNotIn("/Users/someone", got)
+        self.assertIn("graph.json", got)
+
+    def test_it_is_bounded_and_single_line(self):
+        got = run_behaviors._portable("a\nb\n" + "x" * 500, "/p")
+        self.assertNotIn("\n", got)
+        self.assertLessEqual(len(got), 200)
+
 
 class RunUnitBehaviorFailureTest(unittest.TestCase):
     """Fix 3: run_unit_behavior failure branch uses reason='test-failed'."""

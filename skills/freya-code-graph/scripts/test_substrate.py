@@ -166,6 +166,38 @@ class TestExclusionOverrides(unittest.TestCase):
         self.assertNotIn('overrides', Exclusions(directories=['vendor']).to_dict())
         self.assertEqual(Exclusions(overrides=['docs']).to_dict()['overrides'], ['docs'])
 
+    def test_an_override_does_not_re_admit_a_nested_artifact_tree(self):
+        """The override overrules rules aimed *at it*, not rules about what is inside it.
+
+        This returned False for every path under an override, so
+        `{"directories": {"packages": "source"}}` on a workspaces tree pulled every
+        `packages/*/node_modules/**` into the graph — the 50,000-file blast radius CD-21's
+        two-tier design exists to prevent, reached through an ordinary ancestor verdict.
+        Nothing could switch it back off either: the classifier does not descend into a
+        directory whose ancestor carries a stated verdict, so no nested `exclude` is ever
+        derived to catch it.
+        """
+        ex = Exclusions(directories=['node_modules', 'dist'],
+                        patterns=['node_modules/', 'dist/', '*.min.js'],
+                        matcher=graph_ops.gitignore_excludes,
+                        overrides=['packages'])
+        self.assertFalse(ex.excludes('packages/app/src/index.ts'))
+        self.assertTrue(ex.excludes('packages/app/node_modules/lodash/index.js'))
+        self.assertTrue(ex.excludes('packages/node_modules/lodash/index.js'))
+        self.assertTrue(ex.excludes('packages/app/dist/bundle.js'))
+        self.assertTrue(ex.excludes('packages/app/vendor.min.js'))
+
+    def test_the_rule_the_override_exists_to_beat_still_loses(self):
+        """A pattern naming the overridden directory itself must not survive as a tail.
+
+        `docs/` in `.gitignore` is exactly what the override is for; matching it against
+        the path below the override root is what makes it stop applying, rather than a
+        special case that has to enumerate which patterns to skip.
+        """
+        ex = Exclusions(patterns=['docs/'], matcher=graph_ops.gitignore_excludes,
+                        overrides=['docs'])
+        self.assertFalse(ex.excludes('docs/literate/engine.ts'))
+
 
 class _Backend:
     """A minimal conforming backend, used to check the checker."""
@@ -293,6 +325,103 @@ class TestGraphValidation(unittest.TestCase):
     def test_junk_shapes_are_reported_not_raised(self):
         for junk in ([], 'nope', {'files': 'nope'}, {'files': {'a.ts': 'nope'}}):
             self.assertTrue(validate_graph(junk), junk)
+
+    def test_a_reverse_edge_that_lost_its_kind_is_reported(self):
+        """The reverse-index check named this case and did not cover it.
+
+        Both `dependents` checks could be deleted with the whole suite still green, which
+        is the same "a guard nobody wired up" shape the contract's own validator was in
+        before it acquired a caller.
+        """
+        g = self.graph({
+            'a.ts': {'imports': [], 'dependents': [{'from': 'b.ts', 'provenance': 'extracted'}]},
+            'b.ts': {'imports': [], 'dependents': []},
+        })
+        self.assertTrue(any('has kind' in e for e in validate_graph(g)), validate_graph(g))
+
+    def test_a_reverse_edge_with_a_bad_provenance_is_reported(self):
+        g = self.graph({
+            'a.ts': {'imports': [],
+                     'dependents': [{'from': 'b.ts', 'kind': 'imports', 'provenance': 'vibes'}]},
+            'b.ts': {'imports': [], 'dependents': []},
+        })
+        self.assertTrue(any('has provenance' in e for e in validate_graph(g)))
+
+    def test_a_reverse_edge_with_an_empty_symbol_is_reported(self):
+        g = self.graph({
+            'a.ts': {'imports': [],
+                     'dependents': [{'from': 'b.ts', 'kind': 'calls',
+                                     'provenance': 'extracted', 'to_symbol': '  '}]},
+            'b.ts': {'imports': [], 'dependents': []},
+        })
+        self.assertTrue(any('not a symbol name' in e for e in validate_graph(g)))
+
+    def test_a_legacy_string_dependent_is_still_accepted(self):
+        """A v1 artifact keyed its dependents as bare strings. Refusing to read one is
+        indistinguishable from a project with no dependencies."""
+        g = self.graph({
+            'a.ts': {'imports': [], 'dependents': ['b.ts']},
+            'b.ts': {'imports': [], 'dependents': []},
+        })
+        self.assertEqual(validate_graph(g), [])
+
+
+class TestTheReverseIndexIsDerived(unittest.TestCase):
+    """`dependents` is a pure function of `imports`, rebuilt on every write.
+
+    Both properties below were unguarded: `link_dependents`' reset could be weakened to
+    `setdefault` and its symbol-copy loop deleted outright, with the whole suite still
+    green — while the first leaves a dependent behind when the import justifying it is
+    deleted, and the second collapses every symbol-refined edge between one file pair into
+    byte-identical duplicates (measured: 322 of 417 entries on this repository).
+    """
+
+    def test_a_stale_dependent_does_not_survive_the_rebuild(self):
+        graph = {'files': {
+            'a.ts': {'imports': [substrate.make_edge('b.ts')], 'dependents': []},
+            'b.ts': {'imports': [], 'dependents': [substrate.make_edge('gone.ts',
+                                                                      reverse=True)]},
+        }}
+        substrate.link_dependents(graph)
+        self.assertEqual([substrate.edge_other(e)
+                          for e in graph['files']['b.ts']['dependents']], ['a.ts'])
+
+    def test_the_reverse_edge_carries_the_forward_edges_symbols(self):
+        forward = substrate.make_edge('b.ts', kind='calls', from_symbol='run',
+                                      to_symbol='helper', line=12)
+        graph = {'files': {'a.ts': {'imports': [forward]}, 'b.ts': {'imports': []}}}
+        substrate.link_dependents(graph)
+        reverse = graph['files']['b.ts']['dependents'][0]
+        self.assertEqual(reverse['from'], 'a.ts')
+        self.assertEqual(reverse['kind'], 'calls')
+        self.assertEqual(substrate.edge_symbols(reverse), ('run', 'helper'))
+        self.assertEqual(reverse['line'], 12)
+
+    def test_two_symbol_edges_between_one_pair_stay_distinct_backwards(self):
+        graph = {'files': {
+            'a.ts': {'imports': [
+                substrate.make_edge('b.ts', kind='calls', from_symbol='one', to_symbol='h'),
+                substrate.make_edge('b.ts', kind='calls', from_symbol='two', to_symbol='h'),
+            ]},
+            'b.ts': {'imports': []},
+        }}
+        substrate.link_dependents(graph)
+        dependents = graph['files']['b.ts']['dependents']
+        self.assertEqual(len(dependents), 2)
+        self.assertEqual(len({json.dumps(d, sort_keys=True) for d in dependents}), 2)
+
+    def test_an_out_of_vocabulary_kind_is_validated_rather_than_raised(self):
+        """Linking runs one line before validation, so raising here made the validator's
+        own message — which names the file and the offending kind — unreachable."""
+        graph = {
+            'substrate': graph_metadata('x', Coverage(['typescript'], ['.ts'],
+                                                      ['imports'], True)),
+            'files': {'a.ts': {'imports': [{'to': 'b.ts', 'kind': 'mixes_in',
+                                            'provenance': 'extracted'}]},
+                      'b.ts': {'imports': []}},
+        }
+        substrate.link_dependents(graph)  # must not raise
+        self.assertTrue(any('mixes_in' in e for e in validate_graph(graph)))
 
 
 class TestMetadata(unittest.TestCase):
@@ -927,6 +1056,52 @@ class TestDegradationReachesTheArtifact(unittest.TestCase):
         g = CodeGraph(d)
         graph_ops.run_build(g, non_interactive=True)
         self.assertNotIn('degraded_from', g.graph['substrate'])
+
+    def test_a_backend_that_fails_conformance_is_recorded_as_a_degradation(self):
+        """The CLI printed the non-conformance to stderr and then built on the floor with
+        no metadata at all, so the artifact was indistinguishable from an ordinary floor
+        build. It is a degradation like any other: the project asked for a backend and did
+        not get it, and the graph is the only place still saying so a week later.
+        """
+        import backends
+        from graph_ops import CodeGraph
+        d = self.mk('{"substrate": {"backend": "brokenbackend"}}')
+
+        class Broken:
+            """Registered, available, and not conforming — `coverage()` raises."""
+            name = 'brokenbackend'
+
+            def __init__(self, project_dir):
+                self.project_dir = project_dir
+
+            def coverage(self):
+                raise RuntimeError('cannot describe itself')
+
+            def available(self):
+                return True
+
+            def build(self, **kw):
+                raise AssertionError('a non-conforming backend must never be built with')
+
+            def update(self, **kw):
+                raise AssertionError('a non-conforming backend must never be built with')
+
+        original = backends._registry
+        backends._registry = lambda: dict(original(), brokenbackend=Broken)
+        self.addCleanup(setattr, backends, '_registry', original)
+
+        floor = CodeGraph(d)
+        chosen, metadata = graph_ops.choose_backend(floor, floor.project_exclusions())
+        self.assertIs(chosen, floor)
+        self.assertEqual(metadata['degraded_from'], 'brokenbackend')
+
+        graph_ops.run_build(floor, non_interactive=True, exclusions=None,
+                            selection_metadata=metadata)
+        written = json.loads(
+            (Path(d) / 'knowledge-base' / '.graph' / 'graph.json').read_text('utf-8'))
+        self.assertEqual(written['substrate']['degraded_from'], 'brokenbackend')
+        self.assertIn('does not satisfy the substrate contract',
+                      written['substrate']['degraded_reason'])
 
 
 class TestClearRemovesEveryArtifact(unittest.TestCase):

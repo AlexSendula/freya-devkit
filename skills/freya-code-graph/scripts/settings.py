@@ -50,9 +50,12 @@ SETTINGS_FILENAME = 'settings.json'
 # What a project may say about one of its directories.
 DIRECTORY_VERDICTS = ('source', 'exclude')
 
-# `auto` is the default and means: prefer the backend that can see the most of this project,
-# fall back to the one that is always installed. Resolved at selection time, not here — this
-# module reads a file, it does not know which backends exist.
+# `auto` is the default and means **the floor** — the backend that is always installed.
+# It deliberately does not go shopping: scoring the installed backends against the repo and
+# picking the widest meant that installing a binary anywhere on PATH silently changed the
+# substrate, and therefore every blast radius, for every project on the machine at once
+# (CD-23 removed that behaviour after it had already shipped). Resolved at selection time,
+# not here — this module reads a file, it does not know which backends exist.
 BACKEND_AUTO = 'auto'
 
 DEFAULTS = {
@@ -113,6 +116,31 @@ class Settings:
         # before touching `.directories` got an empty list and printed nothing. Both of them
         # did, which meant a typo'd verdict was dropped in complete silence.
         self.directories = self._parse_directories()
+        self._check_substrate()
+
+    def _check_substrate(self) -> None:
+        """Warn about a `substrate` value of the wrong type, rather than dropping it.
+
+        Every other malformation in this file is reported — bad JSON, a section that is not
+        an object, a directory verdict that is not `source`/`exclude`. A wrong-typed
+        `backend` or `symbols` was the exception: `{"backend": 42}` or `{"symbols": "true"}`
+        fell through to the default in complete silence, which is how a project ends up
+        convinced it has opted into a backend it is not running. The accessors below are
+        deliberately still forgiving; this only makes the fallback audible.
+        """
+        substrate = self.data.get('substrate')
+        if not isinstance(substrate, dict):
+            return
+        backend = substrate.get('backend')
+        if backend is not None and (not isinstance(backend, str) or not backend.strip()):
+            self.warnings.append(
+                '%s: substrate.backend: %r is not a backend name; using %r'
+                % (self.path, backend, BACKEND_AUTO))
+        symbols = substrate.get('symbols')
+        if symbols is not None and not isinstance(symbols, bool):
+            self.warnings.append(
+                '%s: substrate.symbols: %r is not true or false; symbols stay off'
+                % (self.path, symbols))
 
     @property
     def backend(self) -> str:
