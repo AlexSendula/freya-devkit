@@ -748,22 +748,58 @@ class TestBackendSelection(unittest.TestCase):
         self.assertEqual(meta['degraded_from'], 'graphify')
         self.assertTrue(meta['degraded_reason'])
 
-    def test_auto_prefers_whichever_backend_reads_more_of_this_repo(self):
+    def test_auto_is_the_floor_even_when_another_backend_would_read_more(self):
+        """A substrate swap is a decision, not a side effect of installing something.
+
+        This used to score the installed backends and pick the widest, which would have meant
+        that putting a binary anywhere on PATH silently changed the substrate — and therefore
+        every blast radius — for every project on the machine at once, with no diff. Spec §11
+        mitigates the zero-install risk with *graphify is opt-in*, and CD-13 requires a
+        substrate change to be a measured migration.
+
+        Not hypothetical: measured on this repository, graphify scored 63 to homegrown's 58
+        and would have taken over on the next build.
+        """
         import backends
         d = self.mk()  # no settings file at all -> auto
         sel = backends.select(
             d, present_extensions={'.java': 40, '.ts': 2},
             registry=self.registry(graphify=lambda p: _FakeBackend()))
-        self.assertEqual(sel.backend.name, 'graphify')
+        self.assertEqual(sel.backend.name, 'homegrown')
+        self.assertFalse(sel.degraded)
 
-    def test_auto_keeps_the_floor_when_it_reads_just_as_much(self):
-        """Predictability: a tie must not depend on registration order."""
+    def test_auto_says_what_it_is_leaving_on_the_table(self):
+        """Opt-in must not mean undiscoverable. The one thing a project cannot work out for
+        itself is which of its files another backend would have read."""
+        import backends
+        d = self.mk()
+        sel = backends.select(
+            d, present_extensions={'.java': 40, '.ts': 2},
+            registry=self.registry(graphify=lambda p: _FakeBackend()))
+        hint = ' '.join(sel.warnings)
+        self.assertIn('graphify', hint)
+        self.assertIn('.java', hint)
+        self.assertIn('40', hint)
+        self.assertIn('substrate.backend', hint)
+        self.assertNotIn('.ts', hint)   # the floor already reads those
+
+    def test_auto_stays_quiet_when_there_is_nothing_to_offer(self):
         import backends
         d = self.mk()
         sel = backends.select(
             d, present_extensions={'.ts': 10},
             registry=self.registry(graphify=lambda p: _FakeBackend(extensions=('.ts',))))
         self.assertEqual(sel.backend.name, 'homegrown')
+        self.assertEqual(sel.warnings, [])
+
+    def test_naming_a_backend_is_the_opt_in(self):
+        import backends
+        d = self.mk('{"substrate": {"backend": "graphify"}}')
+        sel = backends.select(
+            d, present_extensions={'.java': 40},
+            registry=self.registry(graphify=lambda p: _FakeBackend()))
+        self.assertEqual(sel.backend.name, 'graphify')
+        self.assertFalse(sel.degraded)
 
     def test_a_backend_that_explodes_on_construction_is_simply_unavailable(self):
         import backends

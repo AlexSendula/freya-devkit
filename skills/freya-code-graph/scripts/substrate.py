@@ -655,7 +655,14 @@ def validate_graph(graph: Dict[str, Any], coverage: Optional[Coverage] = None) -
                     errors.append('files[%r]: dependent %r names no file in the graph'
                                   % (path, source))
 
-        if coverage is not None and not coverage.handles(path):
+        # Extensionless files are exempt, for the same reason `Coverage.blind_spots` skips
+        # them: this model keys on extension, so about `bin/freya` or `Makefile` it has
+        # nothing to say — and "outside the declared coverage" is an assertion, not silence.
+        # A real backend does read them: graphify extracts shell functions from an
+        # extensionless script with a shebang, and flagging that as a contract breach reports
+        # the model's limitation as the backend's fault.
+        if (coverage is not None and os.path.splitext(path)[1]
+                and not coverage.handles(path)):
             errors.append('files[%r]: outside the declared coverage %s'
                           % (path, list(coverage.extensions)))
 

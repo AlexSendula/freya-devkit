@@ -147,7 +147,7 @@ IMPORT_SIGNALS = ('external:', 'unresolved:')
 # verdicts in classifications.json are discarded on a mismatch, so a rule fix reaches
 # projects that were already graphed instead of only fresh clones. Any string works;
 # a date is readable in the file.
-RULES_VERSION = '2026-08-20'
+RULES_VERSION = '2026-08-20b'
 
 # Classification sources that outrank the built-in name lists in `_get_exclusion_rules`.
 #
@@ -1089,6 +1089,13 @@ class CodeGraph:
                 '.github', '.gitlab',
                 # Our own generated output. Graphing it would be self-reference.
                 'knowledge-base',
+                # A backend's output, for the same reason. graphify writes its extraction,
+                # an HTML viewer and dated backups into graphify-out/ at the project root;
+                # left in, the substrate would index its own working notes and report them
+                # as project source. `project_shape` already skipped this directory for the
+                # blind-spot census and the exclusion rules did not, which is the kind of
+                # disagreement between two copies of one idea that this repo keeps paying for.
+                'graphify-out',
             },
             # Excluded only as a TOP-LEVEL directory, not wherever the name appears.
             #
@@ -2261,6 +2268,34 @@ def _finalise(backend: Any, result: Any) -> Dict[str, Any]:
     return summary
 
 
+def _run_or_degrade(runner: Any, backend: Any, floor: Any, non_interactive: bool,
+                    exclusions: Any, selection_metadata: Any) -> Dict[str, Any]:
+    """Run `backend`; if it fails at *build* time, fall back to the floor and say so.
+
+    Selection already degrades when a backend reports itself unavailable. This is the other
+    half, and until now there was no other half: a backend that passed selection and then
+    threw — because the tool it wraps was upgraded, or timed out, or exited 0 having written
+    nothing — took the whole build down with it. The floor is stdlib-only and always
+    installed, so a traceback is never the best available answer.
+
+    The fallback is recorded in the artifact via `degraded_from`, not merely printed, so a
+    graph produced this way says on its face that it is thinner than it should be.
+    """
+    try:
+        return runner(backend, non_interactive=non_interactive, exclusions=exclusions,
+                      selection_metadata=selection_metadata)
+    except Exception as exc:
+        if backend is floor or getattr(backend, 'name', None) == floor.name:
+            raise  # the floor itself failed; there is nothing left to fall back to
+        print('code-graph: %r failed during the build (%s: %s); using %r instead, with '
+              'reduced coverage' % (getattr(backend, 'name', '?'), exc.__class__.__name__,
+                                    exc, floor.name), file=sys.stderr)
+        return runner(floor, non_interactive=non_interactive, exclusions=exclusions,
+                      selection_metadata={
+                          'degraded_from': getattr(backend, 'name', '?'),
+                          'degraded_reason': 'failed during the build: %s' % exc})
+
+
 def run_build(backend: Any, **kwargs: Any) -> Dict[str, Any]:
     """Build through `backend`, finalise, and return the summary."""
     return _finalise(backend, backend.build(**kwargs))
@@ -2446,15 +2481,13 @@ def main():
         # Obligation 6: exclusions are passed in, not left for the backend to decide.
         # Every other caller relied on the backend deriving them, which meant the only
         # production path never exercised the obligation it documents.
-        output = run_build(graph, non_interactive=non_interactive,
-                           exclusions=project_exclusions,
-                           selection_metadata=selection_metadata)
+        output = _run_or_degrade(run_build, graph, CodeGraph(args.dir), non_interactive,
+                                 project_exclusions, selection_metadata)
         operation = 'build'
 
     elif args.update:
-        output = run_update(graph, non_interactive=non_interactive,
-                            exclusions=project_exclusions,
-                            selection_metadata=selection_metadata)
+        output = _run_or_degrade(run_update, graph, CodeGraph(args.dir), non_interactive,
+                                 project_exclusions, selection_metadata)
         operation = 'update'
 
     elif args.query:

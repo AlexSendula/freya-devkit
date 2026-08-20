@@ -66,7 +66,11 @@ def _registry() -> Dict[str, Callable[[str], Any]]:
         import graph_ops
         return graph_ops.CodeGraph(project_dir)
 
-    return {FLOOR: homegrown}
+    def graphify(project_dir):
+        import backend_graphify
+        return backend_graphify.GraphifyBackend(project_dir)
+
+    return {FLOOR: homegrown, 'graphify': graphify}
 
 
 def available_backends(project_dir: str,
@@ -108,9 +112,9 @@ def select(project_dir: str,
            registry: Optional[Dict[str, Callable[[str], Any]]] = None) -> Selection:
     """Choose a backend for `project_dir`.
 
-    `auto` picks whichever available backend can read the most of the repo, with the floor
-    breaking ties so behaviour stays predictable. A named backend is used if available and
-    otherwise degrades to the floor — the run continues, but says what it lost.
+    `auto` is the floor. A named backend is used if available, and otherwise degrades to the
+    floor — the run continues, but says what it lost. Naming one *is* the opt-in; there is no
+    separate permission list, because a project that has written the name down has decided.
     """
     conf = settings_mod.load(project_dir)
     requested = conf.backend
@@ -134,11 +138,46 @@ def select(project_dir: str,
             reason='not installed' if requested not in _registry() else 'unavailable here',
             warnings=warnings)
 
+    # `auto` resolves to the floor, and deliberately does not go shopping.
+    #
+    # It used to pick whichever installed backend scored highest against the repo, which reads
+    # like the helpful thing and is not. Spec §11 mitigates "the dependency breaks zero-install"
+    # with *graphify is opt-in*, and CD-13 requires a substrate change to be a measured
+    # migration — diffed before it is trusted. Scoring silently would have done the opposite:
+    # installing a tool, anywhere on PATH, would have swapped the substrate under every project
+    # on the machine at once, changing every blast radius with no diff and no decision.
+    #
+    # Measured on this repository, that was not hypothetical — graphify scored 63 to
+    # homegrown's 58 and would have taken over on the next build.
+    #
+    # What `auto` does instead is *say* what it is leaving on the table, which is the part a
+    # project actually cannot discover for itself.
+    floor = by_name.get(FLOOR) or usable[0]
     if present_extensions:
-        best = max(usable, key=lambda b: (_score(b, present_extensions), b.name == FLOOR))
-    else:
-        best = by_name.get(FLOOR) or usable[0]
-    return Selection(best, requested, warnings=warnings)
+        for other in sorted(usable, key=lambda b: b.name):
+            if other.name == floor.name:
+                continue
+            unseen = _unseen_by_floor(floor, other, present_extensions)
+            if unseen:
+                warnings.append(
+                    'code-graph: %r is installed and reads %d file(s) here that %r cannot '
+                    '(%s). It is opt-in: set substrate.backend to %r in '
+                    'knowledge-base/settings.json to use it.'
+                    % (other.name, sum(unseen.values()), floor.name,
+                       ', '.join(sorted(unseen)), other.name))
+    return Selection(floor, requested, warnings=warnings)
+
+
+def _unseen_by_floor(floor: Any, other: Any,
+                     present_extensions: Dict[str, int]) -> Dict[str, int]:
+    """Extensions in this repo that `other` reads and `floor` does not, with counts."""
+    try:
+        floor_ext = set(floor.coverage().extensions)
+        other_ext = set(other.coverage().extensions)
+    except Exception:
+        return {}
+    return {ext: count for ext, count in present_extensions.items()
+            if ext in other_ext and ext not in floor_ext}
 
 
 def extension_census(project_dir: str, exclusions: Optional[substrate.Exclusions] = None,
