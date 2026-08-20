@@ -256,7 +256,7 @@ class StaticFingerprintTest(unittest.TestCase):
 
     def test_entry_plus_closure_is_static(self):
         beh = {"behavior_id": "BEH-X", "entry": "app/api/x/route.ts"}
-        with mock.patch.object(run_behaviors, "_code_graph_deps", return_value=["lib/webauthn.ts", "lib/prisma.ts"]):
+        with mock.patch.object(run_behaviors, "_code_graph_deps", return_value=(["lib/webauthn.ts", "lib/prisma.ts"], None)):
             fp = run_behaviors.static_fingerprint(beh, self.proj)
         self.assertEqual(fp["coverage"], "static")
         self.assertEqual(
@@ -267,11 +267,36 @@ class StaticFingerprintTest(unittest.TestCase):
 
     def test_no_graph_is_unknown_with_reason(self):
         beh = {"behavior_id": "BEH-X", "entry": "app/api/x/route.ts"}
-        with mock.patch.object(run_behaviors, "_code_graph_deps", return_value=None):
+        with mock.patch.object(run_behaviors, "_code_graph_deps",
+                               return_value=(None, "no-graph")):
             fp = run_behaviors.static_fingerprint(beh, self.proj)
         self.assertEqual(fp["coverage"], "unknown")
         self.assertEqual(fp["reason"], "no-graph")
         self.assertEqual(fp["exercises"], [])
+
+    def test_a_failed_graph_query_is_unknown_not_a_one_file_closure(self):
+        """The bug this shape exists to prevent.
+
+        A failed query used to come back as `[]`, and the caller branched only on `None`,
+        so it produced a closure of exactly the entry file — tagged `static` at full
+        confidence, no warning — and behavior.json is committed. Every later blast radius
+        was then computed against a fingerprint that had quietly lost its dependencies.
+        """
+        beh = {"behavior_id": "BEH-X", "entry": "app/api/x/route.ts"}
+        with mock.patch.object(run_behaviors, "_code_graph_deps",
+                               return_value=(None, "graph-query-failed")):
+            fp = run_behaviors.static_fingerprint(beh, self.proj)
+        self.assertEqual(fp["coverage"], "unknown")
+        self.assertEqual(fp["reason"], "graph-query-failed")
+        self.assertEqual(fp["exercises"], [])
+
+    def test_a_genuinely_empty_closure_is_still_a_real_answer(self):
+        """A file that imports nothing is not a failure, and must not be reported as one."""
+        beh = {"behavior_id": "BEH-X", "entry": "app/api/x/route.ts"}
+        with mock.patch.object(run_behaviors, "_code_graph_deps", return_value=([], None)):
+            fp = run_behaviors.static_fingerprint(beh, self.proj)
+        self.assertEqual(fp["coverage"], "static")
+        self.assertEqual([e["path"] for e in fp["exercises"]], ["app/api/x/route.ts"])
 
 
 class FilterOnlyTest(unittest.TestCase):

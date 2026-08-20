@@ -164,15 +164,25 @@ def run_unit_behavior(behavior, project_dir):
 
 
 def _code_graph_deps(entry, project_dir):
-    """Transitive import-closure of `entry` from code-graph (project-relative keys).
+    """-> (keys, reason). The transitive import-closure of `entry` from code-graph.
 
-    Returns None if no built graph cache exists (caller should treat as no-graph,
-    not as an empty closure), a list of keys on success, or [] on subprocess/parse
-    errors when the graph cache is present.
+    `keys` is None when the closure could not be determined, and `reason` says why —
+    `"no-graph"` or `"graph-query-failed"`. Never `[]` on failure.
+
+    It used to return `[]` on any subprocess or parse error, and the only caller branched
+    on `deps is None`. So a failed query produced `static_exercises(entry, [])` — a
+    one-file closure — tagged `coverage: static` at full confidence, with no warning.
+    behavior.json is committed (ADR-017) and its `exercises[].path` values decide which
+    behaviors a change is deemed to affect, so the wrong answer persisted into the repo and
+    then quietly narrowed every later blast radius. A green wrap-up that ran fewer
+    behaviors than it should is precisely the silent-empty failure ADR-005 exists to stop.
+
+    An empty closure is a real answer — a file that imports nothing. A failed query is not,
+    and the two must not share a representation.
     """
     graph_path = os.path.join(project_dir, "knowledge-base", ".graph", "graph.json")
     if not os.path.exists(graph_path):
-        return None
+        return None, "no-graph"
     try:
         out = subprocess.run(
             [sys.executable, str(_CODE_GRAPH), "--dependencies", entry,
@@ -180,9 +190,14 @@ def _code_graph_deps(entry, project_dir):
             capture_output=True, text=True, check=True,
         )
         data = json.loads(out.stdout)
-        return data if isinstance(data, list) else []
     except (subprocess.CalledProcessError, json.JSONDecodeError, FileNotFoundError, OSError):
-        return []
+        return None, "graph-query-failed"
+    if not isinstance(data, list) or not all(isinstance(k, str) for k in data):
+        # `--dependencies` answers in path strings. Anything else means the artifact's
+        # shape moved underneath us, and guessing at it is how a wrong closure gets
+        # committed — see the docstring.
+        return None, "graph-query-failed"
+    return data, None
 
 
 def static_fingerprint(behavior, project_dir):
@@ -197,13 +212,16 @@ def static_fingerprint(behavior, project_dir):
             f"[behavior-runner] {behavior.get('behavior_id')}: entry not found: {entry}\n"
         )
         return shape_fingerprint([], commit, reason="entry-missing")
-    deps = _code_graph_deps(entry, project_dir)
+    deps, reason = _code_graph_deps(entry, project_dir)
     if deps is None:
+        detail = (f"no code-graph at {project_dir} (run code-graph build)"
+                  if reason == "no-graph"
+                  else f"code-graph could not answer --dependencies for {entry}")
         sys.stderr.write(
-            f"[behavior-runner] {behavior.get('behavior_id')}: no code-graph at {project_dir}"
-            f" (run code-graph build) — cannot derive static fingerprint\n"
+            f"[behavior-runner] {behavior.get('behavior_id')}: {detail}"
+            f" — cannot derive static fingerprint\n"
         )
-        return shape_fingerprint([], commit, reason="no-graph")
+        return shape_fingerprint([], commit, reason=reason)
     return shape_fingerprint(
         static_exercises(entry, deps), commit, source="static", confidence=STATIC_CONFIDENCE
     )
