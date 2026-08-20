@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Track B — the short version</title>
+<style>
+  :root {
+    --bg: #fbfaf8; --panel: #fff; --ink: #1c1a17; --muted: #6b6459;
+    --line: #e5e0d8; --accent: #8a5a2b; --accent-soft: #f6efe6;
+    --ok: #2f6b46; --ok-soft: #eaf3ed; --warn: #8a6d1f; --warn-soft: #fbf4de;
+    --stop: #9b3a2f; --stop-soft: #fbecea;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #171614; --panel: #201e1b; --ink: #ece7df; --muted: #a09789;
+      --line: #33302b; --accent: #d9a066; --accent-soft: #2a241d;
+      --ok: #7fc09b; --ok-soft: #1d2a22; --warn: #d9bb6a; --warn-soft: #2a2519;
+      --stop: #e0897c; --stop-soft: #2c1e1c;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 16px/1.65 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
+  }
+  .wrap { max-width: 820px; margin: 0 auto; padding: 48px 24px 96px; }
+  header { border-bottom: 2px solid var(--line); padding-bottom: 20px; margin-bottom: 8px; }
+  .kicker { color: var(--accent); font-weight: 650; letter-spacing: .08em;
+            text-transform: uppercase; font-size: 12px; }
+  h1 { font-size: 34px; line-height: 1.15; margin: 8px 0 6px; letter-spacing: -.02em; }
+  .sub { color: var(--muted); font-size: 15px; }
+  h2 { font-size: 22px; margin: 44px 0 12px; letter-spacing: -.01em; }
+  h3 { font-size: 17px; margin: 26px 0 8px; }
+  p { margin: 12px 0; }
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  .more {
+    display: inline-block; font-size: 13px; font-weight: 600; color: var(--accent);
+    background: var(--accent-soft); border: 1px solid var(--line);
+    padding: 2px 9px; border-radius: 99px; text-decoration: none; white-space: nowrap;
+  }
+  .more:hover { border-color: var(--accent); }
+  .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+    padding: 20px 22px; margin: 18px 0;
+  }
+  .card.decide { border-left: 4px solid var(--stop); }
+  .card.done   { border-left: 4px solid var(--ok); }
+  .card.note   { border-left: 4px solid var(--warn); }
+  .tag {
+    display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .07em;
+    text-transform: uppercase; padding: 3px 9px; border-radius: 5px; margin-bottom: 10px;
+  }
+  .tag.decide { background: var(--stop-soft); color: var(--stop); }
+  .tag.done   { background: var(--ok-soft);   color: var(--ok); }
+  .tag.note   { background: var(--warn-soft); color: var(--warn); }
+  table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 15px; }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line);
+           vertical-align: top; }
+  th { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  code { font: 13.5px ui-monospace, SFMono-Regular, Menlo, monospace;
+         background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; }
+  .num { font-variant-numeric: tabular-nums; font-weight: 650; }
+  .opts { list-style: none; padding: 0; margin: 14px 0 0; }
+  .opts li { border: 1px solid var(--line); border-radius: 9px; padding: 12px 14px;
+             margin-bottom: 9px; background: var(--bg); }
+  .opts b { display: block; margin-bottom: 3px; }
+  .rec { border-color: var(--ok) !important; }
+  .rec b::after { content: " — my recommendation"; color: var(--ok); font-weight: 600;
+                  font-size: 13px; }
+  ul.tight li { margin: 5px 0; }
+  .foot { margin-top: 56px; padding-top: 18px; border-top: 1px solid var(--line);
+          color: var(--muted); font-size: 14px; }
+  .banner { background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+            padding: 14px 18px; display: flex; gap: 18px; flex-wrap: wrap;
+            margin: 22px 0 8px; }
+  .banner div { flex: 1 1 130px; }
+  .banner .num { font-size: 22px; display: block; }
+  .banner span.lbl { color: var(--muted); font-size: 12.5px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <div class="kicker">Track B · the polyglot substrate</div>
+  <h1>The short version</h1>
+  <p class="sub">Where the work stands, what I need from you, and what I decided on my own.
+  Every section links through to the full detail —
+  <a href="details.html">the long version is here</a>.</p>
+</header>
+
+<div class="banner">
+  <div><span class="num">1151</span><span class="lbl">tests, all green</span></div>
+  <div><span class="num">14</span><span class="lbl">commits, none pushed</span></div>
+  <div><span class="num">4 of 6</span><span class="lbl">phases done</span></div>
+  <div><span class="num">1</span><span class="lbl">decision needed</span></div>
+</div>
+
+<h2>1. What I need from you</h2>
+
+<p>One real decision, in two parts. Phase 2 cannot start until it is settled — everything else
+can wait.</p>
+
+<div class="card decide">
+  <span class="tag decide">Decide before Phase 2</span>
+  <h3 style="margin-top:0">The contract is not finished being a contract</h3>
+
+  <p>Phase 1 turned the code graph into a <em>socket</em> so a second tool (graphify) can plug
+  in. The review's verdict was blunt and I agree with it: <strong>it is our own resolver's
+  shape wearing an interface.</strong></p>
+
+  <p>It proved that rather than arguing it. Someone built a second backend that satisfied the
+  contract completely — and it crashed twice, then exited successfully having written no graph
+  at all. I fixed the two crashes. The third thing is a design choice, not a bug.
+  <a class="more" href="details.html#verdict">why it happened →</a></p>
+
+  <h3>Part A — who saves the graph?</h3>
+  <p>Right now saving the file, checking it is valid, and building the reverse index all live
+  <em>inside</em> our own resolver. So a different backend can do everything right and still
+  produce nothing, while reporting success. That is the same "confident empty answer" failure
+  the whole project exists to remove.</p>
+  <p><strong>I think this one is not really optional</strong> — without it the socket can only
+  run the plug it was moulded around. But it is your call, because it means moving code.
+  <a class="more" href="details.html#fork-a">the detail →</a></p>
+
+  <h3>Part B — does the graph track files, or symbols?</h3>
+  <p>Today an edge is "file A depends on file B". graphify knows much more — which
+  <em>function</em> calls which, which class extends which. Our contract has words for those
+  but nowhere to put them, so they get flattened and thrown away.</p>
+  <p>Measured: our shape can express <span class="num">2,102</span> of graphify's
+  <span class="num">5,027</span> real connections. <strong>It cannot express 58%.</strong></p>
+
+  <ul class="opts">
+    <li><b>Stay file-level, and say so</b>
+      Drop the words we cannot honour, and drop the per-edge "how sure are we" tagging from
+      Phase 2's scope. Cheapest. Loses most of what graphify knows.</li>
+    <li class="rec"><b>Make an edge an object now</b>
+      Instead of just a filename, an edge carries what kind it is and how it was found. There
+      is one producer and one reader today, so this will never be cheaper than it is this
+      week.</li>
+    <li><b>Defer it to Phase 3</b>
+      Matches the original plan — but Phase 2 promises per-edge provenance it then cannot
+      deliver, so the contract gets reopened anyway.</li>
+  </ul>
+  <p style="margin-top:14px"><a class="more" href="details.html#fork-b">the full trade-off →</a></p>
+</div>
+
+<h2>2. Things I decided alone</h2>
+
+<p>All reversible. Flag any you disagree with and I will change them.</p>
+
+<div class="card note">
+  <span class="tag note">Your call to reverse</span>
+  <table>
+    <tr><th>What</th><th>Why</th><th></th></tr>
+    <tr>
+      <td><code>docs/</code>, <code>examples/</code> and <code>generated/</code> are now
+          skipped only at the <em>top level</em>, not everywhere</td>
+      <td>Skipping them at any depth is what hid 40 of this repo's own files. But indexing a
+          top-level <code>docs/</code> pulled in the published website's bundled JavaScript.</td>
+      <td><a class="more" href="details.html#depth">→</a></td>
+    </tr>
+    <tr>
+      <td><code>--clear</code> no longer deletes <code>classifications.json</code></td>
+      <td>It holds decisions you and the model made about which folders are source. A cache
+          clear should not throw those away.</td>
+      <td><a class="more" href="details.html#clear">→</a></td>
+    </tr>
+    <tr>
+      <td>Settings live in <code>knowledge-base/settings.json</code></td>
+      <td>You rejected a file in the project root. This is committed, travels with a clone,
+          and survives <code>--clear</code>.</td>
+      <td><a class="more" href="details.html#cd15">→</a></td>
+    </tr>
+  </table>
+</div>
+
+<h2>3. What got done</h2>
+
+<div class="card done">
+  <span class="tag done">Shipped and verified</span>
+  <table>
+    <tr><th>Phase</th><th>Result</th><th></th></tr>
+    <tr>
+      <td><b>0</b> — the spike</td>
+      <td><strong>The gate passed.</strong> graphify missed <span class="num">0</span> of 608
+          edges on the testbed and scored <span class="num">11/11</span> on a Java fixture.</td>
+      <td><a class="more" href="details.html#phase0">→</a></td>
+    </tr>
+    <tr>
+      <td><b>—</b> resolver repair</td>
+      <td>Found that <strong>freya could not graph itself</strong>: 10 of 50 files, zero
+          connections, reported as success. Thirteen defects fixed.</td>
+      <td><a class="more" href="details.html#repair">→</a></td>
+    </tr>
+    <tr>
+      <td><b>1</b> — the contract</td>
+      <td>Built, with the caveat above. No behaviour change: testbed identical before and
+          after.</td>
+      <td><a class="more" href="details.html#phase1">→</a></td>
+    </tr>
+    <tr>
+      <td><b>4</b> — the docs graph</td>
+      <td>35 docs, <span class="num">170</span> edges. Now answers <em>"I changed this file,
+          which docs are now wrong?"</em></td>
+      <td><a class="more" href="details.html#phase4">→</a></td>
+    </tr>
+    <tr>
+      <td><b>5</b> — agnosticism</td>
+      <td>Java, Expo and monorepos are now recognised. A repo the tool cannot read no longer
+          reports as "greenfield".</td>
+      <td><a class="more" href="details.html#phase5">→</a></td>
+    </tr>
+    <tr>
+      <td><b>2, 3</b></td>
+      <td><em>Not started</em> — both need decisions I should not make alone.</td>
+      <td><a class="more" href="details.html#notdone">→</a></td>
+    </tr>
+  </table>
+</div>
+
+<h3>Your acme-travel case works</h3>
+<p><code>apps/mobile</code> importing <code>@acme/domain</code> used to read as a third-party
+npm package — the most important relationship in the repo, reported as an outside dependency.
+It now resolves to <code>packages/domain/src/index.ts</code>.
+<a class="more" href="details.html#lbt">what still needs doing for LBT →</a></p>
+
+<h2>4. Three things worth knowing</h2>
+
+<ul class="tight">
+  <li><strong>I introduced a bug while fixing bugs.</strong> The commit that fixed six review
+      findings added a new one. Nothing checked the call — which is why the contract now
+      states its own signature and verifies it.
+      <a class="more" href="details.html#ownbug">→</a></li>
+  <li><strong>A review agent edited the file it was reviewing</strong>, and another deleted
+      four tracked files from your testbed. I restored them and made every later review
+      read-only. <a class="more" href="details.html#agents">→</a></li>
+  <li><strong>A bug briefly made a generated file committable</strong> in any project that had
+      run the tool before. Caught by review, verified against real git, fixed.
+      <a class="more" href="details.html#gitignore">→</a></li>
+</ul>
+
+<h2>5. If you only do one thing</h2>
+
+<p>Answer <strong>Part B</strong> above — file-level or symbol-level. Part A follows from it,
+and Phase 2 is blocked on both. Everything else in this document is context.</p>
+
+<div class="foot">
+  <p><a href="details.html"><strong>The complete version →</strong></a> · every measurement,
+  every decision and its rejected alternatives, and the full review findings.</p>
+  <p>Also here: <a href="../spec.md">spec.md</a> (the design),
+  <a href="../decisions.md">decisions.md</a> (18 candidate ADRs),
+  <a href="../log.md">log.md</a> (the working record),
+  <a href="../architecture.html">architecture.html</a> (diagrams).</p>
+</div>
+
+</div>
+</body>
+</html>

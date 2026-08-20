@@ -22,10 +22,20 @@ Reconstructing that from a diff at the end does not work — the *rejected* alte
 *reason* are never in the diff. So they get written down as they happen, here, and distilled
 when the feature lands.
 
+## Start here
+
+[`explainer/index.html`](explainer/index.html) — **the short version**: where the work stands,
+what needs deciding, and what was decided without asking. Every claim links through to
+[`explainer/details.html`](explainer/details.html), which carries the measurements, the
+rejected alternatives and the review findings in full.
+
+Open either in a browser; they are self-contained and work over `file://`.
+
 ## The lifecycle, and why it is enforced
 
-0. **Orient:** [`spec.md`](spec.md) is the design; [`architecture.html`](architecture.html) is
-   the same thing with diagrams, readable in a browser.
+0. **Orient:** [`explainer/`](explainer/) is the readable summary;
+   [`spec.md`](spec.md) is the design; [`architecture.html`](architecture.html) is
+   the same thing with diagrams.
 1. **During:** record decisions in [`decisions.md`](decisions.md) — already in ADR shape, so
    closing the feature is transcription rather than archaeology. Record reversals and
    measurements in [`log.md`](log.md) as they happen.
