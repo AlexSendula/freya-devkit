@@ -148,10 +148,12 @@ is waiting for you.</p>
   <li><strong>Write the files</strong> to disk.</li>
 </ol>
 
-<p>All three currently live inside <code>CodeGraph</code>, our own resolver.
-<code>_write_graph</code> is a private method of it. <code>validate_graph</code> — the guard
-written specifically to catch "a backend emitting something downstream cannot read" — has
-<strong>zero callers in production code</strong>. And <code>dependents</code> is not mentioned
+<p class="pill ok" style="display:inline-block">Decided 2026-08-20 · built</p>
+
+<p>All three <em>used to</em> live inside <code>CodeGraph</code>, our own resolver.
+<code>_write_graph</code> was a private method of it. <code>validate_graph</code> — the guard
+written specifically to catch "a backend emitting something downstream cannot read" — had
+<strong>zero callers in production code</strong>. And <code>dependents</code> was not mentioned
 anywhere in the contract, despite being the thing every consumer reads.</p>
 
 <div class="card decide">
@@ -163,19 +165,35 @@ anywhere in the contract, despite being the thing every consumer reads.</p>
   operator is told the radius is narrow rather than unknown.</p>
 </div>
 
-<h4>The fix</h4>
-<p>Move build → validate → derive <code>dependents</code> → write into the socket, so a backend
-returns a graph and the socket owns everything after it. <code>dependents</code> is a pure
-function of <code>imports</code>, so deriving it centrally is strictly better than trusting
-every backend to emit it correctly.</p>
+<h4>What shipped</h4>
+<p><code>build()</code> and <code>update()</code> now return a <code>substrate.Result</code> —
+the graph, plus what the backend did to get it. <code>run_build</code> / <code>run_update</code>
+own everything after: derive <code>dependents</code>, validate, write both artifacts.
+<code>dependents</code> is a pure function of <code>imports</code>, so deriving it centrally is
+strictly better than trusting every backend to emit it correctly — and it is rebuilt from
+scratch rather than appended to, so a dependent whose import was deleted does not survive.</p>
 
-<p><strong>My view:</strong> not really optional. Without it the socket can only run the plug it
-was moulded around, which is the thing Phase 1 existed to stop. The reason I did not just do it
-is that it moves code across a boundary you may want drawn differently.</p>
+<p>Two things came out of it that were not in the plan. Validation now actually runs, on every
+build, and when it fails it records the errors <em>into the artifact</em> under
+<code>substrate.validation</code> — the run's stderr is gone by the time anyone reads the graph.
+And the contract now requires a backend to carry its <code>project_dir</code>, because the
+contract is what writes the files and it has to know where.</p>
 
-<h2 id="fork-b">Part B — does the graph track files, or symbols? <a class="back" href="index.html">← short</a></h2>
+<p>The tests were the tell. Forty-odd of them called <code>CodeGraph.build()</code> directly and
+asserted on what came back, which meant the suite had never once exercised the path production
+uses. They all go through the runner now.</p>
 
-<p>Today an edge is a string: <code>"src/db.ts"</code> sitting in the
+<h2 id="fork-b">Part B — what can a single edge say? <a class="back" href="index.html">← short</a></h2>
+
+<p class="pill ok" style="display:inline-block">Decided 2026-08-20 · built</p>
+
+<p class="hint">This section was titled <em>"does the graph track files, or symbols?"</em> until
+2026-08-20, and that was wrong in a way that caused real confusion. The <strong>nodes</strong>
+are files and stay files. The question was only ever about the <strong>edges</strong> between
+them — what one edge is allowed to state. Symbols are Phase 3; this is what makes room for
+them.</p>
+
+<p>An edge was a string: <code>"src/db.ts"</code> sitting in the
 <code>imports</code> list of <code>src/auth.ts</code>. That says <em>file A depends on file
 B</em> and nothing more.</p>
 
@@ -203,7 +221,7 @@ rejected outright.</p>
 as currently written cannot ship without reopening the very contract Phase 1 existed to close.
 That is the real reason this needs deciding now rather than later.</p>
 
-<h4>The three answers</h4>
+<h4>The three answers, and the one taken</h4>
 <table>
   <tr><th>Option</th><th>What it means</th><th>Cost</th></tr>
   <tr>
@@ -225,6 +243,54 @@ That is the real reason this needs deciding now rather than later.</p>
     <td>Matches the original plan, but Phase 2 then promises provenance it cannot deliver.</td>
   </tr>
 </table>
+
+<h4>What shipped</h4>
+<p>An edge is <code>{"to": …, "kind": …, "provenance": …}</code>, and a reverse edge is the same
+thing keyed <code>from</code>. <code>kind</code> comes from the contract's fixed vocabulary;
+<code>provenance</code> says how directly it was read out of the source, which — as Phase 0
+measured — is <em>not</em> the deterministic-versus-model axis it is easy to mistake it for.</p>
+
+<p>It paid for itself before graphify arrived. <code>export * from './y'</code> is now recorded
+as <code>re_exports</code>, so a barrel file that only forwards a module is distinguishable from
+one that actually uses it — those were the identical string before. The backend's declared
+coverage claims that relation rather than over- or under-stating what it emits.</p>
+
+<table>
+  <tr><th>Decision</th><th>Why</th></tr>
+  <tr>
+    <td>Node queries still answer in <strong>paths</strong>, not edges</td>
+    <td><code>--impact</code>, <code>--dependents</code> and <code>--dependencies</code> answer
+        "which files". Three other skills feed the result straight into set arithmetic, where an
+        edge object raises <code>unhashable type: 'dict'</code> in a different skill for no gain.
+        Only <code>--query</code> returns edges. Those three skills needed no change at all.</td>
+  </tr>
+  <tr>
+    <td>Readers accept <strong>both</strong> shapes, and the schema version says which</td>
+    <td><code>graph.json</code> is gitignored, so there is no committed copy to fix in a commit —
+        an older one sits on a machine until something rewrites it, and refusing to read it looks
+        exactly like a project with no dependencies. Schema 1 → 2 is what makes that tolerance
+        temporary rather than permanent.</td>
+  </tr>
+  <tr>
+    <td><code>--update</code> rewrites a legacy artifact even when nothing changed</td>
+    <td>It is the command the steady-state workflow runs, and it short-circuits on "no source
+        changed". Without this the migration would reach almost nobody. Verified on a
+        hand-downgraded copy of this repo's own graph: 419 edges in, 419 out.</td>
+  </tr>
+</table>
+
+<h4>What it caught on the way</h4>
+<p>An exhaustive sweep for readers of the old shape turned up a defect that had nothing to do
+with edges. <code>behavior-runner</code> asked code-graph for a file's dependency closure and
+treated <em>any failure</em> of that query as an <em>empty closure</em> — producing a
+one-file fingerprint tagged <code>static</code> at full confidence, with no warning, written
+into <code>behavior.json</code>, which is committed. Every later blast radius was then computed
+against a fingerprint that had quietly lost its dependencies. It is fixed: a failed query and an
+empty answer no longer share a representation.</p>
+
+<p>Not hypothetical. For about fifteen minutes mid-migration this working tree had
+<code>--dependencies</code> raising an exception, and anything fingerprinted in that window
+would have been silently truncated and committed.</p>
 
 <h2 id="phase0">Phase 0 — the spike <a class="back" href="index.html">← short</a></h2>
 
@@ -479,19 +545,68 @@ wiring them now would wire them to the wrong place: <code>Selection.metadata()</
 <code>summarise_coverage()</code> still have no production caller, and
 <code>coverage.relations</code> is written into every graph and read by nothing.</p>
 
-<h2 id="depth">Judgement call — depth, not name <a class="back" href="index.html">← short</a></h2>
+<h2 id="depth">Part C — depth, and then the thing underneath it <a class="back" href="index.html">← short</a></h2>
 
 <p>Excluding a directory by name at <em>any</em> depth is what hid 40 of this repo's files
 (<code>skills/*/scripts/</code>) and a real Next.js route
 (<code>app/api/media/generated/route.ts</code>). But removing the names outright indexed the
 published website's bundled JavaScript and this spike's own planted test fixtures.</p>
 
-<p>So the rule is now split: <strong>artifact directories</strong> (<code>node_modules</code>,
-<code>dist</code>, <code>.next</code>) are excluded wherever they appear, and
+<p>So the rule was split: <strong>artifact directories</strong> (<code>node_modules</code>,
+<code>dist</code>, <code>.next</code>) excluded wherever they appear,
 <strong>convention directories</strong> (<code>docs</code>, <code>examples</code>,
-<code>generated</code>) only at the repository root, where the convention actually holds.
-<code>scripts</code> is on neither list — it holds real source often enough, at the root as well
-as below it, that excluding it by name is the guess that started this.</p>
+<code>generated</code>) only at the repository root, where the convention actually holds.</p>
+
+<h4>Your objection</h4>
+<p>You pushed back: we cannot know what some other project keeps in a folder called
+<code>docs/</code>, so a default that includes or excludes it everywhere might break a
+repository neither of us has seen. You proposed scoping the rule to this project only.</p>
+
+<p>I partly disagreed with that mechanism — you cannot identify "this project" without
+hardcoding a name or a path, and the nested-<code>generated</code> case is a genuine bug fix
+that helps everyone. And the new rule is strictly <em>more</em> inclusive than the old one, so
+it cannot cause a missed edge, only noise, which is the safe direction. Then I went to check
+whether a project could simply override the default, and found it could not.</p>
+
+<div class="card decide">
+  <p><strong>The real defect.</strong> <code>set_classification('docs', 'source')</code> was
+  accepted, written to <code>classifications.json</code>, and then silently overruled — the file
+  filter never consulted classifications at all. So the name lists were not defaults, they were
+  hardcoded answers with no appeal. Your "we cannot know the future" argument was not a reason to
+  scope one rule differently; it was a reason the escape hatch had to exist, and it did not.</p>
+</div>
+
+<h4>What shipped</h4>
+<table>
+  <tr><th>Verdict source</th><th>Overrides</th></tr>
+  <tr><td><code>user</code></td>
+      <td>Everything, including artifact-tree names and <code>.gitignore</code>. Nothing in the
+          toolkit can know that some repository really does keep source in <code>target/</code>.</td></tr>
+  <tr><td><code>ai</code></td>
+      <td>Root convention names and <code>.gitignore</code>, but <em>not</em> artifact trees. A
+          model guessing "<code>node_modules</code> is source" is a plausible failure; a person
+          typing it is not.</td></tr>
+  <tr><td><code>rule</code> / <code>gitignore</code></td>
+      <td>Nothing. These <em>are</em> the defaults' own output, so letting them override would be
+          circular.</td></tr>
+</table>
+
+<p>Three separate layers had to agree, and finding that out took three attempts. The file
+filter. The directory classifier — which re-asserted the rule one level <em>below</em> an
+override and won, because the ancestor walk preferred the deepest verdict and a stale cached one
+from an earlier build sat deeper than the override. And the exclusion set the CLI passes back
+into <code>build()</code>, assembled from the same <code>.gitignore</code>, which undid the
+override a step later. Overrides therefore travel on the contract itself, so a Phase 2 backend
+that has never heard of <code>classifications.json</code> honours them too.</p>
+
+<p>Precedence is now one sentence: <em>a stated verdict beats a derived one at any depth, and
+among equals the deepest wins.</em></p>
+
+<p><code>scripts</code> also went back to being excluded at the repo root. Dropping the name
+outright was the wider change — a root <code>scripts/</code> had been excluded in every project
+this toolkit had ever run on, and un-excluding it everywhere to fix one repo's nested
+<code>skills/*/scripts/</code> changed the answer for projects that had asked for nothing.
+Top-level-only restores the old behaviour at the root and keeps the fix below it.</p>
 
 <h2 id="clear">Judgement call — what <code>--clear</code> keeps <a class="back" href="index.html">← short</a></h2>
 

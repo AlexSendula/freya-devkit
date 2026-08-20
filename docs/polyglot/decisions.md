@@ -686,7 +686,7 @@ material at feature end; the reasoning is in the findings, not reconstructed her
    produce spurious diffs. It also writes only to `graphify-out/`, so **ADR-017's revisit
    trigger does not fire** and `behavior.json` stays where it is.
 
-## The open fork — decide before Phase 2 starts
+## The fork, resolved 2026-08-20 — Phase 2 is unblocked
 
 Phase 1's review reached a blunt verdict, and it is right: **the contract is homegrown's shape
 wearing an interface.** The vocabulary and the metadata block are real, but the executable part
@@ -736,6 +736,13 @@ Three coherent answers, and the choice is genuinely open:
 without it the socket cannot run anything but the plug it was moulded around. For B, the
 argument for doing it now is that the cost only rises: every phase after this adds a reader.
 
+### Decided
+
+Both, as recommended, plus a third the user raised that neither branch of the fork covered.
+They become CD-19, CD-20 and CD-21 below. Shipped in `b7b9d4b`; measured on freya-devkit as 57
+files / 419 edges / 64 dependents, identical to the run before the change once the one new
+`import substrate` in the test file is accounted for. 1,186 tests, up from 1,151.
+
 ### Everything else from that review
 
 Fixed in `832029c` and the commit after it: the un-upgraded `.gitignore` that made
@@ -761,3 +768,167 @@ Raised by the spike rather than answered by it. All are Phase 2 gates.
    it per invocation.
 4. Whether running a pre-1.0, single-maintainer dependency recursively over a whole codebase
    needs a supply-chain position before it is recommended to other people's repos.
+
+---
+
+## CD-19 — The contract persists the graph; a backend only produces it
+
+**Status:** accepted 2026-08-20 · resolves fork A
+
+### Context
+
+`CodeGraph.build()` linked `dependents`, wrote both artifacts and returned a summary. A second
+backend built strictly to the contract therefore produced nothing and reported success —
+ADR-005's confident-empty failure one level up, demonstrated rather than argued.
+
+### Decision
+
+`build()` and `update()` return a `substrate.Result`: the graph, and what the backend did to
+get it. `run_build` / `run_update` derive `dependents`, validate, and write both artifacts.
+
+`Result` exists because a bare dict cannot say "nothing changed", which `update` has to be able
+to say without a sentinel every caller then has to know about.
+
+### Rejected
+
+**Leave persistence in each backend and document what it must do.** A contract enforced by
+documentation is the thing Phase 1's review found. The second backend satisfied every
+documented obligation and still wrote no file.
+
+**Put the shared code in `backends.py`.** Selection and finalisation are different concerns,
+and a backend that is never selected still has to be finalisable by its own tests.
+
+### Consequences
+
+- `dependents` is rebuilt from scratch on every write, never appended to. An incremental pass
+  that only adds entries leaves an edge behind when the import justifying it is deleted.
+- `substrate.validate_graph` had **zero production callers**. It now runs on every build, and
+  writes its errors into `substrate.validation` in the artifact — the run's stderr is gone by
+  the time anyone reads the graph.
+- `project_dir` joins the required backend attributes. The contract writes the files, so it has
+  to know where.
+- Roughly forty tests called `CodeGraph.build()` directly and asserted on its return value,
+  which meant the suite had never exercised the path production uses. They go through the
+  runner now.
+
+---
+
+## CD-20 — An edge is an object, and the schema is versioned
+
+**Status:** accepted 2026-08-20 · resolves fork B
+
+### Context
+
+An edge was a bare string, so it could carry exactly one fact: where it pointed. `imports` and
+`re_exports` were the same value; symbol-level relations could not be written at all. Measured
+against Phase 0: **2,102 of graphify's 5,027 links expressible, 58% not.**
+
+### Decision
+
+`{"to": …, "kind": …, "provenance": …}`, and `{"from": …, …}` going backwards. `kind` comes
+from `RELATION_KINDS`; `provenance` from `PROVENANCE`. Schema 1 → 2.
+
+Two boundaries drawn at the same time, both load-bearing:
+
+- **Node queries answer in paths, not edges.** `--impact`, `--dependents` and `--dependencies`
+  answer "which files"; three other skills feed the result straight into set arithmetic, where
+  an edge object raises `unhashable type: 'dict'` in a different skill for no gain. Only
+  `--query` returns edges. Those three skills needed no change at all.
+- **Readers accept both shapes, permanently until the version says otherwise.** `graph.json` is
+  gitignored, so there is no committed copy to correct in a commit — an older one sits on a
+  machine until something rewrites it, and refusing to read it is indistinguishable from a
+  project with no dependencies.
+
+### Rejected
+
+**File-level, honestly** — drop the three symbol kinds and strike provenance from Phase 2.
+Cheapest, and it matches spec §5's deliberate file-level floor, but it gives up most of what
+the second backend knows in order to avoid a migration that only gets more expensive.
+
+**Defer to Phase 3.** Matches spec §10, but Phase 2 promises per-edge provenance it then cannot
+deliver, so the contract reopens anyway — later, with more readers.
+
+**Keep strings and add a parallel `edges` key.** Zero downstream risk, and two representations
+of one fact that drift. This repo has been bitten by exactly that (the byte-identical
+`CACHE_GITIGNORE` in two skills).
+
+### Consequences
+
+- `export * from './y'` is recorded as `re_exports`, so a barrel file that only forwards a
+  module is now distinguishable from one that uses it. The homegrown backend's coverage claims
+  that relation rather than over- or under-stating what it emits.
+- Importing *and* re-exporting the same module is one `imports` edge, not two. Two edges to one
+  target would double it in every dependents list.
+- `--update` rewrites a legacy artifact even when no source file changed. It is the command the
+  steady-state workflow runs and it short-circuits on "nothing changed", so without this the
+  migration reaches almost nobody. Verified on a hand-downgraded copy of this repo's own graph.
+- `upgrade_edges` deliberately does **not** stamp `version`. That field records what is on
+  disk; stamping it on read would make every graph report itself current at the moment reading
+  is how we discover it is not.
+- An upgraded edge claims `imports` / `extracted` — exactly what the string era could express.
+  It must not claim a kind the old resolver never determined.
+
+---
+
+## CD-21 — The exclusion defaults are arguable
+
+**Status:** accepted 2026-08-20 · raised by the user, not by the fork
+
+### Context
+
+The name lists in `_get_exclusion_rules` had just been re-scoped by depth (CD-14's follow-on).
+The user objected: we cannot know what some other repository keeps in a folder called `docs/`,
+so a default applied everywhere might break a project neither of us has seen — and proposed
+scoping the rule to this project only.
+
+Scoping it that way is not implementable without hardcoding a name or path, and the change was
+strictly *more* inclusive than what it replaced, so it could cost noise but never a missed edge.
+Checking whether a project could simply override the default found the real defect:
+`set_classification('docs', 'source')` was accepted, written to `classifications.json`, and then
+silently overruled — `_should_exclude` never consulted classifications at all.
+
+So the lists were not defaults. They were hardcoded answers with no appeal, and a wrong one was
+unfixable.
+
+### Decision
+
+A classification verdict outranks the built-in lists, in two tiers:
+
+| Source | Overrides |
+|---|---|
+| `user` | Everything, including artifact-tree names and `.gitignore` |
+| `ai` | Root convention names and `.gitignore`, not artifact trees |
+| `rule` / `gitignore` | Nothing — they are the lists' own output, so overriding would be circular |
+
+Precedence, stated once: **a stated verdict beats a derived one at any depth; among equals the
+deepest wins.**
+
+`scripts` returns to the root-only exclusion list. Dropping the name outright had un-excluded a
+root `scripts/` in every project the toolkit had ever run on, to fix one repo's *nested*
+`skills/*/scripts/`.
+
+### Rejected
+
+**One tier — any verdict overrides anything.** A model classifying `node_modules` as source is
+a plausible failure mode and a person typing it is not, and the blast radius of the first is a
+50,000-file graph.
+
+**Scope the rule to freya-devkit.** The user's original proposal. Needs a name or path
+hardcoded, and leaves every other project with the same unarguable defaults.
+
+**Let file-kind patterns be overridden too.** `*.d.ts` and `*.min.js` are claims about what a
+file *is*, not about which directories are in scope.
+
+### Consequences
+
+- Three layers had to agree, and it took three attempts to find them all: the file filter; the
+  directory classifier, which re-asserted the rule one level *below* an override and won
+  because a stale cached verdict sat deeper; and the `Exclusions` the CLI passes back into
+  `build()`, assembled from the same `.gitignore`, which undid the override a step later.
+- Overrides therefore travel on the contract as `Exclusions.overrides`, so a Phase 2 backend
+  that has never heard of `classifications.json` honours them too.
+- A directory whose ancestor already carries a stated verdict is no longer classified at all —
+  it inherits. Classifying it re-applies the very lists the ancestor overrode.
+- A nested source verdict widens the top-level scan root, or the override records an opinion
+  nothing ever globs for.
+- `RULES_VERSION` bumped to `2026-08-20`, so cached `rule`/`gitignore` verdicts are re-derived.

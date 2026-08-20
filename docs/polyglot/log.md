@@ -395,9 +395,9 @@ Two findings are worth carrying beyond this feature:
   `CACHE_GITIGNORE` constants each carried a comment saying they must stay identical. They had
   already diverged. The guard is now a test comparing the produced strings.
 
-The unresolved fork — who owns persistence, and whether the contract's unit is a file or a
-node — is written up in [`decisions.md`](decisions.md) under *The open fork*. It is a design
-decision with three defensible answers, not a defect, and Phase 2 cannot start without it.
+The fork — who owns persistence, and what a single edge may say — is written up in
+[`decisions.md`](decisions.md), and was **resolved on 2026-08-20** (CD-19, CD-20, CD-21).
+Phase 2 is no longer blocked.
 
 ### Doc impact — applied
 
@@ -424,3 +424,78 @@ reversal table above.
 4. ~~**What does the shape detector do on a Java repo?**~~ → Still calls it *greenfield* at 0
    internal edges, so still wrong today. Phase 2 should fix it for free by giving Java real
    edges; spec §10 requires re-verifying rather than assuming that.
+
+---
+
+## 2026-08-20 — the fork resolved, and the default nobody could argue with
+
+**Status:** shipped as `b7b9d4b` and `ab59b08`. Decisions distilled as CD-19, CD-20, CD-21 in
+[`decisions.md`](decisions.md).
+
+Three changes, landed together because the first is the second's prerequisite and the third
+shares the contract file both restructure.
+
+### Reversals
+
+| Planned / shipped earlier | What replaced it | Why |
+|---|---|---|
+| Remove `scripts` from the exclusion lists entirely (2026-08-19) | `scripts` returns, root-level only | The wider change. A root `scripts/` had been excluded in *every* project this toolkit had run on; un-excluding it everywhere to fix one repo's nested `skills/*/scripts/` changed the answer for projects that had asked for nothing |
+| Scope the depth rule to freya-devkit only (the user's proposal) | Keep the depth rule; make every default overridable per project | Not implementable without hardcoding a name or path — and it treats the symptom. The defect was that a project could not disagree with *any* default |
+| Part B framed as "does the graph track files, or symbols?" | Reframed as "what can a single edge say?" | The title was wrong and caused real confusion. Nodes are files and stay files; only the edges changed. Symbols are Phase 3 |
+| `upgrade_edges` stamps the current schema version | It does not touch `version` | Stamping on read makes every graph report itself current at the exact moment reading is how we find out it is not — the staleness check answered `False` for everything, and the migration would never have written anything back |
+
+### Measurements
+
+| | |
+|---|---|
+| freya-devkit after the change | 57 files, 419 edges, 64 dependents |
+| Edges lost vs. the run before | **0.** The one gained is this session's own `import substrate` in the test file |
+| Legacy-artifact migration | Hand-downgraded this repo's graph to string edges, ran `--update`: 419 edges in, 419 out, rewritten as schema 2 |
+| Override, live on this repo | Marking `docs/` as source took the graph 57 → 61 files, and `substrate.exclusions.overrides` records why |
+| Tests | 1,151 → 1,186 |
+| Blast-radius sweep before implementing | 8 agents, 210 candidate sites across 30 files |
+
+### What the sweep was worth
+
+It changed the design twice, which is the only reason to run one.
+
+First: several readers independently said the *node* queries (`--impact`, `--dependents`,
+`--dependencies`) should keep returning path strings, because three other skills feed them
+straight into set arithmetic where an edge object raises `unhashable type: 'dict'` — in a
+different skill, for no gain. Drawing that boundary meant behavior-graph, drift and
+behavior-runner needed **no code change at all**. Without it the change would have rippled
+through four skills.
+
+Second, the adversarial pass found something with nothing to do with edges.
+`behavior-runner._code_graph_deps` returned `[]` on *any* failure of its code-graph query, and
+its only caller branched on `None`. So a failed query produced a one-file dependency closure,
+tagged `static` at full confidence, no warning, written into `behavior.json` — which is
+committed (ADR-017) and whose `exercises[].path` values narrow every later blast radius. Fixed
+in `ab59b08`.
+
+Not hypothetical: for roughly fifteen minutes mid-migration this working tree had
+`--dependencies` raising an exception, and anything fingerprinted in that window would have
+been silently truncated and committed.
+
+### Worth carrying
+
+- **The contract's own validator had never run.** `validate_graph` existed, was well written,
+  and had zero production callers — so nothing checked that a produced graph was well-formed,
+  including our own. Writing a guard is not the same as wiring it.
+- **A default that cannot be overridden is not a default.** `set_classification` had been
+  accepted, persisted, and silently ignored since it was written. The API existed; the effect
+  did not.
+- **Three layers had to agree about one rule.** The file filter, the directory classifier, and
+  the exclusion set the CLI hands back to `build()`. Fixing one at a time produced three
+  successive "why is it still excluded?" cycles. The stale *cached* verdict beating a fresh
+  override — because the walk preferred depth over authority — was the least obvious.
+- **Forty tests had never exercised the production path.** They called `CodeGraph.build()`
+  directly, which is precisely the method that stopped doing the work.
+
+### Doc impact — applied
+
+- `skills/freya-code-graph/SKILL.md` — edge shape, the query/node boundary, overriding defaults
+- `skills/freya-code-graph/references/graph-schema.md` — Edge and ReverseEdge, schema 2
+- `docs/polyglot/explainer/` — both pages: fork resolved, Part B retitled, Part C added
+- `docs/polyglot/phases/phase_0/harness/compare_graphs.py` — reads both edge shapes, so the
+  Phase 0 gate can still be re-run against the numbers it originally produced

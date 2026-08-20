@@ -94,56 +94,63 @@
   <div><span class="num">1151</span><span class="lbl">tests, all green</span></div>
   <div><span class="num">14</span><span class="lbl">commits, none pushed</span></div>
   <div><span class="num">4 of 6</span><span class="lbl">phases done</span></div>
-  <div><span class="num">1</span><span class="lbl">decision needed</span></div>
+  <div><span class="num">0</span><span class="lbl">decisions pending</span></div>
 </div>
 
-<h2>1. What I need from you</h2>
+<h2>1. The decision you made, and what it cost</h2>
 
-<p>One real decision, in two parts. Phase 2 cannot start until it is settled — everything else
-can wait.</p>
+<p>This section used to ask for one. You answered on 2026-08-20: both parts, plus a third
+thing you spotted that turned out to be the more serious of the two. All three are built.
+<strong>Phase 2 is unblocked.</strong></p>
 
-<div class="card decide">
-  <span class="tag decide">Decide before Phase 2</span>
-  <h3 style="margin-top:0">The contract is not finished being a contract</h3>
+<div class="card done">
+  <span class="tag done">Decided and shipped</span>
+  <h3 style="margin-top:0">The contract is finished being a contract</h3>
 
   <p>Phase 1 turned the code graph into a <em>socket</em> so a second tool (graphify) can plug
-  in. The review's verdict was blunt and I agree with it: <strong>it is our own resolver's
+  in. The review's verdict was blunt and I agreed with it: <strong>it was our own resolver's
   shape wearing an interface.</strong></p>
 
   <p>It proved that rather than arguing it. Someone built a second backend that satisfied the
   contract completely — and it crashed twice, then exited successfully having written no graph
-  at all. I fixed the two crashes. The third thing is a design choice, not a bug.
-  <a class="more" href="details.html#verdict">why it happened →</a></p>
+  at all. <a class="more" href="details.html#verdict">why it happened →</a></p>
 
-  <h3>Part A — who saves the graph?</h3>
-  <p>Right now saving the file, checking it is valid, and building the reverse index all live
-  <em>inside</em> our own resolver. So a different backend can do everything right and still
-  produce nothing, while reporting success. That is the same "confident empty answer" failure
+  <h3>Part A — who saves the graph? <em>The contract does, now.</em></h3>
+  <p>Saving the file, checking it is valid and building the reverse index all lived
+  <em>inside</em> our own resolver, so a different backend could do everything right and still
+  produce nothing while reporting success. That is the same "confident empty answer" failure
   the whole project exists to remove.</p>
-  <p><strong>I think this one is not really optional</strong> — without it the socket can only
-  run the plug it was moulded around. But it is your call, because it means moving code.
+  <p>A backend now produces nodes and edges and stops. Everything after that happens once, in
+  one place, for every backend. A side effect worth naming: the contract's own validator had
+  never actually run on a build. It runs on every one now, and writes what it finds into the
+  artifact rather than only onto the stderr of the run that produced it.
   <a class="more" href="details.html#fork-a">the detail →</a></p>
 
-  <h3>Part B — does the graph track files, or symbols?</h3>
-  <p>Today an edge is "file A depends on file B". graphify knows much more — which
-  <em>function</em> calls which, which class extends which. Our contract has words for those
-  but nowhere to put them, so they get flattened and thrown away.</p>
-  <p>Measured: our shape can express <span class="num">2,102</span> of graphify's
-  <span class="num">5,027</span> real connections. <strong>It cannot express 58%.</strong></p>
+  <h3>Part B — what can one edge say? <em>More than a filename, now.</em></h3>
+  <p>An edge was a string: the path it pointed at. A string carries exactly one fact, so
+  "A imports B" and "A re-exports B" were the same value, and "this function calls that
+  function" could not be written down at all.</p>
+  <p>Measured: the old shape could express <span class="num">2,102</span> of graphify's
+  <span class="num">5,027</span> real connections. <strong>It could not express 58%.</strong></p>
+  <p>An edge is now an object carrying <em>what kind</em> of relation it is and <em>how
+  directly</em> it was read out of the source. It already pays for itself before graphify
+  arrives: a barrel file that only forwards a module is now distinguishable from one that
+  actually uses it. <a class="more" href="details.html#fork-b">the full trade-off →</a></p>
 
-  <ul class="opts">
-    <li><b>Stay file-level, and say so</b>
-      Drop the words we cannot honour, and drop the per-edge "how sure are we" tagging from
-      Phase 2's scope. Cheapest. Loses most of what graphify knows.</li>
-    <li class="rec"><b>Make an edge an object now</b>
-      Instead of just a filename, an edge carries what kind it is and how it was found. There
-      is one producer and one reader today, so this will never be cheaper than it is this
-      week.</li>
-    <li><b>Defer it to Phase 3</b>
-      Matches the original plan — but Phase 2 promises per-edge provenance it then cannot
-      deliver, so the contract gets reopened anyway.</li>
-  </ul>
-  <p style="margin-top:14px"><a class="more" href="details.html#fork-b">the full trade-off →</a></p>
+  <p class="hint">I had titled this one "does the graph track files, or symbols?", which was
+  wrong and confusing — you said so. The nodes are still files. What changed is what a single
+  edge between them is allowed to say. Symbols are Phase 3, and this is what makes room for
+  them.</p>
+
+  <h3>Part C — your objection, which was the sharpest of the three</h3>
+  <p>You pushed back on a default I had changed, on the grounds that we cannot know what some
+  other project keeps in a folder called <code>docs/</code>. I partly disagreed with the fix
+  you proposed and then went looking, and found the real problem is worse than the one you
+  described: <strong>a project could not disagree with the defaults at all.</strong></p>
+  <p>Marking a folder as source was accepted, written to disk, and then silently overruled —
+  the filter never read those verdicts. So a wrong default was not merely a wrong default, it
+  was unfixable. It can be argued with now.
+  <a class="more" href="details.html#depth">what changed exactly →</a></p>
 </div>
 
 <h2>2. Things I decided alone</h2>
@@ -213,8 +220,15 @@ can wait.</p>
       <td><a class="more" href="details.html#phase5">→</a></td>
     </tr>
     <tr>
+      <td><b>the fork</b></td>
+      <td>Both parts settled and built, plus your objection about the defaults. Edges carry a
+          kind; the contract persists them; a project can override the built-in exclusions.
+          <span class="num">1,186</span> tests.</td>
+      <td><a class="more" href="details.html#fork-a">→</a></td>
+    </tr>
+    <tr>
       <td><b>2, 3</b></td>
-      <td><em>Not started</em> — both need decisions I should not make alone.</td>
+      <td><em>Not started</em> — but no longer blocked. Phase 2 can begin.</td>
       <td><a class="more" href="details.html#notdone">→</a></td>
     </tr>
   </table>
@@ -243,8 +257,10 @@ It now resolves to <code>packages/domain/src/index.ts</code>.
 
 <h2>5. If you only do one thing</h2>
 
-<p>Answer <strong>Part B</strong> above — file-level or symbol-level. Part A follows from it,
-and Phase 2 is blocked on both. Everything else in this document is context.</p>
+<p>Read <strong>Part C</strong> above. The other two were mine to propose and yours to approve;
+that one was yours to notice, and it was the defect with the longest reach — every project this
+toolkit runs on had exclusion defaults it could not argue with. Everything else here is
+context.</p>
 
 <div class="foot">
   <p><a href="details.html"><strong>The complete version →</strong></a> · every measurement,

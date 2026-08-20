@@ -492,6 +492,33 @@ no stdin, `_ask_user_classification` swallows `EOFError` and persists
 which then survives every rules bump by design. Worth a look whenever (a) is done, since
 inverting the discard set makes `user` strictly more powerful.
 
+Re-checked against CD-21 (2026-08-20), which made a `user` verdict outrank every built-in
+exclusion: **this path did not get worse.** The EOF branch can only ever produce `exclude`, and
+an `exclude` verdict was already honoured unconditionally. It cannot fabricate the powerful
+direction. Still wrong to label a timeout as a person's decision.
+
+### 12. Multi-repo projects are one repo at a time
+
+Raised 2026-08-19 while scoping Track B; deferred by the user on the spot. Recorded so it is
+not rediscovered.
+
+A `CodeGraph` is constructed with one `project_dir` and every path in the artifact is relative
+to it. A system split across several repositories — a mobile app, an API, and a shared contracts
+repo — therefore gets one graph per repo and no edge between them, which is exactly the
+relationship anyone asking for blast radius wants. It is the monorepo problem CD-18 solved
+(`apps/mobile` → `packages/domain`) with the packages behind a repository boundary instead of a
+directory one.
+
+Not obviously the same fix. CD-18 could read the workspace manifests because they were in the
+tree; across repos there is no single tree, the sibling may not be checked out, and the two
+sides can be at different commits — so a naive resolution would emit edges into a version of a
+file nobody has. The honest floor is probably to resolve to `external:` as today but *say* it is
+a known sibling rather than a third-party package, the way `unresolved:` distinguishes a real
+gap from an absence.
+
+Blocked on nothing but a decision. Worth revisiting once Phase 2 has settled what a backend is
+allowed to see outside its own root.
+
 ## Platform-blocked
 
 Items that need a platform we do not have, or a live agent run we have not paid for. None is
