@@ -712,11 +712,22 @@ evidence.</p>
 
 <h2 id="failure">When something fails</h2>
 
-<p>Six distinct failure modes, each with a defined answer. None of them is "return an empty graph
+<p>Eight distinct failure modes, each with a defined answer. None of them is "return an empty graph
 and exit zero".</p>
 
 <table>
   <tr><th>What happens</th><th>What the system does</th></tr>
+  <tr><td>The backend <strong>cannot read part of the repository</strong> — the ordinary case
+      for the floor on any polyglot project</td>
+      <td>Answer, and say so <em>in the answer</em>: <code>unmapped_source</code> names the
+      count, the extensions and the <em>directories to grep instead</em>. Never a refusal —
+      this is the floor's normal condition, and declining here would freeze every committed
+      behaviour fingerprint. Absent entirely when there is nothing to say.</td></tr>
+  <tr><td>The <strong>coverage census itself fails</strong> — an unreadable directory, a
+      permission error mid-walk</td>
+      <td>Record <code>{"files": null, "error": ...}</code> and build anyway. A silent zero
+      here would be indistinguishable from "I read everything", which is the one answer this
+      whole feature exists to stop.</td></tr>
   <tr><td>The configured backend is <strong>not installed</strong></td>
       <td>Degrade to the floor. Continue. Record <code>degraded_from</code> in the artifact and
       say so on stderr.</td></tr>
@@ -763,7 +774,7 @@ because they committed <code>{"directories": {"src": "exclude"}}</code> was not.
 <div class="next">
   <a href="building-it.html"><b>How it was built →</b><span>The phases, the tests, the gate, and
   the defects found on the way.</span></a>
-  <a href="decisions.html"><b>The decisions →</b><span>Twenty-five decisions with what was
+  <a href="decisions.html"><b>The decisions →</b><span>Twenty-seven decisions with what was
   rejected, and where we were wrong.</span></a>
 </div>
 

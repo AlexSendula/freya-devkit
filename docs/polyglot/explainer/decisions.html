@@ -29,7 +29,7 @@
 <header class="page">
   <div class="kicker">Track B · the polyglot substrate</div>
   <h1>The decisions</h1>
-  <p class="sub">Twenty-five decisions, each with the alternative it beat. The rejected branch is
+  <p class="sub">Twenty-seven decisions, each with the alternative it beat. The rejected branch is
   the part that is never in a diff, which is why it is written down here.</p>
 </header>
 
@@ -359,6 +359,56 @@ reject" from fifty-one documents plus a diff, and it took a day. This is the ans
   silent deletion is how someone later reintroduces it.</p>
 </div>
 
+<div class="card ok" id="cd-27">
+  <span class="card-label">CD-27 · blind spots ride in the answer, and never become a
+  refusal</span>
+  <p><strong>Decided.</strong> Every build records the in-scope source files its backend could
+  not read at <code>substrate.unmapped_source</code>, with the <em>directories</em> to search
+  instead. <code>--build</code>, <code>--update</code>, <code>--query</code> and
+  <code>--impact</code> carry it in the answer; the two surfaces that reply with a bare array
+  say it on stderr. The key is <strong>absent</strong> when there is nothing to say.</p>
+  <p><strong>How it came up.</strong> Raised by the engineer: <em>could a user believe a project
+  is 80% covered when it is 30%?</em> Worse than that. A repository of 12 <code>.java</code> and
+  3 <code>.ts</code> files builds, prints <em>"Found 3 source files"</em> and exits 0 — the Java
+  files are not <em>skipped</em>, they are never enumerated, because the scanner globs by the
+  extensions the backend reads. <code>files_scanned</code> reads like a denominator and is a
+  numerator. Asked what shape that repository is, the toolkit answered <code>brownfield</code>,
+  <code>source_files: 3</code> and <code>runtime: jvm</code> in one evidence block, without ever
+  noticing the two were in tension.</p>
+  <p><strong>The reframing was the engineer's, and it was the better design.</strong> The
+  consumer here is not a person — <code>--non-interactive</code> auto-enables whenever stdin is
+  not a TTY, which is every agent-driven run and every <code>wrap-up</code>. The first proposed
+  fix was to print a census, which repeats the exact mistake <a href="#cd-26">CD-26</a> exists to
+  correct: putting the signal where nobody is standing. The right channel was already in this
+  codebase — <code>get_impact</code> returns <code>not_in_graph</code> <em>in the payload</em>,
+  with a comment saying stderr is not part of what a caller parses. That argument had only ever
+  been applied to "the file you asked about is unmapped", never to "this answer is
+  incomplete".</p>
+  <p><strong>Why it is never a refusal.</strong> <code>degraded_from</code> means the project
+  asked for a backend and did not get one — abnormal, and behaviour fingerprinting rightly
+  declines to answer. Blind spots are the floor's <em>normal</em> condition on any polyglot
+  repository. Routing them through the same door would return <code>coverage: unknown</code> for
+  every integration behaviour on every such repo, freeze the committed
+  <code>behavior.json</code>, and take wrap-up's gate green over zero behaviours. The rule is
+  written into the source beside the refusal it must not join, and a named test fails if anyone
+  joins them.</p>
+  <p><strong>Rejected:</strong> <em>wrap <code>--dependencies</code> in an envelope</em> — its
+  one consumer validates <code>isinstance(data, list)</code>, so it would break
+  <strong>closed</strong>, into a repo-wide silent green rather than a loud failure.
+  <em>Bump the schema version</em> — forces a rebuild everywhere, and that rebuild changes the
+  closures written into the committed <code>behavior.json</code>; a <code>files: 0</code>
+  sentinel in a gitignored file discriminates just as well for thirty bytes. <em>Reuse the
+  existing <code>summarise_coverage()</code></em> — its blind-spot helper has no dotfile guard,
+  no materiality filter and no notion of project scope; the aggregation was never the missing
+  half, the scope rule was. It was deleted rather than wired.</p>
+  <p style="margin-bottom:0"><strong>The measurement that set the filter.</strong> A census
+  keyed on gitignore-style patterns reports 96 unread files on this repository, <strong>68 of
+  them deliberately out of scope</strong> — a 71% phantom. A caveat that cries wolf is worse
+  than no caveat, because an agent learns to skip the field and then misses the one time it was
+  real. Measured across seven real repositories, the shipped filter is silent on three,
+  including this one.</p>
+</div>
+
 <h2 id="wont">What we will not build</h2>
 
 <div class="card">
@@ -576,6 +626,17 @@ all. Each was believed, acted on, and then overturned by evidence.</p>
     backend list rather than by reading the registry</td>
   </tr>
   <tr>
+    <td>The build never warns about what it cannot read
+    <span class="pill stop">said in these pages</span></td>
+    <td>It does warn — but only when the <em>other backend is already installed</em>. The one
+    nudge that existed fired exactly where it was useless and was silent where it mattered.
+    And the first fix proposed for it was a printed census, which would have put the signal in
+    the one place no human is standing</td>
+    <td>Building the 12-Java fixture twice: once with graphify on <code>PATH</code>, once
+    without. The engineer's reframing — <em>tell the harness, not the user</em> — is what made
+    the second run's silence the actual finding</td>
+  </tr>
+  <tr>
     <td><code>--use auto --global</code> clears the machine default
     <span class="pill stop">written an hour earlier</span></td>
     <td>It recorded the literal string <code>"auto"</code> as the answer — so no default was in
@@ -647,11 +708,13 @@ all. Each was believed, acted on, and then overturned by evidence.</p>
   <tr><td>CD-25</td><td>A behaviour's symbols come from coverage</td><td><a href="#edge">above</a></td></tr>
   <tr><td>CD-26</td><td>The backend is chosen once, at install, and recorded per project</td>
       <td><a href="#cd-26">above</a></td></tr>
+  <tr><td>CD-27</td><td>Blind spots ride in the answer, and never become a refusal</td>
+      <td><a href="#cd-27">above</a></td></tr>
 </table>
 
 <div class="card warn">
   <span class="card-label">Not yet distilled</span>
-  <p style="margin-bottom:0">All twenty-six are staged in
+  <p style="margin-bottom:0">All twenty-seven are staged in
   <a href="../decisions.md">decisions.md</a> in ADR shape and <strong>have not yet been written
   into <code>docs/decisions/</code></strong>. That is the closing step of this feature, along with
   deleting the working directory. Until it happens, Track B's reasoning lives only here.</p>

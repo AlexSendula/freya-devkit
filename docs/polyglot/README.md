@@ -33,7 +33,7 @@ terms.** Everything else in this directory is source material for it.
 | [`explainer/problem.html`](explainer/problem.html) | Where it started, what was cut before implementation, and how the work was sequenced |
 | [`explainer/how-it-works.html`](explainer/how-it-works.html) | The contract, the two backends, how a backend gets chosen, an edge anatomised, and every way the system may fail |
 | [`explainer/building-it.html`](explainer/building-it.html) | What shipped per phase, how it is tested, and the defects found on the way |
-| [`explainer/decisions.html`](explainer/decisions.html) | All 26 decisions with their rejected alternatives, plus where we were wrong |
+| [`explainer/decisions.html`](explainer/decisions.html) | All 27 decisions with their rejected alternatives, plus where we were wrong |
 
 Open any of them in a browser; they share one stylesheet and one script, both local, and work
 over `file://` by double-clicking.

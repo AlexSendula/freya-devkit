@@ -22,7 +22,7 @@
 <div class="stats">
   <div><span class="n">4 → 40</span><span class="l">languages the graph can read</span></div>
   <div><span class="n">0</span><span class="l">edges lost, on all three test repos</span></div>
-  <div><span class="n">1,367</span><span class="l">tests, all green</span></div>
+  <div><span class="n">1,409</span><span class="l">tests, all green</span></div>
   <div><span class="n">0</span><span class="l">extra installs required</span></div>
 </div>
 
@@ -152,6 +152,12 @@ the review that built a second one found it
   <tr><td>When something goes wrong</td>
       <td>a thin graph, reported as a complete one</td>
       <td>the fallback and its reason are written <em>into the graph file</em></td></tr>
+  <tr><td>"What couldn't you read?"</td>
+      <td>nothing said it. A 12-Java/3-TypeScript repo built, printed <em>"Found 3 source
+      files"</em>, and exited 0 — the Java files were never <em>enumerated</em>, so there was
+      nothing to skip</td>
+      <td>every answer carries what it could not see, <em>and where to grep instead</em> — and
+      says nothing at all on a repo the backend reads completely</td></tr>
 </table>
 
 <h2>4. How it works, in five steps</h2>
@@ -249,7 +255,7 @@ live re-derivation on all three repositories, and the original spike harness, ke
 
 <h2>6. The decisions that shaped it</h2>
 
-<p>Twenty-six, each recorded with the alternative it beat. The seven that decided the most:</p>
+<p>Twenty-seven, each recorded with the alternative it beat. The eight that decided the most:</p>
 
 <table>
   <tr><th>Decision</th><th>The alternative it beat</th></tr>
@@ -279,9 +285,14 @@ live re-derivation on all three repositories, and the original spike harness, ke
   <tr><td><strong>Every default is arguable.</strong> A project can override any exclusion</td>
       <td>Scope the rule to this repository. Not implementable without hardcoding a path — and it
       leaves every other project with defaults it cannot appeal</td></tr>
+  <tr><td><strong>An answer says what it could not see</strong> — to the agent, in the payload,
+      and silently when there is nothing to say</td>
+      <td>Print it for the human. The build almost never has one attached, so the warning lands
+      nowhere — the same mistake the install-time question was written to avoid, one layer
+      down</td></tr>
 </table>
 
-<p><a class="more" href="decisions.html">all twenty-six →</a></p>
+<p><a class="more" href="decisions.html">all twenty-seven →</a></p>
 
 <h2>7. Where we were wrong</h2>
 
@@ -338,7 +349,7 @@ live re-derivation on all three repositories, and the original spike harness, ke
 
 <table>
   <tr><th>Outstanding</th><th>Why it is not a blocker</th></tr>
-  <tr><td><strong>The decisions are not yet ADRs.</strong> All 26 are staged in this directory,
+  <tr><td><strong>The decisions are not yet ADRs.</strong> All 27 are staged in this directory,
       already in ADR shape, and have not been written into <code>docs/decisions/</code></td>
       <td>It is the closing step of the feature, along with deleting this working directory.
       Until then, Track B's reasoning lives only here — which is the exact accumulation the last
@@ -364,16 +375,19 @@ live re-derivation on all three repositories, and the original spike harness, ke
       <td>Upstream limitations rather than projection bugs, but the coverage declaration has no
       vocabulary for "does not emit exports". Recorded in the schema reference; it becomes real
       the moment something depends on the field</td></tr>
-  <tr><td><strong>A build never says what it could not read.</strong> The coverage summary that
-      answers it is computed and has <em>no caller</em></td>
-      <td>The one case that matters most is covered: a repository with zero internal edges is
-      told, by name, which extensions the backend cannot read, and refuses to call itself
-      greenfield. What is missing is the <em>partial</em> case — a TypeScript repo with 400
-      unread Java files still looks complete</td></tr>
+  <tr><td><strong>A file the backend <em>can</em> read but the project put out of scope</strong>
+      is inexpressible — the census is keyed by extension, and that category has none</td>
+      <td>Narrower than the hole it replaced, and named rather than hidden. Reporting
+      directories is a half-step toward the paths a fuller version would carry</td></tr>
+  <tr><td><strong>The list of what counts as source is curated</strong>, so a language nobody
+      listed produces silence</td>
+      <td>The price of a signal quiet enough to be believed. A caveat that fires on every
+      repository with a README is one an agent learns to skip, after which it costs tokens
+      forever and changes no decision</td></tr>
   <tr><td><strong>No supply-chain position</strong> on recommending a pre-1.0, single-maintainer
       dependency into other people's repositories</td>
       <td>It is opt-in and off by default, so nobody gets it without asking</td></tr>
-  <tr><td><strong>Nothing has been pushed.</strong> 49 commits sit on the branch, plus whatever
+  <tr><td><strong>Nothing has been pushed.</strong> 51 commits sit on the branch, plus whatever
       this documentation adds</td>
       <td>By choice</td></tr>
 </table>
@@ -391,7 +405,7 @@ instead of returning a confident nothing.</p>
   anatomised, and every failure mode.</span></a>
   <a href="building-it.html"><b>How it was built →</b><span>Six phases, four review rounds, and
   every number.</span></a>
-  <a href="decisions.html"><b>The decisions →</b><span>All 26 with their rejected alternatives,
+  <a href="decisions.html"><b>The decisions →</b><span>All 27 with their rejected alternatives,
   and where we were wrong.</span></a>
 </div>
 
