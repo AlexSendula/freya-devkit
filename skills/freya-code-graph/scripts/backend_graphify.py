@@ -149,6 +149,22 @@ PROVENANCE = {
 # `concept` is a clustering artifact.
 CODE_NODE = 'code'
 
+# A node marked `type: module` is an *external* module — `Foundation`, `express` — not a file
+# in this project. It carries a `source_file` anyway, and that field is whichever project file
+# the module happened to be seen in first, because graphify emits one node per module and not
+# one per importer.
+#
+# Reading it as a file fabricates edges, and the fabrication is silent and wrong in the worst
+# direction. Three Swift files that each `import Foundation` produced:
+#     src/s1.swift -> src/s3.swift  (imports)
+#     src/s2.swift -> src/s3.swift  (imports)
+# Neither edge exists in the source. Blast radius on `s3.swift` would have claimed two files
+# that have never heard of it.
+#
+# So a module node becomes an `external:` signal instead — which is exactly what the contract
+# has for this, and what the homegrown resolver already does with `import react`.
+EXTERNAL_NODE_TYPE = 'module'
+
 # Measured, not declared. Two fixtures — one symbol per language — were extracted and these
 # are the extensions that produced `code` nodes, unioned with a census of what graphify emits
 # on this repository. Twenty-odd of them are languages the homegrown resolver cannot see at
@@ -168,6 +184,13 @@ EXTENSIONS = (
     '.py', '.rb', '.rs', '.scala', '.sh', '.sql', '.svelte', '.swift', '.tf',
     '.ts', '.tsx', '.vue', '.zig',
 )
+
+# Extensions this backend declares but whose selection is *name*-based, so the declaration
+# knowingly over-claims: `package.json` produces nodes and an arbitrary `x.json` produces
+# nothing. Declaring them is still right — under-reporting what a backend saw is the failure
+# the contract exists to prevent — but they must not be used as evidence that a project would
+# gain from switching, because almost every repository contains one.
+OVER_CLAIMED_EXTENSIONS = ('.json',)
 
 LANGUAGES = (
     'c', 'cpp', 'csharp', 'dart', 'elixir', 'go', 'java', 'javascript', 'json',
@@ -195,6 +218,7 @@ class GraphifyBackend:
     """freya's polyglot backend, behind the substrate contract."""
 
     name = 'graphify'
+    over_claimed = OVER_CLAIMED_EXTENSIONS
 
     def __init__(self, project_dir: Optional[str] = None):
         self.project_dir = os.path.abspath(project_dir or os.getcwd())
@@ -250,10 +274,13 @@ class GraphifyBackend:
         written at the current schema, so the staleness rebuild in `CodeGraph.update` has no
         equivalent here.
         """
+        previous = substrate.load_graph(substrate.active_graph_path(self.project_dir)) or {}
         result = self.build(non_interactive=non_interactive, exclusions=exclusions,
                             selection_metadata=selection_metadata)
-        return substrate.Result(result.graph, substrate.Result.UPDATED,
-                                len(result.graph.get('files') or {}))
+        changed = _changed_files(previous.get('files') or {}, result.graph.get('files') or {})
+        if not changed and previous.get('files'):
+            return substrate.Result(result.graph, substrate.Result.UP_TO_DATE, 0)
+        return substrate.Result(result.graph, substrate.Result.UPDATED, changed)
 
     # -- extraction --------------------------------------------------------
 
@@ -324,7 +351,7 @@ class GraphifyBackend:
         pairs into 417 edges on this repository. That is Phase 3's refinement and it is off by
         default here, so Phase 2's artifact is file-level exactly as spec §5 requires.
         """
-        nodes = self._index_nodes(raw, exclusions)
+        nodes, external = self._index_nodes(raw, exclusions)
         files = {}  # type: Dict[str, Dict[str, Any]]
         for info in nodes.values():
             files.setdefault(info[0], {
@@ -344,7 +371,7 @@ class GraphifyBackend:
                     unmapped[str(relation)] = unmapped.get(str(relation), 0) + 1
                 if self._misdirected(link, nodes):
                     misdirected += 1
-            edge = self._project(link, nodes, symbols=symbols)
+            edge = self._project(link, nodes, external, symbols=symbols)
             if edge is None:
                 continue
             source, payload, key = edge
@@ -391,7 +418,7 @@ class GraphifyBackend:
 
     def _index_nodes(self, raw: Dict[str, Any],
                      exclusions: Optional[substrate.Exclusions]
-                     ) -> Dict[str, Tuple[str, str, Optional[int]]]:
+                     ) -> Tuple[Dict[str, Tuple[str, str, Optional[int]]], Dict[str, str]]:
         """node id -> (source_file, label, line), for code nodes that are in scope.
 
         Exclusions are applied here, as a post-filter. `graphify update` takes no exclusion
@@ -400,21 +427,29 @@ class GraphifyBackend:
         spec open question 3, which had left the mechanism undecided.
         """
         owners = self._method_owners(raw)
-        index = {}
+        index = {}    # node id -> (file, symbol, line)
+        external = {}  # node id -> 'external:<module>'
         for node in raw.get('nodes') or []:
             if not isinstance(node, dict) or node.get('file_type') != CODE_NODE:
                 continue
-            source_file = node.get('source_file')
             node_id = node.get('id')
-            if not isinstance(source_file, str) or not source_file or not node_id:
+            if not isinstance(node_id, str) or not node_id:
+                continue
+            label = node.get('label')
+            label = label if isinstance(label, str) else ''
+            if node.get('type') == EXTERNAL_NODE_TYPE:
+                # Its `source_file` is a coincidence of which importer was parsed first.
+                external[node_id] = 'external:%s' % (label or node_id)
+                continue
+            source_file = node.get('source_file')
+            if not isinstance(source_file, str) or not source_file:
                 continue
             key = source_file.replace('\\', '/').lstrip('/')
             if exclusions is not None and exclusions.excludes(key):
                 continue
-            label = node.get('label') or ''
             index[node_id] = (key, owners.get(node_id, label),
                               _line(node.get('source_location')))
-        return index
+        return index, external
 
     @staticmethod
     def _method_owners(raw: Dict[str, Any]) -> Dict[str, str]:
@@ -445,16 +480,31 @@ class GraphifyBackend:
         return owners
 
     def _project(self, link: Any, nodes: Dict[str, Tuple[str, str, Optional[int]]],
+                 external: Dict[str, str],
                  symbols: bool) -> Optional[Tuple[str, Dict[str, Any], tuple]]:
         """One symbol → symbol link as one file → file edge, or None if it is not one."""
         if not isinstance(link, dict):
             return None
-        kind = RELATIONS.get(link.get('relation'))
-        if kind is None:
+        relation = link.get('relation')
+        if not isinstance(relation, str) or RELATIONS.get(relation) is None:
             return None
+        kind = RELATIONS[relation]
         source = nodes.get(link.get('source'))
+        if source is None:
+            return None
+
+        outside = external.get(link.get('target'))
+        if outside is not None:
+            # A third-party module. Recorded, not dropped: `external:` is how the contract
+            # says "this dependency is real and is not ours", and losing it would understate
+            # what the file depends on.
+            payload = substrate.make_edge(
+                outside, kind=kind,
+                provenance=PROVENANCE.get(link.get('confidence'), 'inferred'))
+            return source[0], payload, (source[0], outside, kind, None, None)
+
         target = nodes.get(link.get('target'))
-        if source is None or target is None:
+        if target is None:
             return None
         if source[0] == target[0]:
             # A file-level self-edge. 1,475 of graphify's `calls` links on this repository are
@@ -507,6 +557,30 @@ class GraphifyBackend:
         except OSError:
             return None
         return proc.stdout.strip()[:12] if proc.returncode == 0 else None
+
+
+def _changed_files(before: Dict[str, Any], after: Dict[str, Any]) -> int:
+    """How many file entries differ between two graphs.
+
+    Reported as `files_changed`, which `format_summary` prints as "N files changed since last
+    build". It used to be the *total* file count, so an update over untouched source announced
+    that the entire repository had changed — and anything that trusts the number (wrap-up,
+    status) would have believed it.
+
+    Counted by diffing entries rather than asking git, because this backend re-extracts
+    everything anyway: the diff is what actually moved, which is a better answer than what git
+    says was touched.
+
+    `dependents` is excluded from the comparison. It is derived by the contract *after* the
+    backend returns, so the persisted graph has it and a freshly produced one does not — and
+    comparing whole entries therefore reported every file with an incoming edge as changed.
+    Thirty of sixty-seven, on an update run seconds after the build it was compared against.
+    """
+    def produced(entry):
+        return {k: v for k, v in (entry or {}).items() if k != 'dependents'}
+
+    keys = set(before) | set(after)
+    return sum(1 for key in keys if produced(before.get(key)) != produced(after.get(key)))
 
 
 def _line(location: Any) -> Optional[int]:

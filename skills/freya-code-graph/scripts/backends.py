@@ -92,19 +92,11 @@ def available_backends(project_dir: str,
     return usable
 
 
-def _score(backend: Any, present_extensions: Dict[str, int]) -> int:
-    """How many files on disk this backend could read.
-
-    `auto` means "see the most of this repo", not "prefer whoever registered first". Counting
-    files rather than languages is what makes a repo that is 90% Java pick the backend that
-    reads Java, instead of one that technically supports more languages in the abstract.
-    """
-    try:
-        coverage = backend.coverage()
-    except Exception:
-        return -1
-    return sum(count for ext, count in present_extensions.items()
-               if ext in coverage.extensions)
+# `_score` lived here until 2026-08-20. It ranked backends by how many of a repository's
+# files each could read, and `auto` picked the winner — behaviour CD-23 removed, because it
+# meant installing a binary silently changed the substrate for every project on the machine.
+# Deleted rather than left unused: its docstring explained at length why `auto` should "see
+# the most of this repo", which is now the opposite of what happens forty lines below.
 
 
 def select(project_dir: str,
@@ -160,8 +152,8 @@ def select(project_dir: str,
             unseen = _unseen_by_floor(floor, other, present_extensions)
             if unseen:
                 warnings.append(
-                    'code-graph: %r is installed and reads %d file(s) here that %r cannot '
-                    '(%s). It is opt-in: set substrate.backend to %r in '
+                    'code-graph: %r is installed and declares it reads %d file(s) here that '
+                    '%r cannot (%s). It is opt-in: set substrate.backend to %r in '
                     'knowledge-base/settings.json to use it.'
                     % (other.name, sum(unseen.values()), floor.name,
                        ', '.join(sorted(unseen)), other.name))
@@ -170,14 +162,23 @@ def select(project_dir: str,
 
 def _unseen_by_floor(floor: Any, other: Any,
                      present_extensions: Dict[str, int]) -> Dict[str, int]:
-    """Extensions in this repo that `other` reads and `floor` does not, with counts."""
+    """Extensions in this repo that `other` reads and `floor` does not, with counts.
+
+    A backend may declare an extension whose selection is really *name*-based —
+    `package.json` produces nodes, an arbitrary `x.json` does not. Declaring it is correct;
+    using it as evidence for a migration is not, because nearly every repository has one and
+    the hint would then fire everywhere on the strength of a file the backend may well ignore.
+    A backend names those on `over_claimed`, and they are excluded from the evidence while
+    staying in the declaration.
+    """
     try:
         floor_ext = set(floor.coverage().extensions)
         other_ext = set(other.coverage().extensions)
     except Exception:
         return {}
+    uncertain = set(getattr(other, 'over_claimed', ()) or ())
     return {ext: count for ext, count in present_extensions.items()
-            if ext in other_ext and ext not in floor_ext}
+            if ext in other_ext and ext not in floor_ext and ext not in uncertain}
 
 
 def extension_census(project_dir: str, exclusions: Optional[substrate.Exclusions] = None,

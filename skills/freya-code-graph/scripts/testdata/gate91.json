@@ -1,13 +1,17 @@
 {
- "_README": "Fixture for the spec \u00a79.1 gate: does graphify lose an edge the homegrown resolver finds? `files` is materialised into a temp dir at test time so no stray source lands in this repository; `graphify` is a real recorded graphify 0.9.47 extraction of exactly that tree, slimmed to the fields the projection reads. Regenerate with test_backend_graphify.py --record.",
+ "_README": "Fixture for the spec \u00a79.1 gate: does graphify lose an edge the homegrown resolver finds? `files` is materialised into a temp dir at test time so no stray source lands in this repository; `graphify` is a real recorded graphify 0.9.47 extraction of exactly that tree, slimmed to the fields the projection reads.\\n\\nIt deliberately contains: an intra-file call (so the self-edge guard is exercised), a document node (so the code-node filter is), a vendored tree (so the exclusions post-filter is), an import inside a string literal (the one known homegrown false positive), Java (which the floor cannot read at all), an external module import (so module nodes become `external:` signals rather than fabricated file edges), and a class method (so symbol qualification is). A fixture that exercises none of those lets a broken projection pass the gate \u2014 the first version of this file did.",
  "files": {
+  "docs/notes.md": "# Notes\nSee `src/util.py` for the computation.\n",
   "java/Repo.java": "public class Repo {\n  public int fetch() { return 3; }\n}\n",
   "java/Service.java": "public class Service {\n  public int run() { return new Repo().fetch(); }\n}\n",
   "src/app.ts": "import { helper } from './helper';\nexport const app = () => helper();\n",
-  "src/helper.ts": "export function helper(): number { return 1; }\n",
-  "src/main.py": "from util import compute\ndef run(): return compute()\n",
+  "src/helper.ts": "export function helper(): number { return inner(); }\nfunction inner(): number { return 1; }\n",
+  "src/main.py": "from util import compute\ndef run(): return local_wrap()\ndef local_wrap(): return compute()\n",
+  "src/s1.swift": "import Foundation\nfunc alphaOne() -> Int { return 1 }\n",
+  "src/s2.swift": "import Foundation\nfunc alphaTwo() -> Int { return 2 }\n",
   "src/shim.py": "SHIM = \"from util import compute\\n\"\ndef emit(): return SHIM\n",
-  "src/util.py": "def compute(): return 2\n"
+  "src/util.py": "def compute(): return 2\n",
+  "vendor/lib.py": "from util import compute\ndef vendored(): return compute()\n"
  },
  "graphify": {
   "built_at_commit": null,
@@ -23,10 +27,26 @@
    {
     "confidence": "EXTRACTED",
     "relation": "calls",
+    "source": "src_helper_helper",
+    "source_file": "src/helper.ts",
+    "source_location": "L1",
+    "target": "src_helper_inner"
+   },
+   {
+    "confidence": "EXTRACTED",
+    "relation": "calls",
+    "source": "src_main_local_wrap",
+    "source_file": "src/main.py",
+    "source_location": "L3",
+    "target": "src_util_compute"
+   },
+   {
+    "confidence": "EXTRACTED",
+    "relation": "calls",
     "source": "src_main_run",
     "source_file": "src/main.py",
     "source_location": "L2",
-    "target": "src_util_compute"
+    "target": "src_main_local_wrap"
    },
    {
     "confidence": "EXTRACTED",
@@ -43,6 +63,22 @@
     "source_file": "src/main.py",
     "source_location": "L1",
     "target": "src_util_compute"
+   },
+   {
+    "confidence": "EXTRACTED",
+    "relation": "imports",
+    "source": "src_s1",
+    "source_file": "src/s1.swift",
+    "source_location": "L1",
+    "target": "foundation"
+   },
+   {
+    "confidence": "EXTRACTED",
+    "relation": "imports",
+    "source": "src_s2",
+    "source_file": "src/s2.swift",
+    "source_location": "L1",
+    "target": "foundation"
    },
    {
     "confidence": "EXTRACTED",
@@ -59,6 +95,38 @@
     "source_file": "src/main.py",
     "source_location": "L1",
     "target": "src_util"
+   },
+   {
+    "confidence": "EXTRACTED",
+    "relation": "imports_from",
+    "source": "vendor_lib",
+    "source_file": "vendor/lib.py",
+    "source_location": "L1",
+    "target": "src_util"
+   },
+   {
+    "confidence": "EXTRACTED",
+    "relation": "references",
+    "source": "src_s1_alphaone",
+    "source_file": "src/s1.swift",
+    "source_location": "L2",
+    "target": "src_s1_swift_int"
+   },
+   {
+    "confidence": "EXTRACTED",
+    "relation": "references",
+    "source": "src_s2_alphatwo",
+    "source_file": "src/s2.swift",
+    "source_location": "L2",
+    "target": "src_s2_swift_int"
+   },
+   {
+    "confidence": "EXTRACTED",
+    "relation": "contains",
+    "source": "docs_notes",
+    "source_file": "docs/notes.md",
+    "source_location": "L1",
+    "target": "docs_notes_notes"
    },
    {
     "confidence": "EXTRACTED",
@@ -95,10 +163,42 @@
    {
     "confidence": "EXTRACTED",
     "relation": "contains",
+    "source": "src_helper",
+    "source_file": "src/helper.ts",
+    "source_location": "L2",
+    "target": "src_helper_inner"
+   },
+   {
+    "confidence": "EXTRACTED",
+    "relation": "contains",
     "source": "src_main",
     "source_file": "src/main.py",
     "source_location": "L2",
     "target": "src_main_run"
+   },
+   {
+    "confidence": "EXTRACTED",
+    "relation": "contains",
+    "source": "src_main",
+    "source_file": "src/main.py",
+    "source_location": "L3",
+    "target": "src_main_local_wrap"
+   },
+   {
+    "confidence": "EXTRACTED",
+    "relation": "contains",
+    "source": "src_s1",
+    "source_file": "src/s1.swift",
+    "source_location": "L2",
+    "target": "src_s1_alphaone"
+   },
+   {
+    "confidence": "EXTRACTED",
+    "relation": "contains",
+    "source": "src_s2",
+    "source_file": "src/s2.swift",
+    "source_location": "L2",
+    "target": "src_s2_alphatwo"
    },
    {
     "confidence": "EXTRACTED",
@@ -115,6 +215,14 @@
     "source_file": "src/util.py",
     "source_location": "L1",
     "target": "src_util_compute"
+   },
+   {
+    "confidence": "EXTRACTED",
+    "relation": "contains",
+    "source": "vendor_lib",
+    "source_file": "vendor/lib.py",
+    "source_location": "L2",
+    "target": "vendor_lib_vendored"
    },
    {
     "confidence": "EXTRACTED",
@@ -139,6 +247,14 @@
     "source_file": "java/Service.java",
     "source_location": "L2",
     "target": "java_repo_repo"
+   },
+   {
+    "confidence": "INFERRED",
+    "relation": "calls",
+    "source": "vendor_lib_vendored",
+    "source_file": "vendor/lib.py",
+    "source_location": "L2",
+    "target": "src_util_compute"
    }
   ],
   "nodes": [
@@ -155,6 +271,48 @@
     "label": "Service",
     "source_file": "java/Service.java",
     "source_location": "L1"
+   },
+   {
+    "file_type": "code",
+    "id": "src_s1_alphaone",
+    "label": "alphaOne()",
+    "source_file": "src/s1.swift",
+    "source_location": "L2"
+   },
+   {
+    "file_type": "code",
+    "id": "src_s2_alphatwo",
+    "label": "alphaTwo()",
+    "source_file": "src/s2.swift",
+    "source_location": "L2"
+   },
+   {
+    "file_type": "code",
+    "id": "src_main_local_wrap",
+    "label": "local_wrap()",
+    "source_file": "src/main.py",
+    "source_location": "L3"
+   },
+   {
+    "file_type": "code",
+    "id": "src_main_run",
+    "label": "run()",
+    "source_file": "src/main.py",
+    "source_location": "L2"
+   },
+   {
+    "file_type": "code",
+    "id": "src_util_compute",
+    "label": "compute()",
+    "source_file": "src/util.py",
+    "source_location": "L1"
+   },
+   {
+    "file_type": "code",
+    "id": "vendor_lib_vendored",
+    "label": "vendored()",
+    "source_file": "vendor/lib.py",
+    "source_location": "L2"
    },
    {
     "file_type": "code",
@@ -186,17 +344,10 @@
    },
    {
     "file_type": "code",
-    "id": "src_main_run",
-    "label": "run()",
-    "source_file": "src/main.py",
+    "id": "src_helper_inner",
+    "label": "inner()",
+    "source_file": "src/helper.ts",
     "source_location": "L2"
-   },
-   {
-    "file_type": "code",
-    "id": "src_util_compute",
-    "label": "compute()",
-    "source_file": "src/util.py",
-    "source_location": "L1"
    },
    {
     "file_type": "code",
@@ -204,6 +355,63 @@
     "label": "emit()",
     "source_file": "src/shim.py",
     "source_location": "L2"
+   },
+   {
+    "file_type": "code",
+    "id": "foundation",
+    "label": "Foundation",
+    "source_file": "src/s2.swift",
+    "source_location": "L1",
+    "type": "module"
+   },
+   {
+    "file_type": "code",
+    "id": "src_s1",
+    "label": "s1.swift",
+    "source_file": "src/s1.swift",
+    "source_location": "L1"
+   },
+   {
+    "file_type": "code",
+    "id": "src_s1_swift_int",
+    "label": "Int",
+    "source_file": "",
+    "source_location": ""
+   },
+   {
+    "file_type": "code",
+    "id": "src_s2",
+    "label": "s2.swift",
+    "source_file": "src/s2.swift",
+    "source_location": "L1"
+   },
+   {
+    "file_type": "code",
+    "id": "src_s2_swift_int",
+    "label": "Int",
+    "source_file": "",
+    "source_location": ""
+   },
+   {
+    "file_type": "code",
+    "id": "src_main",
+    "label": "main.py",
+    "source_file": "src/main.py",
+    "source_location": "L1"
+   },
+   {
+    "file_type": "code",
+    "id": "src_util",
+    "label": "util.py",
+    "source_file": "src/util.py",
+    "source_location": "L1"
+   },
+   {
+    "file_type": "code",
+    "id": "vendor_lib",
+    "label": "lib.py",
+    "source_file": "vendor/lib.py",
+    "source_location": "L1"
    },
    {
     "file_type": "code",
@@ -234,17 +442,17 @@
     "source_location": "L1"
    },
    {
-    "file_type": "code",
-    "id": "src_main",
-    "label": "main.py",
-    "source_file": "src/main.py",
+    "file_type": "document",
+    "id": "docs_notes",
+    "label": "notes.md",
+    "source_file": "docs/notes.md",
     "source_location": "L1"
    },
    {
-    "file_type": "code",
-    "id": "src_util",
-    "label": "util.py",
-    "source_file": "src/util.py",
+    "file_type": "document",
+    "id": "docs_notes_notes",
+    "label": "Notes",
+    "source_file": "docs/notes.md",
     "source_location": "L1"
    },
    {

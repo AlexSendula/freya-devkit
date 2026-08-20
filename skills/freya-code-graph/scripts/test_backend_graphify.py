@@ -499,6 +499,10 @@ class TestTheUnderReportingGate(unittest.TestCase):
                 for e in info['imports']
                 if substrate.is_internal(substrate.edge_other(e))}
 
+    def kinded(self, graph):
+        return {(src, substrate.edge_other(e), substrate.edge_kind(e))
+                for src, info in graph['files'].items() for e in info['imports']}
+
     def both(self):
         homegrown = graph_ops.CodeGraph(self.tmp).build(non_interactive=True).graph
         translated = GraphifyBackend(self.tmp).translate(self.data['graphify'])
@@ -536,21 +540,88 @@ class TestTheUnderReportingGate(unittest.TestCase):
         self.assertNotIn(('src/helper.ts', 'src/app.ts'), graphify)
 
     def test_the_projected_edge_set_is_pinned_exactly(self):
-        """Pairs alone are a weak gate on this fixture: three relations carry each pair, so
-        dropping one changes nothing observable. Pinning (from, to, kind) catches a mapping
-        change that *does* alter the graph — most importantly losing `calls`, which is the
-        only relation carrying the Java edge and therefore the whole polyglot claim.
+        """Pairs alone are far too weak, and the first version of this gate proved it: run in
+        isolation it caught **one of six** deliberate mapping mutations. The fixture carries
+        each pair on several relations, so dropping one changed nothing it could see.
+
+        Pinning (from, to, kind) over a fixture that actually exercises each guard — an
+        intra-file call, a document node, a vendored tree — is what makes it bite.
         """
         translated = GraphifyBackend(self.tmp).translate(self.data['graphify'])
-        got = {(src, substrate.edge_other(e), substrate.edge_kind(e))
-               for src, info in translated['files'].items() for e in info['imports']}
-        self.assertEqual(got, {
-            ('src/app.ts', 'src/helper.ts', 'imports'),
-            ('src/app.ts', 'src/helper.ts', 'calls'),
-            ('src/main.py', 'src/util.py', 'imports'),
-            ('src/main.py', 'src/util.py', 'calls'),
+        self.assertEqual(self.kinded(translated), {
             ('java/Service.java', 'java/Repo.java', 'calls'),
+            ('src/app.ts', 'src/helper.ts', 'calls'),
+            ('src/app.ts', 'src/helper.ts', 'imports'),
+            ('src/main.py', 'src/util.py', 'calls'),
+            ('src/main.py', 'src/util.py', 'imports'),
+            ('src/s1.swift', 'external:Foundation', 'imports'),
+            ('src/s2.swift', 'external:Foundation', 'imports'),
+            ('vendor/lib.py', 'src/util.py', 'calls'),
+            ('vendor/lib.py', 'src/util.py', 'imports'),
         })
+
+    def test_an_external_module_is_a_signal_not_a_file(self):
+        """graphify emits ONE node per external module, and its `source_file` is whichever
+        importer happened to be parsed first. Read as a file, two Swift files that each
+        `import Foundation` became `s1.swift -> s2.swift` — an edge that exists nowhere in
+        the source, in the direction that inflates blast radius."""
+        translated = GraphifyBackend(self.tmp).translate(self.data['graphify'])
+        self.assertNotIn('src/s2.swift', [t for _, t, _ in self.kinded(translated)])
+        self.assertIn(('src/s1.swift', 'external:Foundation', 'imports'),
+                      self.kinded(translated))
+
+    def test_a_method_symbol_carries_its_owning_class(self):
+        """`Service.run()`, not `.run()`. A bare method label describes a symbol without
+        identifying one — 64 of this repository's own symbols share a bare label with a
+        sibling in the same file."""
+        refined = GraphifyBackend(self.tmp).translate(self.data['graphify'], symbols=True)
+        self.assertIn('Service.run()',
+                      {e.get('from_symbol') for i in refined['files'].values()
+                       for e in i['imports']})
+
+    def test_no_file_is_its_own_dependency(self):
+        """The fixture contains two real intra-file calls — `helper.ts` calling `inner()`
+        and `main.py` calling `local_wrap()`. Without the guard each becomes a self-edge, and
+        blast radius walks those, so every such file lands in its own blast radius."""
+        translated = GraphifyBackend(self.tmp).translate(self.data['graphify'])
+        self.assertEqual([(s, t) for s, t, _ in self.kinded(translated) if s == t], [])
+
+    def test_structural_links_never_reach_the_graph(self):
+        """11 `contains` and 2 `method` links in this fixture. They are the node hierarchy."""
+        translated = GraphifyBackend(self.tmp).translate(self.data['graphify'])
+        substrate.link_dependents(translated)
+        self.assertEqual(substrate.validate_graph(translated), [])
+        self.assertLessEqual(len(self.kinded(translated)), 9)
+
+    def test_a_document_node_is_not_a_source_file(self):
+        """The fixture has a markdown file, so graphify emits `document` nodes for it."""
+        translated = GraphifyBackend(self.tmp).translate(self.data['graphify'])
+        self.assertNotIn('docs/notes.md', translated['files'])
+
+    def test_exclusions_are_actually_applied(self):
+        """Distinguishes "the override works" from "exclusions are switched off entirely" —
+        without a vendored tree in the fixture, a post-filter that never ran looked identical
+        to one that ran and matched nothing."""
+        excluded = GraphifyBackend(self.tmp).translate(
+            self.data['graphify'],
+            exclusions=substrate.Exclusions(directories=['vendor']))
+        self.assertNotIn('vendor/lib.py', excluded['files'])
+        self.assertEqual([e for e in self.kinded(excluded) if 'vendor' in e[0]], [])
+        self.assertIn('src/util.py', excluded['files'])
+
+    def test_symbol_lines_are_the_lines_graphify_reported(self):
+        """Pins `line`, which nothing else in the gate reads — an off-by-one here would be
+        invisible and would point every consumer one line off."""
+        refined = GraphifyBackend(self.tmp).translate(self.data['graphify'], symbols=True)
+        node = {n['id']: n for n in self.data['graphify']['nodes']}
+        expected = {int(l['source_location'][1:])
+                    for l in self.data['graphify']['links']
+                    if l['relation'] == 'imports_from'
+                    and node[l['source']].get('source_file')
+                    != node[l['target']].get('source_file')}
+        got = {e['line'] for i in refined['files'].values() for e in i['imports']
+               if e['kind'] == 'imports' and 'line' in e}
+        self.assertTrue(expected <= got, '%s not in %s' % (expected, got))
 
     def test_the_translated_graph_satisfies_the_contract(self):
         translated = GraphifyBackend(self.tmp).translate(self.data['graphify'])

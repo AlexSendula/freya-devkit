@@ -500,8 +500,15 @@ class CodeGraph:
             pass
         return None
 
-    def _get_changed_files(self, since_commit: str) -> List[str]:
-        """Get list of files changed since a commit."""
+    def _get_changed_files(self, since_commit: str) -> Optional[List[str]]:
+        """Files changed since `since_commit`, or None if git could not say.
+
+        None and `[]` are different answers, and they used to be the same one. `[]` means
+        "nothing changed" and short-circuits `update()` — so a commit git cannot resolve
+        (rebased away, squashed, a graph carried between checkouts, git not installed)
+        produced "Graph is up to date. No changes detected." forever. The graph never
+        refreshed and never said why.
+        """
         try:
             result = subprocess.run(
                 ['git', 'diff', f'{since_commit}..HEAD', '--name-only'],
@@ -509,11 +516,11 @@ class CodeGraph:
                 capture_output=True,
                 text=True,
             )
-            if result.returncode == 0:
-                return [f.strip() for f in result.stdout.strip().split('\n') if f.strip()]
         except Exception:
-            pass
-        return []
+            return None
+        if result.returncode != 0:
+            return None
+        return [f.strip() for f in result.stdout.strip().split('\n') if f.strip()]
 
     def _detect_language(self, file_path: Path) -> Optional[str]:
         """Detect language from file extension."""
@@ -1374,7 +1381,7 @@ class CodeGraph:
         """
         conf = settings.load(str(self.project_dir))
         for warning in conf.warnings:
-            print('code-graph: %s' % warning, file=sys.stderr)
+            _announce_once('code-graph: %s' % warning)
         return {
             name: {'type': verdict, 'confidence': 1.0, 'source': 'user',
                    'reasoning': 'declared in knowledge-base/settings.json'}
@@ -1950,6 +1957,19 @@ Respond with ONLY a JSON object, no markdown formatting:
             return self.build(non_interactive=non_interactive, exclusions=exclusions,
                               selection_metadata=selection_metadata)
 
+        produced_by = substrate.produced_by(graph)
+        if produced_by is not None and produced_by != self.name:
+            # A different backend wrote this artifact. Incrementally patching it would splice
+            # this resolver's edges into another's graph — a file-level `imports` edge landing
+            # beside symbol-refined `calls` edges, under a `substrate` block claiming the
+            # other backend's coverage. And because freshness was judged from `commit` alone,
+            # switching `substrate.backend` back to this one and running `--update` reported
+            # `up_to_date` and kept the *other* backend's graph indefinitely.
+            print('Cached graph was produced by %r, not %r. Running full build...'
+                  % (produced_by, self.name), file=sys.stderr)
+            return self.build(non_interactive=non_interactive, exclusions=exclusions,
+                              selection_metadata=selection_metadata)
+
         if substrate.is_stale(graph):
             # A rebuild, not a rewrite. `load()` brings the *edges* forward, but a graph old
             # enough to be stale may predate the `substrate` block entirely — and that block
@@ -1966,6 +1986,11 @@ Respond with ONLY a JSON object, no markdown formatting:
                               selection_metadata=selection_metadata)
 
         changed_files = self._get_changed_files(last_commit)
+        if changed_files is None:
+            print('Cannot resolve %s against HEAD. Running full build...' % last_commit,
+                  file=sys.stderr)
+            return self.build(non_interactive=non_interactive, exclusions=exclusions,
+                              selection_metadata=selection_metadata)
         if not changed_files:
             return substrate.Result(graph, substrate.Result.UP_TO_DATE, 0)
 
@@ -2184,6 +2209,16 @@ Respond with ONLY a JSON object, no markdown formatting:
 # Enough to diagnose the problem without turning the artifact into a log file.
 _MAX_RECORDED_VALIDATION_ERRORS = 20
 
+# Settings are read by several paths in one run — exclusions, classification, selection — and
+# each would otherwise repeat the same complaint about the same typo. Said once per process.
+_ANNOUNCED = set()  # type: set
+
+
+def _announce_once(message: str) -> None:
+    if message not in _ANNOUNCED:
+        _ANNOUNCED.add(message)
+        print(message, file=sys.stderr)
+
 
 def persist_graph(project_dir: Any, backend_name: str, graph: Dict[str, Any]) -> str:
     """Write the graph as both the active artifact and this backend's own copy.
@@ -2234,6 +2269,8 @@ def _finalise(backend: Any, result: Any) -> Dict[str, Any]:
 
     graph = substrate.link_dependents(result.graph)
 
+    _refuse_to_erase(backend, graph)
+
     try:
         coverage = backend.coverage()
     except Exception:
@@ -2266,6 +2303,36 @@ def _finalise(backend: Any, result: Any) -> Dict[str, Any]:
     summary = substrate.build_summary(graph, cached_to)
     summary['status'] = result.status
     return summary
+
+
+class EmptiedTheGraph(RuntimeError):
+    """A backend produced nothing where a previous build had found something."""
+
+
+def _refuse_to_erase(backend: Any, graph: Dict[str, Any]) -> None:
+    """Refuse to overwrite a populated graph with an empty one.
+
+    Nothing else catches this. An empty `files` dict passes validation — there is no edge to be
+    wrong about — so a backend that silently stops working writes a successful-looking empty
+    graph over a good one and reports `status: built`. `_run_or_degrade` never fires, because
+    nothing raised.
+
+    It is the exact scenario that function's own docstring names: "the tool it wraps was
+    upgraded". Any upstream change to the output shape this projection reads turns 6,000 links
+    into zero files, and downstream every skill then reports a repository with no code in it —
+    which is the confident-empty answer ADR-005 exists to prevent, arriving through the one
+    door the contract had left open.
+
+    Raised rather than warned, so the caller degrades to the floor and the previous artifact
+    stays until something can replace it honestly.
+    """
+    if graph.get('files'):
+        return
+    previous = substrate.load_graph(substrate.active_graph_path(backend.project_dir))
+    if previous and previous.get('files'):
+        raise EmptiedTheGraph(
+            'produced 0 files where the cached graph has %d; refusing to overwrite it'
+            % len(previous['files']))
 
 
 def _run_or_degrade(runner: Any, backend: Any, floor: Any, non_interactive: bool,
@@ -2452,7 +2519,8 @@ def main():
                     str(graph.project_dir), project_exclusions)
             selection = backends.select(str(graph.project_dir), present_extensions=census)
             for warning in selection.warnings:
-                print(warning, file=sys.stderr)
+                _announce_once(warning if warning.startswith('code-graph:')
+                               else 'code-graph: %s' % warning)
 
             errors = substrate.conformance_errors(selection.backend)
             if errors:

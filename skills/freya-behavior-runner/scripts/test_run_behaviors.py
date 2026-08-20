@@ -254,13 +254,32 @@ class CoverageSymbolsTest(unittest.TestCase):
         self.assertEqual(sorted(by_path), ["lib/plain.ts", "lib/webauthn.ts"])
 
     def test_an_unrefined_entry_is_byte_identical_to_before_symbols_existed(self):
-        """The compatibility guarantee for a *committed* artifact. A project whose backend
-        cannot see symbols must produce exactly the file it produced yesterday."""
-        without = run_behaviors.shape_fingerprint(["a.ts", "b.ts"], "c1")
-        with_none = run_behaviors.shape_fingerprint(["a.ts", "b.ts"], "c1", symbols={})
-        self.assertEqual(json.dumps(without, sort_keys=True),
-                         json.dumps(with_none, sort_keys=True))
-        self.assertTrue(all("symbols" not in e for e in without["exercises"]))
+        """The compatibility guarantee for a *committed* artifact: a project whose coverage
+        yields no named functions must produce exactly the file it produced yesterday.
+
+        Pinned against a literal rather than against the implementation compared with itself,
+        and serialised the way `write_behavior_json` does it — `json.dump(..., indent=2)` with
+        no `sort_keys`, so on-disk bytes follow insertion order. An earlier version of this
+        test used `sort_keys=True`, which normalises away key order — the one thing that can
+        actually break, and the one thing a tracked diff would show.
+        """
+        got = run_behaviors.shape_fingerprint(["a.ts", "b.ts"], "c1", symbols={})
+        self.assertEqual(json.dumps(got, indent=2), json.dumps({
+            "coverage": "observed",
+            "exercises": [
+                {"path": "a.ts", "source": "observed", "confidence": 0.8,
+                 "freshness": "c1"},
+                {"path": "b.ts", "source": "observed", "confidence": 0.8,
+                 "freshness": "c1"},
+            ],
+        }, indent=2))
+
+    def test_symbols_are_appended_last_so_existing_keys_keep_their_order(self):
+        """behavior.json is written with `indent=2` and no `sort_keys`, so key order is the
+        file's byte order. A refined entry must be the old one plus a key, not a reshuffle."""
+        got = run_behaviors.shape_fingerprint(["a.ts"], "c1", symbols={"a.ts": ["f"]})
+        self.assertEqual(list(got["exercises"][0]),
+                         ["path", "source", "confidence", "freshness", "symbols"])
 
     def test_one_entry_per_file_not_one_per_symbol(self):
         """`behavior-graph` intersects `exercises[].path` against the impact set. Splitting

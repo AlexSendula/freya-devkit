@@ -607,10 +607,19 @@ code written earlier the same day.
   `.setUp()`, `._run()` — and **64 of 1,731 code symbols share a bare label with a sibling in
   the same file**. Without the owning class, Phase 3's symbol names describe a symbol without
   identifying one. Qualifying from `method` takes the collisions to zero.
-- **A gate that does not bite is not a gate.** The first §9.1 test asserted file *pairs*, and
-  the fixture carries each pair on three relations — so dropping a relation changed nothing it
-  could see. Mutation-testing it found that in one run; pinning `(from, to, kind)` fixed it.
-  Four mutations now fail it.
+- **A gate that does not bite is not a gate — and I measured that wrong too.** The first §9.1
+  test asserted file *pairs*, and the fixture carried each pair on three relations, so dropping
+  one changed nothing it could see. I mutation-tested it, saw failures, and wrote in the commit
+  message that the gate caught four mutations.
+
+  It had not. I ran the mutations against the *whole test file*, so other tests were doing the
+  catching. Run against the gate class alone it caught **one of six**. The fixture was the
+  reason: no intra-file call, so the self-edge guard was never exercised; no document node, so
+  the code-node filter was not; no vendored tree, so the exclusions post-filter was not. A
+  fixture that exercises none of the guards lets a broken projection pass.
+
+  Rebuilt with all of them, plus an external-module import and a class method, and re-pinned
+  on `(from, to, kind)`: **10 of 10**, verified against the gate class in isolation.
 - **Spec §10 asks for something that does not exist.** "Thread it through the fingerprint
   comparison" — nothing in the toolkit compares two fingerprints' exercise sets.
   `merge_fingerprint` compares coverage *labels* and copies the exercises; `stale_bucket`
@@ -623,6 +632,38 @@ code written earlier the same day.
 - `skills/freya-code-graph/references/graph-schema.md` — the optional symbol fields on Edge
 - New: `skills/freya-code-graph/scripts/backend_graphify.py`, its tests, and
   `scripts/testdata/gate91.json` — the committed §9.1 fixture
+
+### Found by reviewing the above
+
+Eighteen defects, from a three-lens adversarial pass with a refutation stage on every
+candidate (34 raised, 18 survived). The four that mattered:
+
+- **graphify's external-module nodes were being read as project files, fabricating edges.**
+  It emits one node per external module, and that node's `source_file` is whichever importer
+  was parsed first. Three Swift files that each `import Foundation` produced
+  `s1.swift -> s3.swift` and `s2.swift -> s3.swift` — edges that exist nowhere in the source,
+  in the direction that inflates blast radius. They are `external:Foundation` now, which is
+  what the contract has for exactly this.
+- **Switching `substrate.backend` away from graphify never took effect.** Freshness was judged
+  from `commit` and schema version alone, so `--update` reported `up_to_date` and kept the
+  other backend's graph indefinitely — and the first update that *did* see a change spliced
+  homegrown's edges into a graphify graph under a `substrate` block claiming graphify's
+  coverage.
+- **A degenerate extraction was persisted as a successful empty graph.** An empty `files` dict
+  passes validation — there is no edge to be wrong about — so a backend that silently stopped
+  working would overwrite a good graph and report `status: built`. It now refuses, and
+  degrades to the floor instead.
+- **Symbol mode filled `dependents` with byte-identical duplicates.** 322 of 417 entries on
+  this repository, one file listing the same dependent 60 times, because `link_dependents`
+  rebuilt reverse edges without the symbols that distinguished them. Zero now, in both modes.
+
+The rest: the opt-in hint fired on a lone `package.json` because it counted *declared*
+extensions; `settings.json` warnings were generated and never printed, because the property
+that appended them was evaluated after the list was read; `coverage_symbols` overwrote instead
+of unioning when two coverage entries resolved to one path; `--update` reported the whole
+repository as changed every run; a git failure read as "nothing changed" and made `--update` a
+permanent silent no-op; and the byte-identity test used `sort_keys=True`, normalising away the
+only thing that could break it.
 
 ### Still open
 

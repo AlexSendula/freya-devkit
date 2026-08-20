@@ -64,7 +64,8 @@ freya behavior-runner \
     "BEH-002": {
       "coverage": "observed",
       "exercises": [
-        { "path": "lib/webauthn.ts", "source": "observed", "confidence": 0.8, "freshness": "<commit>" }
+        { "path": "lib/webauthn.ts", "source": "observed", "confidence": 0.8, "freshness": "<commit>",
+          "symbols": ["verifyChallenge"] }
       ]
     }
   }
@@ -73,6 +74,21 @@ freya behavior-runner \
 
 A behavior with no usable coverage is emitted with `coverage: "unknown"` and an
 empty `exercises` list — never falsely attributed.
+
+**`symbols` is optional** (added 2026-08-20, Track B Phase 3). It lists the *named* functions
+in that file that the test actually entered, read from the coverage report's `fnMap`/`f` — so
+it is measured, not inferred. Two things it deliberately is not:
+
+- **not a replacement for `path`.** The file anchor is the floor; symbols refine it (spec §5).
+  Everything that intersects `exercises[].path` against a blast radius is unchanged.
+- **not one entry per symbol.** One entry per file, with a list. Splitting the entry would
+  change the cardinality of that intersection and every count derived from it.
+
+Anonymous functions are excluded: istanbul names them `(anonymous_N)` with a positional
+counter per file, so inserting one function renumbers every later one — and behavior.json is
+committed (ADR-017), so those names would churn the tracked diff on edits that changed nothing
+about what ran. An entry with no named functions omits the key entirely and is byte-identical
+to one written before this existed.
 
 The `coverage` field is one of `observed | static | unknown`:
 - `observed` — captured at runtime from runner-native V8 coverage (unit/component).

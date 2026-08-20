@@ -118,6 +118,10 @@ def is_internal(specifier: str) -> bool:
 EDGE_DEFAULT_KIND = 'imports'
 EDGE_DEFAULT_PROVENANCE = 'extracted'
 
+# The optional Phase 3 refinement, named once so the reverse index and the
+# validator cannot disagree about what a symbol field is called.
+SYMBOL_FIELDS = ('from_symbol', 'to_symbol')
+
 
 def make_edge(other: str,
               kind: str = EDGE_DEFAULT_KIND,
@@ -167,9 +171,6 @@ def edge_ends(edges: Any) -> List[str]:
 def internal_ends(edges: Any) -> List[str]:
     """The far ends that name a file in this project, dropping the signals."""
     return [end for end in edge_ends(edges) if is_internal(end)]
-
-
-SYMBOL_FIELDS = ('from_symbol', 'to_symbol')
 
 
 def _symbol_errors(edge: Dict[str, Any]) -> List[str]:
@@ -236,6 +237,15 @@ def is_stale(graph: Dict[str, Any]) -> bool:
     """Was the file this graph came from written against an older schema?"""
     version = graph.get('version')
     return not isinstance(version, int) or version < GRAPH_SCHEMA_VERSION
+
+
+def produced_by(graph: Dict[str, Any]) -> Optional[str]:
+    """Which backend wrote this graph, or None if it does not say."""
+    substrate_block = graph.get('substrate')
+    if not isinstance(substrate_block, dict):
+        return None
+    name = substrate_block.get('backend')
+    return name if isinstance(name, str) and name else None
 
 
 def graph_dir(project_dir: Any) -> str:
@@ -325,12 +335,24 @@ def link_dependents(graph: Dict[str, Any]) -> Dict[str, Any]:
             # `TypeError: string indices must be integers`, one line before the validator
             # that was about to name the offending file.
             if is_internal(target) and isinstance(files.get(target), dict):
-                # The reverse edge carries the forward edge's kind and provenance. An
-                # `inherits` edge read backwards is still an `inherits` edge, and blast
+                # The reverse edge carries the forward edge's kind, provenance *and*
+                # symbols. An `inherits` edge read backwards is still `inherits`, and blast
                 # radius has to be able to ask which kind reached it.
-                files[target]['dependents'].append(
-                    make_edge(path, kind=edge_kind(edge),
-                              provenance=edge_provenance(edge), reverse=True))
+                #
+                # Carrying the symbols is not symmetry for its own sake. Under
+                # `substrate.symbols` one file pair legitimately holds many forward edges of
+                # the same kind, distinguished only by which symbols they join. Dropping the
+                # symbols on the way back collapsed all of them into byte-identical dicts —
+                # measured on this repository: 417 dependent entries of which 322 were exact
+                # duplicates, one file listing the same dependent 60 times, and `--query`
+                # printing that line 60 times. The information that made them distinct was
+                # thrown away at precisely the point it was needed.
+                reverse = make_edge(path, kind=edge_kind(edge),
+                                    provenance=edge_provenance(edge), reverse=True)
+                for field in SYMBOL_FIELDS + ('line',):
+                    if field in edge:
+                        reverse[field] = edge[field]
+                files[target]['dependents'].append(reverse)
     return graph
 
 

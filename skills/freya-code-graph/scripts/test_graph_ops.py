@@ -17,6 +17,7 @@ Run: python test_graph_ops.py
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -27,6 +28,18 @@ import graph_ops  # noqa: E402
 import substrate  # noqa: E402
 from graph_ops import CodeGraph, normalize_import, normalize_key  # noqa: E402
 from substrate import edge_ends as ends  # noqa: E402
+
+
+def _git_repo(path):
+    """Make `path` a git repository with one commit, and return its short HEAD."""
+    env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@e",
+               GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@e")
+    for argv in (["git", "init", "-q"], ["git", "add", "-A"],
+                 ["git", "commit", "-qm", "init"]):
+        subprocess.run(argv, cwd=path, env=env, capture_output=True, check=True)
+    out = subprocess.run(["git", "rev-parse", "HEAD"], cwd=path, env=env,
+                         capture_output=True, text=True, check=True)
+    return out.stdout.strip()[:12]
 
 
 class Base(unittest.TestCase):
@@ -632,12 +645,34 @@ class TestOlderGraphsWithStringEdges(Base):
         self.assertNotIn("validation", block)
 
     def test_a_current_artifact_is_not_rebuilt_for_nothing(self):
-        proj = self.mk({"knowledge-base/.graph/graph.json": json.dumps({
-            "version": substrate.GRAPH_SCHEMA_VERSION,
-            "commit": "abc123def456", "files": {},
-        })})
+        """Needs a real repository: the cached commit has to be one git can resolve, or the
+        answer is "cannot tell" rather than "nothing changed"."""
+        proj = self.mk({"src/a.ts": "export const a = 1\n"})
+        head = _git_repo(proj)
+        gdir = Path(proj) / "knowledge-base" / ".graph"
+        gdir.mkdir(parents=True, exist_ok=True)
+        (gdir / "graph.json").write_text(json.dumps({
+            "version": substrate.GRAPH_SCHEMA_VERSION, "commit": head, "files": {},
+        }), encoding="utf-8")
         out = graph_ops.run_update(CodeGraph(proj), non_interactive=True)
         self.assertEqual(out["status"], substrate.Result.UP_TO_DATE)
+
+    def test_a_commit_git_cannot_resolve_rebuilds_rather_than_reporting_no_changes(self):
+        """`[]` from git used to mean both "nothing changed" and "git could not say", so a
+        commit that had been rebased or squashed away — or a graph carried between checkouts —
+        reported "up to date" forever and the graph never refreshed."""
+        proj = self.mk({"src/a.ts": "export const a = 1\n"})
+        _git_repo(proj)
+        gdir = Path(proj) / "knowledge-base" / ".graph"
+        gdir.mkdir(parents=True, exist_ok=True)
+        (gdir / "graph.json").write_text(json.dumps({
+            "version": substrate.GRAPH_SCHEMA_VERSION,
+            "commit": "0" * 12, "files": {},
+        }), encoding="utf-8")
+        out = graph_ops.run_update(CodeGraph(proj), non_interactive=True)
+        self.assertEqual(out["status"], substrate.Result.BUILT)
+        self.assertIn("src/a.ts", json.loads(
+            (gdir / "graph.json").read_text())["files"])
 
 
 class TestAnOverrideSurvivesAClone(Base):

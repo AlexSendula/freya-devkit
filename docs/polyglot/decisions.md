@@ -1001,6 +1001,10 @@ as its own direct dependent. Now a validation error, and skipped when linking.
 
 ### Consequences
 
+- A node marked `type: module` is an **external module**, not a file. Its `source_file` is
+  whichever importer graphify parsed first, so reading it as a file fabricates edges — three
+  Swift files each importing `Foundation` produced two edges that exist nowhere in the source.
+  It becomes `external:<module>`, which is what the contract already had for this.
 - §9.1 passes: 73 file pairs against homegrown's 65, losing nothing. The single edge homegrown
   has and graphify does not is an import inside a *string literal* — homegrown's own false
   positive (backlog item 10).

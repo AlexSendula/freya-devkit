@@ -129,8 +129,13 @@ def coverage_symbols(coverage_final, project_dir, exclude=None):
             if isinstance(name, str) and name and not name.startswith("(anonymous"):
                 names.add(name)
         if names:
-            symbols[rel] = sorted(names)
-    return symbols
+            # Union, not assignment. Two absolute keys can resolve to one project-relative
+            # path — a workspace package reached through a symlink, or any non-canonical
+            # duplicate — and assigning would let whichever came last in the JSON silently
+            # erase the other file's executed functions. `coverage_files_to_keys` is immune
+            # because it builds a set of paths; this builds a mapping, so it has to say so.
+            symbols.setdefault(rel, set()).update(names)
+    return {rel: sorted(names) for rel, names in symbols.items()}
 
 
 def shape_fingerprint(exercised_keys, commit, source="observed", confidence=None, reason=None,

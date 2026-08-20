@@ -100,7 +100,7 @@ class Settings:
     it is not.
     """
 
-    __slots__ = ('data', 'path', 'present', 'warnings')
+    __slots__ = ('data', 'path', 'present', 'warnings', 'directories')
 
     def __init__(self, data: Dict[str, Any], path: str, present: bool,
                  warnings: Optional[List[str]] = None):
@@ -108,6 +108,11 @@ class Settings:
         self.path = path
         self.present = present
         self.warnings = warnings or []
+        # Parsed here, eagerly, and not behind a property. It used to be one, and the
+        # property was what *appended* the warnings — so every caller that read `.warnings`
+        # before touching `.directories` got an empty list and printed nothing. Both of them
+        # did, which meant a typo'd verdict was dropped in complete silence.
+        self.directories = self._parse_directories()
 
     @property
     def backend(self) -> str:
@@ -120,8 +125,7 @@ class Settings:
             return BACKEND_AUTO
         return name.strip()
 
-    @property
-    def directories(self) -> Dict[str, str]:
+    def _parse_directories(self) -> Dict[str, str]:
         """Committed directory verdicts, keyed the way the graph keys paths.
 
         These outrank the built-in exclusion lists. They live here rather than in
