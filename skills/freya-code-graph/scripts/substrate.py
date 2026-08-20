@@ -412,20 +412,6 @@ class Coverage:
         """Would this backend attempt the file at `path`?"""
         return os.path.splitext(path)[1].lower() in self.extensions
 
-    def blind_spots(self, paths: Iterable[str]) -> Dict[str, int]:
-        """Extensions present in `paths` that this backend does not read, with counts.
-
-        The point of the whole declaration. Given the files a project actually contains, this
-        is the honest answer to "what am I not seeing?", which is what lets a caller warn
-        instead of returning a confident nothing.
-        """
-        missed = {}  # type: Dict[str, int]
-        for path in paths:
-            ext = os.path.splitext(path)[1].lower()
-            if ext and ext not in self.extensions:
-                missed[ext] = missed.get(ext, 0) + 1
-        return dict(sorted(missed.items(), key=lambda kv: (-kv[1], kv[0])))
-
     def to_dict(self) -> Dict[str, Any]:
         return {
             'languages': list(self.languages),
@@ -891,8 +877,13 @@ def census_candidates(covered_extensions: Iterable[str]) -> frozenset:
     return frozenset((SOURCE_EXTENSIONS | SCRIPT_EXTENSIONS) - covered)
 
 
-def material_extensions(counts: Dict[str, int], files_graphed: int) -> Dict[str, int]:
+def material_extensions(counts: Dict[str, int], files_graphed: int,
+                        cap: Optional[int] = UNMAPPED_EXT_CAP) -> Dict[str, int]:
     """Which unread extensions are worth reporting, given how much *was* read.
+
+    `cap=None` returns every material extension. `unmapped_report` uses that to count honestly
+    before truncating for display — taking the total from the capped dict published a number
+    smaller than the truth.
 
     Tier 1 is unconditional: one unreadable `.java` in a 500-file TypeScript repo is exactly
     the case worth knowing about, and a count-based threshold would hide it. Tier 2 has to
@@ -910,7 +901,7 @@ def material_extensions(counts: Dict[str, int], files_graphed: int) -> Dict[str,
     # a cap that drops `.prisma` to make room for `.sql` has inverted its own purpose.
     ordered = sorted(material.items(),
                      key=lambda kv: (kv[0] not in SOURCE_EXTENSIONS, -kv[1], kv[0]))
-    return dict(ordered[:UNMAPPED_EXT_CAP])
+    return dict(ordered if cap is None else ordered[:cap])
 
 
 def rollup_directories(paths: Iterable[str]) -> Tuple[Dict[str, int], int]:
@@ -959,18 +950,31 @@ def unmapped_report(paths: Iterable[str], backend: Optional[str], files_graphed:
         # ADR-005 exists for, and it is reported as one.
         return {'files': None, 'backend': backend, 'error': error}
 
+    # Materialised once: `paths` is an Iterable and this function walks it twice. With a
+    # generator the second pass saw nothing, so the directories rollup — the actionable half —
+    # came back empty while the counts looked right.
+    paths = list(paths)
     counts = {}  # type: Dict[str, int]
     for path in paths:
         ext = os.path.splitext(path)[1].lower()
         counts[ext] = counts.get(ext, 0) + 1
-    material = material_extensions(counts, files_graphed)
-    if not material:
+    # Uncapped, so the count below is the truth. Taking the total from the capped dict
+    # published a number smaller than reality: on a repository with 22 unread source files
+    # across 11 extensions the answer was 16, and three languages were named nowhere at all.
+    # A caveat that under-reports the very thing it exists to report is worse than no caveat,
+    # and this one asserted it flatly in prose — "16 source file(s) here are not in this graph".
+    every = material_extensions(counts, files_graphed, cap=None)
+    if not every:
         return {'files': 0, 'backend': backend}
+    material = material_extensions(counts, files_graphed)
+    ext_omitted = len(every) - len(material)
 
-    kept_paths = [p for p in paths if os.path.splitext(p)[1].lower() in material]
+    kept_paths = [p for p in paths if os.path.splitext(p)[1].lower() in every]
     directories, omitted = rollup_directories(kept_paths)
-    total = sum(material.values())
+    total = sum(every.values())
     exts = ', '.join(sorted(material))
+    if ext_omitted:
+        exts += ' and %d more' % ext_omitted
     where = ', '.join(sorted(directories))
     advice = ('%d source file(s) here are not in this graph: %r does not read %s. Every '
               'dependency, dependent and impact answer from this graph excludes them. Before '
@@ -992,6 +996,10 @@ def unmapped_report(paths: Iterable[str], backend: Optional[str], files_graphed:
         report['readable_by'] = dict(sorted(readable_by.items()))
     if omitted:
         report['directories_omitted'] = omitted
+    if ext_omitted:
+        # Counted, never silently dropped — the same rule the directory cap already followed.
+        # A truncation nobody is told about reads as completeness.
+        report['extensions_omitted'] = ext_omitted
     if truncated:
         report['truncated'] = True
     return report
@@ -1016,9 +1024,17 @@ def unmapped_digest(block: Any, full: bool = False) -> Optional[Dict[str, Any]]:
     # The prose and the backend recommendation ride the build payload and stderr only. This
     # digest is attached to surfaces an agent hits repeatedly in one session, where a sentence
     # that restates the structured fields is pure cost.
-    return {'files': files,
-            'extensions': dict(block.get('extensions') or {}),
-            'directories': dict(block.get('directories') or {})}
+    digest = {'files': files,
+              'extensions': dict(block.get('extensions') or {}),
+              'directories': dict(block.get('directories') or {})}
+    # The truncation markers are not optional detail — they are the difference between "grep
+    # these two directories and you have covered it" and "grep these two of nine". Dropping
+    # them presented a partial search target as a complete one, on the surfaces an agent
+    # actually acts from. They cost four tokens and only when they are true.
+    for key in ('directories_omitted', 'extensions_omitted', 'truncated'):
+        if block.get(key):
+            digest[key] = block[key]
+    return digest
 
 
 def load_graph(path: str) -> Optional[Dict[str, Any]]:

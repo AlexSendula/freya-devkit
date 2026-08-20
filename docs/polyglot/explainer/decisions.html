@@ -401,13 +401,20 @@ reject" from fifty-one documents plus a diff, and it took a day. This is the ans
   existing <code>summarise_coverage()</code></em> — its blind-spot helper has no dotfile guard,
   no materiality filter and no notion of project scope; the aggregation was never the missing
   half, the scope rule was. It was deleted rather than wired.</p>
-  <p style="margin-bottom:0"><strong>The measurement that set the filter.</strong> A census
-  keyed on gitignore-style patterns reports 96 unread files on this repository, <strong>68 of
-  them deliberately out of scope</strong> — a 71% phantom. A caveat that cries wolf is worse
-  than no caveat, because an agent learns to skip the field and then misses the one time it was
-  real. Measured on four real repositories and two fixtures, the shipped filter is silent on
-  two of the four — this one, and a 40-file media server. It fires on the two polyglot
-  repositories, and on both Java fixtures.</p>
+  <p><strong>The measurement that set the filter.</strong> A census keyed on gitignore-style
+  patterns reports 96 unread files on this repository, <strong>68 of them deliberately out of
+  scope</strong> — a 71% phantom. A caveat that cries wolf is worse than no caveat, because an
+  agent learns to skip the field and then misses the one time it was real.</p>
+  <p style="margin-bottom:0"><strong>What the review then found.</strong> Two of the silences
+  originally cited as evidence the filter was quiet enough were not evidence at all. One was an
+  <em>empty directory</em>. The other was a real 40-file deployment repository whose entire
+  codebase is shell scripts under <code>scripts/</code> — a built-in exclusion, so the census
+  honestly reports nothing unread, and the shape detector then called it
+  <strong>greenfield</strong>. That is ADR-005's confidently-empty answer arriving through the
+  feature built to remove it, via the same <code>scripts/</code> rule that once stopped freya
+  graphing itself. The census's <em>silence</em> is no longer treated as authoritative: it
+  answers "what can this backend not read?", which is a narrower question than "is there
+  anything here the graph does not represent?"</p>
 </div>
 
 <h2 id="wont">What we will not build</h2>

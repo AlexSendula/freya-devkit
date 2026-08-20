@@ -269,6 +269,39 @@ class CensusedGraphTest(unittest.TestCase):
         self._graph({}, {"files": 40, "extensions": {".sh": 40}})
         self.assertEqual(project_shape.classify(self.proj)["recommendation"], "unknown")
 
+    def test_a_repo_the_scope_rule_excluded_entirely_is_not_greenfield(self):
+        """THE REGRESSION PIN. Measured on a real 40-file deployment repository whose whole
+        codebase is shell scripts under `scripts/` — a built-in top-level exclusion. The census
+        correctly reports nothing unread (they are out of scope, not unreadable), and this path
+        then called it `greenfield`: ADR-005's confidently-empty answer, reintroduced by the
+        mechanism written to remove it, and via the same `scripts/` rule that once stopped
+        freya graphing itself."""
+        self._files("scripts/deploy.sh", "scripts/setup.sh", "README.md")
+        self._graph({}, {"files": 0})
+        r = project_shape.classify(self.proj)
+        self.assertEqual(r["recommendation"], "unknown")
+        self.assertIn("outside the graph's scope", r["reason"])
+
+    def test_a_census_error_falls_back_to_the_walk_rather_than_reading_as_clean(self):
+        """`{"files": null, "error": ...}` is written precisely so a census that could not run
+        is never confused with a clean one. Reading it as censused-and-clean turned that
+        explicit I-don't-know back into a silent zero AND suppressed the fallback walk."""
+        self._files("src/Main.java", "src/Other.java")
+        self._graph({}, {"files": None, "error": "PermissionError"})
+        r = project_shape.classify(self.proj)
+        self.assertEqual(r["recommendation"], "unknown")
+        self.assertEqual(r["evidence"]["blind_spots"], {".java": 2})
+
+    def test_an_empty_censused_graph_still_walks_for_languages_off_the_tier_lists(self):
+        """The census is closed-world; the walk is open-world. Preferring the census
+        unconditionally made every language in neither tier list — .ipynb, .graphql, .nix,
+        .hx — silent, which is the original defect for those languages exactly."""
+        self._files("nb/analysis.ipynb", "nb/model.ipynb")
+        self._graph({}, {"files": 0})
+        r = project_shape.classify(self.proj)
+        self.assertEqual(r["recommendation"], "unknown")
+        self.assertEqual(r["evidence"]["blind_spots"], {".ipynb": 2})
+
     def test_verdict_pin_c_a_scaffold_with_an_installer_becomes_greenfield(self):
         """A DELIBERATE CHANGE, the other way. Today one `.ps1` installer beside three real
         source files yields `unknown`; the materiality rule removes that false alarm."""

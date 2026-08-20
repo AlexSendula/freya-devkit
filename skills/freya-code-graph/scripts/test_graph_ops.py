@@ -2004,7 +2004,26 @@ class TestUnmappedSourceWalk(Base):
 
     def test_it_honours_the_build_s_own_exclusions(self):
         """Not `substrate.exclusions` from the artifact — that is a strict subset of the real
-        rule, and on a first build it is computed before classification has even run."""
+        rule, and on a first build it is computed before classification has even run.
+
+        Every excluded path here is one only `_should_exclude` rejects. An earlier version of
+        this test used `node_modules/` and `dist/`, which `CENSUS_PRUNE` removes *before*
+        `_should_exclude` is ever called — so the line it existed to pin could be deleted with
+        the whole suite green. `scripts/` and `docs/` are `top_level_exclude_dirs`, `x.min.js`
+        is an `always_exclude_files` pattern, and `deep/vendor/` is an always-excluded name
+        below depth one.
+        """
+        paths, _ = self.walk({
+            "src/a.ts": "export const a = 1\n",
+            "scripts/tool.java": "class T {}\n",
+            "docs/sample.java": "class D {}\n",
+            "deep/vendor/V.java": "class V {}\n",
+            "real/Z.java": "class Z {}\n",
+        })
+        self.assertEqual(paths, ["real/Z.java"])
+
+    def test_the_prune_list_and_the_scope_rule_both_apply(self):
+        """CENSUS_PRUNE is an optimisation, not the scope rule. Both must hold."""
         paths, _ = self.walk({
             "src/a.ts": "export const a = 1\n",
             "node_modules/pkg/X.java": "class X {}\n",
@@ -2025,8 +2044,13 @@ class TestUnmappedSourceWalk(Base):
         The two implementations disagree; this asserts which one the census follows."""
         paths, _ = self.walk({
             "src/a.ts": "export const a = 1\n",
-            ".env.local": "X=1\n",
-            "a/.eslintrc.json": "{}\n",
+            # Dotfiles whose extensions ARE candidates, so the guard is what rejects them
+            # rather than the extension check. The earlier fixture used `.env.local` and
+            # `.eslintrc.json`, whose extensions are in neither tier list — so every file was
+            # dropped before the dotfile guard ran, and the guard could be deleted with the
+            # suite green.
+            ".prettierrc.cjs": "module.exports={}\n",
+            "a/.eslintrc.mjs": "export default {}\n",
             "bin/freya": "#!/bin/sh\n",
             "Makefile": "all:\n",
         })
@@ -2097,9 +2121,21 @@ class TestUnmappedSourceCLI(Base):
     in a suite of well over a thousand tests.
     """
 
+    def setUp(self):
+        # Sandbox the machine-level backend default. Without this, `_seed_from_machine_default`
+        # and `choose_backend` read the real ~/.freya/settings.json: a machine that answered
+        # the install question with `graphify` builds every fixture with a backend that reads
+        # .java, the census correctly reports nothing, and six assertions about 12 unmapped
+        # files fail. Green here, red on any colleague's laptop — the same defect this suite
+        # shipped once before, which is why conftest.py's docstring calls itself "a safety net,
+        # not the mechanism".
+        self.home = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.home, ignore_errors=True)
+
     def run_cli(self, *args):
         return subprocess.run([sys.executable, graph_ops.__file__, *args],
-                              capture_output=True, text=True)
+                              capture_output=True, text=True,
+                              env=dict(os.environ, FREYA_HOME=self.home))
 
     def mixed(self):
         files = {"web/src/a.ts": "export const a = 1\n",
@@ -2208,6 +2244,75 @@ class TestUnmappedSourceCLI(Base):
         self.assertEqual(data["status"], "up_to_date")
         self.assertEqual(data["unmapped_source"]["files"], 12)
         self.assertEqual(os.path.getmtime(artifact), before)
+
+    def test_the_caller_s_exclusions_reach_the_census_through_the_runner(self):
+        """THE SEAM. `_finalise` gained an `exclusions` parameter and run_build/run_update pass
+        `kwargs.get('exclusions')`. Replacing either with None — the shape a typo like
+        `kwargs.get('exclusion')` produces — left all 1,409 tests green while the production
+        answer changed. Obligation 6 was asserted at the unit and not at the wiring."""
+        files = {"src/a.ts": "export const a = 1\n", "thirdparty/B.java": "class B {}\n"}
+        proj = self.mk(files)
+        g = CodeGraph(proj)
+        out = graph_ops.run_build(
+            g, exclusions=substrate.Exclusions(directories=["thirdparty"]),
+            non_interactive=True)
+        self.assertNotIn("unmapped_source", out)
+
+        out2 = graph_ops.run_build(CodeGraph(self.mk(files)), non_interactive=True)
+        self.assertEqual(out2["unmapped_source"]["extensions"], {".java": 1})
+
+    def test_the_count_is_not_truncated_by_the_extension_cap(self):
+        """`files` was summed from the CAPPED dict, so 22 unread files across 11 extensions
+        were reported as 16 and three languages were named nowhere — the caveat itself giving
+        a plausible-looking wrong number, in prose, flatly."""
+        files = {"app/a.ts": "export const a = 1\n"}
+        for e in ("java", "kt", "rb", "php", "rs", "swift", "dart", "hs", "ml", "elm", "sol"):
+            files["lang_%s/f1.%s" % (e, e)] = "x\n"
+            files["lang_%s/f2.%s" % (e, e)] = "x\n"
+        out = self.run_cli("--build", "--dir", self.mk(files), "--non-interactive")
+        block = json.loads(out.stdout)["unmapped_source"]
+        self.assertEqual(block["files"], 22)
+        self.assertEqual(len(block["extensions"]), 8)
+        self.assertEqual(block["extensions_omitted"], 3)
+        self.assertIn("22 source file(s)", block["advice"])
+
+    def test_the_digest_carries_its_own_truncation_markers(self):
+        """Dropping them presented a partial search target as a complete one, on the surfaces
+        an agent acts from: "grep these five directories" when there were nine."""
+        files = {"app/a.ts": "export const a = 1\n"}
+        for i in range(8):
+            files["root%d/C.java" % i] = "class C {}\n"
+        proj = self.mk(files)
+        self.run_cli("--build", "--dir", proj, "--non-interactive")
+        data = json.loads(self.run_cli("--impact", "app/a.ts", "--dir", proj,
+                                       "--format", "json").stdout)
+        self.assertEqual(data["unmapped_source"]["directories_omitted"], 3)
+
+    def test_a_corrupt_substrate_block_does_not_take_the_answer_down(self):
+        """`or {}` rescues only a falsy value, so a truthy non-dict reached `.get` and raised —
+        turning four working answers into exit 1. `_finalise` guards the write path against
+        exactly this shape, twice, and the new read paths did not."""
+        proj = self.mixed()
+        self.run_cli("--build", "--dir", proj, "--non-interactive")
+        path = os.path.join(proj, "knowledge-base", ".graph", "graph.json")
+        with open(path) as f:
+            graph = json.load(f)
+        graph["substrate"] = "whatever"
+        with open(path, "w") as f:
+            json.dump(graph, f)
+        out = self.run_cli("--dependencies", "web/src/b.ts", "--dir", proj, "--format", "json")
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertIsInstance(json.loads(out.stdout), list)
+
+    def test_impact_does_not_emit_the_bare_array_caveat(self):
+        """`get_impact` calls `get_dependents` internally. The stderr line names
+        `--dependents/--dependencies`, so an `--impact` run pointed the reader at commands they
+        had not run — and contradicted a payload that was already qualified correctly."""
+        proj = self.mixed()
+        self.run_cli("--build", "--dir", proj, "--non-interactive")
+        out = self.run_cli("--impact", "web/src/a.ts", "--dir", proj, "--format", "json")
+        self.assertIn("unmapped_source", json.loads(out.stdout))
+        self.assertNotIn("--dependents/--dependencies", out.stderr)
 
     def test_the_summary_format_gains_a_line_only_when_there_is_one(self):
         """FIRST TEST OF format_summary. Both directions: the new line appears, and a clean

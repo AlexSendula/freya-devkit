@@ -66,20 +66,6 @@ class TestCoverage(unittest.TestCase):
         self.assertTrue(c.handles('src/App.TS'))
         self.assertFalse(c.handles('src/Main.java'))
 
-    def test_blind_spots_counts_what_the_backend_cannot_read(self):
-        """The measurement that distinguishes an empty repo from a blind backend."""
-        c = self.cov(extensions=['.py'])
-        spots = c.blind_spots([
-            'a.py', 'b.py', 'Main.java', 'Other.java', 'Third.java', 'x.kt',
-        ])
-        self.assertEqual(spots, {'.java': 3, '.kt': 1})
-
-    def test_blind_spots_is_empty_when_everything_is_covered(self):
-        self.assertEqual(self.cov(extensions=['.py']).blind_spots(['a.py', 'b.py']), {})
-
-    def test_extensionless_files_are_not_blind_spots(self):
-        self.assertEqual(self.cov().blind_spots(['Makefile', 'LICENSE']), {})
-
     def test_round_trips_through_a_dict(self):
         c = self.cov(relations=['imports', 'calls'], incremental=False)
         self.assertEqual(Coverage.from_dict(c.to_dict()), c)

@@ -132,9 +132,13 @@ _NOT_SOURCE = {
 def unmapped_from_graph(project_dir):
     """(extensions, censused) from the graph's own `substrate.unmapped_source` block.
 
-    `censused` is False only when the key is absent, which means the graph predates the census
-    (CD-27) — not that it found nothing. `{"files": 0}` is a real answer and returns
-    `({}, True)`, which is what lets a clean repository skip the disk walk entirely.
+    `censused` is False when the key is absent — the graph predates the census (CD-27) — and
+    also when the census *ran and failed*, which records `{"files": null, "error": ...}`. Both
+    mean "I do not know what this backend could not read", and both must fall back to the walk.
+    Treating the error block as a clean answer turned an explicit I-don't-know back into a
+    silent zero, which is the exact substitution the block was added to prevent.
+
+    `{"files": 0}` is a real answer and returns `({}, True)`.
     """
     try:
         with open(_graph_path(project_dir), encoding="utf-8") as f:
@@ -143,27 +147,67 @@ def unmapped_from_graph(project_dir):
         return {}, False
     if not isinstance(graph, dict):
         return {}, False
-    block = ((graph.get("substrate") or {}).get("unmapped_source"))
-    if not isinstance(block, dict) or "files" not in block:
+    substrate_block = graph.get("substrate")
+    if not isinstance(substrate_block, dict):
+        return {}, False
+    block = substrate_block.get("unmapped_source")
+    if not isinstance(block, dict) or block.get("files") is None:
         return {}, False
     return dict(block.get("extensions") or {}), True
 
 
-def _blind_spots(project_dir):
+def _censused(project_dir):
+    """Did a CD-27 census actually run for this graph, and succeed?"""
+    return unmapped_from_graph(project_dir)[1]
+
+
+def _has_files(project_dir, limit=200):
+    """Does this directory hold anything at all, ignoring tooling and version control?
+
+    Cheap and short-circuiting: the caller only needs "more than zero", so it stops at the
+    first hit. `limit` bounds a pathological tree rather than the answer.
+    """
+    seen = 0
+    for root, dirs, filenames in os.walk(project_dir):
+        dirs[:] = [d for d in dirs
+                   if d not in _CENSUS_SKIP and not d.startswith(".")]
+        for filename in filenames:
+            if not filename.startswith("."):
+                return True
+            seen += 1
+            if seen >= limit:
+                return False
+    return False
+
+
+def _blind_spots(project_dir, source_files=0):
     """What the graph's backend could not read, preferring the census over a fresh walk.
 
-    The census is both cheaper and far more accurate: it applies the build's own scope rule,
-    where `unreadable_files` consults a hardcoded skip list that knows nothing about
-    `.gitignore` or this project's directory classifications. Measured on freya-devkit, the
-    walk reports 96 files of which 68 are deliberately out of scope. The walk is kept only for
-    graphs written before the census existed — deleting it would regress every one of those to
-    "no blind spots at all", which is the confidently-empty answer this whole path guards.
+    The census is more accurate when it fires: it applies the build's own scope rule, where
+    `unreadable_files` consults a hardcoded skip list that knows nothing about `.gitignore` or
+    this project's directory classifications. Measured on freya-devkit, the walk reports 96
+    files of which 68 are deliberately out of scope.
+
+    But its **silence is not authoritative**, and treating it as such caused a real regression.
+    The census is closed-world — it reports only extensions on a curated source list — and it
+    reports only files that are *in scope*. A repository whose entire codebase is fifteen shell
+    scripts under `scripts/` is therefore censused clean, because `scripts/` is a built-in
+    top-level exclusion. Measured on a real 40-file deployment repo: `unknown` before this
+    feature, `greenfield` after it. That is ADR-005's confidently-empty answer, reintroduced by
+    the mechanism written to remove it — and it is the same `scripts/` exclusion that made
+    freya unable to graph itself, one layer up.
+
+    So: trust the census when it finds something, or when the graph has content to be
+    authoritative about. When the graph is empty, fall back to the open-world walk, because an
+    empty graph is precisely where a confident "nothing" is most dangerous and least earned.
     """
     census, censused = unmapped_from_graph(project_dir)
-    if censused:
+    if census:
         # No `_NOT_SOURCE` filter: the census already filtered, against a curated source list
         # and a materiality rule rather than a list of things that are not source.
         return census
+    if censused and source_files:
+        return {}
     return {ext: n for ext, n in unreadable_files(project_dir).items()
             if ext not in _NOT_SOURCE}
 
@@ -188,7 +232,7 @@ def classify(project_dir):
     # TypeScript imports were enough to buy silence about 400 unread Java files, and the
     # evidence block would report `runtime: jvm` and `source_files: 3` side by side without
     # ever noticing the two were in tension.
-    blind = _blind_spots(project_dir)
+    blind = _blind_spots(project_dir, source_files)
     if blind:
         evidence["blind_spots"] = blind
     if internal_edges == 0:
@@ -196,6 +240,26 @@ def classify(project_dir):
         # cannot read this language. Reporting *greenfield* for the second is how a large Java
         # codebase — and freya-devkit itself, until its resolver was repaired — was mistaken
         # for an empty scaffold, and it is the answer that then drives bootstrap.
+        if not blind and source_files == 0 and _censused(project_dir) \
+                and _has_files(project_dir):
+            # A censused graph that is empty over a non-empty directory has said, positively,
+            # "there is nothing here I cannot read" — which leaves only one explanation: the
+            # scope rule excluded everything. Measured on a real 40-file deployment repo whose
+            # whole codebase is shell scripts under `scripts/`, a built-in top-level exclusion:
+            # `unknown` before this feature, `greenfield` after it. That is ADR-005's
+            # confidently-empty answer reintroduced by the mechanism written to remove it.
+            #
+            # Gated on `_censused` so a graph written before the census keeps its old answer —
+            # that one genuinely does not know, and flipping it would be a different kind of
+            # guess.
+            return {
+                "recommendation": "unknown",
+                "evidence": evidence,
+                "reason": ("the graph is empty but the directory is not, and the backend "
+                           "reports nothing it could not read — so every file here is outside "
+                           "the graph's scope. Check the exclusions before bootstrapping; "
+                           "this is not a greenfield project."),
+            }
         if blind:
             listed = ", ".join(f"{n} {ext}" for ext, n in
                                sorted(blind.items(), key=lambda kv: (-kv[1], kv[0]))[:3])

@@ -1074,3 +1074,70 @@ Same failure mode as the four-relation-names episode in Phase 2, arriving from t
 direction: there, an automated probe's *absence* of evidence was taken as evidence of absence;
 here, a probe's *presence* of a result was taken as evidence it meant something. A number in a
 decision record is a claim, and an inherited one is not a measurement until you have re-run it.
+
+### The review of CD-27 — twenty-six agents, sixteen real findings
+
+Five reviewers on distinct dimensions, two skeptics per finding prompted to *refute*, and a
+completeness critic. Nine findings were refuted or shown to be pre-existing. Sixteen survived,
+and the two worst were both mine.
+
+**The graph told a real repository it was greenfield — through the mechanism built to stop that.**
+
+`~/Documents/projects/acme-media` is a 40-file deployment repo whose entire codebase is fifteen
+shell scripts in `scripts/`. `scripts/` is a built-in top-level exclusion, so the census —
+correctly applying the build's own scope rule — reports nothing unread. `project_shape` then
+read that silence as authoritative and returned **`greenfield`**. Before CD-27 it returned
+`unknown`. Measured at both commits.
+
+That is ADR-005's confidently-empty answer, reintroduced by the feature written to remove it,
+via *the same `scripts/` exclusion that once stopped freya graphing itself*. And it means one of
+the two silences I had cited as evidence the filter was quiet enough was in fact evidence of a
+bug — the claim and the defect were the same observation, read the wrong way round.
+
+The fix separates two questions that were being answered by one value. "What can this backend
+not read?" is the census's question, and it answers it precisely. "Is there anything here the
+graph does not represent?" is broader — it includes files that are out of *scope*, not just out
+of *coverage* — and the census's silence does not answer it. So the census is trusted when it
+finds something, or when the graph has content to be authoritative about; when the graph is
+empty, the open-world walk runs, because an empty graph is exactly where a confident nothing is
+least earned. A censused-clean-but-empty graph over a non-empty directory now says so directly.
+
+**The census under-reported its own count.** `files` was summed from the dict *after* the
+eight-extension display cap, so 22 unread files across 11 extensions were published as 16 — with
+three languages named nowhere, and the number asserted flatly in prose. The caveat giving a
+plausible-looking wrong number is the precise failure it exists to prevent. Counted from the
+uncapped set now, with `extensions_omitted` beside it; the per-answer digest carries the
+truncation markers it was silently dropping, because "grep these five directories" when there
+are nine is a partial search target presented as a complete one.
+
+**And the test suite was machine-dependent again.** Six of the ten new CLI tests read the real
+`~/.freya/settings.json`: on a machine that answered the install question with `graphify`, every
+fixture is built with a backend that reads `.java`, the census correctly reports nothing, and six
+assertions fail. Green here, red on a colleague's laptop. This is the *second* time this feature
+has shipped that defect — `conftest.py`'s own docstring calls itself "a safety net, not the
+mechanism", and I walked past it twice.
+
+Three of the new tests were also vacuous. `test_it_honours_the_build_s_own_exclusions` used
+`node_modules/` and `dist/`, which the prune list removes *before* `_should_exclude` is reached,
+so the line the test existed to pin could be deleted with the suite green. The dotfile test's
+fixture used extensions that are in neither tier list, so every file was rejected by the
+extension check before the guard ran. And nothing tested that `run_build` threads the caller's
+exclusions into the census at all — replacing that argument with `None` left 1,409 tests green
+while the production answer changed. All three now fail under mutation; verified by mutating.
+
+**Also fixed:** a truthy non-dict `substrate` crashed all four read surfaces (exit 0 → exit 1),
+because `or {}` rescues only falsy values — `_finalise` guards the write path against that exact
+shape, twice, and the new read paths did not. A census error block read as "censused and clean",
+turning an explicit I-don't-know back into a silent zero. `--impact` emitted the
+`--dependents/--dependencies` stderr caveat, because it calls `get_dependents` internally. A
+degraded build recommended `--use graphify` in the same breath as reporting graphify
+unavailable. And `unmapped_report` walked its `paths` argument twice, so a generator would have
+lost the entire directories rollup.
+
+**And a claim that was simply false.** The commit message and two documents said
+`Coverage.blind_spots` had been deleted. It had not — only `summarise_coverage` was. It was
+still there, still with no production caller, still the dead function that looks like the answer.
+Deleted now, which is the cheaper of the two ways to make the sentence true.
+
+**1,409 → 1,415 tests.** Green from the repository root, from `skills/`, with graphify off
+`PATH`, and with a machine default naming graphify planted in a real `~/.freya/settings.json`.

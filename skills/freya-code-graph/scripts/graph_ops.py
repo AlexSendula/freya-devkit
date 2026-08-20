@@ -2138,7 +2138,8 @@ Respond with ONLY a JSON object, no markdown formatting:
         return answer
 
     def get_dependents(self, file_path: str,
-                       transitive: bool = True) -> Optional[Set[str]]:
+                       transitive: bool = True,
+                       announce: bool = True) -> Optional[Set[str]]:
         """Which files depend on this one. `None` if the graph cannot answer.
 
         `None` and `set()` are different answers and used to be the same one. An empty set
@@ -2177,7 +2178,13 @@ Respond with ONLY a JSON object, no markdown formatting:
         traverse(file_path)
         # A bare array has nowhere to qualify itself, so the caveat goes to stderr. See
         # `_announce_unmapped` for why the shape must not change instead.
-        _announce_unmapped(graph)
+        #
+        # `announce=False` when `get_impact` calls this internally: that surface carries the
+        # caveat in its own payload, and the stderr line names `--dependents/--dependencies`,
+        # so emitting it from an `--impact` run pointed the reader at commands they had not
+        # run and contradicted an answer that was already qualified correctly.
+        if announce:
+            _announce_unmapped(graph)
         return result
 
     def get_dependencies(self, file_path: str,
@@ -2233,7 +2240,7 @@ Respond with ONLY a JSON object, no markdown formatting:
                 all_dependents.add(file_path)
                 # `info` is truthy, so the file is a node and this cannot be None. Guarded
                 # anyway: the two are three lines apart today and will not always be.
-                all_dependents.update(self.get_dependents(file_path, transitive=True) or ())
+                all_dependents.update(self.get_dependents(file_path, transitive=True, announce=False) or ())
             else:
                 unknown.add(file_path)
 
@@ -2566,7 +2573,14 @@ def _census(backend: Any, graph: Dict[str, Any],
         graphed = len(graph.get('files') or {})
         material = substrate.material_extensions(counts, graphed)
         remedies = {}  # type: Dict[str, int]
-        if material:
+        # Not on a degraded run. `readable_by` is deliberately availability-blind, which is
+        # right for a machine that never installed a better backend — but this run has just
+        # *proved* the named backend unavailable and fallen back to the floor. Telling the
+        # reader to `--use graphify` in the same breath as "graphify is unavailable" is advice
+        # that contradicts the message above it.
+        degraded = (graph.get('substrate') or {}).get('degraded_from') \
+            if isinstance(graph.get('substrate'), dict) else None
+        if material and not degraded:
             try:
                 import backends
                 remedies = backends.readable_by(material, covered)
@@ -2585,9 +2599,24 @@ def _answer_caveats(graph: Optional[Dict[str, Any]], full: bool = False) -> Dict
     byte-identical to what they were before this existed, so nobody pays tokens for a field
     that would always read the same.
     """
-    block = ((graph or {}).get('substrate') or {}).get('unmapped_source')
-    digest = substrate.unmapped_digest(block, full=full)
+    digest = substrate.unmapped_digest(_census_block(graph), full=full)
     return {'unmapped_source': digest} if digest else {}
+
+
+def _census_block(graph: Optional[Dict[str, Any]]) -> Any:
+    """The `unmapped_source` block, tolerating any artifact shape.
+
+    `isinstance`, not `or {}`: the latter rescues only a *falsy* substrate, so a truthy non-dict
+    — a string, a list, a number — reached `.get` and raised. `_finalise` guards the write path
+    against exactly that shape, twice, with a comment saying indexing it "would turn a
+    diagnostic into a crash"; these read paths were added without the same guard, and every
+    query surface now goes through one of them. Every other reader of this key in the codebase
+    already uses isinstance.
+    """
+    if not isinstance(graph, dict):
+        return None
+    block = graph.get('substrate')
+    return block.get('unmapped_source') if isinstance(block, dict) else None
 
 
 def _announce_unmapped(graph: Optional[Dict[str, Any]]) -> None:
@@ -2606,10 +2635,13 @@ def _announce_unmapped(graph: Optional[Dict[str, Any]]) -> None:
     on success, while `bin/freya_cli.py` inherits the streams, so an agent running the command
     from a shell sees it in the tool result. Do not "fix" this by moving it into the payload.
     """
-    block = ((graph or {}).get('substrate') or {}).get('unmapped_source')
+    block = _census_block(graph)
     if not isinstance(block, dict) or not block.get('files'):
         return
     where = ', '.join(sorted(block.get('directories') or {})) or 'the paths above'
+    if block.get('directories_omitted'):
+        where += ' and %d more director%s' % (
+            block['directories_omitted'], 'y' if block['directories_omitted'] == 1 else 'ies')
     _announce_once(
         'code-graph: this answer excludes %d source file(s) %r does not read (%s) under %s.\n'
         '  --dependents/--dependencies answer over the mapped subset only; grep those paths '
