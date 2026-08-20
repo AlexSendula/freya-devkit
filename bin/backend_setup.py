@@ -39,7 +39,14 @@ _BLURB = {
 _UPSELL = (
     "freya reads TypeScript, JavaScript, Python and Go out of the box.\n"
     "For Java, Kotlin, Swift, Rust, C# and thirty more, install graphify\n"
-    "  uv tool install graphifyy      (or: pip install graphifyy)\n"
+    # The extras matter and were missing here. graphify declares .sql, .tf and .tfvars
+    # unconditionally, but parses them only when the optional grammars are installed — so
+    # without the extras those extensions are *declared* and produce nothing. The census
+    # filters candidates by the running backend's declared extensions, which means it would
+    # then affirm that nothing was unread while the graph held no nodes for them: a
+    # confidently-empty answer with a second confidently-empty answer vouching for it.
+    # This is the install the Phase 0 spike actually measured against.
+    '  uv tool install "graphifyy[sql,terraform]"      (or: pip install "graphifyy[sql,terraform]")\n'
     "then run:\n"
     "  freya code-graph --use graphify --global"
 )

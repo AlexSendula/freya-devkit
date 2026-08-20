@@ -2565,7 +2565,24 @@ def run_build(backend: Any, **kwargs: Any) -> Dict[str, Any]:
 
 
 def run_update(backend: Any, **kwargs: Any) -> Dict[str, Any]:
-    """Update through `backend`, finalise, and return the summary."""
+    """Update through `backend`, finalise, and return the summary.
+
+    Obligation 5 is enforced here. A backend declares `coverage().incremental`, and `False`
+    means "I cannot reliably drop deleted nodes" — at which point trusting an incremental pass
+    leaves ghost nodes that answer `--dependents` confidently for files that no longer exist.
+    The contract said it forced a full rebuild in that case, in the module docstring, in the
+    schema reference, in the spec and in the decision record. Nothing read the flag: it was
+    written into every graph and consulted by no code. Both shipped backends declare `True`,
+    so no test had ever been in a position to notice.
+    """
+    try:
+        declines = backend.coverage().incremental is False
+    except Exception:
+        # A backend that cannot describe its own coverage gets the safe answer, not the
+        # convenient one.
+        declines = True
+    if declines:
+        return _finalise(backend, backend.build(**kwargs), kwargs.get('exclusions'))
     return _finalise(backend, backend.update(**kwargs), kwargs.get('exclusions'))
 
 

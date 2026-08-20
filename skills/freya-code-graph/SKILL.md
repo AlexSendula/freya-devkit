@@ -346,7 +346,8 @@ The build process uses a hybrid approach to determine which directories contain 
 
 1. **Rules first** - Known patterns are instantly classified:
    - Source: `src/`, `lib/`, `app/`, `components/`, `pages/`, `cmd/`, `pkg/`, etc.
-   - Exclude: `.next/`, `node_modules/`, `dist/`, `build/`, `.git/`, etc.
+   - Exclude: artifact trees and framework caches — see *Overriding the built-in exclusions*
+     for the tiers and how to overrule any of them
 
 2. **AI classification** - For unknown directories, AI classifies with confidence
 
@@ -379,13 +380,13 @@ The build process uses a hybrid approach to determine which directories contain 
 - `**/*.py`
 - `**/*.go`
 
-**Excluded directories:**
-- `node_modules`, `__pycache__`, `.git`
-- `dist`, `build`, `venv`
-- `.next`, `.nuxt`, `.output`, `out` (framework build outputs)
-- `coverage`, `.cache`
-- Plus any patterns from your `.gitignore` file
-- Plus any directories classified as "exclude" by AI/user
+**Excluded directories:** artifact trees (`node_modules`, `vendor`, `dist`, `build`, `target`,
+`__pycache__`, framework caches, …) at any depth; convention names (`docs`, `examples`,
+`scripts`, `generated`) at the repo root only; anything in your `.gitignore`; and anything
+classified `exclude`. The authoritative list is `_get_exclusion_rules()` in `graph_ops.py` —
+this file deliberately does not keep a second copy, because the two copies it used to keep had
+already drifted apart. Every one of them is a default you can overrule: see
+[Overriding the built-in exclusions](#overriding-the-built-in-exclusions).
 
 **Output:**
 ```

@@ -57,12 +57,46 @@ source (ADR-017) — which is why the ignore names files individually instead of
             "relations":  { "type": "array", "items": { "type": "string" },
                             "description": "Edge kinds this backend emits" },
             "incremental": { "type": "boolean",
-                             "description": "False means the contract forces a full rebuild" }
+                             "description": "The backend declares whether it can drop deleted nodes. Declared, not currently enforced — see ADR-018" }
           }
         },
         "degraded_from": {
           "type": "string",
           "description": "Present only when the configured backend was unavailable and this is a fallback"
+        },
+        "exclusions": {
+          "type": "object",
+          "description": "What the project declared out of scope for this build",
+          "properties": {
+            "directories": { "type": "array", "items": { "type": "string" } },
+            "patterns":    { "type": "array", "items": { "type": "string" } },
+            "overrides":   { "type": "array", "items": { "type": "string" },
+                             "description": "Present only when the project overrode a default" }
+          }
+        },
+        "unmapped_source": {
+          "type": "object",
+          "description": "In-scope program source this backend does not read (ADR-029). `files: 0` means the census ran and found none; the key's absence means the graph predates the census; `files: null` with `error` means it could not run",
+          "properties": {
+            "files":               { "type": ["integer", "null"] },
+            "backend":             { "type": ["string", "null"] },
+            "extensions":          { "type": "object", "additionalProperties": { "type": "integer" } },
+            "directories":         { "type": "object", "additionalProperties": { "type": "integer" } },
+            "readable_by":         { "type": "object", "additionalProperties": { "type": "integer" } },
+            "advice":              { "type": "string" },
+            "extensions_omitted":  { "type": "integer" },
+            "directories_omitted": { "type": "integer" },
+            "truncated":           { "type": "boolean" },
+            "error":               { "type": "string" }
+          }
+        },
+        "validation": {
+          "type": "object",
+          "description": "Present only when the produced graph broke the contract; the errors are recorded rather than only printed",
+          "properties": {
+            "error_count": { "type": "integer" },
+            "errors":      { "type": "array", "items": { "type": "string" } }
+          }
         }
       }
     },

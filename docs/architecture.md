@@ -157,20 +157,30 @@ tree below marks each line so you never have to infer it.
 │ │   ├── codebase-security/                      tracked      │
 │ │   │   └── 2024-01-15.md                       tracked      │
 │ │   └── .security-last-scan                     tracked      │
+│ ├── settings.json             ← the engineer     tracked      │
 │ └── .graph/                                                  │
 │     ├── .gitignore            ← written by us   tracked      │
 │     ├── graph.json            ← code-graph      ignored      │
+│     ├── graph.<backend>.json  ← code-graph      ignored      │
 │     ├── classifications.json  ← code-graph      ignored      │
+│     ├── docs.json             ← docs-manager    ignored      │
 │     └── behavior.json         ← behavior-graph  tracked      │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 `.graph/` ignores its cache by name: `code-graph --build` writes a `.gitignore` listing
-`graph.json` and `classifications.json` (`skills/freya-code-graph/scripts/graph_ops.py`,
-`_write_cache_gitignore`), so an adopting project never has to touch its root `.gitignore`.
-Those two are a **parse cache** — rebuildable from source in seconds, large (124 KB on a
-~230-file app), and not byte-stable across builds, since their `imports` arrays come out of a
-set. Committing them would put a diff in every build with zero code change.
+`graph.json`, `graph.*.json`, `classifications.json` and `docs.json`
+(`skills/freya-code-graph/scripts/graph_ops.py`, `CACHE_GITIGNORE`), so an adopting project
+never has to touch its root `.gitignore`. Those four are a **parse cache** — rebuildable from
+source in seconds, large (124 KB on a ~230-file app), and not byte-stable across builds, since
+their `imports` arrays come out of a set. Committing them would put a diff in every build with
+zero code change. `graph.*.json` is the per-backend copy each substrate writes beside the active
+graph, so a backend swap can be diffed rather than destroying the baseline it should be measured
+against (ADR-028).
+
+`knowledge-base/settings.json` sits outside `.graph/` and **is** tracked: it is where a project
+records which backend it wants and which built-in exclusions it overrules, and both have to
+survive a clone and reach CI. See ADR-019 and ADR-022.
 
 **`behavior.json` is deliberately not ignored.** It is not a parse cache: its
 `source: observed` edges are captured by running the test suite, so they cannot be recovered by

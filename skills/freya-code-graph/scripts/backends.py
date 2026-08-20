@@ -138,7 +138,15 @@ def select(project_dir: str,
         floor = by_name.get(FLOOR) or usable[0]
         return Selection(
             floor, requested, degraded_from=requested,
-            reason='not installed' if requested not in _registry() else 'unavailable here',
+            # The two cases the other way round. A name that IS registered but did not report
+            # itself usable is the ordinary one — graphify is not on PATH — and "not installed"
+            # is what that means to a reader; it was previously labelled "unavailable here",
+            # which reads like a policy decision. A name that is not registered at all is a
+            # different problem, and calling it "not installed" sends the reader off to install
+            # something that does not exist. `--use` refuses unknown names, so this reaches
+            # only a hand-edited settings.json — exactly the reader who needs to be told which
+            # of the two mistakes they made.
+            reason='unknown backend' if requested not in _registry() else 'not installed',
             warnings=warnings)
 
     # `auto` resolves to the floor, and deliberately does not go shopping.

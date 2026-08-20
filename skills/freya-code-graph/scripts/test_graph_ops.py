@@ -2159,6 +2159,57 @@ class TestScaleAndScopeDefects(Base):
             self.assertEqual(excl.excludes(path), expected, path)
 
 
+class TestIncrementalObligation(Base):
+    """Obligation 5, which was declared everywhere and enforced nowhere.
+
+    `coverage().incremental` was written into every graph and read by no code. Both shipped
+    backends declare `True`, so nothing had ever been in a position to notice — while the
+    module docstring, the schema reference, the spec and the decision record all stated the
+    enforcement as present fact.
+    """
+
+    class _Declines:
+        """A conforming backend that cannot drop deleted nodes."""
+
+        name = 'declines'
+
+        def __init__(self, inner):
+            self._inner = inner
+            self.project_dir = inner.project_dir
+            self.update_calls = 0
+            self.build_calls = 0
+
+        def coverage(self):
+            c = self._inner.coverage()
+            return substrate.Coverage(list(c.languages), list(c.extensions),
+                                      list(c.relations), False)
+
+        def build(self, **kw):
+            self.build_calls += 1
+            return self._inner.build(**kw)
+
+        def update(self, **kw):
+            self.update_calls += 1
+            return self._inner.update(**kw)
+
+    def test_a_backend_that_declines_incremental_gets_a_full_build(self):
+        proj = self.mk({"src/a.ts": "export const a = 1\n",
+                        "src/b.ts": 'import { a } from "./a"\nexport const b = a\n'})
+        backend = self._Declines(CodeGraph(proj))
+        graph_ops.run_build(backend, non_interactive=True)
+        graph_ops.run_update(backend, non_interactive=True)
+        self.assertEqual(backend.update_calls, 0, "update() must not be trusted")
+        self.assertEqual(backend.build_calls, 2, "the contract rebuilds instead")
+
+    def test_a_backend_that_supports_incremental_is_left_alone(self):
+        proj = self.mk({"src/a.ts": "export const a = 1\n"})
+        g = CodeGraph(proj)
+        self.assertTrue(g.coverage().incremental)
+        graph_ops.run_build(g, non_interactive=True)
+        out = graph_ops.run_update(g, non_interactive=True)
+        self.assertIn('status', out)
+
+
 class TestReadableBy(Base):
     """The remedy has to be nameable on a machine that has never installed the remedy.
 
