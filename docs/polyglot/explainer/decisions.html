@@ -143,7 +143,50 @@ reject" from fifty-one documents plus a diff, and it took a day. This is the ans
   <code>substrate.allow</code> list</em> — more machinery for the same answer.
   <em>Silence when a better backend is available</em> — opt-in must not mean undiscoverable.</p>
   <p style="margin-bottom:0">This one <strong>supersedes behaviour that had already shipped</strong>
-  in Phase 1.</p>
+  in Phase 1, and was later <a href="#cd-26">refined by CD-26</a> — <code>auto</code> still never
+  scores, but it now defers to an answer the engineer gave once.</p>
+</div>
+
+<div class="card ok" id="cd-26">
+  <span class="card-label">CD-26 · the backend is chosen once, at install, and recorded per
+  project</span>
+  <p><strong>Decided.</strong> <code>freya install</code> asks, in a numbered menu.
+  <code>freya update</code> asks too. The answer is the machine-level default in
+  <code>~/.freya/settings.json</code>; precedence is <strong>project, then machine, then
+  floor</strong>; and <em>the first build in a project records the machine answer in that
+  project's own committed <code>settings.json</code></em>.</p>
+  <p><strong>How it came up.</strong> Raised by the engineer, not by the plan. CD-23 made naming a
+  backend the opt-in and never said how anyone was supposed to do that — and the answer turned out
+  to be <em>by hand</em>. <code>settings.write()</code> existed with <strong>zero production
+  callers</strong>; its own docstring said the file "is created when they ask for it", and there
+  was no way to ask. The only discovery path was a stderr hint that fires when the other backend
+  is <em>already installed</em>, so you had to own the thing before being told you might want
+  it.</p>
+  <p><strong>Why install, of four candidate moments.</strong> <code>code-graph</code> auto-enables
+  non-interactive mode whenever stdin is not a TTY — which is every agent-driven run and every
+  <code>wrap-up</code>, which is to say the workflow. A terminal prompt there fires almost
+  exclusively for someone typing the command by hand. Install is the one moment a keyboard is
+  guaranteed, and it is run deliberately. That <code>update</code> asks as well is the whole
+  migration story for anyone installed before the question existed: no version check and no
+  migration command, because <em>"has this machine answered?"</em> is the only state that
+  matters.</p>
+  <p><strong>Why the project file is the load-bearing half.</strong> A machine default left
+  implicit would mean the same commit graphs differently on a machine that has one and a machine
+  that does not — and integration behaviours' static fingerprints come from the code-graph closure
+  into <code>behavior.json</code>, which is committed. That divergence would arrive as a diff
+  reading like behaviour drift. Writing it down makes the repository self-describing, which is the
+  property <a href="#scope">CD-15</a> exists for.</p>
+  <p style="margin-bottom:0"><strong>Rejected:</strong> <em>ask through the agent, via the
+  deferred-prompt protocol</em> — <code>needs_classification()</code> /
+  <code>get_classification_prompt()</code> / <code>classify_with_ai_response()</code> already
+  exist for exactly this shape, and have no CLI flag and no caller, the fourth instance of this
+  codebase writing an API whose effect does not exist. Finishing it would have been the bulk of
+  the work and buys nothing here: the question is per machine, and install is a better place to
+  ask a per-machine question than the middle of somebody's commit. The instruction telling the
+  agent to ask would also live in the skill layer, <strong>read on every invocation to say nothing
+  on almost all of them</strong> — a standing token cost for a question asked once per machine.
+  The protocol is still the right answer for <em>directory</em> classification, which is genuinely
+  per project and still stuck.</p>
 </div>
 
 <h2 id="edge">What an edge may say</h2>
@@ -522,6 +565,24 @@ all. Each was believed, acted on, and then overturned by evidence.</p>
     <td>Nothing filters on provenance. The tier is recorded and unenforced</td>
     <td>The final review, reading the code for a reader of the field and finding none</td>
   </tr>
+  <tr>
+    <td>The new install-question suite was green, so it was covered
+    <span class="pill stop">nearly committed</span></td>
+    <td>Green <em>on this laptop only</em>. Five of its thirteen tests read the real backend
+    registry, and CI installs nothing but <code>pytest</code> — where there is one backend, so the
+    question correctly declines to ask and the assertions invert. It would have landed with its
+    own suite red on the only machine that runs it for everybody else</td>
+    <td>A paranoia pass asking what in the change was machine-dependent. Fixed by injecting the
+    backend list rather than by reading the registry</td>
+  </tr>
+  <tr>
+    <td><code>--use auto --global</code> clears the machine default
+    <span class="pill stop">written an hour earlier</span></td>
+    <td>It recorded the literal string <code>"auto"</code> as the answer — so no default was in
+    effect <em>and</em> the install question was permanently suppressed, under a success message
+    claiming otherwise</td>
+    <td>A completeness critic run after the review had already signed off</td>
+  </tr>
 </table>
 
 <h2 id="open">Still open</h2>
@@ -584,11 +645,13 @@ all. Each was believed, acted on, and then overturned by evidence.</p>
   <tr><td>CD-23</td><td><code>auto</code> is the floor</td><td><a href="#shape">above</a></td></tr>
   <tr><td>CD-24</td><td>Symbols refine an edge, off by default</td><td><a href="#edge">above</a></td></tr>
   <tr><td>CD-25</td><td>A behaviour's symbols come from coverage</td><td><a href="#edge">above</a></td></tr>
+  <tr><td>CD-26</td><td>The backend is chosen once, at install, and recorded per project</td>
+      <td><a href="#cd-26">above</a></td></tr>
 </table>
 
 <div class="card warn">
   <span class="card-label">Not yet distilled</span>
-  <p style="margin-bottom:0">All twenty-five are staged in
+  <p style="margin-bottom:0">All twenty-six are staged in
   <a href="../decisions.md">decisions.md</a> in ADR shape and <strong>have not yet been written
   into <code>docs/decisions/</code></strong>. That is the closing step of this feature, along with
   deleting the working directory. Until it happens, Track B's reasoning lives only here.</p>
