@@ -499,3 +499,52 @@ been silently truncated and committed.
 - `docs/polyglot/explainer/` — both pages: fork resolved, Part B retitled, Part C added
 - `docs/polyglot/phases/phase_0/harness/compare_graphs.py` — reads both edge shapes, so the
   Phase 0 gate can still be re-run against the numbers it originally produced
+
+---
+
+## 2026-08-20 (later) — the review that found nine, and the one that mattered
+
+**Status:** shipped as `774e7f2` and `9fa6399`.
+
+Three review lenses over the four commits above, each finding independently, then a refutation
+pass that had to *reproduce* a defect before it counted. 17 raised, 9 survived. Every one was in
+code written earlier the same day.
+
+### Reversals
+
+| Shipped hours earlier | What replaced it | Why |
+|---|---|---|
+| Overrides live in `classifications.json` | Overrides live in `knowledge-base/settings.json` | That file is gitignored regenerable cache. The override worked for whoever typed it and vanished on clone — CI and every colleague silently graphed a smaller codebase and were told it succeeded |
+| `--update` rewrites a stale artifact in place, stamping the new schema version | `update()` runs a full rebuild instead | A graph old enough to be stale can predate the `substrate` metadata block, and that block cannot be recovered from the artifact. The rewrite left it claiming no backend and no coverage, and by stamping the version guaranteed nothing would look again |
+| `get_dependencies`/`get_dependents` return `set()` when the file is unknown | They return `None` | `[]` meant both "imports nothing" and "not in the graph". behavior-runner took the first reading and committed a one-file fingerprint |
+
+### Worth carrying
+
+- **The ADR was already written, and I broke it anyway.** CD-15 rejected
+  `classifications.json` as a home for a decision — "that path is gitignored regenerable
+  cache... would not reach a fresh clone" — and `settings.py`'s own module docstring repeats
+  it in the second paragraph. CD-21 put the override there regardless. Having the reasoning
+  written down, in the file being edited, was not enough.
+- **A fix can reopen a defect through a different door.** `ab59b08` closed behavior-runner's
+  silent-empty closure for *failed* queries. Moving `scripts` back to a root-level exclusion
+  reopened it for *unknown* entries the same day, in a different commit, for the same
+  downstream consequence.
+- **My own docstring asserted an invariant the code did not hold.** `_parse_imports` said two
+  edges to one target could not happen, having deduped by specifier — but `./sub` and
+  `./sub/index` are two specifiers and one file.
+- **The comment knew the rule and the code next to it did not follow it.** Backend selection
+  prints to stderr with a comment saying it must, "so it never contaminates `--format json`".
+  Four progress prints in `build()` went to stdout, which made `--build --format json`
+  unparseable.
+- **Refutation-first review earns its cost.** 8 of 17 candidates were refuted by an agent that
+  reproduced the scenario and found the code already handled it. Reviewing without that pass
+  would have meant acting on all 17.
+
+### Measurements
+
+| | |
+|---|---|
+| Review | 20 agents, 3 lenses + 17 refutations; 9 confirmed |
+| Clone test | `git clone` of a project with a `settings.json` override: graphs the overridden tree, records `overrides: ["docs"]` |
+| freya-devkit | 57 files, 424 edges — +5 on the prior run, all of them this change's own new import lines |
+| Tests | 1,186 → 1,200 |

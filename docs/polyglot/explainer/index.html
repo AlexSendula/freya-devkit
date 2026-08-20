@@ -149,7 +149,12 @@ thing you spotted that turned out to be the more serious of the two. All three a
   described: <strong>a project could not disagree with the defaults at all.</strong></p>
   <p>Marking a folder as source was accepted, written to disk, and then silently overruled —
   the filter never read those verdicts. So a wrong default was not merely a wrong default, it
-  was unfixable. It can be argued with now.
+  was unfixable. It can be argued with now, in
+  <code>knowledge-base/settings.json</code>.</p>
+  <p class="hint">My first attempt at this put the override in a gitignored cache file, so it
+  would have worked for you and vanished for everyone who cloned the repo. A review caught it
+  the same day. The reasoning against that file was already written down — in an ADR, and in
+  the docstring of the module I was editing.
   <a class="more" href="details.html#depth">what changed exactly →</a></p>
 </div>
 

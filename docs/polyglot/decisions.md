@@ -892,11 +892,30 @@ unfixable.
 
 ### Decision
 
-A classification verdict outranks the built-in lists, in two tiers:
+**Corrected the same day.** As first shipped, the only home for an override was
+`classifications.json` — which `CACHE_GITIGNORE` declares regenerable and not to be
+committed. So an override survived on the machine that made it and vanished on clone: CI and
+every colleague silently graphed a smaller codebase and were told the build succeeded.
+[CD-15](#cd-15--project-settings-live-in-knowledge-basesettingsjson) had already rejected that
+file as a home for a decision, in those words, on exactly this ground. Writing an ADR does not
+make you remember it.
+
+Committed verdicts live in `knowledge-base/settings.json` under `directories`:
+
+```json
+{ "directories": { "docs": "source", "packages/legacy": "exclude" } }
+```
+
+`classifications.json` keeps the derived and model-authored verdicts, which are cache and are
+re-derived when the rules change. Both are folded to one key form on read, because `"docs/"` —
+the spelling the documentation uses throughout — matched nothing in the filter while still
+reaching the contract as a live override.
+
+A verdict outranks the built-in lists, in two tiers:
 
 | Source | Overrides |
 |---|---|
-| `user` | Everything, including artifact-tree names and `.gitignore` |
+| `settings.json`, or a `user` classification | Everything, including artifact-tree names and `.gitignore` |
 | `ai` | Root convention names and `.gitignore`, not artifact trees |
 | `rule` / `gitignore` | Nothing — they are the lists' own output, so overriding would be circular |
 

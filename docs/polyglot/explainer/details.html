@@ -602,6 +602,19 @@ that has never heard of <code>classifications.json</code> honours them too.</p>
 <p>Precedence is now one sentence: <em>a stated verdict beats a derived one at any depth, and
 among equals the deepest wins.</em></p>
 
+<div class="card decide">
+  <p><strong>Corrected hours later, by review.</strong> As first shipped, the only home for an
+  override was <code>classifications.json</code> — which the toolkit itself declares
+  regenerable cache and gitignores. So an override worked on the machine that made it and
+  vanished on clone: CI and every colleague would have graphed a smaller codebase and been told
+  the build succeeded.</p>
+  <p>The reasoning against that file was already written down, in
+  <a href="#cd15">the ADR about where settings live</a>, and repeated in the second paragraph
+  of the very module being edited. Having it written down was not enough. Overrides now live in
+  <code>knowledge-base/settings.json</code>, which is committed — verified against a real
+  <code>git clone</code>.</p>
+</div>
+
 <p><code>scripts</code> also went back to being excluded at the repo root. Dropping the name
 outright was the wider change — a root <code>scripts/</code> had been excluded in every project
 this toolkit had ever run on, and un-excluding it everywhere to fix one repo's nested
