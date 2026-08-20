@@ -665,6 +665,34 @@ repository as changed every run; a git failure read as "nothing changed" and mad
 permanent silent no-op; and the byte-identity test used `sort_keys=True`, normalising away the
 only thing that could break it.
 
+### §9.1 re-derived on all three repos, at HEAD
+
+Spec §9 requires the gate to run against three repositories, not one. Done after the review,
+because "Phase 2 is complete" was not a claim I could support from freya-devkit alone.
+
+| Repo | homegrown | graphify | Edges homegrown finds that graphify does not |
+|---|---|---|---|
+| acme-site-testbed (TS/Next.js — the floor's home turf) | 234 files / 627 pairs | 247 files / 630 pairs | **0** |
+| java-graph-fixture (Maven) | 0 files, reports `unknown` | 7 files / 11 pairs | **0** |
+| freya-devkit (Python) | 59 files / 65 pairs | 67 files / 73 pairs | 1, and it is *homegrown's* false positive — an import inside a string literal |
+
+The Java figure matches Phase 0's hand-written ground truth of 11 edges exactly.
+
+**Spec §10's Phase 5 clause is discharged.** It says `project_shape.classify()` "reads a Java
+repo as greenfield today... fixed for free by Phase 2 and must be re-verified, not assumed".
+Re-verified: on the floor the Java repo now reports `unknown` with the blind-spot reason ("the
+code-graph backend does not read 6 .java"), and on graphify it reports **brownfield** with 7
+files and 22 edges. Neither answer is `greenfield`, which was the failure.
+
+Two things that verification found, which is the argument for doing it:
+
+- `.xml` was missing from the declared coverage, so `pom.xml` failed validation on the first
+  real Maven project. Declared now, and flagged over-claimed alongside `.json` — graphify
+  reads *manifests*, not arbitrary XML.
+- My first attempt wrote a malformed `settings.json` through a shell-quoting mistake. The build
+  said so, in one line, and used defaults. That is the warning path fixed hours earlier in the
+  same session, catching a real mistake the first time it was given one.
+
 ### Still open
 
 - The intra-file call graph (1,516 links here) is a deliberately discarded capability. Filing

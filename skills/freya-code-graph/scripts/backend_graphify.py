@@ -172,8 +172,8 @@ EXTERNAL_NODE_TYPE = 'module'
 #
 # Declaring this by hand at all is a compromise, and the reason is worth writing down: the
 # extractor's file selection is partly *name*-based, not purely extension-based. An arbitrary
-# `x.json` produces nothing while `package.json` produces nodes, so `.json` appears here and
-# over-claims — a project full of unrecognised JSON would be reported as covered when it is
+# `x.json` produces nothing while `package.json` (and `pom.xml`) produce nodes, so `.json` and
+# `.xml` appear here and over-claim — a project full of unrecognised JSON would be reported as covered when it is
 # not. The alternative, leaving `.json` out, under-claims on every repository that has a
 # manifest, and the contract's whole purpose is to stop a backend under-reporting what it saw.
 # Over-claiming is the direction where the graph merely looks emptier than expected; under-
@@ -182,7 +182,7 @@ EXTENSIONS = (
     '.bash', '.c', '.cjs', '.cpp', '.cs', '.dart', '.ex', '.go', '.h', '.hpp',
     '.java', '.js', '.json', '.jsx', '.kt', '.lua', '.mjs', '.mts', '.php', '.ps1',
     '.py', '.rb', '.rs', '.scala', '.sh', '.sql', '.svelte', '.swift', '.tf',
-    '.ts', '.tsx', '.vue', '.zig',
+    '.ts', '.tsx', '.vue', '.xml', '.zig',
 )
 
 # Extensions this backend declares but whose selection is *name*-based, so the declaration
@@ -190,12 +190,12 @@ EXTENSIONS = (
 # nothing. Declaring them is still right — under-reporting what a backend saw is the failure
 # the contract exists to prevent — but they must not be used as evidence that a project would
 # gain from switching, because almost every repository contains one.
-OVER_CLAIMED_EXTENSIONS = ('.json',)
+OVER_CLAIMED_EXTENSIONS = ('.json', '.xml')
 
 LANGUAGES = (
     'c', 'cpp', 'csharp', 'dart', 'elixir', 'go', 'java', 'javascript', 'json',
     'kotlin', 'lua', 'php', 'powershell', 'python', 'ruby', 'rust', 'scala',
-    'shell', 'sql', 'svelte', 'swift', 'terraform', 'typescript', 'vue', 'zig',
+    'shell', 'sql', 'svelte', 'swift', 'terraform', 'typescript', 'vue', 'xml', 'zig',
 )
 
 _LANGUAGE_BY_EXT = {
@@ -206,7 +206,7 @@ _LANGUAGE_BY_EXT = {
     '.php': 'php', '.ps1': 'powershell', '.py': 'python', '.rb': 'ruby', '.rs': 'rust',
     '.scala': 'scala', '.sh': 'shell', '.sql': 'sql', '.svelte': 'svelte',
     '.swift': 'swift', '.tf': 'terraform', '.ts': 'typescript', '.tsx': 'typescript',
-    '.vue': 'vue', '.zig': 'zig',
+    '.vue': 'vue', '.xml': 'xml', '.zig': 'zig',
 }
 
 
