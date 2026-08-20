@@ -42,7 +42,16 @@ FILE_PATTERNS = {
 # this repo are called "category", and the live two are security findings and spec
 # contexts. Removed under CD-12; existing caches keep the key harmlessly.
 
-# Import patterns by language
+# Import patterns by language, each tagged with the relation it expresses.
+#
+# The tag is what the object-shaped edge buys immediately. `export * from './y'` and
+# `import {x} from './y'` were the same edge when an edge was a string, because a string can
+# only say *where*. A barrel file that re-exports twelve modules and a module that imports
+# twelve modules are different things to anyone reading a blast radius, and now they can be
+# told apart.
+_RE_EXPORT = 're_exports'
+_IMPORTS = 'imports'
+
 IMPORT_PATTERNS = {
     # `(?:type\s+)?` appears on the three statement forms that accept it. A type-only
     # import is a real dependency — the importer does not compile without it — and
@@ -50,33 +59,33 @@ IMPORT_PATTERNS = {
     # forms keep matching exactly as before.
     'typescript': [
         # import { x } from './y'   /   import type { X } from './y'
-        r'import\s+(?:type\s+)?\{[^}]*\}\s+from\s+[\'"]([^\'"]+)[\'"]',
+        (r'import\s+(?:type\s+)?\{[^}]*\}\s+from\s+[\'"]([^\'"]+)[\'"]', _IMPORTS),
         # import x from './y'       /   import type X from './y'
-        r'import\s+(?:type\s+)?\w+\s+from\s+[\'"]([^\'"]+)[\'"]',
+        (r'import\s+(?:type\s+)?\w+\s+from\s+[\'"]([^\'"]+)[\'"]', _IMPORTS),
         # import * as x from './y'
-        r'import\s+(?:type\s+)?\*\s+as\s+\w+\s+from\s+[\'"]([^\'"]+)[\'"]',
+        (r'import\s+(?:type\s+)?\*\s+as\s+\w+\s+from\s+[\'"]([^\'"]+)[\'"]', _IMPORTS),
         # export * from './y'       /   export type { D } from './y'
-        r'export\s+(?:type\s+)?(?:\*|\{[^}]*\})\s+from\s+[\'"]([^\'"]+)[\'"]',
+        (r'export\s+(?:type\s+)?(?:\*|\{[^}]*\})\s+from\s+[\'"]([^\'"]+)[\'"]', _RE_EXPORT),
         # require('./y')
-        r'require\s*\(\s*[\'"]([^\'"]+)[\'"]\s*\)',
+        (r'require\s*\(\s*[\'"]([^\'"]+)[\'"]\s*\)', _IMPORTS),
         # import('./y')
-        r'import\s*\(\s*[\'"]([^\'"]+)[\'"]\s*\)',
+        (r'import\s*\(\s*[\'"]([^\'"]+)[\'"]\s*\)', _IMPORTS),
     ],
     'javascript': [
         # Same as TypeScript (JS is subset). `type` cannot appear in plain JS, but
         # keeping the two lists identical is what stops them drifting apart.
-        r'import\s+(?:type\s+)?\{[^}]*\}\s+from\s+[\'"]([^\'"]+)[\'"]',
-        r'import\s+(?:type\s+)?\w+\s+from\s+[\'"]([^\'"]+)[\'"]',
-        r'import\s+(?:type\s+)?\*\s+as\s+\w+\s+from\s+[\'"]([^\'"]+)[\'"]',
-        r'export\s+(?:type\s+)?(?:\*|\{[^}]*\})\s+from\s+[\'"]([^\'"]+)[\'"]',
-        r'require\s*\(\s*[\'"]([^\'"]+)[\'"]\s*\)',
-        r'import\s*\(\s*[\'"]([^\'"]+)[\'"]\s*\)',
+        (r'import\s+(?:type\s+)?\{[^}]*\}\s+from\s+[\'"]([^\'"]+)[\'"]', _IMPORTS),
+        (r'import\s+(?:type\s+)?\w+\s+from\s+[\'"]([^\'"]+)[\'"]', _IMPORTS),
+        (r'import\s+(?:type\s+)?\*\s+as\s+\w+\s+from\s+[\'"]([^\'"]+)[\'"]', _IMPORTS),
+        (r'export\s+(?:type\s+)?(?:\*|\{[^}]*\})\s+from\s+[\'"]([^\'"]+)[\'"]', _RE_EXPORT),
+        (r'require\s*\(\s*[\'"]([^\'"]+)[\'"]\s*\)', _IMPORTS),
+        (r'import\s*\(\s*[\'"]([^\'"]+)[\'"]\s*\)', _IMPORTS),
     ],
     'python': [
         # from x import y   (also covers `from .x import y` and `from ..x import y`)
-        r'from\s+([\w.]+)\s+import',
+        (r'from\s+([\w.]+)\s+import', _IMPORTS),
         # import x
-        r'^import\s+([\w.]+)',
+        (r'^import\s+([\w.]+)', _IMPORTS),
         # A third pattern for `from . import x` used to sit here. Its capture group
         # started *after* the dots, so it returned the rest of the statement rather
         # than a module: `from . import leaf` yielded the specifier 'import', which
@@ -88,11 +97,11 @@ IMPORT_PATTERNS = {
     ],
     'go': [
         # import "module/path"
-        r'import\s+[\'"]([^\'"]+)[\'"]',
+        (r'import\s+[\'"]([^\'"]+)[\'"]', _IMPORTS),
         # import alias "module/path"
-        r'import\s+\w+\s+[\'"]([^\'"]+)[\'"]',
+        (r'import\s+\w+\s+[\'"]([^\'"]+)[\'"]', _IMPORTS),
         # multi-line import ( ... )
-        r'[\'"]([^\'"]+)[\'"]',
+        (r'[\'"]([^\'"]+)[\'"]', _IMPORTS),
     ],
 }
 
@@ -137,7 +146,21 @@ IMPORT_SIGNALS = ('external:', 'unresolved:')
 # verdicts in classifications.json are discarded on a mismatch, so a rule fix reaches
 # projects that were already graphed instead of only fresh clones. Any string works;
 # a date is readable in the file.
-RULES_VERSION = '2026-08-19'
+RULES_VERSION = '2026-08-20'
+
+# Classification sources that outrank the built-in name lists in `_get_exclusion_rules`.
+#
+# A `rule` or `gitignore` verdict is those lists' own output, so letting one override them
+# would be circular. `user` and `ai` are judgements *about this project*, which is the only
+# thing that can know a default is wrong here.
+#
+# The two tiers differ deliberately. A name list written in this file cannot know that some
+# repository really does keep source in a directory called `target`, so a person who says so
+# outranks everything — without that, a wrong default is unfixable, which is the actual defect
+# this exists to close. A model gets the weaker tier: "node_modules is source" is a plausible
+# thing for one to guess and an implausible thing for a person to type.
+_OVERRIDES_EVERYTHING = frozenset({'user'})
+_OVERRIDES_CONVENTIONS = frozenset({'user', 'ai'})
 
 
 def _gitignore_pattern_matches(rel_path: str, parts: Sequence[str], pattern: str) -> bool:
@@ -329,13 +352,21 @@ def migrate_separators(graph: Dict[str, Any]) -> Dict[str, Any]:
     if not isinstance(files, dict) or not any('\\' in key for key in files):
         return graph
 
+    def fold(edge: Any, normalise: Any, end: str) -> Any:
+        """Fold one edge's far end, whether the edge is an object or a bare string."""
+        if isinstance(edge, dict):
+            return {**edge, end: normalise(edge.get(end, ''))}
+        return normalise(edge)
+
     migrated: Dict[str, Any] = {}
     for key, info in files.items():
         if isinstance(info, dict):
             info = {
                 **info,
-                'imports': [normalize_import(i) for i in info.get('imports', [])],
-                'dependents': [normalize_key(d) for d in info.get('dependents', [])],
+                'imports': [fold(i, normalize_import, 'to')
+                            for i in info.get('imports', [])],
+                'dependents': [fold(d, normalize_key, 'from')
+                               for d in info.get('dependents', [])],
             }
         migrated[normalize_key(key)] = info
     graph['files'] = migrated
@@ -372,10 +403,11 @@ class CodeGraph:
     def coverage(self) -> substrate.Coverage:
         """What this backend actually handles — contract obligation 4.
 
-        `relations` claims only `imports`, because that is genuinely all it emits. It resolves
-        module references between files; it has no notion of a symbol, so it must not claim
-        `calls` or `inherits` merely because the vocabulary contains them. Overclaiming here is
-        how a caller ends up trusting a query the backend cannot answer.
+        `relations` claims `imports` and `re_exports` — the two it genuinely emits, now that
+        an edge can carry a kind. It resolves module references between files and has no
+        notion of a symbol, so it must not claim `calls`, `inherits` or `references` merely
+        because the vocabulary contains them. Overclaiming here is how a caller ends up
+        trusting a query the backend cannot answer.
         """
         extensions = sorted({
             os.path.splitext(pattern)[1]
@@ -385,7 +417,7 @@ class CodeGraph:
         return substrate.Coverage(
             languages=FILE_PATTERNS.keys(),
             extensions=extensions,
-            relations=('imports',),
+            relations=(_IMPORTS, _RE_EXPORT),
             # Deletions are handled correctly: `update` removes the entry and rebuilds every
             # dependent. This is the bar spec §9.2 holds other backends to.
             incremental=True,
@@ -402,13 +434,37 @@ class CodeGraph:
         grounds that "vendor/ is not mine" is true whichever parser runs. This assembles that
         input from the two places the project states it: directory classifications, and
         `.gitignore`.
+
+        Classifications are read in both directions. `exclude` narrows scope; `source` from a
+        person or a model widens it back over `.gitignore`, and travels as `overrides` so that
+        every backend honours it and not only this one.
         """
         classified = (self._load_classifications().get('directories') or {})
+        verdicts = [(name, verdict) for name, verdict in classified.items()
+                    if isinstance(verdict, dict)]
+        overrides = [name for name, verdict in verdicts
+                     if verdict.get('type') == 'source'
+                     and verdict.get('source') in _OVERRIDES_CONVENTIONS]
+
+        def shadowed(name: str) -> bool:
+            """Does `name` sit inside a directory this project declared source?"""
+            parts = name.split('/')
+            return any(name != o and parts[:len(o.split('/'))] == o.split('/')
+                       for o in overrides)
+
         return substrate.Exclusions(
-            directories=[name for name, verdict in classified.items()
-                         if isinstance(verdict, dict) and verdict.get('type') == 'exclude'],
+            # A *derived* exclusion inside an override is dropped, because it is the name
+            # lists asserting themselves one level down from where they were overruled —
+            # and a cached one from an earlier build would otherwise beat the override by
+            # having got there first. A *stated* one is kept: that is a carve-out the
+            # project asked for, and `Exclusions.excludes` honours it as the deeper rule.
+            directories=[name for name, verdict in verdicts
+                         if verdict.get('type') == 'exclude'
+                         and not (shadowed(name) and verdict.get('source')
+                                  not in _OVERRIDES_CONVENTIONS)],
             patterns=self._parse_gitignore(),
             matcher=gitignore_excludes,
+            overrides=overrides,
         )
 
     def _ensure_graph_dir(self) -> None:
@@ -924,14 +980,18 @@ class CodeGraph:
             return f'unresolved:{import_path}'
         return f'external:{import_path}'
 
-    def _parse_imports(self, content: str, language: str) -> List[str]:
-        """Extract import paths from file content."""
-        imports = []
-        patterns = IMPORT_PATTERNS.get(language, [])
+    def _parse_imports(self, content: str, language: str) -> List[tuple]:
+        """Extract `(specifier, relation)` pairs from file content.
 
-        for pattern in patterns:
-            matches = re.findall(pattern, content, re.MULTILINE)
-            for match in matches:
+        One pair per distinct specifier. When a file both imports and re-exports the same
+        module it is recorded as an import: it genuinely depends on it, and two edges to one
+        target would double it in every dependents list. `re_exports` is reserved for the
+        case where re-exporting is *all* the file does with it — the barrel.
+        """
+        kinds = {}  # type: Dict[str, str]
+
+        for pattern, relation in IMPORT_PATTERNS.get(language, []):
+            for match in re.findall(pattern, content, re.MULTILINE):
                 if isinstance(match, tuple):
                     match = match[0] if match[0] else match[1] if len(match) > 1 else ''
                 match = (match or '').strip()
@@ -940,10 +1000,12 @@ class CodeGraph:
                 # module reference, and emitting it would later surface as `unresolved:.` — a
                 # parser artifact wearing the costume of a coverage gap. The edge is missed
                 # either way (backlog item 10); this keeps it from also being misreported.
-                if match and match.strip('.'):
-                    imports.append(match)
+                if not match or not match.strip('.'):
+                    continue
+                if kinds.get(match) != _IMPORTS:
+                    kinds[match] = relation
 
-        return sorted(set(imports))
+        return sorted(kinds.items())
 
     def _parse_exports(self, content: str, language: str) -> List[str]:
         """Extract export names from file content."""
@@ -1041,11 +1103,17 @@ class CodeGraph:
             # promise, so the judgement passes to classifications.json — per-project
             # and overridable, which a hardcoded name list is not.
             #
-            # 'scripts' is on neither list: it holds real source often enough, at the
-            # root as well as below it, that excluding it by name is the guess that
-            # started this.
+            # 'scripts' is here rather than removed outright. Dropping it entirely was
+            # the wider change: a root `scripts/` had been excluded in every project the
+            # toolkit had ever run on, and un-excluding it everywhere to fix one repo's
+            # nested `skills/*/scripts/` is a change nobody asked for. Top-level-only
+            # restores the old answer at the root and keeps the fix below it.
+            #
+            # None of these is final. Every name here can be overridden per project —
+            # see `_OVERRIDES_CONVENTIONS` and `_should_exclude`. A default that cannot
+            # be argued with is a guess with no way to be wrong out loud.
             'top_level_exclude_dirs': {
-                'docs', 'examples',
+                'docs', 'examples', 'scripts',
                 'generated', '.generated', 'autogen',
             },
             # File patterns that are ALWAYS excluded
@@ -1086,30 +1154,111 @@ class CodeGraph:
 
         return found_source_dirs
 
-    def _should_exclude(self, rel_path: str, gitignore_patterns: List[str]) -> bool:
-        """Check if a path should be excluded based on multiple rules."""
+    def _stated_verdict(self, rel_path: str,
+                        classified: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """The verdict that governs `rel_path`, from its classified ancestors.
+
+        Two rules, in this order:
+
+        1. **A stated verdict outranks a derived one, at any depth.** `user` and `ai`
+           verdicts are judgements about this project; `rule` and `gitignore` verdicts are
+           the built-in name lists' own output. Without this, marking `docs/` as source
+           lost to a *stale* `docs/literate: exclude` that an earlier build had derived and
+           cached — the lists beating the person by having got there first.
+        2. **Among equals, deepest wins.** So `packages/` can be source while
+           `packages/legacy/` is not, and a carve-out inside an override still applies.
+        """
+        ancestors = rel_path.split('/')[:-1]
+        derived = None
+        for depth in range(len(ancestors), 0, -1):
+            verdict = classified.get('/'.join(ancestors[:depth]))
+            if not isinstance(verdict, dict):
+                continue
+            if verdict.get('source') in _OVERRIDES_CONVENTIONS:
+                return verdict
+            if derived is None:
+                derived = verdict
+        return derived
+
+    def _inherits_a_stated_verdict(self, dir_name: str,
+                                   classified: Dict[str, Any]) -> bool:
+        """Has this project already ruled on an ancestor of `dir_name`?
+
+        If so the directory needs no verdict of its own — it inherits, and
+        `_stated_verdict` will find the ancestor.
+
+        Skipping it is not an optimisation. Classifying it anyway re-applies the very
+        name lists the ancestor's verdict overrode, one level down, and writes the
+        result *deeper* than the override — where the deepest-first walk then prefers
+        it. Marking `docs/` as source achieved nothing for exactly this reason: the
+        rules promptly classified `docs/literate` as excluded and won.
+        """
+        return (self._stated_verdict(dir_name, classified) or {}).get(
+            'source') in _OVERRIDES_CONVENTIONS
+
+    def _should_exclude(self, rel_path: str, gitignore_patterns: List[str],
+                        classified: Optional[Dict[str, Any]] = None) -> bool:
+        """Is this path out of scope for the graph?
+
+        Two kinds of rule meet here, and the ordering between them is the point.
+
+        The **built-in name lists** are defaults. They are guesses that hold for most
+        repositories and cannot possibly hold for all of them — nothing in this file knows
+        that some project keeps its source in `target/`, or that another's `docs/` is a
+        literate-programming tree that really is the code.
+
+        The **project's own classifications** are what that project says about itself. Until
+        2026-08-20 they could only ever *narrow* scope: marking a directory `source` did
+        nothing, because this method never consulted them, so `set_classification('docs',
+        'source')` was accepted, written to disk, and then silently overruled. A default
+        that cannot be argued with is not a default, it is a hardcoded answer — and the one
+        thing certain about a hardcoded answer is that it is wrong for somebody.
+
+        So a stated verdict is consulted first, and outranks the lists per
+        `_OVERRIDES_EVERYTHING` / `_OVERRIDES_CONVENTIONS`. File patterns are the exception
+        and stay unconditional: `*.d.ts` and `*.min.js` are claims about what a *file* is,
+        not about which directories are in scope, and re-admitting a source map because its
+        directory was marked source helps nobody.
+        """
         from fnmatch import fnmatch
 
         rules = self._get_exclusion_rules()
         path_parts = Path(rel_path).parts
         filename = Path(rel_path).name
 
-        # 1. Check always-exclude directories (anywhere in path)
-        for exc_dir in rules['always_exclude_dirs']:
-            if exc_dir in path_parts:
-                return True
-
-        # 1b. Convention directories, at the repo root only. See the set's comment.
-        if len(path_parts) > 1 and path_parts[0] in rules['top_level_exclude_dirs']:
-            return True
-
-        # 2. Check always-exclude file patterns
+        # 1. File kinds, unconditionally. Not a scope judgement — see the docstring.
         for pattern in rules['always_exclude_files']:
             if fnmatch(filename, pattern):
                 return True
 
-        # 3. Check gitignore patterns — shared with _classify_with_rules
-        return gitignore_excludes(rel_path, gitignore_patterns)
+        # 2. What the project says about itself, deepest ancestor first.
+        verdict = self._stated_verdict(rel_path, classified or {})
+        stated = (verdict or {}).get('type')
+        source = (verdict or {}).get('source')
+        if stated == 'exclude':
+            # Held here rather than at the call sites, which each used to walk the ancestors
+            # themselves — two copies of one rule, which is how they came to disagree.
+            return True
+
+        # 3. Artifact trees, wherever the name appears. A nested node_modules is still
+        #    node_modules, so unlike the convention names these match at any depth.
+        if stated != 'source' or source not in _OVERRIDES_EVERYTHING:
+            for exc_dir in rules['always_exclude_dirs']:
+                if exc_dir in path_parts:
+                    return True
+
+        # 4. Convention directories, at the repo root only. See the set's comment.
+        if stated != 'source' or source not in _OVERRIDES_CONVENTIONS:
+            if len(path_parts) > 1 and path_parts[0] in rules['top_level_exclude_dirs']:
+                return True
+            # 5. gitignore — shared with _classify_with_rules.
+            #
+            # Overridable for the same reason: a project that gitignores its build output
+            # and then vendors real source underneath it has said so explicitly, and git's
+            # opinion about what to commit is not the same question as what to graph.
+            return gitignore_excludes(rel_path, gitignore_patterns)
+
+        return False
 
     # =========================================================================
     # Hybrid Classification System (Rules + AI)
@@ -1405,6 +1554,10 @@ Respond with ONLY a JSON object, no markdown formatting:
             if dir_name in known_classifications:
                 continue
 
+            # An ancestor this project has already ruled on decides for it.
+            if self._inherits_a_stated_verdict(dir_name, known_classifications):
+                continue
+
             # Try rules first
             rule_result = self._classify_with_rules(dir_name)
             if rule_result:
@@ -1481,6 +1634,8 @@ Respond with ONLY a JSON object, no markdown formatting:
 
         for dir_name in all_dirs:
             if dir_name not in known_classifications:
+                if self._inherits_a_stated_verdict(dir_name, known_classifications):
+                    continue
                 rule_result = self._classify_with_rules(dir_name)
                 if not rule_result:
                     return True
@@ -1495,6 +1650,8 @@ Respond with ONLY a JSON object, no markdown formatting:
         unclassified = []
         for dir_name in all_dirs:
             if dir_name not in known_classifications:
+                if self._inherits_a_stated_verdict(dir_name, known_classifications):
+                    continue
                 rule_result = self._classify_with_rules(dir_name)
                 if not rule_result:
                     unclassified.append(dir_name)
@@ -1550,11 +1707,19 @@ Respond with ONLY a JSON object, no markdown formatting:
 
         classified_dirs = classifications.get('directories', {})
 
-        # Get source directories from classifications
-        source_dirs = [
-            d for d, info in classified_dirs.items()
-            if info.get('type') == 'source' and '/' not in d  # Only top-level dirs
-        ]
+        # Where to start globbing. A scan root has to be top-level, because that is what
+        # `project_dir / src_dir` walks — but a *nested* source verdict still has to be
+        # reachable, so it contributes its top-level ancestor as a root.
+        #
+        # Without that second half the escape hatch only half works: marking
+        # `docs/literate` as source records the verdict, and then nothing ever globs
+        # under `docs/` to find the files it was about. Widening the root is safe because
+        # `_should_exclude` still runs per file, and everything under `docs/` that the
+        # verdict did not name is still excluded by the convention rule.
+        source_dirs = sorted({
+            d.split('/')[0] for d, info in classified_dirs.items()
+            if isinstance(info, dict) and info.get('type') == 'source'
+        })
 
         if source_dirs:
             # Scan only classified source directories
@@ -1586,28 +1751,10 @@ Respond with ONLY a JSON object, no markdown formatting:
                 # every classified `exclude` directory was silently ignored here.
                 rel_path = normalize_key(f.relative_to(self.project_dir))
 
-                # Walk every ancestor of this file, deepest first, and take the first
-                # classification found.
-                #
-                # This used to read only `rel_path.split('/')[0]`, so a verdict on anything
-                # nested was written to classifications.json and then never consulted. That
-                # made the delegation `top_level_exclude_dirs` relies on a fiction: the
-                # comment says judgement below the root "passes to classifications.json —
-                # per-project and overridable", and it did not. Deepest-first also lets a
-                # specific verdict override a broader one, so `packages/` can be source while
-                # `packages/legacy/` is not.
-                verdict = None
-                ancestors = rel_path.split('/')[:-1]
-                for depth in range(len(ancestors), 0, -1):
-                    prefix = '/'.join(ancestors[:depth])
-                    if prefix in classified_dirs:
-                        verdict = classified_dirs[prefix].get('type')
-                        break
-                if verdict == 'exclude':
-                    continue
-
-                # Also check standard exclusion rules
-                if not self._should_exclude(rel_path, gitignore_patterns):
+                # One decision, in one place. The ancestor walk used to be inlined here and
+                # again in `update()`, each consulting only `exclude` verdicts — so a
+                # `source` verdict was accepted, written to disk and never read by anything.
+                if not self._should_exclude(rel_path, gitignore_patterns, classified_dirs):
                     filtered.append(f)
             except ValueError:
                 continue
@@ -1631,34 +1778,30 @@ Respond with ONLY a JSON object, no markdown formatting:
         imports = self._parse_imports(content, language) if language else []
         exports = self._parse_exports(content, language) if language else []
 
-        # Resolve + classify import paths (internal / external: / unresolved:)
-        resolved_imports = [self._classify_import(imp, rel_path, language) for imp in imports]
+        # Resolve + classify import paths (internal / external: / unresolved:), then wrap
+        # each as an edge. Provenance is `extracted` throughout: this resolver reads import
+        # statements out of the source text and nothing else, so claiming `inferred`
+        # anywhere would overstate what it did.
+        resolved = [
+            substrate.make_edge(self._classify_import(imp, rel_path, language), kind=kind)
+            for imp, kind in imports
+        ]
 
         return {
             'exports': exports,
-            'imports': resolved_imports,
+            'imports': resolved,
             'dependents': [],
             'language': language,
         }
 
-    def _write_graph(self, graph: Dict[str, Any]) -> None:
-        """Persist the graph as both the active artifact and this backend's own.
-
-        `graph.json` stays the active graph because three other skills read that path
-        directly, and Phase 1's rule is that nothing downstream changes. `graph.<backend>.json`
-        is the addition (CD-17): without it, switching substrates destroys the baseline at
-        exactly the moment CD-13 requires a diff against it.
-        """
-        self._ensure_graph_dir()
-        payload = json.dumps(graph, indent=2)
-        for path in (self.graph_path, self.graph_dir / ('graph.%s.json' % self.name)):
-            with open(path, 'w', encoding='utf-8') as handle:
-                handle.write(payload)
-
     def build(self, ai_response: Optional[str] = None, non_interactive: bool = False,
               exclusions: Optional[substrate.Exclusions] = None,
-              selection_metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Build the dependency graph from scratch.
+              selection_metadata: Optional[Dict[str, Any]] = None) -> substrate.Result:
+        """Produce the dependency graph from scratch.
+
+        Produce, not persist. Linking `dependents`, validating and writing belong to the
+        contract and happen in `run_build` — see `substrate.Result`. This method's whole
+        job is nodes and edges.
 
         Args:
             ai_response: Pre-fetched AI response for directory classification
@@ -1695,7 +1838,7 @@ Respond with ONLY a JSON object, no markdown formatting:
 
         # Build file info
         graph = {
-            'version': 1,
+            'version': substrate.GRAPH_SCHEMA_VERSION,
             'commit': self._get_git_commit(),
             'timestamp': datetime.now(timezone.utc).isoformat(),
             'project_root': str(self.project_dir),
@@ -1711,39 +1854,29 @@ Respond with ONLY a JSON object, no markdown formatting:
             rel_path = normalize_key(file_path.relative_to(self.project_dir))
             graph['files'][rel_path] = self._build_file_info(file_path)
 
-        # Build dependents (reverse mapping)
-        for file_path, info in graph['files'].items():
-            for imp in info.get('imports', []):
-                if not imp.startswith('external:') and imp in graph['files']:
-                    graph['files'][imp]['dependents'].append(file_path)
-
-        self._write_graph(graph)
+        # Held rather than returned-and-forgotten: `link_dependents` mutates in place, so
+        # after `run_build` this same object is the finished graph.
         self.graph = graph
-
-        # Summary
-        total_imports = sum(len(f.get('imports', [])) for f in graph['files'].values())
-        total_exports = sum(len(f.get('exports', [])) for f in graph['files'].values())
-
-        return {
-            'files_scanned': len(graph['files']),
-            'total_imports': total_imports,
-            'total_exports': total_exports,
-            'commit': graph['commit'],
-            'cached_to': str(self.graph_path),
-        }
+        return substrate.Result(graph, substrate.Result.BUILT)
 
     def load(self) -> Optional[Dict[str, Any]]:
-        """Load graph from cache, migrating pre-POSIX-key caches on the way in."""
+        """Load the cached graph, bringing older ones forward on the way in.
+
+        Two migrations, both on read for the same reason: the artifact is gitignored, so
+        there is no committed copy to fix in a commit. Whatever is on a given machine's disk
+        is whatever the last build there wrote, and refusing to read it would look exactly
+        like a project with no dependencies.
+        """
         if self.graph_path.exists():
             with open(self.graph_path, encoding='utf-8') as f:
-                self.graph = migrate_separators(json.load(f))
+                self.graph = substrate.upgrade_edges(migrate_separators(json.load(f)))
             return self.graph
         return None
 
     def update(self, non_interactive: bool = False,
                exclusions: Optional[substrate.Exclusions] = None,
-               selection_metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-        """Incrementally update the graph."""
+               selection_metadata: Optional[Dict[str, Any]] = None) -> substrate.Result:
+        """Incrementally update the graph. Produces; `run_update` persists."""
         graph = self.load()
         if not graph:
             print('No cached graph found. Running full build...')
@@ -1758,7 +1891,7 @@ Respond with ONLY a JSON object, no markdown formatting:
 
         changed_files = self._get_changed_files(last_commit)
         if not changed_files:
-            return {'status': 'up_to_date', 'files_changed': 0}
+            return substrate.Result(graph, substrate.Result.UP_TO_DATE, 0)
 
         print(f'Updating graph for {len(changed_files)} changed files...')
 
@@ -1773,16 +1906,9 @@ Respond with ONLY a JSON object, no markdown formatting:
         classified = (self._load_classifications().get('directories') or {})
 
         def out_of_scope(rel_path: str) -> bool:
-            if self._should_exclude(rel_path, gitignore_patterns):
+            if self._should_exclude(rel_path, gitignore_patterns, classified):
                 return True
-            if exclusions is not None and exclusions.excludes(rel_path):
-                return True
-            ancestors = rel_path.split('/')[:-1]
-            for depth in range(len(ancestors), 0, -1):
-                verdict = classified.get('/'.join(ancestors[:depth]))
-                if isinstance(verdict, dict):
-                    return verdict.get('type') == 'exclude'
-            return False
+            return exclusions is not None and exclusions.excludes(rel_path)
 
         for file_path in map(normalize_key, changed_files):
             full_path = self.project_dir / file_path
@@ -1792,20 +1918,13 @@ Respond with ONLY a JSON object, no markdown formatting:
                     graph['files'][file_path] = self._build_file_info(full_path)
             elif file_path in graph['files']:
                 # Deleted, or newly out of scope. Either way it leaves the graph, and the
-                # dependents rebuild below drops every edge that pointed at it.
+                # dependents relink in `run_update` drops every edge that pointed at it —
+                # which is why that relink rebuilds from scratch rather than appending.
                 del graph['files'][file_path]
-
-        # Rebuild dependents for affected files
-        for file_path in graph['files']:
-            graph['files'][file_path]['dependents'] = []
-
-        for file_path, info in graph['files'].items():
-            for imp in info.get('imports', []):
-                if not imp.startswith('external:') and imp in graph['files']:
-                    graph['files'][imp]['dependents'].append(file_path)
 
         # Update metadata. The substrate block is refreshed rather than carried over, so a
         # graph never claims coverage the currently-installed backend does not have.
+        graph['version'] = substrate.GRAPH_SCHEMA_VERSION
         graph['commit'] = self._get_git_commit()
         graph['timestamp'] = datetime.now(timezone.utc).isoformat()
         graph['substrate'] = substrate.graph_metadata(
@@ -1814,17 +1933,17 @@ Respond with ONLY a JSON object, no markdown formatting:
             degraded_from=(selection_metadata or {}).get('degraded_from'),
             degraded_reason=(selection_metadata or {}).get('degraded_reason'))
 
-        self._write_graph(graph)
         self.graph = graph
-
-        return {
-            'status': 'updated',
-            'files_changed': len(changed_files),
-            'commit': graph['commit'],
-        }
+        return substrate.Result(graph, substrate.Result.UPDATED, len(changed_files))
 
     def query(self, file_path: str) -> Optional[Dict[str, Any]]:
-        """Query dependency info for a file."""
+        """Everything the graph knows about one file.
+
+        The one query that returns edges rather than paths. `--impact`, `--dependents` and
+        `--dependencies` answer "which files", and their callers do set arithmetic on the
+        answer; this one answers "tell me about this file", so the kind and provenance of
+        each edge are the point rather than noise.
+        """
         graph = self.load()
         if not graph:
             print('No cached graph found. Run /code-graph build first.')
@@ -1861,7 +1980,11 @@ Respond with ONLY a JSON object, no markdown formatting:
 
         def traverse(path: str):
             info = graph['files'].get(path, {})
-            for dep in info.get('dependents', []):
+            # Paths, not edges. This is a *node* query — "which files are affected" — and
+            # three other skills feed its output straight into set arithmetic. Returning
+            # edge objects here would break them for no gain: the caller asked which files,
+            # and `--query` is where the edge detail lives.
+            for dep in substrate.edge_ends(info.get('dependents')):
                 if dep not in result:
                     result.add(dep)
                     if transitive:
@@ -1882,8 +2005,9 @@ Respond with ONLY a JSON object, no markdown formatting:
 
         def traverse(path: str):
             info = graph['files'].get(path, {})
-            for imp in info.get('imports', []):
-                if not imp.startswith(IMPORT_SIGNALS) and imp not in result:
+            # Paths again, and internal ones only — see `get_dependents`.
+            for imp in substrate.internal_ends(info.get('imports')):
+                if imp not in result:
                     result.add(imp)
                     if transitive:
                         traverse(imp)
@@ -1909,7 +2033,7 @@ Respond with ONLY a JSON object, no markdown formatting:
         for file_path in file_paths:
             info = graph['files'].get(file_path)
             if info:
-                direct.update(info.get('dependents', []))
+                direct.update(substrate.edge_ends(info.get('dependents')))
                 all_dependents.add(file_path)
                 all_dependents.update(self.get_dependents(file_path, transitive=True))
 
@@ -1945,6 +2069,109 @@ Respond with ONLY a JSON object, no markdown formatting:
         return False
 
 
+# =============================================================================
+# The contract's half of a build
+# =============================================================================
+#
+# A backend produces nodes and edges. Everything after that — the reverse index, the
+# conformance check, the two artifact files — is identical for every backend and is done
+# here, once.
+#
+# The split is not tidiness. Until 2026-08-20 all of it lived inside `CodeGraph.build`,
+# which meant the second backend could only get a persisted graph by reimplementing it, and
+# would have been free to reimplement it differently. The first thing Phase 2 needs is for
+# graphify's output to land in the same place, in the same shape, having passed the same
+# check — and that cannot be a thing each backend is trusted to remember.
+
+# Enough to diagnose the problem without turning the artifact into a log file.
+_MAX_RECORDED_VALIDATION_ERRORS = 20
+
+
+def persist_graph(project_dir: Any, backend_name: str, graph: Dict[str, Any]) -> str:
+    """Write the graph as both the active artifact and this backend's own copy.
+
+    `graph.json` stays the active graph because three other skills read that path directly.
+    `graph.<backend>.json` is the addition (CD-17): without it, switching substrates
+    destroys the baseline at exactly the moment CD-13 requires a diff against it.
+    """
+    directory = Path(substrate.graph_dir(project_dir))
+    directory.mkdir(parents=True, exist_ok=True)
+    _write_cache_gitignore(directory / '.gitignore')
+
+    payload = json.dumps(graph, indent=2)
+    active = substrate.active_graph_path(project_dir)
+    for path in (active, substrate.backend_graph_path(project_dir, backend_name)):
+        with open(path, 'w', encoding='utf-8') as handle:
+            handle.write(payload)
+    return active
+
+
+def _finalise(backend: Any, result: Any) -> Dict[str, Any]:
+    """Link, check and persist whatever a backend produced."""
+    if not isinstance(result, substrate.Result):
+        raise TypeError(
+            '%r.%s returned %s; the contract requires a substrate.Result'
+            % (getattr(backend, 'name', '?'), 'build/update', type(result).__name__))
+
+    migrated = False
+    if not result.needs_writing:
+        # "Nothing changed" is about the *source*, not the artifact. A graph loaded from an
+        # older schema was brought forward in memory on the way in; if it is not written back
+        # it is brought forward again on every read, forever, and every direct reader that
+        # does not go through `load()` keeps seeing the old shape. `--update` is the command
+        # the steady-state workflow runs, so without this the migration reaches almost nobody.
+        if not substrate.is_stale(result.graph or {}):
+            return {'status': result.status, 'files_changed': 0}
+        migrated = True
+        print('code-graph: rewriting the cached graph in the current schema (was v%s, now v%d)'
+              % ((result.graph or {}).get('version'), substrate.GRAPH_SCHEMA_VERSION),
+              file=sys.stderr)
+        result.graph['version'] = substrate.GRAPH_SCHEMA_VERSION
+
+    graph = substrate.link_dependents(result.graph)
+
+    try:
+        coverage = backend.coverage()
+    except Exception:
+        coverage = None
+    errors = substrate.validate_graph(graph, coverage)
+    if errors:
+        # Written into the artifact as well as to stderr. A dangling edge is a real defect
+        # and the run that produced it is the only place its stderr exists; whoever reads
+        # the graph a week later needs to be able to see that it was already known to be
+        # broken, rather than trusting it and finding out downstream.
+        graph.setdefault('substrate', {})['validation'] = {
+            'error_count': len(errors),
+            'errors': errors[:_MAX_RECORDED_VALIDATION_ERRORS],
+        }
+        print('code-graph: the graph %r produced breaks the contract in %d place(s); '
+              'writing it anyway and recording them under substrate.validation. First: %s'
+              % (getattr(backend, 'name', '?'), len(errors), errors[0]), file=sys.stderr)
+
+    cached_to = persist_graph(backend.project_dir, backend.name, graph)
+
+    if result.status != substrate.Result.BUILT:
+        out = {'status': result.status,
+               'files_changed': result.files_changed or 0,
+               'commit': graph.get('commit')}
+        if migrated:
+            out['migrated_to_schema'] = substrate.GRAPH_SCHEMA_VERSION
+        return out
+    summary = substrate.build_summary(graph, cached_to)
+    summary['status'] = result.status
+    return summary
+
+
+def run_build(backend: Any, **kwargs: Any) -> Dict[str, Any]:
+    """Build through `backend`, finalise, and return the summary."""
+    return _finalise(backend, backend.build(**kwargs))
+
+
+def run_update(backend: Any, **kwargs: Any) -> Dict[str, Any]:
+    """Update through `backend`, finalise, and return the summary."""
+    return _finalise(backend, backend.update(**kwargs))
+
+
 def format_summary(data: Any, operation: str) -> str:
     """Format output as human-readable summary."""
     if operation == 'build':
@@ -1957,6 +2184,9 @@ def format_summary(data: Any, operation: str) -> str:
     elif operation == 'update':
         if data.get('status') == 'up_to_date':
             return "Graph is up to date. No changes detected."
+        if data.get('status') == substrate.Result.BUILT:
+            # `--update` falls back to a full build when there is no usable cache.
+            return format_summary(data, 'build')
         return f"""Updated dependency graph:
   - {data['files_changed']} files changed since last build
   - Graph updated at commit {data.get('commit', 'unknown')}"""
@@ -1975,15 +2205,20 @@ def format_summary(data: Any, operation: str) -> str:
 
         if data.get('imports'):
             lines.append("Dependencies (imports from):")
-            for imp in data['imports']:
-                prefix = "" if imp.startswith('external:') else "→ "
-                lines.append(f"  - {imp} {prefix}")
+            for edge in data['imports']:
+                target = substrate.edge_other(edge)
+                kind = substrate.edge_kind(edge)
+                arrow = "" if target.startswith('external:') else " →"
+                suffix = "" if kind == _IMPORTS else f"  [{kind}]"
+                lines.append(f"  -{arrow} {target}{suffix}")
             lines.append("")
 
         if data.get('dependents'):
             lines.append("Dependents (imported by):")
-            for dep in data['dependents']:
-                lines.append(f"  - {dep}")
+            for edge in data['dependents']:
+                kind = substrate.edge_kind(edge)
+                suffix = "" if kind == _IMPORTS else f"  [{kind}]"
+                lines.append(f"  - {substrate.edge_other(edge)}{suffix}")
             lines.append("")
 
         lines.append(f"Category: {data.get('category', 'unknown')}")
@@ -2112,15 +2347,15 @@ def main():
         # Obligation 6: exclusions are passed in, not left for the backend to decide.
         # Every other caller relied on the backend deriving them, which meant the only
         # production path never exercised the obligation it documents.
-        output = graph.build(non_interactive=non_interactive,
-                             exclusions=project_exclusions,
-                             selection_metadata=selection_metadata)
+        output = run_build(graph, non_interactive=non_interactive,
+                           exclusions=project_exclusions,
+                           selection_metadata=selection_metadata)
         operation = 'build'
 
     elif args.update:
-        output = graph.update(non_interactive=non_interactive,
-                              exclusions=project_exclusions,
-                              selection_metadata=selection_metadata)
+        output = run_update(graph, non_interactive=non_interactive,
+                            exclusions=project_exclusions,
+                            selection_metadata=selection_metadata)
         operation = 'update'
 
     elif args.query:

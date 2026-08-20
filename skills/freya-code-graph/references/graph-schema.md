@@ -82,17 +82,13 @@ The graph is stored inside the project under `knowledge-base/` so it stays versi
         },
         "imports": {
           "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "List of import paths (relative or absolute within project)"
+          "items": { "$ref": "#/definitions/Edge" },
+          "description": "Outgoing edges. Each names a project-relative path, or an external:/unresolved: signal"
         },
         "dependents": {
           "type": "array",
-          "items": {
-            "type": "string"
-          },
-          "description": "List of files that import this file (reverse mapping of imports)"
+          "items": { "$ref": "#/definitions/ReverseEdge" },
+          "description": "Incoming edges — the reverse of every other file's imports"
         },
         "language": {
           "type": "string",
@@ -100,10 +96,56 @@ The graph is stored inside the project under `knowledge-base/` so it stays versi
           "description": "Detected programming language"
         }
       }
+    },
+    "Edge": {
+      "type": "object",
+      "required": ["to", "kind", "provenance"],
+      "properties": {
+        "to": {
+          "type": "string",
+          "description": "Project-relative path, or external:<pkg> / unresolved:<spec>"
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["imports", "re_exports", "calls", "inherits", "references"],
+          "description": "The relation. A backend may only emit kinds its coverage claims"
+        },
+        "provenance": {
+          "type": "string",
+          "enum": ["extracted", "inferred"],
+          "description": "How directly it was read out of the source"
+        }
+      }
+    },
+    "ReverseEdge": {
+      "type": "object",
+      "required": ["from", "kind", "provenance"],
+      "description": "An Edge keyed by `from` instead of `to`; kind and provenance are the forward edge's",
+      "properties": {
+        "from": { "type": "string" },
+        "kind": {
+          "type": "string",
+          "enum": ["imports", "re_exports", "calls", "inherits", "references"]
+        },
+        "provenance": { "type": "string", "enum": ["extracted", "inferred"] }
+      }
     }
   }
 }
 ```
+
+### Edges were strings until 2026-08-20
+
+An edge used to be a bare path — `"imports": ["./config"]`. A string can carry exactly one
+fact, where the edge points, so `a imports b` and `a re-exports b` were the same value and
+`a calls b` could not be written at all. Phase 0 measured the cost: of the 5,027 links
+graphify produces for the testbed, this shape could express 2,102.
+
+**Readers must accept both.** `graph.json` is gitignored, so there is no committed copy to
+correct in a commit — an older one stays on a given machine until something rebuilds it, and
+refusing to read it looks identical to a project with no dependencies. `substrate.edge_other`
+is the projection to use; `substrate.upgrade_edges` rewrites a loaded graph in place. An
+upgraded edge claims `imports` / `extracted`, which is all the string era ever determined.
 
 ## Example
 
@@ -117,14 +159,13 @@ The graph is stored inside the project under `knowledge-base/` so it stays versi
     "src/lib/auth/validateToken.ts": {
       "exports": ["validateToken", "TokenPayload", "TokenConfig"],
       "imports": [
-        "jsonwebtoken",
-        "./config",
-        "../utils/logger"
+        {"to": "external:jsonwebtoken", "kind": "imports", "provenance": "extracted"},
+        {"to": "src/lib/auth/config.ts", "kind": "imports", "provenance": "extracted"},
+        {"to": "src/lib/utils/logger.ts", "kind": "imports", "provenance": "extracted"}
       ],
       "dependents": [
-        "src/api/middleware/auth.ts",
-        "src/api/routes/users.ts",
-        "src/lib/auth/index.ts"
+        {"from": "src/api/middleware/auth.ts", "kind": "imports", "provenance": "extracted"},
+        {"from": "src/lib/auth/index.ts", "kind": "re_exports", "provenance": "extracted"}
       ],
       "language": "typescript"
     },
@@ -132,38 +173,35 @@ The graph is stored inside the project under `knowledge-base/` so it stays versi
       "exports": ["authConfig", "AuthConfig"],
       "imports": [],
       "dependents": [
-        "src/lib/auth/validateToken.ts",
-        "src/lib/auth/session.ts"
+        {"from": "src/lib/auth/validateToken.ts", "kind": "imports", "provenance": "extracted"}
       ],
+      "language": "typescript"
+    },
+    "src/lib/auth/index.ts": {
+      "exports": [],
+      "imports": [
+        {"to": "src/lib/auth/validateToken.ts", "kind": "re_exports", "provenance": "extracted"}
+      ],
+      "dependents": [],
       "language": "typescript"
     },
     "src/api/middleware/auth.ts": {
       "exports": ["authMiddleware", "requireAuth"],
       "imports": [
-        "../../../lib/auth/validateToken",
-        "../../../lib/utils/logger"
+        {"to": "src/lib/auth/validateToken.ts", "kind": "imports", "provenance": "extracted"},
+        {"to": "unresolved:../../../lib/utils/logger", "kind": "imports", "provenance": "extracted"}
       ],
-      "dependents": [
-        "src/api/routes/users.ts",
-        "src/api/routes/admin.ts"
-      ],
-      "language": "typescript"
-    },
-    "src/api/routes/users.ts": {
-      "exports": ["usersRouter"],
-      "imports": [
-        "../middleware/auth",
-        "../../../lib/db/connection",
-        "../../../lib/utils/format"
-      ],
-      "dependents": [
-        "src/app.ts"
-      ],
+      "dependents": [],
       "language": "typescript"
     }
   }
 }
 ```
+
+`src/lib/auth/index.ts` is the barrel. Under the old shape its edge to `validateToken.ts`
+was indistinguishable from `middleware/auth.ts`'s — both were the string
+`"src/lib/auth/validateToken.ts"` — even though one file uses the module and the other only
+forwards it.
 
 ## Field Descriptions
 
@@ -188,7 +226,7 @@ classify as greenfield.
 |---|---|
 | `backend` | Name of the backend that produced the graph, e.g. `homegrown` |
 | `coverage.languages` / `.extensions` | What it parsed. Anything on disk outside this is a blind spot, not an absence |
-| `coverage.relations` | Edge kinds it emits. `homegrown` claims only `imports`; it has no notion of a symbol, so it must not claim `calls` |
+| `coverage.relations` | Edge kinds it emits. `homegrown` claims `imports` and `re_exports`; it has no notion of a symbol, so it must not claim `calls`, `inherits` or `references` |
 | `coverage.incremental` | `false` means the backend cannot reliably drop deleted nodes, and the contract rebuilds from scratch instead |
 | `degraded_from` | Present **only** on a fallback: the backend that was configured but unavailable |
 | `exclusions` | What the project declared out of scope for this build |
@@ -198,9 +236,24 @@ classify as greenfield.
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `exports` | string[] | No | List of exported symbol names |
-| `imports` | string[] | Yes | List of imported module paths (resolved to project-relative) |
-| `dependents` | string[] | Yes | Files that import this file |
+| `imports` | Edge[] | Yes | Outgoing edges. `to` is project-relative, or an `external:`/`unresolved:` signal |
+| `dependents` | ReverseEdge[] | Yes | Incoming edges. `from` is always a project file |
 | `language` | string | No | Detected language |
+
+### Edge Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `to` / `from` | string | The far end. `to` on an import, `from` on a dependent |
+| `kind` | string | One of `imports`, `re_exports`, `calls`, `inherits`, `references` |
+| `provenance` | string | `extracted` (stated in the source) or `inferred` (derived by resolution) |
+
+`provenance` is **not** the deterministic-vs-model axis. Phase 0 measured graphify emitting
+`INFERRED` edges from a pure AST pass with no model involved; it records how directly the edge
+was read out of the source text, and nothing about who read it.
+
+A reverse edge carries the forward edge's `kind` — an `inherits` edge read backwards is still
+`inherits`, and a blast radius has to be able to ask which kind reached it.
 
 ### `category` — removed 2026-08-19
 

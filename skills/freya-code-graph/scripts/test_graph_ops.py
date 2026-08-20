@@ -23,7 +23,10 @@ import unittest
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import graph_ops  # noqa: E402
+import substrate  # noqa: E402
 from graph_ops import CodeGraph, normalize_import, normalize_key  # noqa: E402
+from substrate import edge_ends as ends  # noqa: E402
 
 
 class Base(unittest.TestCase):
@@ -46,8 +49,8 @@ class TestAliasResolution(Base):
             "src/c.ts": "import { b } from '@/src/b'\nexport const c = 2\n",
         })
         g = CodeGraph(proj)
-        g.build()
-        self.assertIn("src/b.ts", g.query("src/c.ts")["imports"])
+        graph_ops.run_build(g)
+        self.assertIn("src/b.ts", ends(g.query("src/c.ts")["imports"]))
         self.assertIn("src/b.ts", g.get_dependencies("src/c.ts"))
 
     def test_alias_resolves_with_glob_include(self):
@@ -71,8 +74,8 @@ class TestAliasResolution(Base):
             "app/route.ts": "import { verify } from '@/lib/webauthn'\nexport const r = 1\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
-        self.assertIn("lib/webauthn.ts", g.query("app/route.ts")["imports"])
+        graph_ops.run_build(g, non_interactive=True)
+        self.assertIn("lib/webauthn.ts", ends(g.query("app/route.ts")["imports"]))
         self.assertIn("lib/webauthn.ts", g.get_dependencies("app/route.ts"))
 
     def test_jsconfig_jsonc_alias_resolves_internal(self):
@@ -91,7 +94,7 @@ class TestAliasResolution(Base):
             "src/g.js": "import { b } from '@/src/b'\n",
         })
         g = CodeGraph(proj)
-        g.build()
+        graph_ops.run_build(g)
         self.assertIn("src/b.js", g.get_dependencies("src/g.js"))
 
 
@@ -107,7 +110,7 @@ class TestCwdIndependence(Base):
         cwd = os.getcwd()
         try:
             os.chdir(other)
-            CodeGraph(proj).build()
+            graph_ops.run_build(CodeGraph(proj))
         finally:
             os.chdir(cwd)
         self.assertIn("src/b.ts", CodeGraph(proj).get_dependencies("src/a.ts"))
@@ -118,22 +121,22 @@ class TestUnresolvedSignal(Base):
         """A relative import to a missing file is recorded as unresolved:, not dropped (§6)."""
         proj = self.mk({"src/d.ts": "import x from './missing'\nexport const d = 1\n"})
         g = CodeGraph(proj)
-        g.build()
-        self.assertIn("unresolved:./missing", g.query("src/d.ts")["imports"])
+        graph_ops.run_build(g)
+        self.assertIn("unresolved:./missing", ends(g.query("src/d.ts")["imports"]))
 
     def test_external_package_still_external(self):
         """Genuine bare packages stay external: (regression guard for Fix 4)."""
         proj = self.mk({"src/e.ts": "import React from 'react'\nexport const e = 1\n"})
         g = CodeGraph(proj)
-        g.build()
-        self.assertIn("external:react", g.query("src/e.ts")["imports"])
+        graph_ops.run_build(g)
+        self.assertIn("external:react", ends(g.query("src/e.ts")["imports"]))
 
 
 class TestNonInteractiveBuild(Base):
     def test_ambiguous_dir_included_without_stdin(self):
         """Non-interactive build must not block on stdin and should not drop real source (F6)."""
         proj = self.mk({"weirddir/x.ts": "export const x = 1\n"})
-        CodeGraph(proj).build(non_interactive=True)
+        graph_ops.run_build(CodeGraph(proj), non_interactive=True)
         self.assertIn("weirddir/x.ts", CodeGraph(proj).load()["files"])
 
 
@@ -154,7 +157,7 @@ class TestGraphCacheIgnored(Base):
         regenerable as graph.json and must not turn the cache back into a `*`.
         """
         proj = self.mk({"src/b.ts": "export const b = 1\n"})
-        CodeGraph(proj).build()
+        graph_ops.run_build(CodeGraph(proj))
         gi = Path(proj) / "knowledge-base" / ".graph" / ".gitignore"
         self.assertTrue(gi.exists(), ".graph/.gitignore not written")
         self.assertEqual(self._lines(gi),
@@ -169,7 +172,7 @@ class TestGraphCacheIgnored(Base):
             "# Generated code-graph cache — do not commit\n*\n", encoding="utf-8")
         # non_interactive: the pre-existing .graph/ dir is an uncertain classification,
         # and build() would otherwise prompt on stdin (F6).
-        CodeGraph(proj).build(non_interactive=True)
+        graph_ops.run_build(CodeGraph(proj), non_interactive=True)
         self.assertEqual(self._lines(gdir / ".gitignore"),
                          ["graph.json", "graph.*.json", "classifications.json", "docs.json"])
 
@@ -178,7 +181,7 @@ class TestGraphCacheIgnored(Base):
         gdir = Path(proj) / "knowledge-base" / ".graph"
         gdir.mkdir(parents=True, exist_ok=True)
         (gdir / ".gitignore").write_text("mine.json\n", encoding="utf-8")
-        CodeGraph(proj).build(non_interactive=True)
+        graph_ops.run_build(CodeGraph(proj), non_interactive=True)
         self.assertEqual((gdir / ".gitignore").read_text(encoding="utf-8"), "mine.json\n")
 
 
@@ -221,11 +224,11 @@ class TestPathKeySeparators(Base):
             "src/lib/auth.ts": "export const auth = 1\n",
             "src/c.ts": "import { auth } from './lib/auth'\nexport const c = 2\n",
         })
-        CodeGraph(proj).build(non_interactive=True)
+        graph_ops.run_build(CodeGraph(proj), non_interactive=True)
         files = CodeGraph(proj).load()["files"]
         self.assertIn("src/lib/auth.ts", files)
         self.assertEqual([k for k in files if "\\" in k], [])
-        self.assertIn("src/lib/auth.ts", files["src/c.ts"]["imports"])
+        self.assertIn("src/lib/auth.ts", ends(files["src/c.ts"]["imports"]))
 
     def test_lookups_accept_a_native_windows_argument(self):
         """A Windows user pastes what their shell/git produced; the key stays POSIX."""
@@ -234,7 +237,7 @@ class TestPathKeySeparators(Base):
             "src/b.ts": "export const b = 1\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
+        graph_ops.run_build(g, non_interactive=True)
         self.assertEqual(g.query("src\\a.ts")["file"], "src/a.ts")
         self.assertIn("src/b.ts", g.get_dependencies("src\\a.ts"))
         self.assertIn("src/a.ts", g.get_dependents("src\\b.ts"))
@@ -245,7 +248,7 @@ class TestPathKeySeparators(Base):
             "src/b.ts": "export const b = 1\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
+        graph_ops.run_build(g, non_interactive=True)
         impact = g.get_impact(["./src/b.ts"])
         self.assertEqual(impact["input_files"], {"src/b.ts"})
         self.assertIn("src/a.ts", impact["direct_dependents"])
@@ -286,18 +289,27 @@ class TestPathKeySeparators(Base):
 
         self.assertEqual(sorted(g.load()["files"]), ["src/a.ts", "src/b.ts"])
         info = g.query("src/a.ts")
-        self.assertIn("src/b.ts", info["imports"])
-        self.assertIn("unresolved:./missing", info["imports"])  # signal survives migration
-        self.assertIn("external:react", info["imports"])
+        self.assertIn("src/b.ts", ends(info["imports"]))
+        self.assertIn("unresolved:./missing", ends(info["imports"]))  # signal survives migration
+        self.assertIn("external:react", ends(info["imports"]))
         self.assertEqual(g.get_dependencies("src/a.ts"), {"src/b.ts"})
         self.assertEqual(g.get_dependents("src/b.ts"), {"src/a.ts"})
 
-    def test_migration_leaves_a_posix_cache_untouched(self):
+    def test_migration_leaves_a_current_cache_untouched(self):
+        """POSIX keys and object edges: nothing for either migration to do."""
         clean = {
-            "version": 1,
+            "version": 2,
             "files": {
-                "src/a.ts": {"exports": [], "imports": ["src/b.ts"], "dependents": []},
-                "src/b.ts": {"exports": [], "imports": [], "dependents": ["src/a.ts"]},
+                "src/a.ts": {
+                    "exports": [], "dependents": [],
+                    "imports": [{"to": "src/b.ts", "kind": "imports",
+                                 "provenance": "extracted"}],
+                },
+                "src/b.ts": {
+                    "exports": [], "imports": [],
+                    "dependents": [{"from": "src/a.ts", "kind": "imports",
+                                    "provenance": "extracted"}],
+                },
             },
         }
         proj = self.mk({"knowledge-base/.graph/graph.json": json.dumps(clean)})
@@ -318,8 +330,9 @@ class TestPathKeySeparators(Base):
 class TestSourceBearingDirsAreNotExcludedByName(Base):
     """`scripts/` holds build shell scripts in a web app and application code here.
 
-    Excluding it by name, at any depth, is what hid 40 of this repo's 51 Python
-    files. Generated and vendored trees must stay excluded.
+    Matching the name at *any* depth is what hid 40 of this repo's 51 Python files.
+    The fix is depth, not deletion: at the root the convention holds, below it the
+    name promises nothing. Generated and vendored trees stay excluded at every depth.
     """
 
     def test_code_under_a_nested_scripts_dir_is_graphed(self):
@@ -328,15 +341,24 @@ class TestSourceBearingDirsAreNotExcludedByName(Base):
             "skills/thing/scripts/mod_b.py": "x = 1\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
+        graph_ops.run_build(g, non_interactive=True)
         self.assertIn("skills/thing/scripts/mod_a.py", g.graph["files"])
         self.assertIn("skills/thing/scripts/mod_b.py", g.graph["files"])
 
-    def test_code_under_a_top_level_scripts_dir_is_graphed(self):
-        proj = self.mk({"scripts/tool.ts": "export const z = 1\n"})
+    def test_a_top_level_scripts_dir_is_excluded(self):
+        """Restored deliberately, after dropping the name outright went too far.
+
+        A root `scripts/` had been excluded in every project this toolkit had ever run
+        on. Un-excluding it everywhere to fix one repo's *nested* `skills/*/scripts/`
+        changed the answer for projects that had not asked for anything.
+        """
+        proj = self.mk({
+            "src/a.ts": "export const a = 1\n",
+            "scripts/tool.ts": "export const z = 1\n",
+        })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
-        self.assertIn("scripts/tool.ts", g.graph["files"])
+        graph_ops.run_build(g, non_interactive=True)
+        self.assertEqual(set(g.graph["files"]), {"src/a.ts"})
 
     def test_a_top_level_convention_dir_is_still_excluded(self):
         """At the root, `docs/` and `examples/` do mean what the convention says.
@@ -350,7 +372,7 @@ class TestSourceBearingDirsAreNotExcludedByName(Base):
             "examples/demo.ts": "export const d = 1\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
+        graph_ops.run_build(g, non_interactive=True)
         self.assertEqual(set(g.graph["files"]), {"src/a.ts"})
 
     def test_the_same_name_below_the_root_is_kept(self):
@@ -365,7 +387,7 @@ class TestSourceBearingDirsAreNotExcludedByName(Base):
             "packages/ui/examples/card.tsx": "export const C = 1\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
+        graph_ops.run_build(g, non_interactive=True)
         self.assertEqual(set(g.graph["files"]), {
             "app/api/media/generated/route.ts",
             "skills/thing/docs/build.py",
@@ -379,7 +401,7 @@ class TestSourceBearingDirsAreNotExcludedByName(Base):
             "knowledge-base/generated.ts": "export const g = 1\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
+        graph_ops.run_build(g, non_interactive=True)
         self.assertIn("src/a.ts", g.graph["files"])
         self.assertNotIn("knowledge-base/generated.ts", g.graph["files"])
 
@@ -391,8 +413,341 @@ class TestSourceBearingDirsAreNotExcludedByName(Base):
             "build/out.js": "var y = 1\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
+        graph_ops.run_build(g, non_interactive=True)
         self.assertEqual(set(g.graph["files"]), {"src/a.ts"})
+
+
+class TestEdgesAreObjects(Base):
+    """An edge carries more than a destination.
+
+    A string can state exactly one fact — where the edge points — so `a imports b` and
+    `a re-exports b` were the same string, and `a calls b` could not be written down at
+    all. Phase 0 measured the cost against graphify on the testbed: of 5,027 links, our
+    shape could express 2,102. The missing 58% are not detail about the same edges, they
+    are edges with a kind and symbol ends that a string has nowhere to put.
+    """
+
+    def edges(self, g, path, key="imports"):
+        return g.query(path)[key]
+
+    def test_an_import_edge_carries_kind_and_provenance(self):
+        proj = self.mk({
+            "src/a.ts": "import { b } from './b'\n",
+            "src/b.ts": "export const b = 1\n",
+        })
+        g = CodeGraph(proj)
+        graph_ops.run_build(g, non_interactive=True)
+        self.assertEqual(self.edges(g, "src/a.ts"), [
+            {"to": "src/b.ts", "kind": "imports", "provenance": "extracted"},
+        ])
+
+    def test_a_barrel_re_export_is_a_different_kind(self):
+        """`export * from './y'` and `import {x} from './y'` were the same edge."""
+        proj = self.mk({
+            "src/index.ts": "export * from './widget'\n",
+            "src/widget.ts": "export const w = 1\n",
+        })
+        g = CodeGraph(proj)
+        graph_ops.run_build(g, non_interactive=True)
+        self.assertEqual(self.edges(g, "src/index.ts"), [
+            {"to": "src/widget.ts", "kind": "re_exports", "provenance": "extracted"},
+        ])
+
+    def test_importing_and_re_exporting_the_same_module_is_one_import_edge(self):
+        """Two edges to one target would double it in every dependents list."""
+        proj = self.mk({
+            "src/index.ts": "import { w } from './widget'\nexport * from './widget'\n",
+            "src/widget.ts": "export const w = 1\n",
+        })
+        g = CodeGraph(proj)
+        graph_ops.run_build(g, non_interactive=True)
+        self.assertEqual(self.edges(g, "src/index.ts"), [
+            {"to": "src/widget.ts", "kind": "imports", "provenance": "extracted"},
+        ])
+
+    def test_the_reverse_edge_keeps_the_forward_edge_s_kind(self):
+        proj = self.mk({
+            "src/index.ts": "export * from './widget'\n",
+            "src/widget.ts": "export const w = 1\n",
+        })
+        g = CodeGraph(proj)
+        graph_ops.run_build(g, non_interactive=True)
+        self.assertEqual(self.edges(g, "src/widget.ts", "dependents"), [
+            {"from": "src/index.ts", "kind": "re_exports", "provenance": "extracted"},
+        ])
+
+    def test_signals_are_edges_too(self):
+        proj = self.mk({"src/a.ts": "import r from 'react'\nimport x from './gone'\n"})
+        g = CodeGraph(proj)
+        graph_ops.run_build(g, non_interactive=True)
+        self.assertEqual(
+            sorted((e["to"], e["kind"]) for e in self.edges(g, "src/a.ts")),
+            [("external:react", "imports"), ("unresolved:./gone", "imports")])
+
+    def test_the_backend_now_claims_the_relation_it_emits(self):
+        """Claiming only `imports` while emitting re-exports would be the overclaim
+        problem inverted — a caller cannot ask for what the coverage denies."""
+        relations = CodeGraph(self.mk({})).coverage().relations
+        self.assertEqual(relations, ("imports", "re_exports"))
+
+    def test_node_queries_still_answer_in_paths(self):
+        """`--impact`, `--dependents` and `--dependencies` answer "which files".
+
+        Three other skills feed those straight into set arithmetic; an edge object there
+        would raise `unhashable type: 'dict'` inside a set literal, in a different skill,
+        for no gain — the caller asked which files, not how.
+        """
+        proj = self.mk({
+            "src/a.ts": "import { b } from './b'\n",
+            "src/b.ts": "export const b = 1\n",
+        })
+        g = CodeGraph(proj)
+        graph_ops.run_build(g, non_interactive=True)
+        self.assertEqual(g.get_dependencies("src/a.ts"), {"src/b.ts"})
+        self.assertEqual(g.get_dependents("src/b.ts"), {"src/a.ts"})
+        self.assertEqual(g.get_impact(["src/b.ts"])["direct_dependents"], {"src/a.ts"})
+
+
+class TestOlderGraphsWithStringEdges(Base):
+    """A graph.json already on disk has string edges, and must still be readable.
+
+    The artifact is gitignored, so there is no committed copy to fix in a commit —
+    whatever is on a given machine is whatever the last build there wrote. Refusing to
+    read it would look exactly like a project with no dependencies, which is the failure
+    this whole initiative exists to remove.
+    """
+
+    def stale(self, proj):
+        return self.mk({"knowledge-base/.graph/graph.json": json.dumps({
+            "version": 1,
+            # A commit, so `update()` reaches its "nothing changed" path rather than
+            # falling back to a full build. There is no git repo in the fixture, so
+            # `git diff` fails and the changed-file list is empty — which is the state
+            # a real steady-state `--update` is in almost every time it runs.
+            "commit": "abc123def456",
+            "files": {
+                "src/a.ts": {"exports": [], "dependents": [],
+                             "imports": ["src/b.ts", "external:react"]},
+                "src/b.ts": {"exports": [], "imports": [], "dependents": ["src/a.ts"]},
+            },
+        })})
+
+    def test_string_edges_are_upgraded_on_read(self):
+        g = CodeGraph(self.stale(None))
+        info = g.load()["files"]["src/a.ts"]
+        self.assertEqual(info["imports"], [
+            {"to": "src/b.ts", "kind": "imports", "provenance": "extracted"},
+            {"to": "external:react", "kind": "imports", "provenance": "extracted"},
+        ])
+
+    def test_the_upgrade_does_not_claim_a_kind_the_old_resolver_never_determined(self):
+        """`imports`/`extracted` is exactly what the string era could express."""
+        g = CodeGraph(self.stale(None))
+        kinds = {e["kind"] for i in g.load()["files"].values() for e in i["imports"]}
+        self.assertEqual(kinds, {"imports"})
+
+    def test_queries_answer_correctly_against_an_un_rebuilt_cache(self):
+        g = CodeGraph(self.stale(None))
+        self.assertEqual(g.get_dependencies("src/a.ts"), {"src/b.ts"})
+        self.assertEqual(g.get_dependents("src/b.ts"), {"src/a.ts"})
+
+    def test_reading_does_not_pretend_the_file_on_disk_was_upgraded(self):
+        """`version` records what is on disk. Stamping it on read would make every graph
+        report itself current the instant it was read — which is when we find out it is
+        not, so nothing would ever rewrite it."""
+        g = CodeGraph(self.stale(None))
+        self.assertTrue(substrate.is_stale(g.load()))
+
+    def test_an_up_to_date_update_still_rewrites_a_legacy_artifact(self):
+        """Otherwise the migration reaches almost nobody.
+
+        `--update` is what the steady-state workflow runs, and it short-circuits when no
+        source file changed. Left there, the old artifact stays on disk indefinitely and
+        every direct reader that does not go through `load()` keeps seeing string edges.
+        """
+        proj = self.stale(None)
+        g = CodeGraph(proj)
+        out = graph_ops.run_update(g, non_interactive=True)
+
+        self.assertEqual(out["migrated_to_schema"], substrate.GRAPH_SCHEMA_VERSION)
+        on_disk = json.loads(
+            (Path(proj) / "knowledge-base" / ".graph" / "graph.json").read_text())
+        self.assertEqual(on_disk["version"], substrate.GRAPH_SCHEMA_VERSION)
+        self.assertEqual(on_disk["files"]["src/a.ts"]["imports"][0]["to"], "src/b.ts")
+        self.assertFalse(substrate.is_stale(on_disk))
+
+    def test_a_current_artifact_is_not_rewritten_for_nothing(self):
+        proj = self.mk({"knowledge-base/.graph/graph.json": json.dumps({
+            "version": substrate.GRAPH_SCHEMA_VERSION,
+            "commit": "abc123def456", "files": {},
+        })})
+        out = graph_ops.run_update(CodeGraph(proj), non_interactive=True)
+        self.assertNotIn("migrated_to_schema", out)
+
+    def test_the_rewrite_relinks_dependents_rather_than_trusting_the_old_ones(self):
+        """A legacy artifact's reverse index is legacy too, and `link_dependents` rebuilds
+        from scratch — so a dependent whose import no longer exists does not survive."""
+        proj = self.mk({"knowledge-base/.graph/graph.json": json.dumps({
+            "version": 1,
+            "commit": "abc123def456",
+            "files": {
+                "src/a.ts": {"exports": [], "imports": [], "dependents": []},
+                "src/b.ts": {"exports": [], "imports": [], "dependents": ["src/a.ts"]},
+            },
+        })})
+        graph_ops.run_update(CodeGraph(proj), non_interactive=True)
+        on_disk = json.loads(
+            (Path(proj) / "knowledge-base" / ".graph" / "graph.json").read_text())
+        self.assertEqual(on_disk["files"]["src/b.ts"]["dependents"], [])
+
+
+class TestAProjectCanOverrideTheDefaults(Base):
+    """The name lists above are defaults, and a project must be able to disagree.
+
+    Until 2026-08-20 it could not. `set_classification('docs', 'source')` was accepted,
+    written to classifications.json, and then silently overruled by `_should_exclude`,
+    which never consulted classifications at all — so a `source` verdict was inert and a
+    wrong default was unfixable. That is the real defect behind the depth argument: the
+    lists here cannot know what some other repository keeps where, and the only honest
+    answer is to let that repository say.
+    """
+
+    def _seed(self, proj, entries):
+        gdir = Path(proj) / "knowledge-base" / ".graph"
+        gdir.mkdir(parents=True, exist_ok=True)
+        (gdir / "classifications.json").write_text(
+            json.dumps({"version": 1, "rules_version": graph_ops.RULES_VERSION,
+                        "directories": entries}), encoding="utf-8")
+        return gdir
+
+    def test_a_user_source_verdict_beats_a_top_level_convention_name(self):
+        proj = self.mk({"docs/literate/engine.ts": "export const e = 1\n"})
+        self._seed(proj, {
+            "docs": {"type": "source", "confidence": 1.0, "source": "user"},
+        })
+        g = CodeGraph(proj)
+        graph_ops.run_build(g, non_interactive=True)
+        self.assertIn("docs/literate/engine.ts", g.graph["files"])
+
+    def test_a_nested_user_source_verdict_is_reachable(self):
+        """A verdict nobody ever globs for is not an override.
+
+        Scan roots are top-level, so a verdict on `docs/literate` also has to widen the
+        root to `docs` — otherwise the file it was about is never a candidate, and the
+        override records an opinion that changes nothing.
+        """
+        proj = self.mk({
+            "docs/literate/engine.ts": "export const e = 1\n",
+            "docs/site/bundle.js": "var b = 1\n",
+        })
+        self._seed(proj, {
+            "docs/literate": {"type": "source", "confidence": 1.0, "source": "user"},
+        })
+        g = CodeGraph(proj)
+        graph_ops.run_build(g, non_interactive=True)
+        self.assertEqual(set(g.graph["files"]), {"docs/literate/engine.ts"})
+
+    def test_a_user_source_verdict_beats_an_artifact_tree_name(self):
+        """The strong tier. `target/` is Maven's build dir and somebody's source dir."""
+        proj = self.mk({"target/app.py": "x = 1\n"})
+        self._seed(proj, {
+            "target": {"type": "source", "confidence": 1.0, "source": "user"},
+        })
+        g = CodeGraph(proj)
+        graph_ops.run_build(g, non_interactive=True)
+        self.assertIn("target/app.py", g.graph["files"])
+
+    def test_a_model_source_verdict_does_not_beat_an_artifact_tree_name(self):
+        """The weak tier. A model guessing `node_modules` is source is a real failure
+        mode; a person typing it is not. So `ai` overrides conventions, not artifacts."""
+        proj = self.mk({
+            "src/a.ts": "export const a = 1\n",
+            "node_modules/pkg/index.js": "module.exports = {}\n",
+        })
+        self._seed(proj, {
+            "src": {"type": "source", "confidence": 1.0, "source": "rule"},
+            "node_modules": {"type": "source", "confidence": 0.9, "source": "ai"},
+        })
+        g = CodeGraph(proj)
+        graph_ops.run_build(g, non_interactive=True)
+        self.assertEqual(set(g.graph["files"]), {"src/a.ts"})
+
+    def test_a_model_source_verdict_does_beat_a_convention_name(self):
+        proj = self.mk({"examples/widget.ts": "export const w = 1\n"})
+        self._seed(proj, {
+            "examples": {"type": "source", "confidence": 0.9, "source": "ai"},
+        })
+        g = CodeGraph(proj)
+        graph_ops.run_build(g, non_interactive=True)
+        self.assertIn("examples/widget.ts", g.graph["files"])
+
+    def test_an_override_beats_gitignore(self):
+        """git's opinion about what to commit is not the question being asked.
+
+        Two layers had to agree for this to work: `_should_exclude`, and the `Exclusions`
+        the CLI passes back into `build()` — which is assembled from the same .gitignore
+        and would otherwise have filtered the file out again one step later.
+        """
+        proj = self.mk({
+            "generated/api/client.ts": "export const c = 1\n",
+            ".gitignore": "generated/\n",
+        })
+        self._seed(proj, {
+            "generated": {"type": "source", "confidence": 1.0, "source": "user"},
+        })
+        g = CodeGraph(proj)
+        graph_ops.run_build(g, non_interactive=True, exclusions=g.project_exclusions())
+        self.assertIn("generated/api/client.ts", g.graph["files"])
+
+    def test_a_rule_verdict_cannot_override_the_rules_that_produced_it(self):
+        """Otherwise the escape hatch is circular: the lists would be overriding
+        themselves via the cache they just wrote."""
+        proj = self.mk({"docs/site/bundle.js": "var b = 1\n"})
+        self._seed(proj, {
+            "docs": {"type": "source", "confidence": 1.0, "source": "rule"},
+        })
+        g = CodeGraph(proj)
+        graph_ops.run_build(g, non_interactive=True)
+        self.assertEqual(set(g.graph["files"]), set())
+
+    def test_a_deeper_exclude_still_wins_inside_an_override(self):
+        proj = self.mk({
+            "docs/literate/engine.ts": "export const e = 1\n",
+            "docs/literate/legacy/old.ts": "export const o = 1\n",
+        })
+        self._seed(proj, {
+            "docs/literate": {"type": "source", "confidence": 1.0, "source": "user"},
+            "docs/literate/legacy": {"type": "exclude", "confidence": 1.0,
+                                     "source": "user"},
+        })
+        g = CodeGraph(proj)
+        graph_ops.run_build(g, non_interactive=True, exclusions=g.project_exclusions())
+        self.assertEqual(set(g.graph["files"]), {"docs/literate/engine.ts"})
+
+    def test_file_kind_patterns_are_not_overridable(self):
+        """`*.d.ts` is a claim about what a file is, not about which dirs are in scope."""
+        proj = self.mk({
+            "docs/literate/engine.ts": "export const e = 1\n",
+            "docs/literate/types.d.ts": "declare const t: number;\n",
+        })
+        self._seed(proj, {
+            "docs": {"type": "source", "confidence": 1.0, "source": "user"},
+        })
+        g = CodeGraph(proj)
+        graph_ops.run_build(g, non_interactive=True)
+        self.assertEqual(set(g.graph["files"]), {"docs/literate/engine.ts"})
+
+    def test_set_classification_is_no_longer_inert(self):
+        """The end-to-end path a user actually takes, which used to do nothing."""
+        proj = self.mk({"docs/literate/engine.ts": "export const e = 1\n"})
+        g = CodeGraph(proj)
+        graph_ops.run_build(g, non_interactive=True)
+        self.assertEqual(set(g.graph["files"]), set())
+
+        g.set_classification("docs", "source", "it really is source here")
+        g2 = CodeGraph(proj)
+        graph_ops.run_build(g2, non_interactive=True, exclusions=g2.project_exclusions())
+        self.assertIn("docs/literate/engine.ts", g2.graph["files"])
 
 
 class TestStaleRuleClassificationsAreRefreshed(Base):
@@ -418,13 +773,13 @@ class TestStaleRuleClassificationsAreRefreshed(Base):
         (gdir / "classifications.json").write_text(json.dumps(payload), encoding="utf-8")
 
     def test_a_stale_rule_verdict_is_rediscarded_and_the_dir_is_graphed(self):
-        proj = self.mk({"scripts/tool.py": "x = 1\n"})
+        proj = self.mk({"src/tool.py": "x = 1\n"})
         self._seed(proj, {
-            "scripts": {"type": "exclude", "confidence": 1.0, "source": "rule"},
+            "src": {"type": "exclude", "confidence": 1.0, "source": "rule"},
         }, version="something-old")
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
-        self.assertIn("scripts/tool.py", g.graph["files"])
+        graph_ops.run_build(g, non_interactive=True)
+        self.assertIn("src/tool.py", g.graph["files"])
 
     def test_a_user_verdict_survives_a_rules_change(self):
         proj = self.mk({"vendor_ish/tool.py": "x = 1\n"})
@@ -432,7 +787,7 @@ class TestStaleRuleClassificationsAreRefreshed(Base):
             "vendor_ish": {"type": "exclude", "confidence": 1.0, "source": "user"},
         }, version="something-old")
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
+        graph_ops.run_build(g, non_interactive=True)
         self.assertNotIn("vendor_ish/tool.py", g.graph["files"])
         self.assertEqual(
             self._classifications(proj)["directories"]["vendor_ish"]["source"], "user")
@@ -443,12 +798,12 @@ class TestStaleRuleClassificationsAreRefreshed(Base):
             "odd": {"type": "exclude", "confidence": 0.8, "source": "ai"},
         }, version="something-old")
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
+        graph_ops.run_build(g, non_interactive=True)
         self.assertNotIn("odd/tool.py", g.graph["files"])
 
     def test_the_current_rules_version_is_recorded_so_the_next_change_propagates(self):
         proj = self.mk({"src/a.py": "x = 1\n"})
-        CodeGraph(proj).build(non_interactive=True)
+        graph_ops.run_build(CodeGraph(proj), non_interactive=True)
         self.assertIn("rules_version", self._classifications(proj))
 
 
@@ -466,7 +821,7 @@ class TestDeadCategoryFieldIsGone(Base):
             "src/api/route.ts": "export const r = 1\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
+        graph_ops.run_build(g, non_interactive=True)
         for path, info in g.graph["files"].items():
             self.assertNotIn("category", info, path)
 
@@ -501,9 +856,9 @@ class TestWorkspaceResolution(Base):
             "apps/mobile/src/App.tsx": "import { extract } from '@acme/domain'\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
+        graph_ops.run_build(g, non_interactive=True)
         self.assertIn("packages/domain/src/index.ts",
-                      g.query("apps/mobile/src/App.tsx")["imports"])
+                      ends(g.query("apps/mobile/src/App.tsx")["imports"]))
 
     def test_the_dependency_gains_a_dependent(self):
         """The blast-radius consequence, which is the reason this matters."""
@@ -515,7 +870,7 @@ class TestWorkspaceResolution(Base):
             "apps/mobile/src/App.tsx": "import { extract } from '@acme/domain'\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
+        graph_ops.run_build(g, non_interactive=True)
         self.assertIn("apps/mobile/src/App.tsx",
                       g.get_dependents("packages/domain/src/index.ts"))
 
@@ -528,9 +883,9 @@ class TestWorkspaceResolution(Base):
             "apps/mobile/src/App.tsx": "import { fmt } from '@acme/domain/src/dates'\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
+        graph_ops.run_build(g, non_interactive=True)
         self.assertIn("packages/domain/src/dates.ts",
-                      g.query("apps/mobile/src/App.tsx")["imports"])
+                      ends(g.query("apps/mobile/src/App.tsx")["imports"]))
 
     def test_a_package_without_main_falls_back_to_an_index(self):
         proj = self.mk({
@@ -541,8 +896,8 @@ class TestWorkspaceResolution(Base):
             "apps/mobile/src/App.tsx": "import { Button } from '@acme/ui'\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
-        self.assertIn("packages/ui/index.ts", g.query("apps/mobile/src/App.tsx")["imports"])
+        graph_ops.run_build(g, non_interactive=True)
+        self.assertIn("packages/ui/index.ts", ends(g.query("apps/mobile/src/App.tsx")["imports"]))
 
     def test_the_yarn_object_form_is_read(self):
         proj = self.mk({
@@ -553,8 +908,8 @@ class TestWorkspaceResolution(Base):
             "libs/app/main.js": "const c = require('@x/core')\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
-        self.assertIn("libs/core/index.js", g.query("libs/app/main.js")["imports"])
+        graph_ops.run_build(g, non_interactive=True)
+        self.assertIn("libs/core/index.js", ends(g.query("libs/app/main.js")["imports"]))
 
     def test_a_pnpm_workspace_file_is_read(self):
         proj = self.mk({
@@ -566,8 +921,8 @@ class TestWorkspaceResolution(Base):
             "packages/app/main.ts": "import { e } from '@acme/domain'\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
-        self.assertIn("packages/domain/src/index.ts", g.query("packages/app/main.ts")["imports"])
+        graph_ops.run_build(g, non_interactive=True)
+        self.assertIn("packages/domain/src/index.ts", ends(g.query("packages/app/main.ts")["imports"]))
 
     def test_a_pnpm_file_without_a_packages_key_is_not_a_workspace_root(self):
         """The testbed has exactly this: pnpm-workspace.yaml holding only build settings."""
@@ -577,8 +932,8 @@ class TestWorkspaceResolution(Base):
             "src/a.ts": "import React from 'react'\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
-        self.assertIn("external:react", g.query("src/a.ts")["imports"])
+        graph_ops.run_build(g, non_interactive=True)
+        self.assertIn("external:react", ends(g.query("src/a.ts")["imports"]))
 
     def test_a_real_npm_package_is_still_external(self):
         proj = self.mk({
@@ -587,8 +942,8 @@ class TestWorkspaceResolution(Base):
             "packages/domain/src/index.ts": "import React from 'react'\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
-        self.assertIn("external:react", g.query("packages/domain/src/index.ts")["imports"])
+        graph_ops.run_build(g, non_interactive=True)
+        self.assertIn("external:react", ends(g.query("packages/domain/src/index.ts")["imports"]))
 
     def test_a_package_vendored_under_node_modules_is_not_a_workspace_member(self):
         """`packages/**` matches node_modules too, and the damage is not just noise.
@@ -606,8 +961,8 @@ class TestWorkspaceResolution(Base):
             "src/app.ts": "import React from 'react'\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
-        self.assertIn("external:react", g.query("src/app.ts")["imports"])
+        graph_ops.run_build(g, non_interactive=True)
+        self.assertIn("external:react", ends(g.query("src/app.ts")["imports"]))
 
     def test_an_absolute_workspace_pattern_does_not_break_the_build(self):
         """Path.glob rejects an absolute pattern on the 3.9 floor CI runs."""
@@ -618,8 +973,8 @@ class TestWorkspaceResolution(Base):
             "src/app.ts": "import { i } from '@x/a'\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
-        self.assertIn("packages/a/i.ts", g.query("src/app.ts")["imports"])
+        graph_ops.run_build(g, non_interactive=True)
+        self.assertIn("packages/a/i.ts", ends(g.query("src/app.ts")["imports"]))
 
     def test_a_pattern_escaping_the_project_is_ignored(self):
         proj = self.mk({
@@ -628,7 +983,7 @@ class TestWorkspaceResolution(Base):
             "packages/a/i.ts": "export const i = 1\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
+        graph_ops.run_build(g, non_interactive=True)
         self.assertIn("packages/a/i.ts", g.graph["files"])
 
     def test_a_non_workspace_repo_is_unaffected(self):
@@ -637,8 +992,8 @@ class TestWorkspaceResolution(Base):
             "src/a.ts": "import { b } from '@scope/thing'\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
-        self.assertIn("external:@scope/thing", g.query("src/a.ts")["imports"])
+        graph_ops.run_build(g, non_interactive=True)
+        self.assertIn("external:@scope/thing", ends(g.query("src/a.ts")["imports"]))
 
     def test_a_missing_workspace_target_is_unresolved_not_external(self):
         """It names a package this repo owns, so a failure is a gap, not a third party."""
@@ -650,8 +1005,8 @@ class TestWorkspaceResolution(Base):
             "apps/mobile/src/App.tsx": "import { x } from '@acme/domain/src/missing'\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
-        imports = g.query("apps/mobile/src/App.tsx")["imports"]
+        graph_ops.run_build(g, non_interactive=True)
+        imports = ends(g.query("apps/mobile/src/App.tsx")["imports"])
         self.assertIn("unresolved:@acme/domain/src/missing", imports)
 
 
@@ -681,7 +1036,7 @@ class TestNestedClassificationVerdicts(Base):
             "packages/legacy": {"type": "exclude", "confidence": 1.0, "source": "user"},
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
+        graph_ops.run_build(g, non_interactive=True)
         files = set(g.graph["files"])
         self.assertIn("packages/app/src.ts", files)
         self.assertNotIn("packages/legacy/old.ts", files)
@@ -697,7 +1052,7 @@ class TestNestedClassificationVerdicts(Base):
             "a/b/c": {"type": "source", "confidence": 1.0, "source": "user"},
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
+        graph_ops.run_build(g, non_interactive=True)
         files = set(g.graph["files"])
         self.assertIn("a/b/c/keep.ts", files)
         self.assertNotIn("a/b/drop.ts", files)
@@ -717,8 +1072,8 @@ class TestPythonImportResolution(Base):
             "pkg/mod_b.py": "x = 1\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
-        self.assertIn("pkg/mod_b.py", g.query("pkg/mod_a.py")["imports"])
+        graph_ops.run_build(g, non_interactive=True)
+        self.assertIn("pkg/mod_b.py", ends(g.query("pkg/mod_a.py")["imports"]))
 
     def test_sibling_from_import_is_internal(self):
         proj = self.mk({
@@ -726,8 +1081,8 @@ class TestPythonImportResolution(Base):
             "pkg/mod_c.py": "thing = 1\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
-        self.assertIn("pkg/mod_c.py", g.query("pkg/mod_a.py")["imports"])
+        graph_ops.run_build(g, non_interactive=True)
+        self.assertIn("pkg/mod_c.py", ends(g.query("pkg/mod_a.py")["imports"]))
 
     def test_explicit_relative_import_is_internal(self):
         proj = self.mk({
@@ -736,8 +1091,8 @@ class TestPythonImportResolution(Base):
             "pkg/mod_d.py": "other = 1\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
-        self.assertIn("pkg/mod_d.py", g.query("pkg/mod_a.py")["imports"])
+        graph_ops.run_build(g, non_interactive=True)
+        self.assertIn("pkg/mod_d.py", ends(g.query("pkg/mod_a.py")["imports"]))
 
     def test_dotted_package_import_is_internal(self):
         proj = self.mk({
@@ -746,15 +1101,15 @@ class TestPythonImportResolution(Base):
             "app/lib/helpers.py": "def fn():\n    return 1\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
-        self.assertIn("app/lib/helpers.py", g.query("app/main.py")["imports"])
+        graph_ops.run_build(g, non_interactive=True)
+        self.assertIn("app/lib/helpers.py", ends(g.query("app/main.py")["imports"]))
 
     def test_stdlib_and_third_party_stay_external(self):
         """The regression guard: resolving siblings must not swallow real packages."""
         proj = self.mk({"pkg/mod_a.py": "import json\nimport requests\n"})
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
-        imports = g.query("pkg/mod_a.py")["imports"]
+        graph_ops.run_build(g, non_interactive=True)
+        imports = ends(g.query("pkg/mod_a.py")["imports"])
         self.assertIn("external:json", imports)
         self.assertIn("external:requests", imports)
 
@@ -765,8 +1120,8 @@ class TestPythonImportResolution(Base):
             "pkg/json.py": "loads = None\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
-        self.assertIn("pkg/json.py", g.query("pkg/mod_a.py")["imports"])
+        graph_ops.run_build(g, non_interactive=True)
+        self.assertIn("pkg/json.py", ends(g.query("pkg/mod_a.py")["imports"]))
 
 
 class TestPythonSourceRoots(Base):
@@ -786,9 +1141,9 @@ class TestPythonSourceRoots(Base):
             "src/myapp/service.py": "from myapp.core.db import WHO\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
+        graph_ops.run_build(g, non_interactive=True)
         self.assertIn("src/myapp/core/db.py",
-                      g.query("src/myapp/service.py")["imports"])
+                      ends(g.query("src/myapp/service.py")["imports"]))
 
     def test_src_layout_gives_the_dependency_a_dependent(self):
         """The blast-radius consequence, which is the reason this matters."""
@@ -799,7 +1154,7 @@ class TestPythonSourceRoots(Base):
             "src/myapp/service.py": "from myapp.core.db import WHO\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
+        graph_ops.run_build(g, non_interactive=True)
         self.assertEqual(g.get_dependents("src/myapp/core/db.py"),
                          {"src/myapp/service.py"})
 
@@ -816,9 +1171,9 @@ class TestPythonSourceRoots(Base):
             "pkg/mod.py": "import utils\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
-        self.assertIn("utils.py", g.query("pkg/mod.py")["imports"])
-        self.assertNotIn("pkg/utils.py", g.query("pkg/mod.py")["imports"])
+        graph_ops.run_build(g, non_interactive=True)
+        self.assertIn("utils.py", ends(g.query("pkg/mod.py")["imports"]))
+        self.assertNotIn("pkg/utils.py", ends(g.query("pkg/mod.py")["imports"]))
 
     def test_a_loose_script_still_prefers_its_own_directory(self):
         """Outside a package, sys.path[0] is the script's directory, so the sibling wins."""
@@ -828,8 +1183,8 @@ class TestPythonSourceRoots(Base):
             "tools/run.py": "import helpers\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
-        self.assertIn("tools/helpers.py", g.query("tools/run.py")["imports"])
+        graph_ops.run_build(g, non_interactive=True)
+        self.assertIn("tools/helpers.py", ends(g.query("tools/run.py")["imports"]))
 
 
 class TestPackageMembersDoNotSearchTheirOwnDirectory(Base):
@@ -848,8 +1203,8 @@ class TestPackageMembersDoNotSearchTheirOwnDirectory(Base):
             "app/magics/auto.py": "import logging\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
-        imports = g.query("app/magics/auto.py")["imports"]
+        graph_ops.run_build(g, non_interactive=True)
+        imports = ends(g.query("app/magics/auto.py")["imports"])
         self.assertIn("external:logging", imports)
         self.assertNotIn("app/magics/logging.py", imports)
         self.assertNotIn("app/logging.py", imports)
@@ -861,8 +1216,8 @@ class TestPackageMembersDoNotSearchTheirOwnDirectory(Base):
             "app/hooks/wx.py": "import wx\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
-        self.assertNotIn("app/hooks/wx.py", g.query("app/hooks/wx.py")["imports"])
+        graph_ops.run_build(g, non_interactive=True)
+        self.assertNotIn("app/hooks/wx.py", ends(g.query("app/hooks/wx.py")["imports"]))
 
     def test_no_self_edges_anywhere_in_a_built_graph(self):
         proj = self.mk({
@@ -871,9 +1226,9 @@ class TestPackageMembersDoNotSearchTheirOwnDirectory(Base):
             "pkg/io.py": "import json\nimport io\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
+        graph_ops.run_build(g, non_interactive=True)
         self_edges = [(f, i) for f, info in g.graph["files"].items()
-                      for i in info["imports"] if i == f]
+                      for i in ends(info["imports"]) if i == f]
         self.assertEqual(self_edges, [])
 
     def test_a_root_module_shadowing_a_stdlib_name_does_not_import_itself(self):
@@ -891,9 +1246,9 @@ class TestPackageMembersDoNotSearchTheirOwnDirectory(Base):
             "text.py": "T = 1\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
-        self.assertNotIn("abc.py", g.query("abc.py")["imports"])
-        self.assertNotIn("json.py", g.query("json.py")["imports"])
+        graph_ops.run_build(g, non_interactive=True)
+        self.assertNotIn("abc.py", ends(g.query("abc.py")["imports"]))
+        self.assertNotIn("json.py", ends(g.query("json.py")["imports"]))
 
     def test_no_file_is_its_own_dependent(self):
         proj = self.mk({
@@ -901,7 +1256,7 @@ class TestPackageMembersDoNotSearchTheirOwnDirectory(Base):
             "logging.py": "import logging\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
+        graph_ops.run_build(g, non_interactive=True)
         self.assertNotIn("logging.py", g.get_dependents("logging.py"))
 
     def test_an_absolute_import_inside_a_package_still_reaches_the_package_root(self):
@@ -913,8 +1268,8 @@ class TestPackageMembersDoNotSearchTheirOwnDirectory(Base):
             "pkg/deep/mod.py": "from pkg.util import V\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
-        self.assertIn("pkg/util.py", g.query("pkg/deep/mod.py")["imports"])
+        graph_ops.run_build(g, non_interactive=True)
+        self.assertIn("pkg/util.py", ends(g.query("pkg/deep/mod.py")["imports"]))
 
 
 class TestCaseSensitivityOfResolvedEdges(Base):
@@ -931,8 +1286,8 @@ class TestCaseSensitivityOfResolvedEdges(Base):
             "pkg/main.py": "import Utils\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
-        imports = g.query("pkg/main.py")["imports"]
+        graph_ops.run_build(g, non_interactive=True)
+        imports = ends(g.query("pkg/main.py")["imports"])
         self.assertNotIn("pkg/Utils.py", imports)
         self.assertIn("external:Utils", imports)
 
@@ -942,8 +1297,8 @@ class TestCaseSensitivityOfResolvedEdges(Base):
             "src/main.ts": "import { v } from './Utils'\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
-        self.assertNotIn("src/Utils.ts", g.query("src/main.ts")["imports"])
+        graph_ops.run_build(g, non_interactive=True)
+        self.assertNotIn("src/Utils.ts", ends(g.query("src/main.ts")["imports"]))
 
     def test_correct_case_still_resolves(self):
         proj = self.mk({
@@ -953,9 +1308,9 @@ class TestCaseSensitivityOfResolvedEdges(Base):
             "src/main.ts": "import { v } from './utils'\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
-        self.assertIn("pkg/utils.py", g.query("pkg/main.py")["imports"])
-        self.assertIn("src/utils.ts", g.query("src/main.ts")["imports"])
+        graph_ops.run_build(g, non_interactive=True)
+        self.assertIn("pkg/utils.py", ends(g.query("pkg/main.py")["imports"]))
+        self.assertIn("src/utils.ts", ends(g.query("src/main.ts")["imports"]))
 
 
 class TestSrcBaseIsGatedOnPythonPackaging(Base):
@@ -972,8 +1327,8 @@ class TestSrcBaseIsGatedOnPythonPackaging(Base):
             "tools/gen.py": "import utils\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
-        imports = g.query("tools/gen.py")["imports"]
+        graph_ops.run_build(g, non_interactive=True)
+        imports = ends(g.query("tools/gen.py")["imports"])
         self.assertNotIn("src/utils.py", imports)
         self.assertIn("external:utils", imports)
 
@@ -985,8 +1340,8 @@ class TestSrcBaseIsGatedOnPythonPackaging(Base):
             "tests/test_service.py": "from myapp.service import V\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
-        self.assertIn("src/myapp/service.py", g.query("tests/test_service.py")["imports"])
+        graph_ops.run_build(g, non_interactive=True)
+        self.assertIn("src/myapp/service.py", ends(g.query("tests/test_service.py")["imports"]))
 
 
 class TestNoPhantomPackagesFromImportSyntax(Base):
@@ -1004,8 +1359,8 @@ class TestNoPhantomPackagesFromImportSyntax(Base):
             "pkg/deep.py": "from . import leaf\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
-        imports = g.query("pkg/deep.py")["imports"]
+        graph_ops.run_build(g, non_interactive=True)
+        imports = ends(g.query("pkg/deep.py")["imports"])
         self.assertNotIn("external:import", imports)
         self.assertFalse([i for i in imports if i.rstrip().endswith(" import")],
                          f"specifier captured part of the statement grammar: {imports}")
@@ -1022,8 +1377,8 @@ class TestNoPhantomPackagesFromImportSyntax(Base):
             "pkg/mod.py": "from . import leaf\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
-        imports = g.query("pkg/mod.py")["imports"]
+        graph_ops.run_build(g, non_interactive=True)
+        imports = ends(g.query("pkg/mod.py")["imports"])
         self.assertNotIn("unresolved:.", imports)
         self.assertNotIn("unresolved:..", imports)
 
@@ -1036,9 +1391,9 @@ class TestNoPhantomPackagesFromImportSyntax(Base):
             "pkg/sub/deep.py": "from . import leaf\nfrom .. import sibling\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
+        graph_ops.run_build(g, non_interactive=True)
         bad = [(f, i) for f, info in g.graph["files"].items()
-               for i in info["imports"] if i.rstrip().endswith(" import")
+               for i in ends(info["imports"]) if i.rstrip().endswith(" import")
                or i in ("external:import", "unresolved:import")]
         self.assertEqual(bad, [])
 
@@ -1055,8 +1410,8 @@ class TestTypeOnlyImports(Base):
             "t.ts": "import type { A } from './a'\nexport const t: A = 'x'\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
-        self.assertIn("a.ts", g.query("t.ts")["imports"])
+        graph_ops.run_build(g, non_interactive=True)
+        self.assertIn("a.ts", ends(g.query("t.ts")["imports"]))
 
     def test_default_type_import_is_an_edge(self):
         proj = self.mk({
@@ -1064,8 +1419,8 @@ class TestTypeOnlyImports(Base):
             "t.ts": "import type B from './b'\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
-        self.assertIn("b.ts", g.query("t.ts")["imports"])
+        graph_ops.run_build(g, non_interactive=True)
+        self.assertIn("b.ts", ends(g.query("t.ts")["imports"]))
 
     def test_type_only_re_export_is_an_edge(self):
         proj = self.mk({
@@ -1073,8 +1428,8 @@ class TestTypeOnlyImports(Base):
             "t.ts": "export type { D } from './d'\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
-        self.assertIn("d.ts", g.query("t.ts")["imports"])
+        graph_ops.run_build(g, non_interactive=True)
+        self.assertIn("d.ts", ends(g.query("t.ts")["imports"]))
 
     def test_inline_type_specifier_still_resolves(self):
         proj = self.mk({
@@ -1082,8 +1437,8 @@ class TestTypeOnlyImports(Base):
             "t.ts": "import { type E, e } from './e'\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
-        self.assertIn("e.ts", g.query("t.ts")["imports"])
+        graph_ops.run_build(g, non_interactive=True)
+        self.assertIn("e.ts", ends(g.query("t.ts")["imports"]))
 
 
 class TestBarrelImports(Base):
@@ -1101,9 +1456,9 @@ class TestBarrelImports(Base):
             "components/providers.tsx": "import { A } from './accessibility'\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
+        graph_ops.run_build(g, non_interactive=True)
         self.assertIn("components/accessibility/index.tsx",
-                      g.query("components/providers.tsx")["imports"])
+                      ends(g.query("components/providers.tsx")["imports"]))
 
     def test_a_python_package_dir_resolves_to_its_init(self):
         proj = self.mk({
@@ -1111,8 +1466,8 @@ class TestBarrelImports(Base):
             "pkg/main.py": "from sub import value\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
-        self.assertIn("pkg/sub/__init__.py", g.query("pkg/main.py")["imports"])
+        graph_ops.run_build(g, non_interactive=True)
+        self.assertIn("pkg/sub/__init__.py", ends(g.query("pkg/main.py")["imports"]))
 
     def test_no_edge_points_at_a_directory(self):
         """The invariant behind both: every internal edge names a file in the graph."""
@@ -1122,10 +1477,10 @@ class TestBarrelImports(Base):
             "components/providers.tsx": "import { A } from './accessibility'\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
+        graph_ops.run_build(g, non_interactive=True)
         files = set(g.graph["files"])
         dangling = [(s, i) for s, info in g.graph["files"].items()
-                    for i in info["imports"]
+                    for i in ends(info["imports"])
                     if not i.startswith(("external:", "unresolved:")) and i not in files]
         self.assertEqual(dangling, [])
 
@@ -1144,7 +1499,7 @@ class TestGitignoreMatchingIsNotSubstring(Base):
             "app/api/auth/[...nextauth]/route.ts": "export const GET = 1\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
+        graph_ops.run_build(g, non_interactive=True)
         self.assertIn("app/api/auth/[...nextauth]/route.ts", g.graph["files"])
 
     def test_the_actually_ignored_directory_is_still_excluded(self):
@@ -1154,7 +1509,7 @@ class TestGitignoreMatchingIsNotSubstring(Base):
             ".next/static/chunk.js": "var c = 1\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
+        graph_ops.run_build(g, non_interactive=True)
         self.assertIn("src/a.ts", g.graph["files"])
         self.assertNotIn(".next/static/chunk.js", g.graph["files"])
 
@@ -1171,11 +1526,11 @@ class TestGitignoreMatchingIsNotSubstring(Base):
             "src/app.ts": "import { a } from './lib/auth'\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
+        graph_ops.run_build(g, non_interactive=True)
         files = set(g.graph["files"])
         self.assertNotIn("lib/vendored.ts", files)
         self.assertIn("src/lib/auth.ts", files)
-        self.assertIn("src/lib/auth.ts", g.query("src/app.ts")["imports"])
+        self.assertIn("src/lib/auth.ts", ends(g.query("src/app.ts")["imports"]))
 
     def test_an_unanchored_pattern_still_matches_at_any_depth(self):
         proj = self.mk({
@@ -1185,7 +1540,7 @@ class TestGitignoreMatchingIsNotSubstring(Base):
             "packages/ui/vendor/y.ts": "export const y = 1\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
+        graph_ops.run_build(g, non_interactive=True)
         self.assertEqual(set(g.graph["files"]), {"src/a.ts"})
 
     def test_a_negation_re_includes_a_tracked_file(self):
@@ -1201,11 +1556,11 @@ class TestGitignoreMatchingIsNotSubstring(Base):
             "src/a.ts": "import { d } from '../config/default'\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
+        graph_ops.run_build(g, non_interactive=True)
         files = set(g.graph["files"])
         self.assertIn("config/default.ts", files)
         self.assertNotIn("config/secret.ts", files)
-        self.assertIn("config/default.ts", g.query("src/a.ts")["imports"])
+        self.assertIn("config/default.ts", ends(g.query("src/a.ts")["imports"]))
 
     def test_a_gitignored_source_dir_is_still_excluded(self):
         proj = self.mk({
@@ -1214,7 +1569,7 @@ class TestGitignoreMatchingIsNotSubstring(Base):
             "secret/leak.ts": "export const s = 1\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
+        graph_ops.run_build(g, non_interactive=True)
         self.assertIn("src/a.ts", g.graph["files"])
         self.assertNotIn("secret/leak.ts", g.graph["files"])
 
@@ -1236,12 +1591,12 @@ class TestThisRepoGraphsItself(Base):
             "skills/thing/scripts/test_behavior_graph.py": "import behavior_graph\n",
         })
         g = CodeGraph(proj)
-        g.build(non_interactive=True)
+        graph_ops.run_build(g, non_interactive=True)
 
         internal = {
             (src, imp)
             for src, info in g.graph["files"].items()
-            for imp in info["imports"]
+            for imp in ends(info["imports"])
             if not imp.startswith(("external:", "unresolved:"))
         }
         self.assertEqual(len(g.graph["files"]), 5)

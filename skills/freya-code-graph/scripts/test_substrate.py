@@ -17,6 +17,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import graph_ops  # noqa: E402
 import settings as settings_mod  # noqa: E402
 from substrate import (  # noqa: E402
     Coverage,
@@ -118,10 +119,59 @@ class TestExclusions(unittest.TestCase):
         self.assertTrue(ex.excludes('/vendor/lib.ts'))
 
 
+class TestExclusionOverrides(unittest.TestCase):
+    """A project must be able to declare something back *in* scope.
+
+    Exclusions are assembled from defaults and from `.gitignore`, neither of which can
+    know that this repository keeps real source where the convention says it should not.
+    Without overrides the resolver's escape hatch would be undone one layer up: the CLI
+    passes these exclusions back into `build()`, so a directory the project had just
+    declared source would be filtered out again a step later.
+    """
+
+    def test_an_override_beats_a_pattern(self):
+        def matcher(rel, patterns):
+            return rel.startswith('generated/')
+
+        ex = Exclusions(patterns=['generated/'], matcher=matcher,
+                        overrides=['generated'])
+        self.assertFalse(ex.excludes('generated/api/client.ts'))
+
+    def test_an_override_beats_a_directory(self):
+        ex = Exclusions(directories=['docs'], overrides=['docs'])
+        self.assertFalse(ex.excludes('docs/literate/engine.ts'))
+
+    def test_a_deeper_exclusion_still_wins_inside_an_override(self):
+        ex = Exclusions(directories=['docs/literate/legacy'],
+                        overrides=['docs/literate'])
+        self.assertFalse(ex.excludes('docs/literate/engine.ts'))
+        self.assertTrue(ex.excludes('docs/literate/legacy/old.ts'))
+
+    def test_an_override_does_not_leak_past_a_path_boundary(self):
+        ex = Exclusions(directories=['docsite'], overrides=['docs'])
+        self.assertTrue(ex.excludes('docsite/bundle.js'))
+
+    def test_the_deepest_override_governs(self):
+        """`packages/` declared source must not resurrect an excluded member that a
+        narrower override says nothing about."""
+        ex = Exclusions(directories=['packages/legacy'],
+                        overrides=['packages', 'packages/ui'])
+        self.assertFalse(ex.excludes('packages/ui/card.tsx'))
+        self.assertTrue(ex.excludes('packages/legacy/old.tsx'))
+
+    def test_overrides_are_absent_from_metadata_when_unused(self):
+        """A graph from a project that overrode nothing stays byte-identical to one
+        written before overrides existed."""
+        self.assertNotIn('overrides', Exclusions(directories=['vendor']).to_dict())
+        self.assertEqual(Exclusions(overrides=['docs']).to_dict()['overrides'], ['docs'])
+
+
 class _Backend:
     """A minimal conforming backend, used to check the checker."""
 
     name = 'stub'
+    # The contract persists the graph, so it has to know where to put it.
+    project_dir = '/tmp/stub-project'
 
     def coverage(self):
         return Coverage(['python'], ['.py'], ['imports'], True)
@@ -153,6 +203,16 @@ class TestConformance(unittest.TestCase):
         b = _Backend()
         b.name = 'my backend/v2'
         self.assertTrue(any('filename-safe' in e for e in conformance_errors(b)))
+
+    def test_a_backend_that_cannot_say_where_it_lives_is_rejected(self):
+        """The contract writes the artifacts, so it has to know where.
+
+        Every backend is already constructed with a project directory — the registry
+        passes one to the factory — so this only requires it to keep it.
+        """
+        b = _Backend()
+        b.project_dir = ''
+        self.assertTrue(any('project_dir' in e for e in conformance_errors(b)))
 
     def test_a_backend_declaring_nothing_is_rejected(self):
         b = _Backend()
@@ -342,7 +402,7 @@ class TestHomegrownIsAConformingBackend(unittest.TestCase):
     def graph_of(self, files):
         from graph_ops import CodeGraph
         g = CodeGraph(self.mk(files))
-        g.build(non_interactive=True)
+        graph_ops.run_build(g, non_interactive=True)
         return g
 
     def test_it_satisfies_the_contract(self):
@@ -385,7 +445,7 @@ class TestHomegrownIsAConformingBackend(unittest.TestCase):
     def test_the_substrate_block_survives_a_write_and_reload(self):
         from graph_ops import CodeGraph
         d = self.mk({'src/a.ts': 'export const a = 1\n'})
-        CodeGraph(d).build(non_interactive=True)
+        graph_ops.run_build(CodeGraph(d), non_interactive=True)
         reloaded = CodeGraph(d).load()
         self.assertEqual(reloaded['substrate']['backend'], 'homegrown')
 
@@ -408,14 +468,14 @@ class TestHomegrownIsAConformingBackend(unittest.TestCase):
             'thirdparty/b.ts': 'export const b = 1\n',
         })
         g = CodeGraph(d)
-        g.build(non_interactive=True, exclusions=Exclusions(directories=['thirdparty']))
+        graph_ops.run_build(g, non_interactive=True, exclusions=Exclusions(directories=['thirdparty']))
         self.assertEqual(set(g.graph['files']), {'src/a.ts'})
 
     def test_the_exclusions_it_used_are_recorded_in_the_graph(self):
         from graph_ops import CodeGraph
         d = self.mk({'src/a.ts': 'export const a = 1\n'})
         g = CodeGraph(d)
-        g.build(non_interactive=True, exclusions=Exclusions(directories=['vendor']))
+        graph_ops.run_build(g, non_interactive=True, exclusions=Exclusions(directories=['vendor']))
         self.assertIn('vendor', g.graph['substrate']['exclusions']['directories'])
 
 
@@ -434,14 +494,14 @@ class TestPerBackendArtifacts(unittest.TestCase):
     def test_a_build_writes_the_per_backend_artifact(self):
         from graph_ops import CodeGraph
         d = self.mk({'src/a.ts': 'export const a = 1\n'})
-        CodeGraph(d).build(non_interactive=True)
+        graph_ops.run_build(CodeGraph(d), non_interactive=True)
         self.assertTrue((Path(d) / 'knowledge-base' / '.graph' / 'graph.homegrown.json').exists())
 
     def test_graph_json_remains_the_active_graph(self):
         """Three other skills read graph.json directly; Phase 1 changes nothing for them."""
         from graph_ops import CodeGraph
         d = self.mk({'src/a.ts': 'export const a = 1\n'})
-        CodeGraph(d).build(non_interactive=True)
+        graph_ops.run_build(CodeGraph(d), non_interactive=True)
         gdir = Path(d) / 'knowledge-base' / '.graph'
         active = json.loads((gdir / 'graph.json').read_text(encoding='utf-8'))
         per_backend = json.loads((gdir / 'graph.homegrown.json').read_text(encoding='utf-8'))
@@ -450,7 +510,7 @@ class TestPerBackendArtifacts(unittest.TestCase):
     def test_the_per_backend_artifact_is_gitignored(self):
         from graph_ops import CodeGraph
         d = self.mk({'src/a.ts': 'export const a = 1\n'})
-        CodeGraph(d).build(non_interactive=True)
+        graph_ops.run_build(CodeGraph(d), non_interactive=True)
         gi = (Path(d) / 'knowledge-base' / '.graph' / '.gitignore').read_text(encoding='utf-8')
         self.assertIn('graph.*.json', gi)
 
@@ -458,7 +518,7 @@ class TestPerBackendArtifacts(unittest.TestCase):
         """ADR-017: it is the one artifact that cannot be rebuilt from source."""
         from graph_ops import CodeGraph
         d = self.mk({'src/a.ts': 'export const a = 1\n'})
-        CodeGraph(d).build(non_interactive=True)
+        graph_ops.run_build(CodeGraph(d), non_interactive=True)
         gi = (Path(d) / 'knowledge-base' / '.graph' / '.gitignore').read_text(encoding='utf-8')
         self.assertNotIn('behavior.json\n', gi.replace('# behavior.json', ''))
 
@@ -499,10 +559,10 @@ class TestIncrementalUpdateHonoursTheContract(unittest.TestCase):
     def test_update_keeps_the_substrate_block(self):
         from graph_ops import CodeGraph
         d, env = self.repo({'src/a.ts': 'export const a = 1\n'})
-        CodeGraph(d).build(non_interactive=True)
+        graph_ops.run_build(CodeGraph(d), non_interactive=True)
         self.commit(d, env, 'src/b.ts', 'export const b = 1\n')
         g = CodeGraph(d)
-        g.update(non_interactive=True)
+        graph_ops.run_update(g, non_interactive=True)
         self.assertEqual(g.graph['substrate']['backend'], 'homegrown')
         self.assertEqual(validate_graph(g.graph), [])
 
@@ -512,7 +572,7 @@ class TestIncrementalUpdateHonoursTheContract(unittest.TestCase):
             '.gitignore': 'ignored/\n',
             'src/a.ts': 'export const a = 1\n',
         })
-        CodeGraph(d).build(non_interactive=True)
+        graph_ops.run_build(CodeGraph(d), non_interactive=True)
         # -f because the tree is gitignored; the point is that a commit touching it must
         # still not put it in the graph.
         import subprocess
@@ -524,15 +584,15 @@ class TestIncrementalUpdateHonoursTheContract(unittest.TestCase):
         subprocess.run(['git', 'commit', '-qm', 'two'], cwd=d, env=env, check=True,
                        capture_output=True)
         g = CodeGraph(d)
-        g.update(non_interactive=True)
+        graph_ops.run_update(g, non_interactive=True)
         self.assertNotIn('ignored/x.ts', g.graph['files'])
 
     def test_update_refreshes_the_per_backend_artifact(self):
         from graph_ops import CodeGraph
         d, env = self.repo({'src/a.ts': 'export const a = 1\n'})
-        CodeGraph(d).build(non_interactive=True)
+        graph_ops.run_build(CodeGraph(d), non_interactive=True)
         self.commit(d, env, 'src/b.ts', 'export const b = 1\n')
-        CodeGraph(d).update(non_interactive=True)
+        graph_ops.run_update(CodeGraph(d), non_interactive=True)
         per_backend = json.loads(
             (Path(d) / 'knowledge-base' / '.graph' / 'graph.homegrown.json')
             .read_text(encoding='utf-8'))
@@ -695,26 +755,26 @@ class TestUpgradePathForAlreadyOnboardedProjects(unittest.TestCase):
         from graph_ops import CodeGraph, CACHE_IGNORED
         d = self.mk('# Generated code-graph cache — do not commit.\n'
                     'graph.json\nclassifications.json\n')
-        CodeGraph(d).build(non_interactive=True)
+        graph_ops.run_build(CodeGraph(d), non_interactive=True)
         self.assertEqual(self._lines(d), list(CACHE_IGNORED))
 
     def test_the_intermediate_version_is_also_upgraded(self):
         from graph_ops import CodeGraph, CACHE_IGNORED
         d = self.mk('graph.json\ngraph.*.json\nclassifications.json\n')
-        CodeGraph(d).build(non_interactive=True)
+        graph_ops.run_build(CodeGraph(d), non_interactive=True)
         self.assertEqual(self._lines(d), list(CACHE_IGNORED))
 
     def test_the_legacy_blanket_is_still_upgraded(self):
         from graph_ops import CodeGraph, CACHE_IGNORED
         d = self.mk('# Generated code-graph cache — do not commit\n*\n')
-        CodeGraph(d).build(non_interactive=True)
+        graph_ops.run_build(CodeGraph(d), non_interactive=True)
         self.assertEqual(self._lines(d), list(CACHE_IGNORED))
 
     def test_a_hand_edited_file_is_still_left_alone(self):
         """The property the early-return existed to protect, which must survive."""
         from graph_ops import CodeGraph
         d = self.mk('graph.json\nclassifications.json\nmy-own-thing.json\n')
-        CodeGraph(d).build(non_interactive=True)
+        graph_ops.run_build(CodeGraph(d), non_interactive=True)
         self.assertIn('my-own-thing.json', self._lines(d))
 
     def test_every_artifact_the_build_writes_is_ignored(self):
@@ -722,7 +782,7 @@ class TestUpgradePathForAlreadyOnboardedProjects(unittest.TestCase):
         import subprocess
         from graph_ops import CodeGraph
         d = self.mk('graph.json\nclassifications.json\n')
-        CodeGraph(d).build(non_interactive=True)
+        graph_ops.run_build(CodeGraph(d), non_interactive=True)
         env = dict(os.environ, GIT_AUTHOR_NAME='t', GIT_AUTHOR_EMAIL='t@t',
                    GIT_COMMITTER_NAME='t', GIT_COMMITTER_EMAIL='t@t')
         subprocess.run(['git', 'init', '-q'], cwd=d, env=env, check=True, capture_output=True)
@@ -755,7 +815,7 @@ class TestDegradationReachesTheArtifact(unittest.TestCase):
         from graph_ops import CodeGraph
         d = self.mk('{"substrate": {"backend": "graphify"}}')
         g = CodeGraph(d)
-        g.build(non_interactive=True,
+        graph_ops.run_build(g, non_interactive=True,
                 selection_metadata={'degraded_from': 'graphify', 'degraded_reason': 'x'})
         self.assertEqual(g.graph['substrate']['degraded_from'], 'graphify')
 
@@ -763,7 +823,7 @@ class TestDegradationReachesTheArtifact(unittest.TestCase):
         from graph_ops import CodeGraph
         d = self.mk('{"substrate": {"backend": "homegrown"}}')
         g = CodeGraph(d)
-        g.build(non_interactive=True)
+        graph_ops.run_build(g, non_interactive=True)
         self.assertNotIn('degraded_from', g.graph['substrate'])
 
 
@@ -780,7 +840,7 @@ class TestClearRemovesEveryArtifact(unittest.TestCase):
         self.addCleanup(shutil.rmtree, d, ignore_errors=True)
         (Path(d) / 'src').mkdir(parents=True, exist_ok=True)
         (Path(d) / 'src' / 'a.ts').write_text('export const a = 1\n', encoding='utf-8')
-        CodeGraph(d).build(non_interactive=True)
+        graph_ops.run_build(CodeGraph(d), non_interactive=True)
         gdir = Path(d) / 'knowledge-base' / '.graph'
         self.assertTrue((gdir / 'graph.homegrown.json').exists())
         CodeGraph(d).clear()

@@ -32,6 +32,14 @@ def count_graph(project_dir):
     NOT tagged `external:` or `unresolved:`. Internal edges (real wiring) are the
     brownfield signal; raw file count is not (a bare scaffold can have many
     boilerplate files yet zero internal wiring).
+
+    An edge is `{"to": ..., "kind": ..., "provenance": ...}` since 2026-08-20, and was a
+    bare string before that. Both are read, because a graph.json written by an older build
+    is still on disk until something rebuilds it — and misreading it would report a wired
+    codebase as `greenfield`, which is the exact wrong answer this function exists to avoid.
+    The projection is duplicated here rather than imported: `substrate.edge_other` is the
+    definition, and reaching into another skill's scripts for one expression would couple
+    them harder than the shared artifact already does.
     """
     path = _graph_path(project_dir)
     if not os.path.exists(path):
@@ -45,7 +53,9 @@ def count_graph(project_dir):
     internal_edges = 0
     for info in files.values():
         for imp in info.get("imports", []):
-            if not imp.startswith(("external:", "unresolved:")):
+            target = imp.get("to", "") if isinstance(imp, dict) else imp
+            if isinstance(target, str) and target and not target.startswith(
+                    ("external:", "unresolved:")):
                 internal_edges += 1
     return len(files), internal_edges, True
 

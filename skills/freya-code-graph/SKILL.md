@@ -97,7 +97,7 @@ Every graph records which backend built it and what that backend can read:
   "coverage": {
     "languages": ["go", "javascript", "python", "typescript"],
     "extensions": [".go", ".js", ".jsx", ".py", ".ts", ".tsx"],
-    "relations": ["imports"],
+    "relations": ["imports", "re_exports"],
     "incremental": true
   }
 }
@@ -127,27 +127,65 @@ cannot read Java"** — the distinction that made a Java repo read as greenfield
 }
 ```
 
+#### Overriding the built-in exclusions
+
+Some directory names are excluded by default — artifact trees like `node_modules/` and
+`dist/` at any depth, and convention names like `docs/`, `examples/`, `scripts/` and
+`generated/` at the repo root only.
+
+Those are **defaults, not verdicts.** Nothing in this skill can know that your repository
+keeps real source in a directory called `target`, or that your `docs/` is a literate
+programming tree. Say so and it is believed:
+
+```json
+"directories": {
+  "docs": { "type": "source", "confidence": 1.0, "source": "user" }
+}
+```
+
+| `source` field | Overrides |
+|---|---|
+| `user` | Everything, including artifact-tree names and `.gitignore` |
+| `ai` | Root convention names and `.gitignore`, but not artifact trees |
+| `rule` / `gitignore` | Nothing — these *are* the defaults' own output, so letting them override would be circular |
+
+Two things a verdict does not override: file-kind patterns (`*.d.ts`, `*.min.js` — claims
+about what a file is, not which directories are in scope), and a more specific verdict
+beneath it (`packages/` can be source while `packages/legacy/` is excluded).
+
+A `user` or `ai` verdict also survives a rules change; `rule` and `gitignore` verdicts are
+discarded and re-derived, which is how a fix to the defaults reaches a project that was
+already graphed.
+
+Until 2026-08-20 a `source` verdict was accepted, written to disk, and then silently
+overruled — `_should_exclude` never consulted classifications at all. A default that cannot
+be argued with is not a default, and the one certain thing about a hardcoded answer is that
+it is wrong for somebody.
+
 ### Graph Structure
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "commit": "abc123",
   "timestamp": "2024-01-15T10:30:00Z",
   "project_root": "/path/to/project",
   "substrate": {
     "backend": "homegrown",
     "coverage": { "languages": ["typescript"], "extensions": [".ts", ".tsx"],
-                  "relations": ["imports"], "incremental": true },
-    "schema": 1
+                  "relations": ["imports", "re_exports"], "incremental": true },
+    "schema": 2
   },
   "files": {
     "src/lib/auth/validateToken.ts": {
       "exports": ["validateToken", "TokenPayload"],
-      "imports": ["external:jsonwebtoken", "src/lib/auth/config.ts"],
+      "imports": [
+        {"to": "external:jsonwebtoken", "kind": "imports", "provenance": "extracted"},
+        {"to": "src/lib/auth/config.ts", "kind": "imports", "provenance": "extracted"}
+      ],
       "dependents": [
-        "src/api/middleware/auth.ts",
-        "src/api/routes/users.ts"
+        {"from": "src/api/middleware/auth.ts", "kind": "imports", "provenance": "extracted"},
+        {"from": "src/lib/auth/index.ts", "kind": "re_exports", "provenance": "extracted"}
       ],
       "language": "typescript"
     }
@@ -155,10 +193,25 @@ cannot read Java"** — the distinction that made a Java repo read as greenfield
 }
 ```
 
-Every import specifier is one of three things: a project-relative path (a real edge),
-`external:<pkg>` (third-party), or `unresolved:<raw>` (meant something in this project and
-could not be found). The third is never dropped — a silently-empty answer is worse than an
-honest gap.
+An edge names its far end in `to` (or `from`, going backwards), and that end is one of three
+things: a project-relative path (a real edge), `external:<pkg>` (third-party), or
+`unresolved:<raw>` (meant something in this project and could not be found). The third is
+never dropped — a silently-empty answer is worse than an honest gap.
+
+**Edges were bare strings until 2026-08-20** (schema 1). A string can carry exactly one fact,
+so `imports` and `re_exports` were indistinguishable and symbol-level relations could not be
+written at all. Readers accept both shapes; `substrate.edge_other` is the projection, and
+`load()` brings an older graph forward. See [references/graph-schema.md](references/graph-schema.md).
+
+### What each command returns
+
+The distinction is deliberate, not incidental — three other skills feed the node queries
+straight into set arithmetic, where an edge object would raise `unhashable type: 'dict'`.
+
+| Command | Returns |
+|---|---|
+| `--query <file>` | **Edge objects.** "Tell me about this file", so kind and provenance are the point |
+| `--impact` / `--dependents` / `--dependencies` | **Path strings.** "Which files are affected" — a set of nodes, not edges |
 
 ### Import Parsing
 
@@ -294,12 +347,12 @@ Exports:
   - TokenPayload (type)
 
 Dependencies (imports from):
-  - jsonwebtoken (external)
-  - ./config → src/lib/auth/config.ts
+  - external:jsonwebtoken
+  - → src/lib/auth/config.ts
 
 Dependents (imported by):
   - src/api/middleware/auth.ts
-  - src/api/routes/users.ts
+  - src/lib/auth/index.ts  [re_exports]
   - src/lib/auth/index.ts
 
 Category: auth

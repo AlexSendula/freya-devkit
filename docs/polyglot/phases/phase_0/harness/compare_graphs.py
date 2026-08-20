@@ -53,6 +53,11 @@ def load_homegrown(path):
 
     The homegrown format marks third-party imports with an 'external:' prefix; anything
     without it is a repo-relative path.
+
+    An edge is `{"to": ..., "kind": ..., "provenance": ...}` since 2026-08-20 and a bare
+    string before that. Both are read so the Phase 0 gate can still be re-run against the
+    measurements it originally produced — a harness that only understands the shape it was
+    written against cannot answer whether that shape's replacement lost anything.
     """
     with open(path, encoding="utf-8") as fh:
         data = json.load(fh)
@@ -65,11 +70,12 @@ def load_homegrown(path):
     dangling = set()
     for src, info in files_raw.items():
         s = _norm(src)
-        for imp in (info.get("imports") or []):
+        for edge in (info.get("imports") or []):
+            imp = edge.get("to", "") if isinstance(edge, dict) else edge
             # Both prefixes are signals, not paths. `unresolved:` in particular means
             # "this names no file", so counting it as an edge target manufactures a
             # miss for the other backend, which correctly has nothing there.
-            if imp.startswith(("external:", "unresolved:")):
+            if not imp or imp.startswith(("external:", "unresolved:")):
                 continue
             d = _norm(imp)
             if not d or d == s:

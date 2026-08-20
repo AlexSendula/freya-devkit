@@ -108,6 +108,30 @@ class CountGraphTest(unittest.TestCase):
         })
         self.assertEqual(project_shape.count_graph(self.proj), (2, 1, True))
 
+    def test_counts_object_shaped_edges(self):
+        """The shape code-graph writes since 2026-08-20."""
+        _write_graph(self.proj, {
+            "lib/a.ts": {"imports": [
+                {"to": "lib/b.ts", "kind": "imports", "provenance": "extracted"},
+                {"to": "external:react", "kind": "imports", "provenance": "extracted"},
+            ]},
+            "lib/b.ts": {"imports": []},
+        })
+        self.assertEqual(project_shape.count_graph(self.proj), (2, 1, True))
+
+    def test_object_edges_still_reach_the_brownfield_verdict(self):
+        """The consequence, not just the count. Misreading the new shape would report a
+        wired codebase as greenfield — the exact wrong answer this module exists to
+        prevent, and the one that drives bootstrap over a real codebase."""
+        _write_graph(self.proj, {
+            "lib/a.ts": {"imports": [
+                {"to": "lib/b.ts", "kind": "imports", "provenance": "extracted"}]},
+            "lib/b.ts": {"imports": []},
+        })
+        with mock.patch.object(project_shape, "run_detect_project", return_value={}):
+            self.assertEqual(
+                project_shape.classify(self.proj)["recommendation"], "brownfield")
+
     def test_malformed_graph_returns_not_present(self):
         d = os.path.join(self.proj, "knowledge-base", ".graph")
         os.makedirs(d)
