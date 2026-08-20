@@ -76,10 +76,11 @@ Optional. Absent, everything below is the default.
 [Overriding the built-in exclusions](#overriding-the-built-in-exclusions) below.
 
 `symbols` asks a backend to record *which symbol* each edge leaves and arrives at, where it
-knows. Off by default: measured on this repository it turns 73 file-level edges into 417,
-because a test module calling one helper sixty times is sixty symbol pairs and one dependency.
-A backend that cannot see symbols is unaffected — this asks for refinement, it does not
-require it.
+knows. Off by default: measured on this repository it turns **120 file-level edges into
+698**, over the same 77 file pairs, because a test module calling one helper sixty times is
+sixty symbol pairs and one dependency. A backend that cannot see symbols is unaffected —
+this asks for refinement, it does not require it, and the node queries answer identically
+either way.
 
 `auto` is the built-in backend. Naming another one *is* the opt-in — see
 [Backends](#backends). Naming one that is not installed does not fail the build; it falls back,
@@ -100,8 +101,8 @@ The graph is produced by a **substrate backend** behind a fixed contract
 
 | Backend | Languages | Requires |
 |---|---|---|
-| `homegrown` | TypeScript, JavaScript, Python, Go | nothing — stdlib only |
-| `graphify` | 25, incl. Java, Rust, C#, Kotlin, Swift, Scala, Ruby, PHP, SQL, Terraform | the `graphify` binary on PATH |
+| `homegrown` | 4 — TypeScript, JavaScript, Python, Go (6 extensions) | nothing — stdlib only |
+| `graphify` | 40 across 92 extensions, incl. Java, Rust, C#, Kotlin, Swift, Scala, Ruby, PHP, SQL, Terraform, Fortran, Elixir | the `graphify` binary on PATH |
 
 `graphify` also emits `calls`, `inherits` and `references` — relations the homegrown resolver
 has no notion of, because it resolves module references between files and has no idea what a
@@ -111,10 +112,15 @@ symbol is.
 more of your repository, and tells you what it is leaving out:
 
 ```
-code-graph: 'graphify' is installed and reads 5 file(s) here that 'homegrown' cannot
-(.json, .ps1, .sh). It is opt-in: set substrate.backend to 'graphify' in
+code-graph: 'graphify' is installed and declares it reads 2 file(s) here that 'homegrown'
+cannot (.ps1, .sh). It is opt-in: set substrate.backend to 'graphify' in
 knowledge-base/settings.json to use it.
 ```
+
+The count excludes extensions the other backend declares but selects by *name* —
+`package.json` produces nodes and an arbitrary `x.json` does not — because almost every
+repository has a manifest and the hint would otherwise fire everywhere on the strength of a
+file the backend may well ignore.
 
 Scoring silently would mean that installing a binary anywhere on PATH changed the substrate —
 and therefore every blast radius — for every project on the machine at once, with no diff.
@@ -263,9 +269,12 @@ The script parses imports for multiple languages:
 
 | Language | Import Patterns |
 |----------|----------------|
-| TypeScript/JS | `import { x } from './y'`, `import x from './y'`, `require('./y')`, `export * from './y'` |
-| Python | `from x import y`, `import x`, `from . import x` |
+| TypeScript/JS | `import { x } from './y'`, `import x from './y'`, `import type { X } from './y'`, `require('./y')`, `export * from './y'` |
+| Python | `from x import y`, `import x`, `from .pkg import y` |
 | Go | `import "module/path"`, `import alias "module/path"` |
+
+Not `from . import x` — the bare-package form has no module name to resolve and is tracked in
+the backlog alongside `import a, b` and indented imports.
 
 ### Impact Analysis Algorithm
 
@@ -377,18 +386,18 @@ Updated dependency graph:
 Show complete dependency information for a file.
 
 **Output includes:**
-- What the file exports
-- What the file imports (dependencies)
+- What the file exports (empty under `graphify`, which does not extract them)
+- What the file imports (dependencies), as edge objects
 - What files depend on this one (dependents)
-- Category (if detectable)
+- The detected language
 
 **Example:**
 ```
 File: src/lib/auth/validateToken.ts
 
 Exports:
-  - validateToken (function)
-  - TokenPayload (type)
+  - validateToken
+  - TokenPayload
 
 Dependencies (imports from):
   - external:jsonwebtoken
@@ -397,10 +406,13 @@ Dependencies (imports from):
 Dependents (imported by):
   - src/api/middleware/auth.ts
   - src/lib/auth/index.ts  [re_exports]
-  - src/lib/auth/index.ts
 
-Category: auth
+Language: typescript
 ```
+
+With `substrate.symbols` on, each edge also names the symbols it joins —
+`[calls: verifyChallenge → query:88]` — so two edges between the same pair of files are
+distinguishable rather than printing as identical lines.
 
 ### `freya-code-graph impact <file>`
 
@@ -566,10 +578,25 @@ freya code-graph --query src/lib/auth.ts --format summary
 
 ## Limitations
 
-- **Dynamic imports**: May not catch dynamic `import()` or `require(variable)`
-- **External packages**: Only tracks local file relationships, not npm/pip packages
-- **Language support**: Currently TypeScript/JS, Python, Go
-- **Monorepos**: Each subproject should have its own graph
+Everything here describes the **`homegrown`** backend unless it says otherwise, because that
+is what runs unless a project opts into another one.
+
+- **Language support**: TypeScript/JS, Python, Go. Anything else is a *declared* blind spot —
+  the `substrate.coverage` block names what was read, so a caller can tell "no dependencies"
+  from "this backend cannot read Java". `graphify` covers 40 languages; it is opt-in.
+- **Dynamic imports**: may not catch `import()` or `require(variable)`.
+- **String literals**: the regexes read import statements inside string bodies, which is a
+  known false-positive source — a real parser correctly ignores them.
+- **Still unparsed in Python**: `from . import x`, `import a, b`, and indented imports.
+- **External packages**: tracked as `external:<name>` signals, not resolved into the graph.
+  `graphify` emits no `external:` edges at all for TS/JS/Python — it records package
+  dependencies from manifests instead.
+- **`exports`**: not extracted by `graphify`, so the field is empty under that backend.
+- **Provenance does not gate anything yet.** Every edge records whether it was `extracted` or
+  `inferred`, and nothing filters on it — the two-tier design is recorded and not enforced.
+- **Monorepos**: cross-package imports resolve via `package.json#workspaces` and
+  `pnpm-workspace.yaml`, so one graph covers the whole workspace. Unrelated subprojects that
+  are not workspace members still need their own.
 
 ---
 

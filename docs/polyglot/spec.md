@@ -1,9 +1,33 @@
 # Track B — the polyglot substrate
 
-**Design spec · 2026-08-19 · not yet approved**
+**Design spec · written 2026-08-19 · approved and fully implemented 2026-08-20**
 
 Product of the brainstorm recorded in [`log.md`](log.md). Distilled into ADRs and the reference
 docs when the feature ships; this file is deleted with the rest of `polyglot/`.
+
+> **Read this as the design, not as the outcome.** All six phases below have shipped, and several
+> clauses were refuted or superseded while building them. The corrections are listed immediately
+> under this note and are *not* woven back into the text — a spec that is silently edited to match
+> what happened stops being evidence of what was intended.
+>
+> For what was actually built, see [`explainer/index.html`](explainer/index.html); for the
+> decisions that superseded parts of this, [`decisions.md`](decisions.md).
+
+### Where this document was wrong, or has been superseded
+
+| Clause | Status |
+|---|---|
+| §2.2 *"Default: graphify when installed and the project contains a language homegrown does not cover"* | **Superseded by CD-23.** `auto` is the floor and never switches on its own; naming a backend is the opt-in. Scoring silently would change every blast radius on a machine the moment a binary landed on `PATH` |
+| §2.2 / §4.1 *the semantic pass* | **Not built, and not needed for anything shipped.** Everything Phase 2 produces is deterministic. CD-5 stands as the decision if it is ever enabled |
+| §4 *the `extracted`/`inferred` mapping onto ADR-009* | **Half refuted.** Both provenances come out of the same AST pass with no model involved, so this is not the deterministic-versus-model-judged axis. The tier is real but narrower than described; two file pairs on this repo now rest solely on `inferred` links |
+| §4 / §11 *"only `extracted` edges may gate `wrap-up`"* | **Recorded, not implemented.** No production code reads an edge's provenance, so an `inferred` edge reaches blast radius indistinguishable from an `extracted` one. Found by the closing review. Either the filter gets written or the promise gets struck — it must not stay stated as present fact |
+| §4 *`unresolved` as a third provenance value* | **Never was one.** `PROVENANCE` has two, and `validate_graph` rejects a third. `unresolved:` is a prefix on the edge's *target*, because "could not be resolved" is a fact about where the edge points, not about how it was read |
+| §7 *"`exports`: yes" under graphify* | **False.** The graphify backend emits no `exports` at all, so a backend swap empties the field. Same for source→package `external:` edges on TS/JS/Python. Both are upstream limitations, and the coverage block has no way to declare either |
+| §5 / §10 Phase 3 *"thread it through the fingerprint comparison"* | **Describes something that does not exist.** Nothing in the toolkit compares two fingerprints' exercise sets. Recorded in [`log.md`](log.md) rather than reinterpreted into whatever is nearest |
+| §7 *"graphify parses SQL schemas… config comes free"* and §9.4's premise | **Refuted for YAML** — no support and no warning. JSON is manifest-only. SQL and Terraform work behind pip extras. The conclusion (no config graph, CD-9) survives on independent reasoning |
+| §9 *the three-repo gate* | **Discharged 2026-08-20**, having initially been run on one repository only. Testbed 630 pairs vs 627 with 0 misses; Java 11 pairs matching Phase 0's ground truth; freya-devkit 73 vs 65, the one "miss" being homegrown's own false positive |
+| §10 Phase 5 *"fixed for free by Phase 2 and must be re-verified, not assumed"* | **Discharged.** The Java repo reports `unknown` on the floor with its blind-spot reason, and `brownfield` on graphify. Never `greenfield` |
+| §12 open question 3 *how exclusions reach graphify* | **Answered:** a post-filter on its output. `graphify update` has no exclusion flag |
 
 ---
 

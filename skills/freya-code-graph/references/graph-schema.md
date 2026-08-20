@@ -8,9 +8,14 @@ This document describes the structure of the dependency graph stored in `graph.j
 knowledge-base/.graph/graph.json
 ```
 
-The graph is stored inside the project under `knowledge-base/` so it stays version-controlled and in sync with branch changes.
+The graph is stored inside the project under `knowledge-base/` so it moves with the checkout
+and stays in sync with branch changes.
 
-**Gitignore:** Add `knowledge-base/.graph/` to `.gitignore` if you prefer not to commit the generated graph.
+**It is not committed, and that is not a choice you make.** `.graph/` writes its own
+`.gitignore` on every build, naming `graph.json`, `graph.*.json`, `classifications.json` and
+`docs.json`. The one file in that directory which *is* tracked is `behavior.json`, whose
+observed coverage comes from running the test suite and cannot be rebuilt by re-reading
+source (ADR-017) — which is why the ignore names files individually instead of using `*`.
 
 ## Schema
 
@@ -22,8 +27,8 @@ The graph is stored inside the project under `knowledge-base/` so it stays versi
   "properties": {
     "version": {
       "type": "integer",
-      "description": "Schema version number",
-      "const": 1
+      "description": "Schema version number. 2 since 2026-08-20, when edges became objects; a 1 on disk is read and brought forward",
+      "const": 2
     },
     "commit": {
       "type": "string",
@@ -92,8 +97,7 @@ The graph is stored inside the project under `knowledge-base/` so it stays versi
         },
         "language": {
           "type": "string",
-          "enum": ["typescript", "javascript", "python", "go"],
-          "description": "Detected programming language"
+          "description": "Detected language. Deliberately not an enum: the homegrown backend writes one of four values and the graphify backend writes any of forty, so pinning the list here would exclude exactly the polyglot support this field exists to report. May be null for an extensionless file"
         }
       }
     },
@@ -133,14 +137,17 @@ The graph is stored inside the project under `knowledge-base/` so it stays versi
     "ReverseEdge": {
       "type": "object",
       "required": ["from", "kind", "provenance"],
-      "description": "An Edge keyed by `from` instead of `to`; kind and provenance are the forward edge's",
+      "description": "An Edge keyed by `from` instead of `to`. Every other field is the forward edge's, copied verbatim — including the optional symbols, without which two symbol-refined edges between one file pair collapse into byte-identical duplicates",
       "properties": {
         "from": { "type": "string" },
         "kind": {
           "type": "string",
           "enum": ["imports", "re_exports", "calls", "inherits", "references"]
         },
-        "provenance": { "type": "string", "enum": ["extracted", "inferred"] }
+        "provenance": { "type": "string", "enum": ["extracted", "inferred"] },
+        "from_symbol": { "type": "string", "description": "Optional. The symbol the forward edge left" },
+        "to_symbol": { "type": "string", "description": "Optional. The symbol it arrived at" },
+        "line": { "type": "integer", "minimum": 1, "description": "Optional. 1-based line of the statement that produced the forward edge" }
       }
     }
   }
@@ -164,10 +171,21 @@ upgraded edge claims `imports` / `extracted`, which is all the string era ever d
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "commit": "abc123def456",
   "timestamp": "2024-01-15T10:30:00Z",
   "project_root": "/Users/example/projects/my-app",
+  "substrate": {
+    "backend": "homegrown",
+    "coverage": {
+      "languages": ["go", "javascript", "python", "typescript"],
+      "extensions": [".go", ".js", ".jsx", ".py", ".ts", ".tsx"],
+      "relations": ["imports", "re_exports"],
+      "incremental": true
+    },
+    "schema": 2,
+    "exclusions": { "directories": ["vendor"], "patterns": ["dist/"] }
+  },
   "files": {
     "src/lib/auth/validateToken.ts": {
       "exports": ["validateToken", "TokenPayload", "TokenConfig"],
@@ -222,7 +240,7 @@ forwards it.
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `version` | integer | Yes | Schema version (currently 1) |
+| `version` | integer | Yes | Schema version (currently **2**). 1 means the bare-string edges this format used until 2026-08-20; readers accept both and `substrate.upgrade_edges` brings one forward |
 | `commit` | string | No | Git commit hash (null if not in git repo) |
 | `timestamp` | string | Yes | ISO 8601 timestamp of graph creation |
 | `project_root` | string | Yes | Absolute path to project directory |
@@ -272,6 +290,30 @@ homegrown resolver never does, because it has no notion of a symbol.
 `provenance` is **not** the deterministic-vs-model axis. Phase 0 measured graphify emitting
 `INFERRED` edges from a pure AST pass with no model involved; it records how directly the edge
 was read out of the source text, and nothing about who read it.
+
+It has exactly **two** values. `unresolved` is not a third one — it is a prefix on the far
+end of an edge, because "could not be resolved" is a fact about the *target*, not about how
+the edge was read. An edge to `unresolved:./missing` still has a provenance of `extracted`:
+the import statement was right there in the source.
+
+**Nothing filters on `provenance` today.** The design says `inferred` edges are advisory and
+only `extracted` ones may gate `wrap-up`; no code implements that, so an inferred edge reaches
+blast radius indistinguishable from an extracted one. The field is recorded faithfully and is
+correct — it is the *enforcement* that does not exist yet. Written down here rather than left
+as a promise the schema appears to make.
+
+### What a backend may legitimately not fill in
+
+| Field | Under `homegrown` | Under `graphify` |
+|---|---|---|
+| `exports` | populated | **always empty** — the extractor has no notion of a module's public surface, so a backend swap empties this field |
+| `external:` edges | populated | **not emitted** for TS/JS/Python: graphify records no node for a third-party import, so there is nothing to project. Package dependencies are still read from manifests |
+| `from_symbol` / `to_symbol` / `line` | never | only with `substrate.symbols` enabled |
+
+Neither gap is a defect in the projection — the upstream extractor does not produce the
+material — but both are real differences a reader has to know about, and the coverage block
+has no vocabulary for "does not emit exports". If something starts depending on `exports`,
+that is the moment to add one.
 
 A reverse edge carries the forward edge's `kind` — an `inherits` edge read backwards is still
 `inherits`, and a blast radius has to be able to ask which kind reached it.
@@ -353,28 +395,39 @@ imports.
 
 ### Unresolved Imports
 
-A relative/aliased import that the resolver could not map to a real file is
-stored with an `unresolved:` prefix (rather than silently dropped), e.g.
-`unresolved:./missing`. So an entry in `imports` is **internal** (real
-project wiring) only when it carries neither the `external:` nor the
-`unresolved:` prefix — this is the predicate consumers use to count internal
-edges (e.g. `spec-manager bootstrap`'s shape detector).
+A relative/aliased import that the resolver could not map to a real file has an edge whose
+far end carries an `unresolved:` prefix (rather than being silently dropped), e.g.
+`{"to": "unresolved:./missing", ...}`. So an edge in `imports` is **internal** (real project
+wiring) only when its far end carries neither the `external:` nor the `unresolved:` prefix —
+this is the predicate consumers use to count internal edges (e.g. `spec-manager bootstrap`'s
+shape detector), and `substrate.is_internal` is the one implementation of it.
 
 ## Graph Operations
+
+**Read edges through `substrate`, never by indexing them directly.** An edge is an object
+since schema 2, and a graph already on disk may still hold bare strings — so a reader that
+treats either shape as the only one is wrong half the time. `substrate.edge_other(edge)`
+gives the far end whichever it is; `edge_ends` and `internal_ends` give the list a
+string-era caller used to get.
+
+The recipes below were left in the string era when the schema moved and crashed on every
+graph the toolkit writes today. They are correct now, and they are the shape to copy.
 
 ### Impact Analysis
 
 ```python
+import substrate
+
 def get_impact(graph, file_path):
-    """Get all files affected by changes to file_path."""
+    """Every file affected by a change to file_path."""
     visited = set()
 
     def traverse(path):
         if path in visited:
             return
         visited.add(path)
-        file_info = graph['files'].get(path, {})
-        for dependent in file_info.get('dependents', []):
+        info = graph['files'].get(path, {})
+        for dependent in substrate.edge_ends(info.get('dependents')):
             traverse(dependent)
 
     traverse(file_path)
@@ -384,18 +437,21 @@ def get_impact(graph, file_path):
 ### Dependency Traversal
 
 ```python
+import substrate
+
 def get_dependencies(graph, file_path):
-    """Get all files that file_path depends on."""
+    """Every file that file_path depends on."""
     visited = set()
 
     def traverse(path):
         if path in visited:
             return
         visited.add(path)
-        file_info = graph['files'].get(path, {})
-        for imp in file_info.get('imports', []):
-            if not imp.startswith('external:'):
-                traverse(imp)
+        info = graph['files'].get(path, {})
+        # internal_ends drops the external:/unresolved: signals as well as
+        # projecting the edge, so there is nothing left to prefix-check by hand.
+        for target in substrate.internal_ends(info.get('imports')):
+            traverse(target)
 
     traverse(file_path)
     return visited

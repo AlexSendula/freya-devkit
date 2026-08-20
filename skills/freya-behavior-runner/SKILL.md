@@ -107,3 +107,9 @@ An `unknown` result may carry a `reason` field that discriminates the cause:
 | `no-entry` | Integration behavior has no `entry` field declared |
 | `entry-missing` | Integration behavior declares an `entry` that does not exist on disk |
 | `no-graph` | No built code-graph cache at this project (run `code-graph build` first) |
+| `graph-query-failed: <detail>` | The graph exists and the closure query failed — a missing node, an unreadable artifact, an unexpected output shape. Distinct from `no-graph` **and** from an empty closure: treating a failed query as "no dependencies" produced a one-file fingerprint at full confidence, written into a committed artifact. `<detail>` is the tool's own message with machine-specific paths stripped, because this string is committed |
+| `coverage-outside-project` | The test passed and produced coverage, but none of it maps inside `--project` — a sibling package in a monorepo, or a reporter emitting paths that cannot be resolved. Distinct from `no-coverage`, where nothing was written at all |
+
+Every `unknown` carries a reason. That is the point of the field: an unlabelled `unknown` is
+the one value the merge reads as "no news", so it preserves the previous fingerprint
+indefinitely and nothing ever says the measurement stopped landing.

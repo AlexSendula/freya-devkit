@@ -3,277 +3,390 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Track B — the short version</title>
-<style>
-  :root {
-    --bg: #fbfaf8; --panel: #fff; --ink: #1c1a17; --muted: #6b6459;
-    --line: #e5e0d8; --accent: #8a5a2b; --accent-soft: #f6efe6;
-    --ok: #2f6b46; --ok-soft: #eaf3ed; --warn: #8a6d1f; --warn-soft: #fbf4de;
-    --stop: #9b3a2f; --stop-soft: #fbecea;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #171614; --panel: #201e1b; --ink: #ece7df; --muted: #a09789;
-      --line: #33302b; --accent: #d9a066; --accent-soft: #2a241d;
-      --ok: #7fc09b; --ok-soft: #1d2a22; --warn: #d9bb6a; --warn-soft: #2a2519;
-      --stop: #e0897c; --stop-soft: #2c1e1c;
-    }
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; background: var(--bg); color: var(--ink);
-    font: 16px/1.65 ui-sans-serif, -apple-system, "Segoe UI", system-ui, sans-serif;
-  }
-  .wrap { max-width: 820px; margin: 0 auto; padding: 48px 24px 96px; }
-  header { border-bottom: 2px solid var(--line); padding-bottom: 20px; margin-bottom: 8px; }
-  .kicker { color: var(--accent); font-weight: 650; letter-spacing: .08em;
-            text-transform: uppercase; font-size: 12px; }
-  h1 { font-size: 34px; line-height: 1.15; margin: 8px 0 6px; letter-spacing: -.02em; }
-  .sub { color: var(--muted); font-size: 15px; }
-  h2 { font-size: 22px; margin: 44px 0 12px; letter-spacing: -.01em; }
-  h3 { font-size: 17px; margin: 26px 0 8px; }
-  p { margin: 12px 0; }
-  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
-  .more {
-    display: inline-block; font-size: 13px; font-weight: 600; color: var(--accent);
-    background: var(--accent-soft); border: 1px solid var(--line);
-    padding: 2px 9px; border-radius: 99px; text-decoration: none; white-space: nowrap;
-  }
-  .more:hover { border-color: var(--accent); }
-  .card {
-    background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
-    padding: 20px 22px; margin: 18px 0;
-  }
-  .card.decide { border-left: 4px solid var(--stop); }
-  .card.done   { border-left: 4px solid var(--ok); }
-  .card.note   { border-left: 4px solid var(--warn); }
-  .tag {
-    display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .07em;
-    text-transform: uppercase; padding: 3px 9px; border-radius: 5px; margin-bottom: 10px;
-  }
-  .tag.decide { background: var(--stop-soft); color: var(--stop); }
-  .tag.done   { background: var(--ok-soft);   color: var(--ok); }
-  .tag.note   { background: var(--warn-soft); color: var(--warn); }
-  table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 15px; }
-  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line);
-           vertical-align: top; }
-  th { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
-  code { font: 13.5px ui-monospace, SFMono-Regular, Menlo, monospace;
-         background: var(--accent-soft); padding: 1px 5px; border-radius: 4px; }
-  .num { font-variant-numeric: tabular-nums; font-weight: 650; }
-  .opts { list-style: none; padding: 0; margin: 14px 0 0; }
-  .opts li { border: 1px solid var(--line); border-radius: 9px; padding: 12px 14px;
-             margin-bottom: 9px; background: var(--bg); }
-  .opts b { display: block; margin-bottom: 3px; }
-  .rec { border-color: var(--ok) !important; }
-  .rec b::after { content: " — my recommendation"; color: var(--ok); font-weight: 600;
-                  font-size: 13px; }
-  ul.tight li { margin: 5px 0; }
-  .foot { margin-top: 56px; padding-top: 18px; border-top: 1px solid var(--line);
-          color: var(--muted); font-size: 14px; }
-  .banner { background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
-            padding: 14px 18px; display: flex; gap: 18px; flex-wrap: wrap;
-            margin: 22px 0 8px; }
-  .banner div { flex: 1 1 130px; }
-  .banner .num { font-size: 22px; display: block; }
-  .banner span.lbl { color: var(--muted); font-size: 12.5px; }
-</style>
+<title>The polyglot substrate — Track B</title>
+<link rel="stylesheet" href="assets/styles.css">
+<script src="assets/nav.js" defer></script>
 </head>
 <body>
+<div id="topbar"></div>
+
 <div class="wrap">
 
-<header>
+<header class="page">
   <div class="kicker">Track B · the polyglot substrate</div>
-  <h1>The short version</h1>
-  <p class="sub">Where the work stands, what I need from you, and what I decided on my own.
-  Every section links through to the full detail —
-  <a href="details.html">the long version is here</a>.</p>
+  <h1>freya can read your codebase now — whatever it is written in</h1>
+  <p class="sub">The whole feature, end to end: what was broken, what was built, how we know it
+  works, and what is still missing. Every section links to the detail.</p>
 </header>
 
-<div class="banner">
-  <div><span class="num">1151</span><span class="lbl">tests, all green</span></div>
-  <div><span class="num">14</span><span class="lbl">commits, none pushed</span></div>
-  <div><span class="num">4 of 6</span><span class="lbl">phases done</span></div>
-  <div><span class="num">0</span><span class="lbl">decisions pending</span></div>
+<div class="stats">
+  <div><span class="n">4 → 40</span><span class="l">languages the graph can read</span></div>
+  <div><span class="n">0</span><span class="l">edges lost, on all three test repos</span></div>
+  <div><span class="n">1,315</span><span class="l">tests, all green</span></div>
+  <div><span class="n">0</span><span class="l">extra installs required</span></div>
 </div>
 
-<h2>1. The decision you made, and what it cost</h2>
+<p class="lede">Everything in this toolkit stands on one artifact: a graph of which file depends
+on which. That graph was built by regular expressions that understood four languages. Point it at
+a Java project and it found nothing, said <em>"Built dependency graph: 0 files scanned"</em>, and
+exited successfully. This feature replaced the parser with a <strong>socket</strong> — so a
+project can run the built-in resolver, or a real multi-language one, and everything downstream
+keeps working either way.</p>
 
-<p>This section used to ask for one. You answered on 2026-08-20: both parts, plus a third
-thing you spotted that turned out to be the more serious of the two. All three are built.
-<strong>Phase 2 is unblocked.</strong></p>
+<h2>1. What was actually broken</h2>
 
-<div class="card done">
-  <span class="tag done">Decided and shipped</span>
-  <h3 style="margin-top:0">The contract is finished being a contract</h3>
+<p>Not "it only reads four languages". The problem was that it did not <em>say</em> so.</p>
 
-  <p>Phase 1 turned the code graph into a <em>socket</em> so a second tool (graphify) can plug
-  in. The review's verdict was blunt and I agreed with it: <strong>it was our own resolver's
-  shape wearing an interface.</strong></p>
-
-  <p>It proved that rather than arguing it. Someone built a second backend that satisfied the
-  contract completely — and it crashed twice, then exited successfully having written no graph
-  at all. <a class="more" href="details.html#verdict">why it happened →</a></p>
-
-  <h3>Part A — who saves the graph? <em>The contract does, now.</em></h3>
-  <p>Saving the file, checking it is valid and building the reverse index all lived
-  <em>inside</em> our own resolver, so a different backend could do everything right and still
-  produce nothing while reporting success. That is the same "confident empty answer" failure
-  the whole project exists to remove.</p>
-  <p>A backend now produces nodes and edges and stops. Everything after that happens once, in
-  one place, for every backend. A side effect worth naming: the contract's own validator had
-  never actually run on a build. It runs on every one now, and writes what it finds into the
-  artifact rather than only onto the stderr of the run that produced it.
-  <a class="more" href="details.html#fork-a">the detail →</a></p>
-
-  <h3>Part B — what can one edge say? <em>More than a filename, now.</em></h3>
-  <p>An edge was a string: the path it pointed at. A string carries exactly one fact, so
-  "A imports B" and "A re-exports B" were the same value, and "this function calls that
-  function" could not be written down at all.</p>
-  <p>Measured: the old shape could express <span class="num">2,102</span> of graphify's
-  <span class="num">5,027</span> real connections. <strong>It could not express 58%.</strong></p>
-  <p>An edge is now an object carrying <em>what kind</em> of relation it is and <em>how
-  directly</em> it was read out of the source. It already pays for itself before graphify
-  arrives: a barrel file that only forwards a module is now distinguishable from one that
-  actually uses it. <a class="more" href="details.html#fork-b">the full trade-off →</a></p>
-
-  <p class="hint">I had titled this one "does the graph track files, or symbols?", which was
-  wrong and confusing — you said so. The nodes are still files. What changed is what a single
-  edge between them is allowed to say. Symbols are Phase 3, and this is what makes room for
-  them.</p>
-
-  <h3>Part C — your objection, which was the sharpest of the three</h3>
-  <p>You pushed back on a default I had changed, on the grounds that we cannot know what some
-  other project keeps in a folder called <code>docs/</code>. I partly disagreed with the fix
-  you proposed and then went looking, and found the real problem is worse than the one you
-  described: <strong>a project could not disagree with the defaults at all.</strong></p>
-  <p>Marking a folder as source was accepted, written to disk, and then silently overruled —
-  the filter never read those verdicts. So a wrong default was not merely a wrong default, it
-  was unfixable. It can be argued with now, in
-  <code>knowledge-base/settings.json</code>.</p>
-  <p class="hint">My first attempt at this put the override in a gitignored cache file, so it
-  would have worked for you and vanished for everyone who cloned the repo. A review caught it
-  the same day. The reasoning against that file was already written down — in an ADR, and in
-  the docstring of the module I was editing.
-  <a class="more" href="details.html#depth">what changed exactly →</a></p>
+<div class="card stop">
+  <span class="card-label">The failure, in one line</span>
+  <p><strong>A repository the tool cannot read was indistinguishable from a repository with
+  nothing in it.</strong></p>
+  <p style="margin-bottom:0">So on a Java codebase, "which behaviours does this change affect?"
+  came back <em>empty</em> — and empty looks exactly like <em>safe</em>. Worse: another skill
+  decides whether a project is brand new by asking the graph how many internal connections it has.
+  Zero meant brand new. A mature Java codebase was therefore classified as an empty starter
+  project, and every skill downstream adjusted its behaviour to match.</p>
 </div>
 
-<h2>2. Things I decided alone</h2>
+<p>Then the spike that was meant to evaluate a replacement found the same bug pointed at us:</p>
 
-<p>All reversible. Flag any you disagree with and I will change them.</p>
+<blockquote>Building the graph on freya-devkit itself indexed <strong>10 of 50 Python files</strong>,
+produced <strong>zero connections</strong>, printed <em>"Built dependency graph: 10 files
+scanned"</em>, and exited 0. <strong>freya classified freya as a brand-new empty project.</strong>
+</blockquote>
 
-<div class="card note">
-  <span class="tag note">Your call to reverse</span>
-  <table>
-    <tr><th>What</th><th>Why</th><th></th></tr>
-    <tr>
-      <td><code>docs/</code>, <code>examples/</code> and <code>generated/</code> are now
-          skipped only at the <em>top level</em>, not everywhere</td>
-      <td>Skipping them at any depth is what hid 40 of this repo's own files. But indexing a
-          top-level <code>docs/</code> pulled in the published website's bundled JavaScript.</td>
-      <td><a class="more" href="details.html#depth">→</a></td>
-    </tr>
-    <tr>
-      <td><code>--clear</code> no longer deletes <code>classifications.json</code></td>
-      <td>It holds decisions you and the model made about which folders are source. A cache
-          clear should not throw those away.</td>
-      <td><a class="more" href="details.html#clear">→</a></td>
-    </tr>
-    <tr>
-      <td>Settings live in <code>knowledge-base/settings.json</code></td>
-      <td>You rejected a file in the project root. This is committed, travels with a clone,
-          and survives <code>--clear</code>.</td>
-      <td><a class="more" href="details.html#cd15">→</a></td>
-    </tr>
-  </table>
+<p>Two independent causes, either sufficient on its own — an exclusion rule matching a directory
+name at every depth instead of at the top level, and Python sibling imports being filed as
+third-party packages. Four more defects were behind those.
+<a class="more" href="problem.html#worse">the full account →</a></p>
+
+<h2>2. The idea: a contract, not a tool</h2>
+
+<p>The obvious fix is to find a better parser and wire it in. That was rejected, for one reason:
+<strong>picking a tool means picking again in two years</strong>, and by then five skills depend on
+its output shape.</p>
+
+<p>So the parser is not the architecture. The socket it plugs into is.</p>
+
+<figure>
+<svg viewBox="0 0 820 236" role="img" aria-label="Five consumers depend on a substrate contract; two interchangeable backends plug in beneath it">
+  <defs>
+    <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+    </marker>
+  </defs>
+  <g color="#928a7c">
+    <rect x="110" y="6" width="600" height="42" rx="9" fill="none" stroke="currentColor" stroke-opacity=".5"/>
+    <text x="410" y="26" text-anchor="middle" fill="currentColor" font-size="12.5" font-weight="700">everything that asks "what does this change affect?"</text>
+    <text x="410" y="41" text-anchor="middle" fill="currentColor" font-size="10">docs · specs · behaviours · security findings · the wrap-up gate</text>
+    <line x1="410" y1="48" x2="410" y2="76" stroke="currentColor" stroke-width="1.5" marker-end="url(#a2)"/>
+  </g>
+  <g color="#8a5a2b">
+    <rect x="110" y="78" width="600" height="54" rx="9" fill="none" stroke="currentColor" stroke-width="2"/>
+    <text x="410" y="101" text-anchor="middle" fill="currentColor" font-size="14" font-weight="700">the substrate contract</text>
+    <text x="410" y="120" text-anchor="middle" fill="currentColor" font-size="10.5">one fixed shape · says what it could NOT see · never answers "nothing" when it means "I don't know"</text>
+  </g>
+  <g color="#928a7c">
+    <line x1="320" y1="132" x2="255" y2="166" stroke="currentColor" stroke-width="1.5" marker-end="url(#a2)"/>
+    <line x1="500" y1="132" x2="565" y2="166" stroke="currentColor" stroke-width="1.5" marker-end="url(#a2)"/>
+  </g>
+  <g color="#2f6b46">
+    <rect x="110" y="168" width="270" height="60" rx="9" fill="none" stroke="currentColor" stroke-opacity=".7"/>
+    <text x="245" y="190" text-anchor="middle" fill="currentColor" font-size="12.5" font-weight="650">homegrown</text>
+    <text x="245" y="207" text-anchor="middle" fill="currentColor" font-size="10.5">4 languages · nothing to install</text>
+    <text x="245" y="222" text-anchor="middle" fill="currentColor" font-size="10">the floor — always there</text>
+  </g>
+  <g color="#2f5c7a">
+    <rect x="440" y="168" width="270" height="60" rx="9" fill="none" stroke="currentColor" stroke-opacity=".7"/>
+    <text x="575" y="190" text-anchor="middle" fill="currentColor" font-size="12.5" font-weight="650">graphify</text>
+    <text x="575" y="207" text-anchor="middle" fill="currentColor" font-size="10.5">40 languages · one install</text>
+    <text x="575" y="222" text-anchor="middle" fill="currentColor" font-size="10">opt-in, per project</text>
+  </g>
+</svg>
+</figure>
+
+<p>Two backends, not one, <strong>deliberately</strong>. An interface with a single implementation
+is fiction — it encodes the assumptions of its only caller and nobody finds out until the second
+one arrives. That is not a slogan here: the contract was written with one backend behind it, and
+the review that built a second one found it
+<a href="building-it.html#verdict">could not actually run anything else</a>.</p>
+
+<div class="card ok">
+  <span class="card-label">Why the old parser stays</span>
+  <p style="margin-bottom:0"><strong>The case that started this whole thing is a locked-down work
+  laptop.</strong> freya needs nothing but Python; graphify needs a package install and network
+  access. If policy blocks that, graphify never runs in the one environment this exists to serve.
+  Keeping the built-in resolver is what guarantees freya degrades to <em>something</em> everywhere
+  rather than to nothing.</p>
 </div>
 
-<h2>3. What got done</h2>
+<h2>3. What you get</h2>
 
-<div class="card done">
-  <span class="tag done">Shipped and verified</span>
-  <table>
-    <tr><th>Phase</th><th>Result</th><th></th></tr>
-    <tr>
-      <td><b>0</b> — the spike</td>
-      <td><strong>The gate passed.</strong> graphify missed <span class="num">0</span> of 608
-          edges on the testbed and scored <span class="num">11/11</span> on a Java fixture.</td>
-      <td><a class="more" href="details.html#phase0">→</a></td>
-    </tr>
-    <tr>
-      <td><b>—</b> resolver repair</td>
-      <td>Found that <strong>freya could not graph itself</strong>: 10 of 50 files, zero
-          connections, reported as success. Thirteen defects fixed.</td>
-      <td><a class="more" href="details.html#repair">→</a></td>
-    </tr>
-    <tr>
-      <td><b>1</b> — the contract</td>
-      <td>Built, with the caveat above. No behaviour change: testbed identical before and
-          after.</td>
-      <td><a class="more" href="details.html#phase1">→</a></td>
-    </tr>
-    <tr>
-      <td><b>4</b> — the docs graph</td>
-      <td>35 docs, <span class="num">170</span> edges. Now answers <em>"I changed this file,
-          which docs are now wrong?"</em></td>
-      <td><a class="more" href="details.html#phase4">→</a></td>
-    </tr>
-    <tr>
-      <td><b>5</b> — agnosticism</td>
-      <td>Java, Expo and monorepos are now recognised. A repo the tool cannot read no longer
-          reports as "greenfield".</td>
-      <td><a class="more" href="details.html#phase5">→</a></td>
-    </tr>
-    <tr>
-      <td><b>the fork</b></td>
-      <td>Both parts settled and built, plus your objection about the defaults. Edges carry a
-          kind; the contract persists them; a project can override the built-in exclusions.
-          <span class="num">1,186</span> tests.</td>
-      <td><a class="more" href="details.html#fork-a">→</a></td>
-    </tr>
-    <tr>
-      <td><b>2, 3</b></td>
-      <td><em>Not started</em> — but no longer blocked. Phase 2 can begin.</td>
-      <td><a class="more" href="details.html#notdone">→</a></td>
-    </tr>
-  </table>
+<table>
+  <tr><th></th><th>Before</th><th>Now</th></tr>
+  <tr><td>Languages read</td><td>4 — TypeScript, JavaScript, Python, Go</td>
+      <td>4 out of the box; <strong>40</strong> with one opt-in install</td></tr>
+  <tr><td>A Java repo</td><td>0 files, 0 edges, reported as success and classified
+      <em>greenfield</em></td>
+      <td><code>unknown</code> on the floor, <em>naming what it cannot read</em>;
+      <strong>brownfield</strong> with real edges on graphify</td></tr>
+  <tr><td>A relationship between two files</td><td>a filename. Nothing else</td>
+      <td>an object: <em>what kind</em> of relation, and <em>how directly</em> it was read out of
+      the source</td></tr>
+  <tr><td>A monorepo's cross-package import</td>
+      <td>reported as a third-party npm package — the most important edge in the repo, filed as
+      external</td>
+      <td>resolved to the real file</td></tr>
+  <tr><td>"Which docs does this change break?"</td>
+      <td>re-judged by a model on every run, inconsistent and unverifiable</td>
+      <td>read off a recorded edge — 35 documents, 171 edges on this repository</td></tr>
+  <tr><td>Overriding a wrong default</td>
+      <td>the setting was accepted, written to disk, and silently ignored</td>
+      <td>one line in <code>knowledge-base/settings.json</code>, committed, travels with a
+      clone</td></tr>
+  <tr><td>When something goes wrong</td>
+      <td>a thin graph, reported as a complete one</td>
+      <td>the fallback and its reason are written <em>into the graph file</em></td></tr>
+</table>
+
+<h2>4. How it works, in five steps</h2>
+
+<ol>
+  <li><strong>A project says which backend it wants</strong> — or says nothing, and gets the
+  built-in one. The default never goes shopping: installing a tool somewhere on your machine must
+  not silently change what every project on it believes about itself.</li>
+  <li><strong>The backend reads the code and produces nodes and edges.</strong> That is all it
+  does. It does not save anything.</li>
+  <li><strong>The contract does everything after that</strong> — builds the reverse index, refuses
+  to overwrite a good graph with an empty one, validates the result, and writes the files. Once,
+  identically, for every backend.</li>
+  <li><strong>The graph records who made it and what they could see</strong> — languages,
+  extensions, relation kinds, and any fallback that happened. This block is the whole answer to
+  <em>"is this repo really this sparse, or is my parser blind?"</em></li>
+  <li><strong>Everything else reads one file</strong>, <code>knowledge-base/.graph/graph.json</code>,
+  and does not care which backend produced it.</li>
+</ol>
+
+<p><a class="more" href="how-it-works.html">how it works, in full →</a></p>
+
+<h3>The one design decision worth understanding</h3>
+
+<p>An edge used to be a string — the path it pointed at. A string carries exactly one fact, so
+"A imports B" and "A re-exports B" were the same value, and "this function calls that function"
+could not be written down at all.</p>
+
+<div class="grid two">
+  <div class="card">
+    <span class="card-label">Before</span>
+<pre style="margin:0"><code>"imports": ["src/db.ts"]</code></pre>
+  </div>
+  <div class="card ok">
+    <span class="card-label">After</span>
+<pre style="margin:0"><code>"imports": [{
+  "to": "src/db.ts",
+  "kind": "imports",
+  "provenance": "extracted"
+}]</code></pre>
+  </div>
 </div>
 
-<h3>Your acme-travel case works</h3>
-<p><code>apps/mobile</code> importing <code>@acme/domain</code> used to read as a third-party
-npm package — the most important relationship in the repo, reported as an outside dependency.
-It now resolves to <code>packages/domain/src/index.ts</code>.
-<a class="more" href="details.html#lbt">what still needs doing for LBT →</a></p>
+<p>Measured: the old shape could express <span class="num">2,102</span> of the new backend's
+<span class="num">5,027</span> real connections. <strong>It could not express 58%.</strong> The
+change paid for itself before the new backend even arrived — a barrel file that only forwards a
+module is now distinguishable from one that actually uses it.
+<a class="more" href="decisions.html#cd-20">the trade-off in full →</a></p>
 
-<h2>4. Three things worth knowing</h2>
+<h2>5. How we know it works</h2>
 
-<ul class="tight">
-  <li><strong>I introduced a bug while fixing bugs.</strong> The commit that fixed six review
-      findings added a new one. Nothing checked the call — which is why the contract now
-      states its own signature and verifies it.
-      <a class="more" href="details.html#ownbug">→</a></li>
-  <li><strong>A review agent edited the file it was reviewing</strong>, and another deleted
-      four tracked files from your testbed. I restored them and made every later review
-      read-only. <a class="more" href="details.html#agents">→</a></li>
-  <li><strong>A bug briefly made a generated file committable</strong> in any project that had
-      run the tool before. Caught by review, verified against real git, fixed.
-      <a class="more" href="details.html#gitignore">→</a></li>
-</ul>
+<p>One test could have stopped this feature: <strong>does the new backend lose any edge the old
+one finds?</strong> Misses are the dangerous direction — a lost edge narrows a behaviour's blast
+radius, so the behaviour is not flagged, so a regression walks through the gate. A spurious extra
+edge only runs a test you did not need.</p>
 
-<h2>5. If you only do one thing</h2>
+<table>
+  <tr><th>Repository</th><th>old resolver</th><th>new backend</th>
+      <th>edges the old one finds that the new one does not</th></tr>
+  <tr><td>A Next.js testbed <span class="pill flat">the old one's home turf</span></td>
+      <td>234 files / 627 pairs</td><td>247 files / 630 pairs</td>
+      <td><span class="pill ok">0</span></td></tr>
+  <tr><td>A Maven Java project</td>
+      <td>0 files — cannot read it</td><td>7 files / 11 pairs</td>
+      <td><span class="pill ok">0</span></td></tr>
+  <tr><td>freya-devkit itself <span class="pill flat">Python</span></td>
+      <td>59 files / 65 pairs</td><td>67 files / 73 pairs</td>
+      <td><span class="pill warn">1</span></td></tr>
+</table>
 
-<p>Read <strong>Part C</strong> above. The other two were mine to propose and yours to approve;
-that one was yours to notice, and it was the defect with the longest reach — every project this
-toolkit runs on had exclusion defaults it could not argue with. Everything else here is
-context.</p>
+<p class="sub">Measured at commit <code>ae47003</code>. Re-derived here after the final round of
+fixes — since changing the projection changes the thing the gate measures — at 76 pairs against
+70, still nothing lost.</p>
+
+<p>The Java figure matches a ground-truth edge set that was written down by hand
+<em>before the tool was ever run</em> — 11 of 11, including two same-package inheritance edges no
+import parser can see. The single Python "miss" is the old resolver's own false positive: an
+import statement inside a string literal, which its regexes read and a real parser correctly
+ignores.</p>
+
+<p>That test now exists in three forms — a committed fixture the suite runs on every commit, a
+live re-derivation on all three repositories, and the original spike harness, kept runnable.
+<a class="more" href="building-it.html#gate">how the gate is enforced →</a></p>
+
+<div class="card warn">
+  <span class="card-label">And the test itself was wrong the first time</span>
+  <p style="margin-bottom:0">The first version of that gate was mutation-tested, appeared to catch
+  four defects, and was written up as such. It had not — the mutations were run against the whole
+  test file, so <em>other</em> tests were doing the catching. Against the gate alone it caught
+  <strong>one of six</strong>, because its fixture exercised none of the guards. Rebuilt, it
+  catches ten of ten. <a href="building-it.html#mutation">why that matters →</a></p>
+</div>
+
+<h2>6. The decisions that shaped it</h2>
+
+<p>Twenty-five, each recorded with the alternative it beat. The six that decided the most:</p>
+
+<table>
+  <tr><th>Decision</th><th>The alternative it beat</th></tr>
+  <tr><td><strong>A contract, not a tool.</strong> Any backend that satisfies it can produce the
+      graph</td>
+      <td>Adopt the best parser and wire it in. Fastest to ship — and it reopens the whole question
+      the first time that parser stalls</td></tr>
+  <tr><td><strong>The old resolver stays as the floor.</strong> Zero-install, always available</td>
+      <td>Replace it once the new one works. Less code, one path — and it makes the zero-install
+      property depend on a third-party package</td></tr>
+  <tr><td><strong>The default never switches on its own.</strong> Naming a backend is the
+      opt-in</td>
+      <td>Pick whichever backend reads the most. Measured: the new one scored 63 to 58 here and
+      would have taken over on the next build — changing every blast radius on the machine, with
+      no diff</td></tr>
+  <tr><td><strong>An edge is an object.</strong> Kind and provenance, and a versioned schema</td>
+      <td>Stay file-level and honest. Cheapest — and it gives up 58% of what the second backend
+      knows to avoid a migration that only gets more expensive</td></tr>
+  <tr><td><strong>Symbols refine a file anchor, never replace it.</strong> Off by default</td>
+      <td>Move to symbol anchors. Sharpest — and it makes every rename a breaking change to a
+      committed artifact</td></tr>
+  <tr><td><strong>Every default is arguable.</strong> A project can override any exclusion</td>
+      <td>Scope the rule to this repository. Not implementable without hardcoding a path — and it
+      leaves every other project with defaults it cannot appeal</td></tr>
+</table>
+
+<p><a class="more" href="decisions.html">all twenty-five →</a></p>
+
+<h2>7. Where we were wrong</h2>
+
+<p>Four worth naming, because each cost real work and each has a general lesson.</p>
+
+<div class="card stop">
+  <span class="card-label">An override that vanished on clone</span>
+  <p>The ability to override a default shipped storing that override in a <em>gitignored cache
+  file</em>. It worked for whoever typed it and disappeared on <code>git clone</code> — so CI and
+  every colleague would have silently graphed a smaller codebase and been told the build
+  succeeded.</p>
+  <p style="margin-bottom:0"><strong>The decision rejecting that file, on exactly this ground,
+  already existed</strong> — and was repeated in the second paragraph of the module being edited.
+  Having the reasoning written down is a reminder, not a guard rail.</p>
+</div>
+
+<div class="card stop">
+  <span class="card-label">Correcting something that was right</span>
+  <p>An automated probe reported four relation names in the new backend's vocabulary. They were
+  grepped for, not found, deleted from the mapping table, and the log recorded that the agent had
+  invented them.</p>
+  <p style="margin-bottom:0">All four were real — in a tuple constant, exactly the shape those
+  regexes could not see. The same scan had also missed a relation this repository's own graph
+  contains, and that discrepancy was noticed and ignored.
+  <strong>Verification that only looks one way is not verification.</strong></p>
+</div>
+
+<div class="card stop">
+  <span class="card-label">Edges that did not exist</span>
+  <p>The new backend emits one node per external module, carrying the name of whichever file
+  imported it <em>first</em>. Read as a real file, that fabricated edges: three Swift files
+  importing <code>Foundation</code> produced two connections that exist nowhere in the source —
+  in the direction that <em>inflates</em> blast radius. Caught by adversarial review, not by a
+  test.</p>
+  <p style="margin-bottom:0">And the fix was itself incomplete. It named the case it had seen
+  rather than the class it belonged to, so C# namespace anchors — the same shape one language
+  over — were still read as files until the final review.</p>
+</div>
+
+<div class="card stop">
+  <span class="card-label">A guarantee that was never implemented</span>
+  <p style="margin-bottom:0">Every edge records whether it was read straight out of the source
+  or worked out by resolution, and the design says only the first kind may block a commit. The
+  final review went looking for the code that enforces that and <strong>there is none.</strong>
+  The field is written faithfully and read by nobody. It had been stated as present fact in the
+  spec, in the decision record and on these pages. The exposure is small — over-approximating a
+  blast radius is the safe direction — but a guarantee nobody implemented is exactly the kind
+  of claim this project is supposed to be able to check.</p>
+</div>
+
+<p><a class="more" href="decisions.html#wrong">the full list of reversals →</a></p>
+
+<h2>8. What is not done</h2>
+
+<table>
+  <tr><th>Outstanding</th><th>Why it is not a blocker</th></tr>
+  <tr><td><strong>The decisions are not yet ADRs.</strong> All 25 are staged in this directory,
+      already in ADR shape, and have not been written into <code>docs/decisions/</code></td>
+      <td>It is the closing step of the feature, along with deleting this working directory.
+      Until then, Track B's reasoning lives only here — which is the exact accumulation the last
+      docs restructure cleaned up</td></tr>
+  <tr><td><strong>The intra-file call graph</strong> — 1,516 links on this repository — is
+      discarded</td>
+      <td>Deliberate. Recording it needs a node type the contract does not have. Filed, not
+      lost</td></tr>
+  <tr><td><strong>Artifact size at scale is untested.</strong> Roughly 9.3 KB per file against the
+      floor's 0.5 KB, loaded by every skill on every invocation</td>
+      <td>Fine at a few hundred files. A 5,000-file repository implies about 46 MB, and nobody has
+      run that</td></tr>
+  <tr><td><strong>The external tool's own cache</strong> keys on file timestamps and content
+      hashes, with no tool version — so upgrading it invalidates nothing</td>
+      <td>The same defect class this repository already fixed for its own rules. Filed</td></tr>
+  <tr><td><strong>Provenance is recorded and not enforced.</strong> "Only directly-read edges may
+      block a commit" is a design decision no code implements</td>
+      <td>Over-approximating a blast radius is the safe direction, and two file pairs here rest
+      solely on a worked-out edge. Either write the filter or strike the promise — measuring
+      first is what decides which</td></tr>
+  <tr><td><strong>Two things the second backend does not produce</strong>: a file's exported
+      names, and third-party import edges for TS/JS/Python</td>
+      <td>Upstream limitations rather than projection bugs, but the coverage declaration has no
+      vocabulary for "does not emit exports". Recorded in the schema reference; it becomes real
+      the moment something depends on the field</td></tr>
+  <tr><td><strong>No supply-chain position</strong> on recommending a pre-1.0, single-maintainer
+      dependency into other people's repositories</td>
+      <td>It is opt-in and off by default, so nobody gets it without asking</td></tr>
+  <tr><td><strong>Nothing has been pushed.</strong> 44 commits sit on the branch, plus whatever
+      this documentation adds</td>
+      <td>By choice</td></tr>
+</table>
+
+<h2>9. If you read one more page</h2>
+
+<p>Read <a href="how-it-works.html#failure">the failure table</a>. It is six rows, and it is the
+whole point of the feature: every way this system is allowed to go wrong, and what it does
+instead of returning a confident nothing.</p>
+
+<div class="next">
+  <a href="problem.html"><b>The problem →</b><span>Where it started, what was cut before
+  implementation, and how the work was sequenced.</span></a>
+  <a href="how-it-works.html"><b>How it works →</b><span>The contract, the backends, an edge
+  anatomised, and every failure mode.</span></a>
+  <a href="building-it.html"><b>How it was built →</b><span>Six phases, four review rounds, and
+  every number.</span></a>
+  <a href="decisions.html"><b>The decisions →</b><span>All 25 with their rejected alternatives,
+  and where we were wrong.</span></a>
+</div>
 
 <div class="foot">
-  <p><a href="details.html"><strong>The complete version →</strong></a> · every measurement,
-  every decision and its rejected alternatives, and the full review findings.</p>
-  <p>Also here: <a href="../spec.md">spec.md</a> (the design),
-  <a href="../decisions.md">decisions.md</a> (18 candidate ADRs),
-  <a href="../log.md">log.md</a> (the working record),
-  <a href="../architecture.html">architecture.html</a> (diagrams).</p>
+  <p>This explainer is written from the working record in this directory:
+  <a href="../spec.md">spec.md</a> (the design as approved),
+  <a href="../decisions.md">decisions.md</a> (the decision register),
+  <a href="../log.md">log.md</a> (chronological, with the measurements),
+  <a href="../architecture.html">architecture.html</a> (the design sketch, annotated),
+  <a href="../phases/phase_0/findings.md">phases/phase_0/findings.md</a> (the spike).</p>
+  <p><strong>This whole directory is temporary.</strong> When Track B ships it is distilled into
+  ADRs and the published site, and then deleted — git history keeps it. That rule exists because
+  a previous scratch directory accumulated nineteen per-feature records nobody read.</p>
 </div>
 
 </div>

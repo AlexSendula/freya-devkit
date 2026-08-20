@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How it works — Track B</title>
+<link rel="stylesheet" href="assets/styles.css">
+<script src="assets/nav.js" defer></script>
+</head>
+<body>
+<div id="topbar"></div>
+
+<div class="layout">
+
+<aside class="toc">
+  <div class="grp">The shape</div>
+  <a href="#minute">The one-minute version</a>
+  <a href="#contract">The contract</a>
+  <a href="#backends">The two backends</a>
+  <div class="grp">Running it</div>
+  <a href="#selection">Choosing a backend</a>
+  <a href="#settings">settings.json</a>
+  <a href="#scope">What is in scope</a>
+  <div class="grp">The data</div>
+  <a href="#edge">An edge, anatomised</a>
+  <a href="#disk">What is on disk</a>
+  <a href="#queries">Asking it questions</a>
+  <div class="grp">The second backend</div>
+  <a href="#projection">Symbols projected onto files</a>
+  <a href="#dropped">What gets dropped, and why</a>
+  <a href="#symbols">Symbol refinement</a>
+  <div class="grp">Around it</div>
+  <a href="#behaviour">The behaviour layer</a>
+  <a href="#docs">The docs graph</a>
+  <a href="#failure">When something fails</a>
+</aside>
+
+<main>
+<header class="page">
+  <div class="kicker">Track B · the polyglot substrate</div>
+  <h1>How it works</h1>
+  <p class="sub">The contract, the two backends behind it, the shape of the data, and every way
+  the system is allowed to fail.</p>
+</header>
+
+<h2 id="minute">The one-minute version</h2>
+
+<p class="lede">The code graph is produced by a <strong>backend</strong>. Which backend runs is a
+per-project setting. Whatever runs, the same contract governs what it must produce and what it
+must admit it could not see — and everything after the backend finishes thinking happens in one
+shared place, identically, for all of them.</p>
+
+<div class="ascii">   knowledge-base/settings.json          "which backend?"          (default: the floor)
+                  │
+                  ▼
+   ┌────────────────────────────┐
+   │  backends.select()         │  never silent: the choice, and any fallback,
+   │                            │  is written into the artifact itself
+   └──────────────┬─────────────┘
+                  ▼
+   ┌────────────────────────────┐        ┌──────────────────────────────┐
+   │  backend.build(...)        │───────▶│  a graph: nodes + edges      │
+   │  homegrown | graphify      │        │  and nothing else            │
+   └────────────────────────────┘        └──────────────┬───────────────┘
+                                                        ▼
+   ┌───────────────────────────────────────────────────────────────────┐
+   │  the contract's half — run once, the same way, for every backend  │
+   │                                                                   │
+   │   link dependents  →  refuse to erase  →  validate  →  persist    │
+   └───────────────────────────────────────────────────────────────────┘
+                  │
+                  ▼
+   knowledge-base/.graph/graph.json            the active graph
+   knowledge-base/.graph/graph.&lt;backend&gt;.json  this backend's own copy
+</div>
+
+<p>The split matters more than it looks. Before it, saving the file, checking it was valid and
+building the reverse index all lived <em>inside</em> the original resolver — so a different
+backend could do everything correctly and still produce nothing while reporting success. That is
+the failure this whole feature exists to remove, one level up.</p>
+
+<h2 id="contract">The contract</h2>
+
+<p><code>skills/freya-code-graph/scripts/substrate.py</code>. Standard library only, so a backend
+can depend on it without inheriting anything, and structural rather than a base class — a backend
+satisfies it by having the right attributes.</p>
+
+<table>
+  <tr><th>#</th><th>Obligation</th><th>Why it exists</th></tr>
+  <tr><td><b>1</b></td><td><strong>Resolve</strong> the languages it claims, given a project
+  root.</td><td>The job.</td></tr>
+  <tr><td><b>2</b></td><td><strong>Report what it could not resolve.</strong> An unresolvable
+  import is recorded as <code>unresolved:&lt;raw&gt;</code>, never dropped.</td>
+  <td>A past defect: path aliases made every internal import resolve as external, producing an
+  empty blast radius reported <em>as if complete</em>.</td></tr>
+  <tr><td><b>3</b></td><td><strong>Carry per-edge provenance</strong> — how directly the edge was
+  read out of the source.</td>
+  <td>A name-resolving parser can mis-wire across languages. An uncertain edge must not be
+  presented as a certain one.</td></tr>
+  <tr><td><b>4</b></td><td><strong>Declare its coverage</strong> — the languages, extensions and
+  relation kinds it actually handles.</td>
+  <td>The headline failure. This is what lets a caller tell "no dependencies" from "does not read
+  Java".</td></tr>
+  <tr><td><b>5</b></td><td><strong>Support incremental update, or decline it.</strong></td>
+  <td>A backend that cannot correctly remove deleted nodes says so, and the contract forces a
+  full rebuild rather than trusting a stale incremental.</td></tr>
+  <tr><td><b>6</b></td><td><strong>Honour the project's exclusions</strong>, which are passed
+  in.</td>
+  <td>"<code>vendor/</code> is not mine" is true whichever parser runs. Left to the backend, two
+  backends would disagree about scope on the same repository.</td></tr>
+</table>
+
+<p>Conformance is checked at runtime rather than by a type, and the check includes
+<strong>the exact call the caller makes</strong>, not merely that a method exists:</p>
+
+<pre><code>BUILD_KWARGS  = ('exclusions', 'non_interactive', 'selection_metadata')
+UPDATE_KWARGS = ('exclusions', 'non_interactive', 'selection_metadata')</code></pre>
+
+<p>"Callable" is not a contract. A backend can pass an attribute check and still be uninvokable —
+which is exactly what happened, to this repository's own reference stub. The signature is bound
+against for real, so a non-conforming backend fails at registration instead of at query time.</p>
+
+<h2 id="backends">The two backends</h2>
+
+<table>
+  <tr><th></th><th><code>homegrown</code></th><th><code>graphify</code></th></tr>
+  <tr><td><strong>How</strong></td><td>regular expressions over source text</td>
+      <td>tree-sitter ASTs, via an external binary</td></tr>
+  <tr><td><strong>Needs</strong></td><td>nothing — Python standard library</td>
+      <td><code>graphify</code> on <code>PATH</code> (<code>uv tool install</code> or pip)</td></tr>
+  <tr><td><strong>Languages</strong></td><td>4 — TypeScript, JavaScript, Python, Go</td>
+      <td>40, including Java, Kotlin, Swift, Rust, C#, Scala, Ruby, PHP, SQL, Terraform,
+      Fortran, Elixir</td></tr>
+  <tr><td><strong>Extensions</strong></td><td class="num">6</td><td class="num">92</td></tr>
+  <tr><td><strong>Relations</strong></td><td><code>imports</code>, <code>re_exports</code></td>
+      <td>all five: <code>imports</code>, <code>re_exports</code>, <code>calls</code>,
+      <code>inherits</code>, <code>references</code></td></tr>
+  <tr><td><strong>Granularity</strong></td><td>file → file</td>
+      <td>symbol → symbol, <a href="#projection">projected onto file pairs</a></td></tr>
+  <tr><td><strong>Model / network</strong></td><td>never</td><td>never — deterministic
+      extraction only</td></tr>
+  <tr><td><strong>Role</strong></td><td><span class="pill ok">the floor</span> always
+      installed, always available</td>
+      <td><span class="pill info">opt-in</span> named in settings, or it does not run</td></tr>
+</table>
+
+<p><code>homegrown</code> declares only two relation kinds even though the vocabulary has five.
+It resolves module references between files and has no notion of a symbol, so claiming
+<code>calls</code> because the word exists would make a caller trust a query it cannot answer.
+<strong>Overclaiming coverage is the failure the coverage block exists to prevent</strong>, and it
+applies to the backend that wrote the block as much as to any other.</p>
+
+<p>Under-claiming is the worse direction, and graphify did it. Its extension list was
+hand-written from what two fixtures happened to produce — 34 of the 92 the tool actually
+dispatches — so a <code>.groovy</code>, <code>.kts</code> or <code>.f90</code> file it had
+successfully parsed was written into the graph and then flagged by the contract's own
+validator as outside the declared coverage. It is now derived from graphify's dispatch table
+and pinned by a test that reads that table out of graphify's own interpreter.</p>
+
+<div class="card info">
+  <span class="card-label">Two things the coverage block still cannot say</span>
+  <p><code>graphify</code> extracts no <code>exports</code>, and emits no
+  <code>external:</code> edges for TS/JS/Python — it records package dependencies from
+  manifests instead. Neither is a defect in the projection; the upstream extractor does not
+  produce the material. But both are real differences between the backends, and the coverage
+  vocabulary has no way to declare them.</p>
+  <p style="margin-bottom:0">Written down here and in the schema reference rather than left
+  for someone to discover. If anything starts depending on <code>exports</code>, that is the
+  moment the declaration needs a word for it.</p>
+</div>
+
+<h2 id="selection">Choosing a backend</h2>
+
+<p>Three rules, and the third is the one that was reversed after being built the other way.</p>
+
+<ol>
+  <li><strong>A named backend is used if it is available.</strong> Naming it in
+  <code>settings.json</code> <em>is</em> the opt-in; there is no separate permission list,
+  because a project that has written the name down has decided.</li>
+  <li><strong>A named backend that is unavailable degrades to the floor</strong>, and the run
+  continues. It says so on stderr, and — more importantly — the fallback is recorded in the
+  artifact as <code>degraded_from</code>, so a graph produced this way says on its face that it
+  is thinner than it should be. A week later the stderr is gone; the graph is not.</li>
+  <li><strong><code>auto</code> is the floor, and deliberately does not go shopping.</strong></li>
+</ol>
+
+<div class="card warn">
+  <span class="card-label">Rule 3 used to be the opposite, and that was wrong</span>
+  <p><code>auto</code> originally scored every installed backend against the repository and
+  picked the widest. With a second backend registered that stopped being hypothetical: graphify
+  scored 63 against homegrown's 58 on this repository, and would have taken over on the next
+  build.</p>
+  <p style="margin-bottom:0">Which means installing a binary <em>anywhere on <code>PATH</code></em>
+  would have silently changed the substrate — and therefore every blast radius — for every
+  project on the machine at once, with no diff and no decision. A substrate change is supposed to
+  be a measured migration.</p>
+</div>
+
+<p>Opt-in must not mean undiscoverable, though, so <code>auto</code> still runs the census — only
+to say what it is leaving on the table, which is the one thing a project cannot work out for
+itself:</p>
+
+<pre><code>code-graph: 'graphify' is installed and declares it reads 5 file(s) here that
+'homegrown' cannot (.java, .kt). It is opt-in: set substrate.backend to 'graphify'
+in knowledge-base/settings.json to use it.</code></pre>
+
+<p>The hint counts only extensions that are real evidence. A backend may declare an extension
+whose selection is really <em>name</em>-based — <code>package.json</code> produces nodes, an
+arbitrary <code>x.json</code> does not — and those are excluded from the evidence while staying
+in the declaration. Otherwise the hint would fire on every repository in the world on the
+strength of a manifest the backend may well ignore.</p>
+
+<h2 id="settings">settings.json</h2>
+
+<p><code>knowledge-base/settings.json</code>. Optional; absent, every default below applies.</p>
+
+<pre><code>{
+  "substrate": {
+    "backend": "auto",        // auto | homegrown | graphify
+    "symbols": false          // record which symbol each edge leaves and arrives at
+  },
+  "directories": {
+    "docs": "source",         // this project's docs/ really is source
+    "packages/legacy": "exclude"
+  }
+}</code></pre>
+
+<p>Three properties were needed at once, and this location is the only one that has all three:
+it must <strong>survive a clone</strong> (a teammate gets the same backend), it must
+<strong>not be lost when the cache is cleared</strong>, and it must
+<strong>not add a file to the project root</strong>. Only <code>knowledge-base/.graph/</code> is
+gitignored, so a file beside <code>specs/</code> and <code>decisions/</code> is committed by
+default.</p>
+
+<p>Not <code>package.json</code>: Java, Python and Go repositories do not have one, and keying the
+polyglot toolkit's own configuration to a Node manifest is precisely the assumption this feature
+exists to remove.</p>
+
+<p>A malformed file never fails a build. It degrades to defaults and says which key was wrong —
+a typo that is silently ignored is how a project ends up convinced it is running a backend it is
+not.</p>
+
+<h2 id="scope">What is in scope</h2>
+
+<p>Some directory names are excluded by default: artifact trees like <code>node_modules/</code>
+and <code>dist/</code> <em>at any depth</em>, and convention names like <code>docs/</code>,
+<code>examples/</code>, <code>scripts/</code> and <code>generated/</code> <em>at the repository
+root only</em>.</p>
+
+<p>That split is itself a fix. Matching a convention name at every depth is what hid forty of this
+repository's own files (<code>skills/*/scripts/</code>) and a real Next.js route
+(<code>app/api/media/generated/route.ts</code>). Matching an artifact name only at the root would
+let a nested <code>node_modules/</code> through. Both rules are right for their own class of
+name.</p>
+
+<div class="card info">
+  <span class="card-label">Defaults, not verdicts</span>
+  <p>Nothing in this toolkit can know that your repository keeps real source in a directory
+  called <code>target/</code>, or that your <code>docs/</code> is a literate-programming tree.
+  Say so in <code>settings.json</code> and it is believed.</p>
+  <p style="margin-bottom:0">Until 2026-08-20 that was accepted, written to disk, and then
+  silently overruled — the file filter never consulted the verdicts at all. So the name lists
+  were not defaults, they were hardcoded answers with no appeal, and a wrong one was
+  unfixable.</p>
+</div>
+
+<table>
+  <tr><th>Verdict source</th><th>Overrides</th></tr>
+  <tr><td><code>settings.json</code>, or a <code>user</code> classification</td>
+      <td>Everything aimed <em>at that directory</em> — the convention lists and
+      <code>.gitignore</code> — but not rules about what is <em>inside</em> it.</td></tr>
+  <tr><td>An <code>ai</code> classification</td>
+      <td>Root convention names and <code>.gitignore</code> — but <em>not</em> artifact trees. A
+      model classifying <code>node_modules</code> as source is a plausible failure and a person
+      typing it is not, and the blast radius of the first is a 50,000-file graph.</td></tr>
+  <tr><td><code>rule</code> / <code>gitignore</code> classifications</td>
+      <td>Nothing. These <em>are</em> the defaults' own output, so letting them override would be
+      circular.</td></tr>
+</table>
+
+<p>Precedence, stated once: <strong>a stated verdict beats a derived one at any depth, and among
+equals the deepest wins.</strong> So <code>packages/</code> can be source while
+<code>packages/legacy/</code> is excluded.</p>
+
+<div class="card stop">
+  <span class="card-label">An override used to have no floor, and that was worse than the defect it fixed</span>
+  <p>The check returned early for <em>every</em> path under an override and never reached the
+  pattern matcher. So <code>{"directories": {"packages": "source"}}</code> on a workspaces tree
+  pulled every <code>packages/*/node_modules/**</code> into the graph — the 50,000-file blast
+  radius the two-tier design above exists to prevent, reached through an ordinary ancestor
+  verdict.</p>
+  <p style="margin-bottom:0">And it could not be switched off: the classifier does not descend
+  into a directory whose ancestor carries a stated verdict, so no nested exclusion is ever
+  derived to catch it. The rule now is that the patterns are re-matched against the path
+  <em>below</em> the override root — <code>node_modules/</code> still catches the tail, while
+  the entry naming the overridden directory itself matches no tail and correctly stops
+  applying.</p>
+</div>
+
+<p>Getting there took three attempts, because three separate layers had to agree: the file
+filter, the directory classifier — which re-asserted the rule one level <em>below</em> an
+override and won, because a stale cached verdict sat deeper — and the exclusion set the CLI hands
+back into <code>build()</code>, assembled from the same <code>.gitignore</code>, which undid the
+override a step later. Overrides therefore travel on the contract itself, as
+<code>Exclusions.overrides</code>, so a backend that has never heard of the classifications cache
+honours them too.</p>
+
+<h2 id="edge">An edge, anatomised</h2>
+
+<p>An edge used to be a string — the path it pointed at, sitting in an <code>imports</code> list.
+A string carries exactly one fact, so <code>a.ts imports b.ts</code> and
+<code>a.ts re-exports b.ts</code> were the same value, and "this function calls that function"
+could not be written down at all.</p>
+
+<div class="grid two">
+  <div class="card">
+    <span class="card-label">Schema 1 — until 2026-08-20</span>
+<pre style="margin:0"><code>"imports": [
+  "src/lib/auth/config.ts"
+]</code></pre>
+  </div>
+  <div class="card ok">
+    <span class="card-label">Schema 2 — now</span>
+<pre style="margin:0"><code>"imports": [
+  {"to": "src/lib/auth/config.ts",
+   "kind": "imports",
+   "provenance": "extracted"}
+]</code></pre>
+  </div>
+</div>
+
+<h4>The far end</h4>
+<p><code>to</code> going forwards, <code>from</code> in a <code>dependents</code> entry. It is one
+of three things, and the third is the interesting one:</p>
+<ul class="tight">
+  <li>a project-relative path — a real internal edge;</li>
+  <li><code>external:&lt;package&gt;</code> — a third-party dependency, real but not ours;</li>
+  <li><code>unresolved:&lt;raw&gt;</code> — it meant something in this project and could not be
+  found. <strong>Never dropped.</strong> An honest gap beats a silent one.</li>
+</ul>
+
+<h4><code>kind</code> — a fixed vocabulary of five</h4>
+<table>
+  <tr><td><code>imports</code></td><td>a file depends on another file, as stated in source</td></tr>
+  <tr><td><code>re_exports</code></td><td>a file re-exports another file's surface — barrels</td></tr>
+  <tr><td><code>calls</code></td><td>a symbol invokes another symbol</td></tr>
+  <tr><td><code>inherits</code></td><td>a type extends or implements another type</td></tr>
+  <tr><td><code>references</code></td><td>a symbol is named without being called</td></tr>
+</table>
+<p>Fixed deliberately. A contract whose vocabulary each backend defines for itself is describing
+implementations rather than an interface, and a caller could not then ask "does this backend give
+me <code>calls</code>?" in a portable way.</p>
+
+<h4><code>provenance</code> — how directly it was read</h4>
+<p><code>extracted</code> means stated explicitly in the source text. <code>inferred</code> means
+derived by resolution the source did not spell out.</p>
+<p>It is worth being precise about what this axis is <em>not</em>, because the obvious reading is
+wrong: it is <strong>not</strong> deterministic-versus-model-judged. The spike measured graphify
+emitting <code>INFERRED</code> edges from a pure AST pass with no model anywhere in the loop.</p>
+
+<div class="card warn">
+  <span class="card-label">And it does not gate anything yet</span>
+  <p>The design says only <code>extracted</code> edges may gate <code>wrap-up</code> and
+  <code>inferred</code> ones are advisory. <strong>No code implements that filter.</strong> The
+  field is recorded faithfully on every edge and read by nothing, so an inferred edge reaches
+  blast radius indistinguishable from an extracted one.</p>
+  <p style="margin-bottom:0">The practical exposure is small — over-approximating a blast radius
+  is the safe direction, and exactly two file pairs on this repository rest solely on inferred
+  links. But it was written down as a present-tense guarantee in the spec, in the decision
+  record and on this page, and it was not true. Found by the final review; recorded rather than
+  quietly deleted.</p>
+</div>
+
+<h4>The optional refinement</h4>
+<p>With <code>substrate.symbols</code> on, an edge may also carry <code>from_symbol</code>,
+<code>to_symbol</code> and <code>line</code>. These <strong>refine the file anchor and never
+replace it</strong>, so anything that ignores them behaves exactly as it did before they
+existed — which is what makes symbol support optional per backend rather than a schema change.</p>
+
+<h4>Reading an old graph</h4>
+<p>Readers accept both shapes. <code>graph.json</code> is gitignored, so there is no committed
+copy to correct in a commit — an older one sits on someone's disk until something rewrites it,
+and refusing to read it looks exactly like a project with no dependencies. The schema version is
+what makes that tolerance temporary rather than permanent: without it there is no way to tell a
+graph that has been brought forward from one that never needed to be.</p>
+
+<h2 id="disk">What is on disk</h2>
+
+<div class="ascii">knowledge-base/
+├── settings.json               committed — the project's choices
+└── .graph/                     writes its own .gitignore
+    ├── graph.json              the active graph, whichever backend produced it
+    ├── graph.homegrown.json    per-backend copy
+    ├── graph.graphify.json     per-backend copy
+    ├── docs.json               doc section → code file
+    ├── behavior.json           COMMITTED — cannot be rebuilt from source
+    └── classifications.json    derived directory verdicts (cache)
+</div>
+
+<p><strong>Why two copies of the same graph.</strong> Switching substrates must not destroy the
+baseline you would want to diff the new one against — which is precisely the moment you need it.
+So each backend writes its own, and <code>graph.json</code> stays the active artifact that the
+other skills read.</p>
+
+<p>A real entry, from this repository's own graph:</p>
+
+<pre><code>"skills/freya-code-graph/scripts/backends.py": {
+  "language": "python",
+  "exports": [],
+  "imports": [
+    {"to": "external:os",     "kind": "imports", "provenance": "extracted"},
+    {"to": "external:sys",    "kind": "imports", "provenance": "extracted"},
+    {"to": "external:typing", "kind": "imports", "provenance": "extracted"},
+    {"to": "skills/freya-code-graph/scripts/settings.py",
+     "kind": "imports", "provenance": "extracted"},
+    {"to": "skills/freya-code-graph/scripts/substrate.py",
+     "kind": "imports", "provenance": "extracted"}
+  ],
+  "dependents": []
+}</code></pre>
+
+<p>And the block every graph carries, which is the answer to "is this repository really this
+sparse, or is my backend blind?":</p>
+
+<pre><code>"substrate": {
+  "backend": "homegrown",
+  "coverage": {
+    "languages":   ["go", "javascript", "python", "typescript"],
+    "extensions":  [".go", ".js", ".jsx", ".py", ".ts", ".tsx"],
+    "relations":   ["imports", "re_exports"],
+    "incremental": true
+  },
+  "schema": 2,
+  "exclusions": { "directories": [...], "patterns": [...], "overrides": ["docs"] }
+}</code></pre>
+
+<p>Four more keys appear only when they have something to say, which is why a clean graph is
+byte-identical to one written before they existed: <code>degraded_from</code> and
+<code>degraded_reason</code> when a fallback happened, <code>validation</code> when the produced
+graph broke the contract, <code>unmapped_relations</code> when a backend emitted something this
+projection does not map, and <code>direction_warnings</code> when edge direction looked
+unreliable.</p>
+
+<h2 id="queries">Asking it questions</h2>
+
+<table>
+  <tr><th>Command</th><th>Returns</th></tr>
+  <tr><td><code>--query &lt;file&gt;</code></td>
+      <td><strong>Edge objects.</strong> "Tell me about this file" — so kind and provenance are
+      the point.</td></tr>
+  <tr><td><code>--impact</code> / <code>--dependents</code> / <code>--dependencies</code></td>
+      <td><strong>Path strings.</strong> "Which files are affected" — a set of nodes, not
+      edges.</td></tr>
+</table>
+
+<p>That boundary is deliberate and it is the reason the edge migration did not ripple. Three other
+skills feed the node queries straight into set arithmetic, where an edge object raises
+<code>unhashable type: 'dict'</code> — in a different skill, for no gain. Drawing the line here
+meant <code>behavior-graph</code>, <code>drift</code> and <code>behavior-runner</code> needed
+<strong>no code change at all</strong>.</p>
+
+<pre><code>freya code-graph --build        --dir /path/to/project
+freya code-graph --update       --dir /path/to/project     # incremental, via git diff
+freya code-graph --query        src/lib/auth.ts
+freya code-graph --impact       src/lib/auth.ts
+freya code-graph --dependents   src/lib/auth.ts
+freya code-graph --dependencies src/lib/auth.ts
+freya code-graph --clear        --dir /path/to/project</code></pre>
+
+<p><code>--clear</code> removes every backend's copy, not just the active one — a leftover copy is
+worse than a missing one, because it looks current and nothing reports it. It
+<em>keeps</em> <code>classifications.json</code>, which holds judgements you and the model made
+about which directories are source; a cache clear has no business discarding those.</p>
+
+<h2 id="projection">Symbols projected onto files</h2>
+
+<p>graphify's nodes are <strong>symbols</strong>. The contract's are <strong>files</strong>. Its
+links run symbol → symbol. So every link is projected onto the file pair its endpoints live
+in.</p>
+
+<div class="ascii">graphify                                        the contract
+
+  validateToken()  ──calls──▶  query()            auth.ts  ──calls──▶  db.ts
+       │                          │
+   in auth.ts                 in db.ts
+</div>
+
+<p>Measured on this repository: <strong>6,289 links out of the extractor, 73 distinct file pairs
+out of the projection.</strong> That collapse is not loss — most of it is structure that was never
+a dependency.</p>
+
+<h2 id="dropped">What gets dropped, and why</h2>
+
+<h4>Relations that are not dependencies (2,861 links — 45%)</h4>
+<table>
+  <tr><th>Relation</th><th class="num">Links</th><th>Why not an edge</th></tr>
+  <tr><td><code>contains</code></td><td class="num">1,199</td>
+      <td>File has symbol. This is the node hierarchy, not a dependency.</td></tr>
+  <tr><td><code>method</code></td><td class="num">1,119</td>
+      <td>Class has method. The same thing, one level down.</td></tr>
+  <tr><td><code>rationale_for</code></td><td class="num">543</td>
+      <td>A docstring index — the source node's label is the first line of a docstring. 543 of
+      543 intra-file, 543 of 543 in <code>.py</code> files.</td></tr>
+</table>
+<p>All 2,861 are <strong>100% intra-file</strong>, which is the argument on its own: a relation
+that never crosses a file boundary cannot produce a file → file edge under any mapping. It can
+only produce self-edges.</p>
+
+<h4>Intra-file links of the relations we <em>do</em> keep (1,516 — 75% of the survivors)</h4>
+<p>A function calling another function in the same file is a real fact, and it has no file pair to
+be an edge between. Kept as an edge it would make a file its own dependent — and blast radius
+walks <code>dependents</code>, so every file would always be in its own blast radius. It is now a
+validation error as well as being skipped.</p>
+<p>This is a <strong>deliberately discarded capability</strong>, not an oversight: recording an
+intra-file call graph needs a node type the contract does not have. It is filed rather than
+lost.</p>
+
+<h4>External modules — the one that fabricated edges</h4>
+<div class="card stop">
+  <span class="card-label">Found in review, Phase 2</span>
+  <p>graphify emits one node per external module — <code>Foundation</code>,
+  <code>express</code> — and that node carries a <code>source_file</code>, which is whichever
+  project file the module happened to be seen in <em>first</em>.</p>
+  <p>Read as a file, it fabricates edges. Three Swift files that each
+  <code>import Foundation</code> produced <code>s1.swift → s3.swift</code> and
+  <code>s2.swift → s3.swift</code> — edges that exist nowhere in the source, in the direction
+  that inflates blast radius.</p>
+  <p style="margin-bottom:0">A module node now becomes <code>external:&lt;module&gt;</code>, which
+  is exactly what the contract already had for this.</p>
+</div>
+
+<h4>The mapping table has no default</h4>
+<p>An unmapped relation is <strong>counted and announced</strong>, never quietly folded into
+<code>references</code>:</p>
+<pre><code>"unmapped_relations": {"embeds": 40}
+
+code-graph: graphify emitted 40 relation(s) this backend does not map (embeds);
+they are recorded under substrate.unmapped_relations and dropped.</code></pre>
+<p>The reason there is no fallthrough is that <strong>the vocabulary cannot be enumerated
+reliably</strong>. Grepping graphify's own source for relation assignments yields 26 names — and
+<code>reads_from</code>, which this repository's graph actually contains, is not among them. A
+silent default would make a capability arriving upstream look like a repository that is thinner
+than it is.</p>
+
+<h4>Direction</h4>
+<p>graphify writes <code>"directed": false</code>, so the order of the <code>source</code> and
+<code>target</code> fields is the only carrier of direction. The spike measured what losing that
+costs: read as undirected, mean blast radius went from <strong>5 files to 188</strong>. Each link
+also repeats its own <code>source_file</code>, which gives a free cross-check — when the two
+disagree it is counted into <code>direction_warnings</code> rather than silently trusted.</p>
+
+<h2 id="symbols">Symbol refinement</h2>
+
+<p>Off by default, behind <code>substrate.symbols</code>. On, an edge keeps its endpoints distinct
+by symbol name:</p>
+
+<pre><code>{"to": "skills/freya-code-graph/scripts/substrate.py",
+ "kind": "calls",
+ "provenance": "extracted",
+ "from_symbol": "GraphifyBackend.translate()",
+ "to_symbol": "make_edge",
+ "line": 530}</code></pre>
+
+<p><strong>Why off.</strong> Measured on this repository it turns <strong>120 file-level edges
+into 698</strong> — over the same 77 file pairs — because a test module calling one helper sixty
+times is sixty symbol pairs and one dependency. Nothing downstream reads them yet, so switching
+it on for everybody would be paying the size now for a consumer that does not exist.</p>
+
+<div class="card info">
+  <span class="card-label">The detail that made symbol names usable</span>
+  <p>graphify labels a method with its own name only — <code>.setUp()</code>,
+  <code>._run()</code>. Measured here, <strong>64 of 1,731 code symbols share a bare label with a
+  sibling in the same file</strong>: three different <code>._run()</code> in one test module, and
+  so on. A name that does not identify a symbol is not much use.</p>
+  <p style="margin-bottom:0">So <code>method</code> is dropped as an <em>edge</em> and kept as a
+  <em>lookup</em>: the owning class is composed onto the label, giving
+  <code>TestGherkinScaffold.setUp()</code>. Collisions go to zero.</p>
+</div>
+
+<p>Verified rather than assumed: <code>--impact</code>, <code>--dependents</code> and
+<code>--dependencies</code> return the same path strings with refinement on or off.</p>
+
+<h2 id="behaviour">The behaviour layer</h2>
+
+<p>A behaviour records which files a test actually exercised. With Phase 3, an exercise entry may
+also carry the <strong>symbols</strong> that ran:</p>
+
+<pre><code>{"path": "src/lib/auth.ts", "symbols": ["validateToken", "refresh"]}</code></pre>
+
+<p>They come from the <strong>coverage report</strong> — istanbul's <code>fnMap</code> names each
+function and <code>f</code> counts its executions — and deliberately <em>not</em> from the code
+graph. <code>observed</code> means "the test ran this". Graph symbols would mix in things nobody
+executed, which is the difference between measurement and inference, and that distinction is what
+the whole trust model rests on.</p>
+
+<p>Two filters, both from reading real output (775 functions across 123 files):</p>
+<ul class="tight">
+  <li><strong>executed only</strong> — <code>f[i] &gt; 0</code>;</li>
+  <li><strong>named only</strong> — 405 of the 775 are <code>(anonymous_N)</code>, where N is a
+  positional counter per file, so inserting one function renumbers every later one. An anchor
+  that moves when an unrelated function is added is not an anchor.</li>
+</ul>
+
+<p>One entry per file, not one per symbol: <code>behavior-graph</code> intersects
+<code>exercises[].path</code> against the impact set, and splitting the entry would change that
+set's cardinality and every count derived from it. An entry with no symbols is byte-identical to
+one written before this existed — which is asserted by a test, not assumed.</p>
+
+<h2 id="docs">The docs graph</h2>
+
+<p><code>docs.json</code> records which doc section cites which code file, so
+"<em>I changed <code>graph_ops.py</code> — which docs now lie?</em>" is answered from a recorded
+edge instead of re-judged by a model on every run.</p>
+
+<pre><code>$ freya docs-graph --impact skills/freya-code-graph/scripts/graph_ops.py
+
+docs/architecture.md#output-artifacts
+docs/backlog.md#the-wall (cites line 30)
+docs/decisions/ADR-005-repair-parsing-substrate-in-place.md#decision (cites line 328)</code></pre>
+
+<p>Everything is <strong>parsed, never inferred</strong> — from <code>path:line</code> citations
+in prose, markdown relative links, and the <code>related_code:</code> frontmatter specs and ADRs
+already carry. A docs graph that guesses is worse than none, because a wrong edge sends someone to
+rewrite a document that was fine.</p>
+
+<p>Edges anchor at the <strong>section</strong>, not the line. A line number shifts the moment
+anyone inserts a paragraph; the heading is stable, and it matches the question actually being
+asked — <em>which section is now wrong</em>. The cited line is kept inside the edge as
+evidence.</p>
+
+<p>On this repository: <strong>35 documents, 171 edges.</strong></p>
+
+<h2 id="failure">When something fails</h2>
+
+<p>Six distinct failure modes, each with a defined answer. None of them is "return an empty graph
+and exit zero".</p>
+
+<table>
+  <tr><th>What happens</th><th>What the system does</th></tr>
+  <tr><td>The configured backend is <strong>not installed</strong></td>
+      <td>Degrade to the floor. Continue. Record <code>degraded_from</code> in the artifact and
+      say so on stderr.</td></tr>
+  <tr><td>The backend <strong>fails during the build</strong> — the tool was upgraded, it timed
+      out, it exited zero having written nothing</td>
+      <td>Degrade to the floor, with the exception text as the recorded reason. The floor is
+      stdlib-only and always installed, so a traceback is never the best available answer.</td></tr>
+  <tr><td>The backend produces <strong>zero files where the cached graph had some</strong></td>
+      <td><span class="pill stop">refuse</span> An empty <code>files</code> dict passes
+      validation — there is no edge to be wrong about — so a backend that silently stopped
+      working would overwrite a good graph and report <code>status: built</code>. It raises
+      instead, and the previous artifact stays until something can replace it honestly.</td></tr>
+  <tr><td>The produced graph <strong>breaks the contract</strong> — a dangling edge, a self-edge,
+      a file outside the declared coverage</td>
+      <td>Write it, and record every error under <code>substrate.validation</code> in the
+      artifact. The run's stderr is gone by the time anyone reads the graph.</td></tr>
+  <tr><td>The <strong>git query fails</strong> during an incremental update</td>
+      <td>Return "unknown", never "nothing changed". Those had the same representation once, and
+      the consequence was a permanent silent no-op.</td></tr>
+  <tr><td>The <strong>floor itself</strong> fails</td>
+      <td>Raise. There is nothing left to fall back to, and pretending otherwise is the failure
+      mode this whole system is built to refuse.</td></tr>
+  <tr><td>A backend is registered but <strong>does not satisfy the contract</strong></td>
+      <td>Fall back to the floor and record <code>degraded_from</code>. Until the final review
+      this branch printed to stderr and recorded nothing, so the artifact was indistinguishable
+      from an ordinary floor build.</td></tr>
+  <tr><td>The extraction has <strong>files but no edges at all</strong></td>
+      <td><span class="pill stop">refuse</span> An upstream rename of the output's edge
+      container would otherwise land as a full file set with every edge gone, reported as
+      success — and the empty-graph guard cannot see it, because the file set is full.</td></tr>
+</table>
+
+<p>Two of these were added by the final review, and one of them replaced a Python traceback.
+Refusing to overwrite a good graph is correct; reaching the user as an unhandled exception
+because they committed <code>{"directories": {"src": "exclude"}}</code> was not.</p>
+
+<div class="card ok">
+  <span class="card-label">The rule underneath all six</span>
+  <p style="margin-bottom:0">A thin graph must never be indistinguishable from a thin repository.
+  Every degradation is recorded <em>in the artifact</em>, because that is the thing that is still
+  around a week later when someone asks why the blast radius looks small.</p>
+</div>
+
+<div class="next">
+  <a href="building-it.html"><b>How it was built →</b><span>The phases, the tests, the gate, and
+  the defects found on the way.</span></a>
+  <a href="decisions.html"><b>The decisions →</b><span>Twenty-five decisions with what was
+  rejected, and where we were wrong.</span></a>
+</div>
+
+<div class="foot">
+  <p>Reference, in the shipped tree:
+  <a href="../../../skills/freya-code-graph/SKILL.md">freya-code-graph/SKILL.md</a> and
+  <a href="../../../skills/freya-code-graph/references/graph-schema.md">references/graph-schema.md</a>.</p>
+</div>
+
+</main>
+</div>
+</body>
+</html>

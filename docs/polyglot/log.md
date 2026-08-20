@@ -702,3 +702,86 @@ Two things that verification found, which is the argument for doing it:
 - graphify's `community`/`community_name` fields drift between cold builds (1,455 of 3,692
   nodes measured). Irrelevant here — the projection reads neither — but it means graphify's own
   artifact is not byte-stable while ours is.
+
+---
+
+## 2026-08-20 (closing) — the full re-review, and the documentation
+
+**Status:** fixes shipped as `087d82b`. Nothing pushed.
+
+A 73-agent pass over the whole feature once it was finished: eight reviewers on independent
+dimensions (the contract, the graphify backend, selection and settings, the homegrown backend
+and persistence, downstream consumers, the behaviour layer, test blindness, documented
+claims), then **two** lenses per finding — one trying to refute it, one checking whether some
+other code path already handled it — then a completeness critic asking what the eight had
+missed. 51 raised, **32 confirmed**, and the critic independently found one of the two things
+the reviewers had not.
+
+### The interesting part: earlier *fixes* were the biggest source
+
+This was code that had already survived three review rounds. The findings that mattered most
+were defects introduced by the fixes for previous findings.
+
+| Fixed earlier | What the fix left behind |
+|---|---|
+| The exclusion override moved into `knowledge-base/settings.json`, so a decision lives in a committed file | The verdict was folded into `classifications.json` and **persisted there**, so it outlived the file that declared it. Deleting the entry changed nothing: the cached copy still outranked every rule, survived the `RULES_VERSION` discard and survived `--clear`. The same cache-beats-decision inversion CD-21 was written to end, arriving through the opposite door |
+| `Exclusions.overrides`, so a project can declare a directory back into scope | The override had **no floor**. It returned early for every path beneath it and never reached the pattern matcher, so `{"directories": {"packages": "source"}}` on a workspaces tree pulled every `packages/*/node_modules/**` into the graph — and nothing could switch it off, because the classifier does not descend into a directory whose ancestor carries a stated verdict |
+| graphify's external-module nodes became `external:` instead of being read as files | It enumerated **the case**, not the class. C# `type: namespace` anchors are the same shape — one node canonicalised across every file that declares it, keeping the `source_file` of whichever was parsed first — and were still read as files. graphify's own resolver skips namespace nodes in two places, for exactly this reason |
+
+### Measurements
+
+| | |
+|---|---|
+| Review | 73 agents, 8 dimensions × 2 verification lenses + 1 critic; 51 raised, 32 confirmed |
+| Declared coverage, before | 34 of the 92 extensions graphify dispatches |
+| Files graphify parsed and the contract then called violations | every `.groovy`, `.kts`, `.f90`, `.razor`, … — written with `language: null` |
+| §9.1 re-derived after the fixes | **76 file pairs against homegrown's 70, nothing lost, 0 validation errors** |
+| `substrate.symbols` cost, re-measured | 120 file-level edges → 698, over the same 77 pairs |
+| Tests | 1,279 → 1,315 |
+
+### Worth carrying
+
+- **A promise nobody implemented.** Spec §4/§11, CD-4 and the explainer all state that only
+  `extracted` edges may gate `wrap-up`. **No code reads an edge's provenance.** The field is
+  written faithfully on every edge and consumed by nothing. It is the same shape as
+  `validate_graph` having zero callers and `set_classification` being silently ignored —
+  three separate times now, this project has written a guard, documented its effect in the
+  present tense, and not wired it up. The pattern is worth a name: *the effect is not the
+  API*.
+- **A generated tree became committable, again.** `graphify-out/` lands at the project root,
+  outside every ignore rule this toolkit writes; `git add -A` staged it on a fresh repository.
+  Identical in kind to the `graph.<backend>.json` defect fixed on 2026-08-20, one directory
+  over and at ~9.3 KB per file. Found independently by the critic and by hand. The lesson is
+  not "remember to gitignore things" — it is that **opting into a backend must not change what
+  is committable**, and nothing enforced that.
+- **A hand-maintained mirror of someone else's registry drifts.** The extension list was
+  written from what two fixtures produced. It is now derived from graphify's own `_DISPATCH`
+  and pinned by a test that reads it out of graphify's interpreter — the same shape as the
+  relation table's pin, which exists because a regex "verified" four real relations as
+  invented. Second time that method has failed; first time it was applied preventively.
+- **Three guards had no test at all**, and the review measured it rather than asserting it:
+  `link_dependents`' rebuild-from-scratch, its symbol-copy loop, and both reverse-index
+  validation checks could each be deleted with all 1,279 tests still green. Every guard added
+  since has been mutation-tested against its own test class **in isolation**, which is the
+  §9.1 lesson applied rather than restated.
+- **`--impact` and `--dependents` disagreed about not knowing.** `--dependents` on an unindexed
+  file says so and exits non-zero; `--impact` returned `all_affected: []` with exit 0 and
+  nothing on stderr. `--impact` is the one wrap-up calls.
+
+### Doc impact — applied
+
+- `skills/freya-code-graph/references/graph-schema.md` — schema 2 throughout (it still pinned
+  `version` to `const: 1` in three places), the `language` enum removed, `ReverseEdge`'s symbol
+  fields, both reader recipes rewritten for object edges, the false "add it to `.gitignore` if
+  you prefer" paragraph replaced with what actually happens, and a new section on what each
+  backend legitimately does not fill in
+- `skills/freya-code-graph/SKILL.md` — the backend table, the real `auto` hint wording, the
+  re-measured symbols cost, the `Category` output that CD-12 removed, and a Limitations
+  section that says which backend it is describing
+- `skills/freya-behavior-runner/SKILL.md` — `graph-query-failed` and
+  `coverage-outside-project` added to the `reason` table
+- `docs/polyglot/spec.md` — four more clauses added to the "where this was wrong" table
+- `docs/polyglot/architecture.html` — the two refuted claims in §4 marked, §6 and §7 answered
+- **New: `docs/polyglot/explainer/` rebuilt as a five-page feature explainer** — the problem
+  and the plan, how it works, how it was built and tested, and all 25 decisions with their
+  rejected alternatives. `details.html` is folded into those and deleted.

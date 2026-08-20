@@ -24,18 +24,28 @@ when the feature lands.
 
 ## Start here
 
-[`explainer/index.html`](explainer/index.html) — **the short version**: where the work stands,
-what needs deciding, and what was decided without asking. Every claim links through to
-[`explainer/details.html`](explainer/details.html), which carries the measurements, the
-rejected alternatives and the review findings in full.
+[`explainer/index.html`](explainer/index.html) — **the whole feature, end to end, in plain
+terms.** Everything else in this directory is source material for it.
 
-Open either in a browser; they are self-contained and work over `file://`.
+| Page | What it covers |
+|---|---|
+| [`explainer/index.html`](explainer/index.html) | The main page. What the problem was, what was built, what it cost, and what is not done |
+| [`explainer/problem.html`](explainer/problem.html) | Where it started, what was cut before implementation, and how the work was sequenced |
+| [`explainer/how-it-works.html`](explainer/how-it-works.html) | The contract, the two backends, an edge anatomised, and every way the system may fail |
+| [`explainer/building-it.html`](explainer/building-it.html) | What shipped per phase, how it is tested, and the defects found on the way |
+| [`explainer/decisions.html`](explainer/decisions.html) | All 25 decisions with their rejected alternatives, plus where we were wrong |
+
+Open any of them in a browser; they share one stylesheet and one script, both local, and work
+over `file://` by double-clicking.
+
+**State, 2026-08-20:** all six phases have shipped. What remains is the closeout below —
+distilling `decisions.md` into ADRs and deleting this directory.
 
 ## The lifecycle, and why it is enforced
 
-0. **Orient:** [`explainer/`](explainer/) is the readable summary;
-   [`spec.md`](spec.md) is the design; [`architecture.html`](architecture.html) is
-   the same thing with diagrams.
+0. **Orient:** [`explainer/`](explainer/) is the readable version of what was built;
+   [`spec.md`](spec.md) is the design as it was approved; [`architecture.html`](architecture.html)
+   is the design sketch with diagrams, annotated where the build refuted it.
 1. **During:** record decisions in [`decisions.md`](decisions.md) — already in ADR shape, so
    closing the feature is transcription rather than archaeology. Record reversals and
    measurements in [`log.md`](log.md) as they happen.

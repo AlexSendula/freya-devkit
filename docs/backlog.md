@@ -519,6 +519,46 @@ gap from an absence.
 Blocked on nothing but a decision. Worth revisiting once Phase 2 has settled what a backend is
 allowed to see outside its own root.
 
+### 13. Per-edge provenance is recorded and enforced by nothing
+
+Found 2026-08-20 by the closing review of Track B.
+
+Every edge carries `provenance: extracted | inferred`. Spec §4 and §11, CD-4 and the explainer
+all state — in the present tense — that only `extracted` edges may gate `wrap-up` and that
+`inferred` ones are advisory. **No production code reads the field.** An inferred edge reaches
+blast radius indistinguishable from an extracted one.
+
+The exposure today is small: over-approximating a blast radius is the safe direction, and
+exactly two file pairs on this repository rest solely on an inferred link (both duck-typed calls
+through an interface). The discrepancy is not small. This is the third time a guard in this
+toolkit has been written, documented as having an effect, and left unwired — `validate_graph`
+had zero callers, `set_classification` was accepted and ignored, and now this.
+
+Two honest resolutions, and picking between them needs a measurement rather than an argument:
+implement the filter at the point blast radius is consumed, or strike the promise and let the
+field stay descriptive. Measure the mis-wiring rate on a real polyglot repository first; CD-4's
+own revisit condition says exactly that.
+
+### 14. The coverage block cannot say "I do not emit this field"
+
+Found 2026-08-20, same review.
+
+`Coverage` declares languages, extensions and relation kinds. It has no vocabulary for a field
+a backend simply does not produce, and there are two:
+
+- **`exports`** — the graphify backend never populates it, so switching backends silently empties
+  the field for every file. Spec §7's table claims it is retained.
+- **`external:` edges** — graphify emits no node for a third-party import in TS/JS/Python, so
+  there is nothing to project. It reads package dependencies from manifests instead. Phase 0
+  measured this and judged it acceptable because `external:` exists in freya only to be filtered
+  out; that judgement stands, but it is recorded nowhere a caller can read.
+
+Both are upstream limitations rather than projection defects. The gap is that a caller cannot
+discover either from the artifact — which is the same class of problem the coverage block was
+added to solve for languages. Documented in `references/graph-schema.md` in the meantime.
+
+Becomes real the moment anything depends on `exports`. Nothing does today.
+
 ## Platform-blocked
 
 Items that need a platform we do not have, or a live agent run we have not paid for. None is

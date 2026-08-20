@@ -1,0 +1,387 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The problem, and the plan — Track B</title>
+<link rel="stylesheet" href="assets/styles.css">
+<script src="assets/nav.js" defer></script>
+</head>
+<body>
+<div id="topbar"></div>
+
+<div class="layout">
+
+<aside class="toc">
+  <div class="grp">The problem</div>
+  <a href="#blind">A toolkit that could not see</a>
+  <a href="#worse">It could not see itself</a>
+  <a href="#why-bad">Why an empty graph is worse than no graph</a>
+  <div class="grp">The shape of the fix</div>
+  <a href="#not-a-tool">Why not "just pick a better parser"</a>
+  <a href="#two">Why two backends, not one</a>
+  <a href="#floor">Why the old one stays</a>
+  <div class="grp">Scope</div>
+  <a href="#cuts">What we deliberately did not build</a>
+  <a href="#criteria">What counts as done</a>
+  <div class="grp">The plan</div>
+  <a href="#spike">Measure first, build second</a>
+  <a href="#phases">Six phases</a>
+</aside>
+
+<main>
+<header class="page">
+  <div class="kicker">Track B · the polyglot substrate</div>
+  <h1>The problem, and the plan</h1>
+  <p class="sub">Where this started, what was rejected on the way in, and how the work was
+  sequenced before any of it was written.</p>
+</header>
+
+<p class="lede">Every skill in this toolkit stands on one thing: a graph of which file depends
+on which. That graph was built by a few hundred lines of regular expressions that understood
+TypeScript, JavaScript, Python and Go. Point it at a Java repository and it produced nothing,
+said <em>"Built dependency graph: 0 files scanned"</em>, and exited zero.</p>
+
+<h2 id="blind">A toolkit that could not see</h2>
+
+<p>The release before this one made freya <strong>run</strong> anywhere — any agent, any
+operating system, no host-specific assumptions. It did not make freya <strong>see</strong>
+anywhere. Those are different problems and only the first had been solved.</p>
+
+<p>The dependency graph is the load-bearing artifact. Everything else reads it:</p>
+
+<div class="ascii">                    ┌──────────────────────────────┐
+                    │        the code graph        │
+                    └──────────────┬───────────────┘
+             ┌─────────────┬───────┴───────┬──────────────┐
+             ▼             ▼               ▼              ▼
+      docs-manager   spec-manager    behavior-graph   security-scan
+      "which docs    "which design   "which behaviours "which findings
+       are stale?"    decisions?"     must re-run?"     are still live?"
+</div>
+
+<p>So a blind graph is not a degraded feature — it is a toolkit that answers every question with
+a confident <em>nothing</em>. On a Java repository, "which behaviours does this change affect?"
+came back empty, and empty is indistinguishable from safe.</p>
+
+<p>It went further than a wrong answer. <code>spec-manager</code> decides whether a repository is
+<em>greenfield</em> — brand new, nothing built yet — by asking the graph how many internal edges
+it has. Zero edges meant greenfield. So a mature Java codebase with two hundred classes was
+classified as an empty project, and every downstream skill adjusted its behaviour accordingly.</p>
+
+<h2 id="worse">It could not see itself</h2>
+
+<p>The spike that was meant to evaluate a replacement found something about our own code first.
+Run against <strong>freya-devkit itself</strong> — fifty Python files:</p>
+
+<div class="card stop">
+  <span class="card-label">Measured 2026-08-19</span>
+  <p><strong>10 of 50 files indexed. Zero internal edges. Exit code 0.</strong> It printed
+  <code>Built dependency graph: 10 files scanned</code> and reported success.</p>
+  <p style="margin-bottom:0">Because zero edges means greenfield, <em>freya classified freya as a
+  brand-new empty project.</em></p>
+</div>
+
+<p>Two independent causes, each sufficient on its own:</p>
+
+<ul>
+  <li><code>'scripts'</code> was in the always-exclude list and was matched against
+  <em>every</em> path component. Every skill in this repository keeps its code in
+  <code>skills/&lt;name&gt;/scripts/</code>, so forty files disappeared.</li>
+  <li>Python sibling imports — <code>import behavior_graph</code>, a file sitting in the same
+  directory — were classified as third-party packages. Fixing the first defect took the count
+  from 10 files to 51 and left <strong>one</strong> internal edge, which dangled.</li>
+</ul>
+
+<p>Four more defects surfaced behind those two. They are listed in full on
+<a href="building-it.html#repair">How it was built</a>. The relevant point here is that they were
+fixed <em>before</em> any of the new architecture was written, and the reason is worth stating,
+because it was a genuine fork:</p>
+
+<blockquote>Phase 1's stated safety property was "no behaviour change, and the existing test suite
+is the regression gate." That suite was eighteen tests over synthetic fixtures, and it was green
+the entire time the resolver was this broken. A refactor pinned by a suite that cannot observe
+the behaviour preserves nothing — and what would have been frozen into the permanent zero-install
+floor was an empty graph on freya's own language.</blockquote>
+
+<h2 id="why-bad">Why an empty graph is worse than no graph</h2>
+
+<p>This is the principle the whole feature is built around, and it predates it — it is
+<a href="../../decisions/ADR-005-repair-parsing-substrate-in-place.md">ADR-005</a>.</p>
+
+<div class="grid two">
+  <div class="card warn">
+    <span class="card-label">A missing graph</span>
+    <p>Every consumer knows it has no answer. <code>docs-manager</code> falls back to a plain git
+    diff. <code>wrap-up</code> says it could not compute a blast radius. The gap is visible and
+    the operator can act on it.</p>
+  </div>
+  <div class="card stop">
+    <span class="card-label">A confidently empty graph</span>
+    <p>Every consumer gets an answer, and the answer is "nothing is affected". Nothing warns.
+    The behaviour is not re-run, the doc is not flagged, the finding is closed — and the run
+    reports success.</p>
+  </div>
+</div>
+
+<p>So the requirement is not "read more languages". It is: <strong>a backend must be able to say
+what it could not see</strong>, and everything downstream must be able to tell "this repository
+has no dependencies" from "this parser does not read Java".</p>
+
+<h2 id="not-a-tool">Why not "just pick a better parser"</h2>
+
+<p>The obvious move is to find a good multi-language parser and wire it in. It was rejected, and
+the reason is one sentence: <strong>picking a tool means picking again in two years</strong>, and
+by then five skills depend on its output shape.</p>
+
+<p>So the parser is not the architecture. The socket it plugs into is.</p>
+
+<figure>
+<svg viewBox="0 0 880 250" role="img" aria-label="Consumers depend on a substrate contract; two interchangeable backends plug in beneath it">
+  <defs>
+    <marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="currentColor"/>
+    </marker>
+  </defs>
+  <g color="#928a7c">
+  <rect x="150" y="6" width="580" height="44" rx="9" fill="none" stroke="currentColor" stroke-opacity=".5"/>
+  <text x="440" y="27" text-anchor="middle" fill="currentColor" font-size="13" font-weight="700">the five consumers</text>
+  <text x="440" y="43" text-anchor="middle" fill="currentColor" font-size="10.5">docs-manager · spec-manager · behavior-graph · security-scan · wrap-up</text>
+  <line x1="440" y1="50" x2="440" y2="80" stroke="currentColor" stroke-width="1.5" marker-end="url(#arw)"/>
+  </g>
+
+  <g color="#8a5a2b">
+  <rect x="150" y="82" width="580" height="58" rx="9" fill="none" stroke="currentColor" stroke-width="2"/>
+  <text x="440" y="106" text-anchor="middle" fill="currentColor" font-size="14" font-weight="700">the substrate contract</text>
+  <text x="440" y="126" text-anchor="middle" fill="currentColor" font-size="10.5">resolve · report what it could NOT resolve · per-edge provenance · declare coverage · honour exclusions</text>
+  </g>
+
+  <g color="#928a7c">
+  <line x1="350" y1="140" x2="285" y2="176" stroke="currentColor" stroke-width="1.5" marker-end="url(#arw)"/>
+  <line x1="530" y1="140" x2="595" y2="176" stroke="currentColor" stroke-width="1.5" marker-end="url(#arw)"/>
+  </g>
+
+  <g color="#2f6b46">
+  <rect x="150" y="178" width="270" height="62" rx="9" fill="none" stroke="currentColor" stroke-opacity=".7"/>
+  <text x="285" y="200" text-anchor="middle" fill="currentColor" font-size="12.5" font-weight="650">homegrown</text>
+  <text x="285" y="218" text-anchor="middle" fill="currentColor" font-size="10.5" fill-opacity=".85">stdlib only · zero install · 4 languages</text>
+  <text x="285" y="233" text-anchor="middle" fill="currentColor" font-size="10">the floor — always works</text>
+  </g>
+
+  <g color="#2f5c7a">
+  <rect x="460" y="178" width="270" height="62" rx="9" fill="none" stroke="currentColor" stroke-opacity=".7"/>
+  <text x="595" y="200" text-anchor="middle" fill="currentColor" font-size="12.5" font-weight="650">graphify</text>
+  <text x="595" y="218" text-anchor="middle" fill="currentColor" font-size="10.5" fill-opacity=".85">tree-sitter · a dependency · 40 languages</text>
+  <text x="595" y="233" text-anchor="middle" fill="currentColor" font-size="10">the polyglot backend</text>
+  </g>
+</svg>
+<figcaption>The contract is the deliverable. The backends are implementations of it, and are
+meant to be replaceable.</figcaption>
+</figure>
+
+<h2 id="two">Why two backends, not one</h2>
+
+<p><strong>An interface with a single implementation is fiction.</strong> It silently encodes the
+assumptions of its only caller, and nobody finds out until the second one arrives.</p>
+
+<p>That is not a slogan here — it is what happened. The contract was written in Phase 1 with one
+backend behind it, and a review then built a second one that satisfied every documented
+obligation. It crashed the command-line twice, and then exited zero having written no graph at
+all. The full account is on <a href="building-it.html#verdict">How it was built</a>.</p>
+
+<p>Homegrown and graphify differ on every axis that matters — regex against AST, zero-install
+against a dependency, four languages against forty, file-level against symbol-level — so
+making both satisfy one contract is real evidence the contract is real.</p>
+
+<h2 id="floor">Why the old one stays</h2>
+
+<div class="card ok">
+  <span class="card-label">The load-bearing constraint</span>
+  <p><strong>The driving case for this whole initiative is a locked-down work laptop.</strong>
+  freya is stdlib-only; graphify needs <code>uv</code> or pip and network access. If enterprise
+  policy blocks installing a Python package, graphify never runs in the one environment Track B
+  exists to serve.</p>
+  <p style="margin-bottom:0">Keeping the homegrown resolver is what guarantees freya degrades to
+  <em>something</em> everywhere rather than to nothing. It is not legacy baggage. It is the
+  floor, and the floor is load-bearing.</p>
+</div>
+
+<p>That constraint decided several later arguments on its own — most visibly that
+<a href="how-it-works.html#selection">the default never goes shopping for a better backend</a>,
+and that monorepo package resolution had to be fixed in the homegrown resolver rather than left
+for graphify to cover.</p>
+
+<h2 id="cuts">What we deliberately did not build</h2>
+
+<p>Roughly half the original design was cut before implementation started. Each cut has a reason,
+and each is recorded so that it is not silently re-litigated later.</p>
+
+<table>
+  <tr><th>Not built</th><th>Why</th></tr>
+  <tr>
+    <td>A <strong>resource graph</strong> for Docker, compose and Kubernetes</td>
+    <td>A graph earns its keep on <em>transitive closure</em>. Config relationships are one hop
+    and never branch: <code>deployment.yaml → myapp:1.2.3 → Dockerfile → src/</code>. A
+    three-node chain that does not branch is a list. And nothing consumes the answer — knowing
+    that <code>lib/auth.ts</code> eventually lands in a container image does not change which
+    docs are stale.</td>
+  </tr>
+  <tr>
+    <td><strong>Helm</strong> charts</td>
+    <td>A chart is a Go template, not YAML, until <code>helm template</code> runs:
+    <code>image: {{ .Values.image.tag }}</code> is not a value. Highest cost in the feature,
+    least value.</td>
+  </tr>
+  <tr>
+    <td>A <strong>config identifier index</strong></td>
+    <td>Invented as the cheap replacement for the resource graph, then dropped. Worth reading as
+    a caution: it was dropped because "graphify already parses YAML deterministically", and the
+    spike <a href="building-it.html#spike">refuted that premise</a>. The conclusion survived on
+    separate reasoning; the justification did not.</td>
+  </tr>
+  <tr>
+    <td><strong>Terraform</strong> HCL parsing</td>
+    <td>The one genuine branching DAG in the config world — and <code>terraform graph</code>
+    already emits it. Consume that if it is ever wanted; never hand-roll HCL.</td>
+  </tr>
+  <tr>
+    <td>A <strong>SCIP</strong> backend</td>
+    <td>Compiler-grade precision requires each language's full toolchain and a green build. That
+    inverts "point it at any repo and it works".</td>
+  </tr>
+  <tr>
+    <td>Database <strong>migrations</strong> as graph material</td>
+    <td>An ordered append-only log is a chain, not a DAG, and "what does the schema look like
+    now" is answered by the schema file. Folding migrations to derive the current schema means
+    <em>executing</em> them — the same must-run-to-know problem as Helm.</td>
+  </tr>
+  <tr>
+    <td>Materialising the <strong>governance graph</strong></td>
+    <td><code>SPEC → BEHAVIOR → TEST → CODE</code> already exists and is navigable. Materialising
+    it means another derived cache to keep in sync. Filed with a revisit trigger.</td>
+  </tr>
+</table>
+
+<h2 id="criteria">What counts as done</h2>
+
+<p>Four criteria, written before anything was built:</p>
+
+<ol>
+  <li>Pointing freya at a Java repository produces a code graph with real internal edges.</li>
+  <li>On the repositories the old resolver already handled, the new substrate
+  <strong>does not under-report</strong> relative to it.</li>
+  <li><code>docs-manager</code> can answer "which docs does this change affect?" from a recorded
+  edge rather than by re-deciding it every run.</li>
+  <li><strong>No project is required to install anything</strong> to keep what it has today.</li>
+</ol>
+
+<p>All four hold. The evidence for each is on
+<a href="building-it.html#gate">How it was built</a>.</p>
+
+<h2 id="spike">Measure first, build second</h2>
+
+<p>The substrate decision was made a <em>measurement</em>, not an argument. Nothing else started
+until a spike passed five acceptance tests, written down before anything was run, against three
+repositories: a 232-file Next.js testbed with 609 known internal edges, freya-devkit itself, and
+a hand-built Java project.</p>
+
+<table>
+  <tr><th>Test</th><th>What it could have stopped</th></tr>
+  <tr>
+    <td><strong>9.1 Under-reporting</strong><br><span class="pill stop">blocking</span></td>
+    <td>Build both backends on one repository and diff the edge sets both ways. A
+    <em>missing</em> edge narrows a behaviour's closure, so the behaviour is not flagged as
+    affected and a regression walks through the gate. A spurious extra edge only runs a test you
+    did not need. <strong>Misses are the dangerous direction.</strong></td>
+  </tr>
+  <tr>
+    <td><strong>9.2 Deletion and staleness</strong></td>
+    <td>graphify's incremental mode "preserves existing graph structure", which could mean "does
+    not rebuild untouched nodes" or "never removes anything". The second is fatal — a graph that
+    accumulates deleted symbols returns a blast radius pointing at code that no longer exists.</td>
+  </tr>
+  <tr>
+    <td><strong>9.3 Reproducibility</strong></td>
+    <td>Build twice on identical input and diff. If a substrate is not content-stable it cannot
+    be trusted incrementally at all.</td>
+  </tr>
+  <tr>
+    <td><strong>9.4 Config coverage</strong></td>
+    <td>Does YAML/JSON/HCL support yield real edges or nothing? Either answer was acceptable; the
+    point was to stop guessing.</td>
+  </tr>
+  <tr>
+    <td><strong>9.5 Degradation and output location</strong></td>
+    <td>What happens with graphify absent — and does it write into its own directory, or into
+    ours? The second matters because <code>behavior.json</code> lives in ours and is the one
+    artifact that cannot be regenerated from source.</td>
+  </tr>
+</table>
+
+<p><a class="more" href="building-it.html#spike">what the spike actually found →</a></p>
+
+<h2 id="phases">Six phases</h2>
+
+<table>
+  <tr><th>Phase</th><th>Deliverable</th><th></th></tr>
+  <tr>
+    <td><b>0</b></td>
+    <td>The spike. Five acceptance tests, three repositories. Nothing else starts until it
+    passes.</td>
+    <td><span class="pill ok">done</span></td>
+  </tr>
+  <tr>
+    <td><b>1</b></td>
+    <td>The contract. Define the interface; move the existing resolver behind it with no
+    behaviour change; add coverage declaration and the <code>unresolved</code> signal.</td>
+    <td><span class="pill ok">done</span></td>
+  </tr>
+  <tr>
+    <td><b>2</b></td>
+    <td>The graphify backend. Map its output onto the contract. Selection, degradation and
+    provenance tagging. Re-run the blocking gate on all three repositories.</td>
+    <td><span class="pill ok">done</span></td>
+  </tr>
+  <tr>
+    <td><b>3</b></td>
+    <td>Symbols. Extend the edge shape with an optional symbol, and thread it into the behaviour
+    layer. File-level behaviour remains the floor throughout.</td>
+    <td><span class="pill ok">done</span></td>
+  </tr>
+  <tr>
+    <td><b>4</b></td>
+    <td>The docs graph. A citation parser, <code>docs.json</code>, the chunking rules, and a
+    <code>docs impact</code> query so staleness is read off a recorded edge instead of re-judged
+    every run.</td>
+    <td><span class="pill ok">done</span></td>
+  </tr>
+  <tr>
+    <td><b>5</b></td>
+    <td>The agnosticism sweep. The Next.js and Prisma assumptions the graph does not fix:
+    doc templates, the stack detector, and the greenfield classifier.</td>
+    <td><span class="pill ok">done</span></td>
+  </tr>
+</table>
+
+<p>Phases 4 and 5 were done <em>before</em> 2 and 3, deliberately: both were blocked on nothing,
+while 2 and 3 were blocked on a design question the contract had left open —
+<a href="decisions.html#cd-20">what a single edge is allowed to say</a>.</p>
+
+<div class="next">
+  <a href="how-it-works.html"><b>How it works →</b><span>The contract, the two backends, an edge
+  anatomised, and what happens when something fails.</span></a>
+  <a href="building-it.html"><b>How it was built →</b><span>What shipped in each phase, how it
+  was tested, and the defects that were found along the way.</span></a>
+</div>
+
+<div class="foot">
+  <p>Source material: <a href="../spec.md">spec.md</a> (the design),
+  <a href="../decisions.md">decisions.md</a> (the decision register),
+  <a href="../log.md">log.md</a> (the working record),
+  <a href="../phases/phase_0/findings.md">phases/phase_0/findings.md</a> (the spike).</p>
+</div>
+
+</main>
+</div>
+</body>
+</html>

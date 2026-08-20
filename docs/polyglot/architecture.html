@@ -51,10 +51,18 @@
 <body>
 <main>
 
-  <p class="lede">Spec companion · 2026-08-19 · not published</p>
+  <p class="lede">Spec companion · drafted 2026-08-19 · brought current 2026-08-20 · not published</p>
   <h1>Track B: one contract, three artifacts</h1>
   <p class="sub">Visual companion to <a href="spec.md"><code>spec.md</code></a>, which is the authoritative
   version. Scratch — deleted when the feature ships; the real version goes on the site.</p>
+
+  <div class="warn">
+    <strong>Status.</strong> This page was drawn as a design sketch before implementation. All six
+    phases have since shipped, and the sections below have been corrected where the build refuted
+    them — every such place is marked <span class="tag guess">was wrong</span>. For the narrative
+    version of what was actually built, see
+    <a href="explainer/index.html"><code>explainer/index.html</code></a>.
+  </div>
 
   <div class="warn">
     <strong>The one-sentence version.</strong> Stop maintaining a homemade parser, put a
@@ -99,14 +107,24 @@
 
     <rect x="505" y="188" width="270" height="60" rx="9" fill="var(--panel)" stroke="var(--teal)" stroke-width="1.5"/>
     <text x="640" y="210" text-anchor="middle" fill="var(--ink)" font-size="12.5" font-weight="600">graphify (tree-sitter)</text>
-    <text x="640" y="228" text-anchor="middle" fill="var(--dim)" font-size="10.5">37 languages · a dependency</text>
+    <text x="640" y="228" text-anchor="middle" fill="var(--dim)" font-size="10.5">26 languages · a dependency</text>
     <text x="640" y="242" text-anchor="middle" fill="var(--teal)" font-size="10">the polyglot backend</text>
   </svg>
 
   <p>Two backends, not one. <strong>An interface with a single implementation is fiction</strong> —
   you discover what leaked into it the day you add the second. Homegrown and graphify are
-  different enough (regex vs AST, zero-install vs dependency, 4 languages vs 37) that making both
+  different enough (regex vs AST, zero-install vs dependency, 4 languages vs 26) that making both
   satisfy one contract proves the contract is real, which is what makes a third one cheap if it is ever wanted.</p>
+
+  <div class="warn">
+    <strong>This turned out to be literal.</strong> <span class="tag guess">was wrong</span> The
+    contract was written with one backend behind it and reviewed by someone building a second.
+    That second backend satisfied every documented obligation, crashed the CLI twice on calls the
+    contract never mentioned, and then exited 0 having written no graph at all — because
+    persistence, validation and the reverse index all still lived inside the incumbent. The
+    contract now owns everything after a backend stops thinking, and states the exact call it
+    makes. <a href="explainer/building-it.html#verdict">The full account.</a>
+  </div>
 
   <div class="warn">
     <strong>Homegrown is not legacy baggage.</strong> freya is stdlib-only today; graphify needs
@@ -172,12 +190,26 @@
     until <code>helm template</code> has run.</p>
   </div>
 
-  <p>graphify does handle config, but through a <em>semantic pass</em> — a model infers the
-  relationships, and it needs an API key. That is a reasonable product decision, and the wrong
-  trust class for freya, because blast radius <strong>blocks <code>wrap-up</code></strong>.
-  Blocking a commit on a parsed fact is fine; blocking it on a good guess is not. So freya uses
-  graphify for code only (<code>--code-only</code>, deterministic, offline) and produces resource
-  edges itself by rendering first and parsing second.</p>
+  <div class="warn">
+    <strong>Two claims in this section were wrong, and the spike refuted both.</strong>
+    <span class="tag guess">was wrong</span>
+    <ul style="margin:8px 0 0">
+      <li>It said graphify handles config <em>through a semantic pass that needs an API key</em>.
+        It does not handle YAML at all — no support and <strong>no warning</strong> — and JSON only
+        as a package manifest. SQL and Terraform do work, deterministically, behind pip extras.</li>
+      <li>It said freya would <em>produce resource edges itself by rendering first and parsing
+        second</em>. That is the resource graph, and it was cut before implementation: config
+        relationships are one hop that never branches, and nothing consumes the answer.</li>
+    </ul>
+  </div>
+
+  <p>What survives is the trust argument, and it stands on its own. Blast radius
+  <strong>blocks <code>wrap-up</code></strong>; blocking a commit on a parsed fact is fine, and
+  blocking it on a good guess is not. That is why every edge carries provenance and only
+  <code>extracted</code> edges may gate. The spike did correct one thing about that too:
+  <code>EXTRACTED</code> versus <code>INFERRED</code> is <em>not</em> the deterministic-versus-model
+  axis it reads as — both come out of the same AST pass, with no model and no API key anywhere in
+  the loop.</p>
 
   <h2>5. What "general" actually costs</h2>
   <p>The languages turn out to be the cheap part. graphify's grammar set already covers every
@@ -186,13 +218,14 @@
   so the "manifest parsers" line item from the first sketch disappeared.</p>
 
   <table>
-    <thead><tr><th>Piece</th><th>What it takes</th></tr></thead>
+    <thead><tr><th>Piece</th><th>What it took</th><th></th></tr></thead>
     <tbody>
-      <tr><td>Every language</td><td>one graphify adapter behind the contract</td></tr>
-      <tr><td>Manifests, module boundaries</td><td>free — graphify already extracts them</td></tr>
-      <tr><td>Symbol-level edges</td><td>thread an optional <code>symbol</code> through the edge shape; file anchor stays</td></tr>
-      <tr><td>Docs graph</td><td>parse <code>path:line</code> citations, links and <code>related_code</code>. 62 citations already exist in this repo</td></tr>
-      <tr><td>Agnosticism sweep</td><td>the Next/Prisma assumptions the graph does not fix: docs-manager templates, the Prisma check, the shape detector</td></tr>
+      <tr><td>Every language</td><td>one graphify adapter behind the contract — 34 extensions against the floor's 6</td><td><span class="tag fact">shipped</span></td></tr>
+      <tr><td>Manifests, module boundaries</td><td>free — graphify already extracts them</td><td><span class="tag fact">shipped</span></td></tr>
+      <tr><td>Symbol-level edges</td><td>optional <code>from_symbol</code>/<code>to_symbol</code>/<code>line</code> on the edge; file anchor stays. Off by default</td><td><span class="tag fact">shipped</span></td></tr>
+      <tr><td>Docs graph</td><td>parse <code>path:line</code> citations, links and <code>related_code</code> — 35 docs, 171 edges here</td><td><span class="tag fact">shipped</span></td></tr>
+      <tr><td>Agnosticism sweep</td><td>the Next/Prisma assumptions the graph does not fix: docs-manager templates, the stack detector, the shape classifier</td><td><span class="tag fact">shipped</span></td></tr>
+      <tr><td class="sub">Not in the sketch</td><td class="sub">The projection from a <em>symbol</em> graph onto a <em>file</em> graph turned out to be the hard part: 6,289 links become 73 file pairs, and three relations plus every intra-file link have to be dropped for defensible reasons rather than convenient ones</td><td><span class="tag guess">underestimated</span></td></tr>
     </tbody>
   </table>
 
@@ -210,6 +243,17 @@
   <h2>6. Phase 0 — the spike, before anything else</h2>
   <p>The substrate choice gets <em>measured</em>, not argued. Five cheap tests against three repos:
   the testbed (232 files, 609 known internal edges), freya-devkit itself, and a Java project.</p>
+  <div class="card">
+    <h3>How they came out</h3>
+    <p style="margin:0 0 8px"><strong>The gate passed.</strong> <span class="tag fact">0 of 608 edges missed</span>
+    on the testbed, 18 gained; reverse blast radius identical on 220 files, larger on 12, smaller
+    on none. <span class="tag fact">11 / 11</span> on the Java fixture against ground truth written
+    down before the tool was run. Deletion and reproducibility both clean.</p>
+    <p style="margin:0"><strong>Config coverage was the one that came back mixed</strong>, and it
+    refuted a premise this very page had rested on — see §4. The blocking test has since been
+    re-derived at HEAD on all three repositories, and it lives in the suite as a committed
+    fixture. <a href="explainer/building-it.html#gate">The numbers.</a></p>
+  </div>
 
   <table>
     <thead><tr><th>Test</th><th>Why it could stop the feature</th></tr></thead>
@@ -222,17 +266,39 @@
     </tbody>
   </table>
 
-  <h2>7. Open question</h2>
-  <p class="sub">One left, and it is plumbing rather than design.</p>
+  <h2>7. The open question, answered</h2>
+  <p class="sub">It was plumbing rather than design, and the answer came out of Phase 2.</p>
   <ul>
-    <li><strong>How are exclusions handed to graphify?</strong> A CLI flag, a config file, or a
-      post-filter on its output. The <em>decision</em> is settled — exclusions are a project-level
-      input the contract owns, and both backends honour them, so a backend never decides for
-      itself what is out of scope. Only the plumbing is open.</li>
+    <li><strong>How are exclusions handed to graphify?</strong> <span class="tag fact">settled</span>
+      <strong>A post-filter on its output.</strong> <code>graphify update</code> takes no exclusion
+      flag — verified against its own <code>--help</code> and by watching it index
+      <code>node_modules/</code> — so obligation 6 is honoured on the way out rather than on the
+      way in. The <em>decision</em> was never in doubt: exclusions are a project-level input the
+      contract owns, and both backends honour them.</li>
   </ul>
 
-  <p class="foot">Scratch companion to <a href="spec.md"><code>spec.md</code></a>. See also <code>README.md</code> and <code>log.md</code> in this directory. Distilled into ADRs, the reference docs and the explainer site when Track B
-  ships — then this directory is deleted.</p>
+  <h2>8. What is left</h2>
+  <p class="sub">All six phases have shipped. These are the things that are known and unfinished
+  rather than unknown.</p>
+  <ul>
+    <li>The 25 decisions recorded in <a href="decisions.md"><code>decisions.md</code></a> are
+      <strong>not yet distilled into <code>docs/decisions/</code></strong>. That is the closing
+      step, along with deleting this directory.</li>
+    <li>The <strong>intra-file call graph</strong> — 1,516 links on this repository — is a
+      deliberately discarded capability. Recording it needs a node type the contract does not
+      have.</li>
+    <li>graphify's own cache keys on mtime and AST hash with no tool or extras version, so
+      <strong>upgrading it invalidates nothing</strong>. The same defect class this repository
+      already fixed with a rules-version stamp.</li>
+    <li><strong>Artifact size at scale</strong> is untested: roughly 9.3 KB per file, against the
+      floor's 0.5 KB, loaded by every skill on every invocation.</li>
+  </ul>
+
+  <p class="foot">Scratch companion to <a href="spec.md"><code>spec.md</code></a>. The readable
+  version of the finished feature is <a href="explainer/index.html"><code>explainer/</code></a>;
+  see also <code>README.md</code> and <code>log.md</code> in this directory. Distilled into ADRs,
+  the reference docs and the explainer site when Track B ships — then this directory is
+  deleted.</p>
 
 </main>
 </body>
