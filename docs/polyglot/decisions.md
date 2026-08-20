@@ -754,6 +754,13 @@ Left deliberately: `Selection.metadata()` and `summarise_coverage()` still have 
 caller, and `coverage.relations` is written and read by nothing. All three are downstream of
 decision A — wiring them before the socket exists would be wiring them to the wrong place.
 
+> **Superseded for `summarise_coverage()` by CD-27 (2026-08-20).** It was deleted rather than
+> wired. Leaving it was the right call while nothing could use it, and the wrong one once
+> something could: its `blind_spots()` has no dotfile guard (`.env.local` → `.local`), no
+> materiality filter and no notion of project scope, so wiring it up would have imported three
+> live bugs and reported a measured 71% phantom. A dead function that *looks* like the answer
+> is how the next person reimplements the wrong thing.
+
 ---
 
 ## Decisions still to come
@@ -1236,3 +1243,64 @@ reasonable expectation it does something.
 - `graph_ops.py` now does `sys.exit(main())`. It discarded the return code, which went
   unnoticed while every failure path called `sys.exit` directly — until one wanted to *return*
   a code, and `--use` with an invalid name printed its error and exited 0.
+
+
+---
+
+## CD-27 — Blind spots ride in the answer, filtered by materiality, and never become a refusal
+
+**Context.**
+
+The floor backend reads 4 languages / 6 extensions; graphify reads 40 / 93 and must be installed separately. `CodeGraph._scan_files` (graph_ops.py:1796) globs by `FILE_PATTERNS`, so a file the backend cannot read is never enumerated at Python level at all — it is not "skipped", it is invisible. On a repo of 12 `.java` + 3 `.ts` under the floor, the build prints `Found 3 source files` and returns `files_scanned: 3`. Reproduced live: nothing on stdout, nothing on stderr, nothing in the artifact mentions Java. `files_scanned` reads like a denominator and is a numerator.
+
+`project_shape` compounded it: it reported blind spots only on the `internal_edges == 0` branch, so the same repo returned `recommendation: brownfield`, `source_files: 3`, `runtime: jvm` and no `blind_spots` key — asserting "jvm" and "3 source files" in one evidence block without noticing the tension.
+
+The consumer is not a human. `--non-interactive` auto-enables whenever stdin is not a TTY, which is every agent-driven run and every wrap-up run, so a printed warning lands nowhere. Verified: `behavior_graph.py:249`, `drift.py:89` and `run_behaviors.py:318` all use `capture_output=True` and read only stdout on success; `run_behaviors` touches `exc.stderr` only inside `except CalledProcessError`, which no successful query produces. Stderr is dead skill-to-skill. It is alive agent-to-CLI, because `bin/freya_cli.py:146` is a plain `subprocess.call` with inherited streams.
+
+The parts were already lying around and unwired: `Coverage.blind_spots` (substrate.py:415) is correct and reachable only through `summarise_coverage` (:810), which has zero production callers; `backends.extension_census` (backends.py:199) is the only census that honours exclusions and runs only when `len(available_backends()) > 1` — i.e. only when the better backend is already installed; the existing stderr hint (backends.py:159-174) fires under the same gate. Every existing nudge fires when you need it least.
+
+ADR-005 promises the graph never answers "nothing" when it means "I don't know". That promise was implemented at the repository level (a Java repo will not call itself greenfield) and never at the **answer** level. `get_impact` already returns `not_in_graph` in the JSON payload, with the comment "the caller is usually another skill reading `--format json`, and stderr is not part of what it parses" (graph_ops.py:2250-2251) — the right argument, already written down here, applied only to "the file you asked about is unmapped" and never to "this answer is incomplete".
+
+**Decision.**
+
+Every build/update that writes the graph runs one pruned tree walk, filtered by the build's own scope rule (`CodeGraph._should_exclude`, not `substrate.exclusions`) and by a two-tier extension model, and records the result at `graph["substrate"]["unmapped_source"]`. `graph.json` is gitignored (`git check-ignore -v` -> `.gitignore:18:**/.graph/`; `behavior.json` is deliberately not), so the block costs zero tracked diff on every machine. The walk lives in `_finalise` — the single funnel every backend passes through, and the only point after `update()`'s wholesale `graph['substrate']` rewrite at :2095-2099. Measured 0.0007s–0.0146s across seven real repos, against the 2.105s `_scan_files` already pays on the largest.
+
+`--build`, `--update`, `--query` and `--impact` carry it in the answer, for free, because `load()` already parses the whole `substrate` block into memory. `--build`/`--update` carry the full block including an `advice` sentence and a `readable_by` recommendation; `--query`/`--impact` carry a structured-only digest (~32 tokens) because those are the surfaces an agent hits repeatedly in one session. `--dependents` and `--dependencies` keep their bare arrays and get the caveat on **stderr** — dead where it must be dead (it cannot perturb `run_behaviors.py:334`'s `isinstance(data, list)` validator), alive where it must be alive.
+
+`directories`, not just `extensions`. `{".java": 12}` makes an agent derive a search target; `{"src/main/java/com/acme": 12}` **is** the search target, and the paths are already in the walk's hand — both existing censuses hold them and throw them away.
+
+The key is **absent** when there is nothing to say. Two tiers draw that line: `SOURCE_EXTENSIONS` (closed-world, definite program source) is always reported; `SCRIPT_EXTENSIONS` (`.sh`, `.sql`, `.ps1`, …) only when its count exceeds `max(files_graphed, 2)`. Measured: silent on freya-devkit, acme-media and acme-lab; `{".java": 12}` on the fixture; `{".mjs":3,".mts":2,".feature":1,".prisma":1}` on acme-site-testbed. A closed world defaults to silence on the unknown, which is the correct default for a signal whose only value is being believed.
+
+`substrate.unmapped_source` is **never** a refusal. `degraded_from` means "you asked for X and got Y" (abnormal) and rightly makes `run_behaviors` decline to answer; blind spots mean "the backend you chose cannot read everything", the normal operating condition of the floor on any polyglot repo. Nothing refuses, warns loudly, or changes an exit code because of it. The rule is written into `run_behaviors._code_graph_deps` as a comment beside the existing `degraded_from` refusal and pinned by `test_a_repo_with_unmapped_files_still_fingerprints_static`.
+
+`project_shape` reads the block instead of walking, reports it on every branch, and prints it in `--format text` — the surface bootstrap actually invokes and the one that dropped the field entirely.
+
+**Rejected.**
+
+*A standing instruction in SKILL.md* — barred by CD-26 on its face, and the counter-argument is already in this codebase at backends.py:165-167: "The instruction rides in this one run's output rather than living in the skill layer, where it would be read on every invocation forever to say nothing on almost all of them." The only documentation added is a reference-table row.
+
+*Wrapping `--dependencies` in an envelope.* `run_behaviors.py:334` returns `graph-query-failed`; `fingerprint_behavior` routes every `confirmed` and every `integration` behaviour through `static_fingerprint`, so it is repo-wide; `merge_fingerprint` (behavior_graph.py:44-54) then freezes `behavior.json` where there is history or writes empty `exercises` where there is not; `_affected_from_impact` matches nothing; wrap-up's Direction-A gate runs **zero** behaviours and exits 0. Breaking "closed" here is a repo-wide silent green, not a loud failure — ADR-005's defect arriving through the door the validator was meant to close.
+
+*Wrapping `--dependents` only.* It genuinely has zero programmatic consumers (verified: the only `.py` occurrences are its own argparse at :2748 and dispatch at :2820), so it is free. Rejected because it buys a shape asymmetry across a pair CD-20 presents as matched, on a surface nothing parses. The stderr line gives it a signal at no shape cost.
+
+*Expressing blind spots through `degraded_from`.* Zero new plumbing; `_graph_degraded_from` already refuses on it. That is the bug: the refusal would fire on every polyglot floor-backend repo, making a routine condition behave like an abnormal one.
+
+*Recording it in `behavior.json`.* Committed under ADR-017/CD-15, and it **churns** — one added `.java` file would rewrite every behaviour's fingerprint for a fact that belongs to none of them.
+
+*Bumping `GRAPH_SCHEMA_VERSION` to imply the census's presence.* `is_stale` then forces a full rebuild on every machine — and, second-order, that rebuild changes the graph `--dependencies` closures are computed against, and those closures are written into the **committed** `behavior.json`. A `{"files": 0}` sentinel achieves the same discrimination for thirty bytes in a gitignored file and no forced rebuild.
+
+*Reusing `summarise_coverage`.* Tempting: it computes the wanted `blind_spots` and its tests already pass. But its `blind_spots` has no dotfile guard (`.env.local` -> `.local`), no materiality filter and no notion of scope, so it would report the 71% phantom; and its missing half was never the aggregation, it was `present_files`.
+
+*Reusing `backends.extension_census`.* Structurally the right walk, and it is what `scope_census` copies — but it honours only `Exclusions`, a strict subset of the real rule (8 of 9 probe paths missed; 310 vs 261 files on a 45k repo), and it is gated on the other backend already being installed.
+
+*A query-time walk.* New per-query cost where build-time capture is free, and it answers about a **different instant** than the graph, conflating "unreadable" with "not rebuilt yet".
+
+*Storing the census under `substrate` from inside `build()`.* Silently dropped by the next `--update`, which rebuilds `graph['substrate']` from a fresh `graph_metadata()` dict.
+
+*Renaming `files_scanned` to `files_graphed`, and adding `files_in_scope`/`files_excluded`.* The rename churns two test assertions and `format_summary` for no in-repo reader. `files_in_scope` requires walking **every** extension, which re-admits the cost the candidate short-circuit removes and produces a new misleading denominator: measured, it reports freya-devkit as "62 of 90 in-scope graphed" — a 31% apparent blind spot on a repo whose real unmapped count is zero. Putting `unmapped_source.files: 12` next to `files_scanned: 3` fixes the misreading at the point of confusion instead.
+
+*A "some registered backend could read it" filter.* Kept as `readable_by`, a recommendation, never a filter — a Ruby repo on a machine with no Ruby backend would otherwise report nothing, which is ADR-005's confidently-empty failure wearing a principled hat.
+
+*Deleting `project_shape.unreadable_files` outright.* Larger blast radius than the alternative: it regresses every pre-census graph to "no blind spots at all" and breaks three fixture tests. Preferring the artifact and keeping the walk as fallback is six lines and breaks nothing.
+
+**Known gaps, accepted.** Extension is structurally the wrong key for the third category — in-coverage-but-out-of-scope, e.g. a `.ts` under `docs/`. Verified: two such files vanished from a fixture's graph and appeared in no census. `directories` is a half-step toward paths and the seam a fuller version widens through. The tier lists are curated, so a language nobody listed gets silence; that is a narrower ADR-005 hole in the same family as the one being closed, and it is the price of a signal that is quiet enough to be believed. `SCRIPT_MATERIALITY_FLOOR = 2` is a guess with a number on it.

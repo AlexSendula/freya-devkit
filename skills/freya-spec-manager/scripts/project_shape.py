@@ -129,6 +129,45 @@ _NOT_SOURCE = {
 }
 
 
+def unmapped_from_graph(project_dir):
+    """(extensions, censused) from the graph's own `substrate.unmapped_source` block.
+
+    `censused` is False only when the key is absent, which means the graph predates the census
+    (CD-27) — not that it found nothing. `{"files": 0}` is a real answer and returns
+    `({}, True)`, which is what lets a clean repository skip the disk walk entirely.
+    """
+    try:
+        with open(_graph_path(project_dir), encoding="utf-8") as f:
+            graph = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return {}, False
+    if not isinstance(graph, dict):
+        return {}, False
+    block = ((graph.get("substrate") or {}).get("unmapped_source"))
+    if not isinstance(block, dict) or "files" not in block:
+        return {}, False
+    return dict(block.get("extensions") or {}), True
+
+
+def _blind_spots(project_dir):
+    """What the graph's backend could not read, preferring the census over a fresh walk.
+
+    The census is both cheaper and far more accurate: it applies the build's own scope rule,
+    where `unreadable_files` consults a hardcoded skip list that knows nothing about
+    `.gitignore` or this project's directory classifications. Measured on freya-devkit, the
+    walk reports 96 files of which 68 are deliberately out of scope. The walk is kept only for
+    graphs written before the census existed — deleting it would regress every one of those to
+    "no blind spots at all", which is the confidently-empty answer this whole path guards.
+    """
+    census, censused = unmapped_from_graph(project_dir)
+    if censused:
+        # No `_NOT_SOURCE` filter: the census already filtered, against a curated source list
+        # and a materiality rule rather than a list of things that are not source.
+        return census
+    return {ext: n for ext, n in unreadable_files(project_dir).items()
+            if ext not in _NOT_SOURCE}
+
+
 def classify(project_dir):
     """Classify project shape. Returns {recommendation, evidence, reason}."""
     source_files, internal_edges, graph_present = count_graph(project_dir)
@@ -144,15 +183,20 @@ def classify(project_dir):
             "evidence": evidence,
             "reason": "no code-graph at knowledge-base/.graph/graph.json — run code-graph build first",
         }
+    # Computed once, before the branches, and reported on all of them. It used to live inside
+    # the zero-edge branch, so a repository with *any* internal edges was told nothing: two
+    # TypeScript imports were enough to buy silence about 400 unread Java files, and the
+    # evidence block would report `runtime: jvm` and `source_files: 3` side by side without
+    # ever noticing the two were in tension.
+    blind = _blind_spots(project_dir)
+    if blind:
+        evidence["blind_spots"] = blind
     if internal_edges == 0:
         # Zero edges means one of two very different things: no wiring yet, or a backend that
         # cannot read this language. Reporting *greenfield* for the second is how a large Java
         # codebase — and freya-devkit itself, until its resolver was repaired — was mistaken
         # for an empty scaffold, and it is the answer that then drives bootstrap.
-        blind = {ext: n for ext, n in unreadable_files(project_dir).items()
-                 if ext not in _NOT_SOURCE}
         if blind:
-            evidence["blind_spots"] = blind
             listed = ", ".join(f"{n} {ext}" for ext, n in
                                sorted(blind.items(), key=lambda kv: (-kv[1], kv[0]))[:3])
             return {
@@ -184,6 +228,14 @@ def _format_text(result):
         f"  internal edges: {e['internal_edges']}",
         f"  graph present:  {e['graph_present']}",
     ]
+    # `--format text` is what spec-manager's bootstrap actually invokes, and it had no
+    # blind-spot branch at all — so even the one path that did compute blind spots was
+    # invisible on the only surface that reads it, except where it leaked into `reason`.
+    blind = e.get("blind_spots") or {}
+    if blind:
+        listed = ", ".join(f"{n} {ext}" for ext, n in
+                           sorted(blind.items(), key=lambda kv: (-kv[1], kv[0]))[:3])
+        lines.append(f"  not graphed:    {listed} (the backend cannot read these)")
     stack = e.get("stack") or {}
     if stack:
         runtime_info = stack.get("runtime") or {}

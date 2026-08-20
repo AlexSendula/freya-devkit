@@ -14,7 +14,7 @@ whole initiative exists to remove.
 
 import os
 import sys
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import settings as settings_mod  # noqa: E402
@@ -194,6 +194,43 @@ def _unseen_by_floor(floor: Any, other: Any,
     uncertain = set(getattr(other, 'over_claimed', ()) or ())
     return {ext: count for ext, count in present_extensions.items()
             if ext in other_ext and ext not in floor_ext and ext not in uncertain}
+
+
+def readable_by(ext_counts: Dict[str, int], running_extensions: Iterable[str],
+                registry: Optional[Dict[str, Callable[[str], Any]]] = None) -> Dict[str, int]:
+    """Which registered backends would read these unread files, and how many each.
+
+    Deliberately *not* gated on availability. `select`'s hint asks "a better backend is
+    installed, should you switch?" and is correctly gated on having one; this answers "is there
+    a remedy at all?", which matters most on the machine that has never installed one. That is
+    possible because a backend declares its coverage from a module-level constant rather than
+    by asking the binary — `GraphifyBackend.coverage()` needs no subprocess and no PATH check.
+
+    A recommendation, never a filter. Filtering the census by "some registered backend could
+    read it" would make a Ruby repository on a machine with no Ruby backend report nothing —
+    ADR-005's confidently-empty failure wearing a principled hat.
+    """
+    running = {str(e).lower() for e in running_extensions or ()}
+    remedies = {}  # type: Dict[str, int]
+    for name, factory in sorted((registry or _registry()).items()):
+        try:
+            backend = factory('.')
+            covered = set(backend.coverage().extensions)
+        except Exception:
+            # A backend that cannot describe itself simply offers no remedy. It must not take
+            # the census down with it — the census is the honesty mechanism, and a broken
+            # third-party backend silencing it would be the exact inversion.
+            continue
+        if covered == running:
+            continue
+        # `over_claimed` for the same reason `_unseen_by_floor` excludes it: an extension whose
+        # selection is really name-based is not evidence for a migration.
+        uncertain = set(getattr(backend, 'over_claimed', ()) or ())
+        total = sum(count for ext, count in (ext_counts or {}).items()
+                    if ext in covered and ext not in running and ext not in uncertain)
+        if total:
+            remedies[name] = total
+    return remedies
 
 
 def extension_census(project_dir: str, exclusions: Optional[substrate.Exclusions] = None,

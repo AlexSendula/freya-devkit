@@ -174,6 +174,109 @@ class ClassifyTest(unittest.TestCase):
             self.assertIn(k, r["evidence"])
 
 
+class CensusedGraphTest(unittest.TestCase):
+    """CD-27 — the census in the artifact, preferred over a fresh disk walk.
+
+    The walk consults a hardcoded skip list that knows nothing about `.gitignore` or this
+    project's directory classifications; measured on freya-devkit it reports 96 unread files
+    of which 68 are deliberately out of scope. The census applies the build's own scope rule,
+    so it is both cheaper and right. The walk stays only for graphs written before it existed.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.proj = self.tmp.name
+        patcher = mock.patch.object(project_shape, "run_detect_project", return_value={})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _files(self, *rels):
+        for rel in rels:
+            p = os.path.join(self.proj, rel)
+            os.makedirs(os.path.dirname(p) or self.proj, exist_ok=True)
+            with open(p, "w", encoding="utf-8") as f:
+                f.write("x\n")
+
+    def _graph(self, files, unmapped):
+        d = os.path.join(self.proj, "knowledge-base", ".graph")
+        os.makedirs(d, exist_ok=True)
+        substrate = {"backend": "homegrown",
+                     "coverage": {"languages": ["typescript"], "extensions": [".ts"],
+                                  "relations": ["imports"], "incremental": True}}
+        if unmapped is not None:
+            substrate["unmapped_source"] = unmapped
+        with open(os.path.join(d, "graph.json"), "w", encoding="utf-8") as f:
+            json.dump({"version": 1, "substrate": substrate, "files": files}, f)
+
+    def test_the_artifact_is_preferred_over_the_disk_walk(self):
+        """The graph claims 12 .java; the disk holds none. A walk would return {}."""
+        self._graph({}, {"files": 12, "extensions": {".java": 12}})
+        r = project_shape.classify(self.proj)
+        self.assertEqual(r["evidence"]["blind_spots"], {".java": 12})
+
+    def test_blind_spots_are_reported_on_the_brownfield_branch(self):
+        """The exact hole. Two TypeScript imports used to buy silence about 400 unread Java
+        files, and the evidence block would report `runtime: jvm` and `source_files: 3` side
+        by side without ever noticing the two were in tension."""
+        self._graph({"a.ts": {"imports": ["b.ts"]}, "b.ts": {"imports": []}},
+                    {"files": 12, "extensions": {".java": 12}})
+        r = project_shape.classify(self.proj)
+        self.assertEqual(r["recommendation"], "brownfield")
+        self.assertEqual(r["evidence"]["blind_spots"], {".java": 12})
+        self.assertIn("existing codebase", r["reason"])
+
+    def test_format_text_says_what_is_not_graphed(self):
+        """`--format text` is what spec-manager's bootstrap invokes, and it had no
+        blind-spot branch at all — so even the path that did compute them was invisible."""
+        self._graph({"a.ts": {"imports": ["b.ts"]}, "b.ts": {"imports": []}},
+                    {"files": 12, "extensions": {".java": 12}})
+        text = project_shape._format_text(project_shape.classify(self.proj))
+        self.assertIn("not graphed:", text)
+        self.assertIn("12 .java", text)
+
+    def test_format_text_omits_the_line_when_there_is_nothing_to_say(self):
+        self._graph({"a.ts": {"imports": ["b.ts"]}, "b.ts": {"imports": []}}, {"files": 0})
+        text = project_shape._format_text(project_shape.classify(self.proj))
+        self.assertNotIn("not graphed:", text)
+
+    def test_a_censused_clean_graph_is_authoritative(self):
+        """The census says the backend read everything in scope; the walk must not
+        second-guess it with files the build deliberately excluded."""
+        self._files("vendor/Main.java", "vendor/Other.java")
+        self._graph({}, {"files": 0})
+        self.assertEqual(project_shape.classify(self.proj)["recommendation"], "greenfield")
+
+    def test_a_pre_census_graph_still_walks_the_disk(self):
+        """The compatibility guarantee: deleting the walk would regress every graph written
+        before CD-27 to "no blind spots at all" — the confidently-empty answer it guards."""
+        self._files("src/Main.java", "src/Other.java", "src/Third.java")
+        self._graph({}, None)
+        r = project_shape.classify(self.proj)
+        self.assertEqual(r["recommendation"], "unknown")
+        self.assertEqual(r["evidence"]["blind_spots"], {".java": 3})
+
+    def test_verdict_pin_a_a_powershell_repo_stays_unknown(self):
+        """MUST NOT CHANGE. `.ps1` is absent from `_NOT_SOURCE`, so this is `unknown` today;
+        an allowlist that dropped it would have flipped a real codebase to `greenfield`."""
+        self._graph({}, {"files": 12, "extensions": {".ps1": 12}})
+        self.assertEqual(project_shape.classify(self.proj)["recommendation"], "unknown")
+
+    def test_verdict_pin_b_a_shell_repo_becomes_unknown(self):
+        """A DELIBERATE CHANGE. Today this is `greenfield`, because `.sh` is in `_NOT_SOURCE`
+        — a repository made of shell scripts told its own tooling it was an empty scaffold.
+        Recorded in CD-27 so the new value is a decision rather than a surprise."""
+        self._graph({}, {"files": 40, "extensions": {".sh": 40}})
+        self.assertEqual(project_shape.classify(self.proj)["recommendation"], "unknown")
+
+    def test_verdict_pin_c_a_scaffold_with_an_installer_becomes_greenfield(self):
+        """A DELIBERATE CHANGE, the other way. Today one `.ps1` installer beside three real
+        source files yields `unknown`; the materiality rule removes that false alarm."""
+        self._graph({"a.ts": {"imports": []}, "b.ts": {"imports": []},
+                     "c.ts": {"imports": []}}, {"files": 0})
+        self.assertEqual(project_shape.classify(self.proj)["recommendation"], "greenfield")
+
+
 class RunDetectProjectTest(unittest.TestCase):
     def test_empty_dict_on_subprocess_failure(self):
         with mock.patch.object(project_shape.subprocess, "run", side_effect=FileNotFoundError()):

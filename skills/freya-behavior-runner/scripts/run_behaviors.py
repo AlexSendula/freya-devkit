@@ -314,6 +314,18 @@ def _code_graph_deps(entry, project_dir):
         # honours: the prior fingerprint is preserved rather than replaced. Refusing to
         # answer is the honest move; a narrower answer that looks authoritative is not.
         return None, "graph-degraded: %s" % degraded
+    # `substrate.unmapped_source` (CD-27) is deliberately NOT read here, and extending the
+    # refusal above to cover it is the first "fix" a future reader will reach for.
+    #
+    # `degraded_from` means the project asked for a backend and did not get one — abnormal,
+    # and the artifact is thinner than the project itself declared. Blind spots mean the
+    # backend the project *chose* cannot read everything, which is the ordinary operating
+    # condition of the floor on any polyglot repository. Refusing on it would return
+    # `coverage: unknown` for every confirmed and every integration behaviour on every such
+    # repo, freezing behavior.json where there is history and writing empty `exercises` where
+    # there is not — and wrap-up's gate would then run zero behaviours and exit 0. A caveat
+    # must never change whether there is an answer, only what the answer says about itself.
+    # Pinned by test_a_repo_with_unmapped_files_still_fingerprints_static.
     try:
         out = subprocess.run(
             [sys.executable, str(_CODE_GRAPH), "--dependencies", entry,

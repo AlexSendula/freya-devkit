@@ -179,12 +179,17 @@ freya doctor          <span class="tok-c"># verify what landed where</span></cod
               <input class="filter-input" id="sd-files" type="number" min="0" value="120"></label>
             <label class="small muted" for="sd-edges">Internal import edges<br>
               <input class="filter-input" id="sd-edges" type="number" min="0" value="0"></label>
+            <label class="small muted" for="sd-unread">Source files it could not read<br>
+              <input class="filter-input" id="sd-unread" type="number" min="0" value="0"></label>
           </div>
           <div class="result-line" id="sd-out" aria-live="polite"></div>
         </div>
 
-        <p class="small muted">Zero edges → <strong>greenfield</strong>. Any positive value →
-        <strong>brownfield</strong>. No graph at all → <code>unknown</code>, meaning build the graph first.
+        <p class="small muted">Zero edges → <strong>greenfield</strong>, <em>unless</em> the backend
+        could not read part of the repository — then <code>unknown</code>, because a codebase the tool
+        cannot see is not an empty one. Any positive edge count → <strong>brownfield</strong>, and it now
+        says what it could not read alongside the verdict. No graph at all → <code>unknown</code>,
+        meaning build the graph first.
         The detector never forces a branch: a one-time onboarding decision benefits from a human glance, so
         an unusually structured repo can be overridden on sight rather than silently misclassified.</p>
 
@@ -911,12 +916,22 @@ This spends real money. One worker measured ~$0.40 on a trivial fixture.</code><
     /* ---- shape detector — mirrors project_shape.py, reason strings and all */
     var files = document.getElementById("sd-files");
     var edges = document.getElementById("sd-edges");
+    var unread = document.getElementById("sd-unread");
     var out = document.getElementById("sd-out");
     function compute() {
       var f = parseInt(files.value, 10); if (isNaN(f) || f < 0) f = 0;
       var e = parseInt(edges.value, 10); if (isNaN(e) || e < 0) e = 0;
+      var u = parseInt(unread.value, 10); if (isNaN(u) || u < 0) u = 0;
       var rec, cls, reason;
-      if (e === 0) {
+      if (e === 0 && u > 0) {
+        /* CD-27: zero edges plus a blind spot is the case that made a Java repo read as an
+           empty scaffold. It is the one branch where "I don't know" is the honest answer. */
+        rec = "unknown";
+        cls = "badge badge--advisory";
+        reason = "0 internal import edges, but the code-graph backend does not read " + u +
+                 " source file(s) — this may be an existing codebase the graph cannot see, " +
+                 "not a greenfield one";
+      } else if (e === 0) {
         rec = "greenfield";
         cls = "badge badge--confirmed";
         reason = f + " source file(s) but 0 internal import edges — no real feature wiring yet";
@@ -924,6 +939,7 @@ This spends real money. One worker measured ~$0.40 on a trivial fixture.</code><
         rec = "brownfield";
         cls = "badge badge--advisory";
         reason = f + " source file(s) with " + e + " internal import edge(s) — existing codebase";
+        if (u > 0) { reason += "  ·  not graphed: " + u + " file(s) the backend cannot read"; }
       }
       out.textContent = "";
       var badge = document.createElement("span");
@@ -932,9 +948,10 @@ This spends real money. One worker measured ~$0.40 on a trivial fixture.</code><
       out.appendChild(badge);
       out.appendChild(document.createTextNode("  ·  " + reason));
     }
-    if (files && edges && out) {
+    if (files && edges && unread && out) {
       files.addEventListener("input", compute);
       edges.addEventListener("input", compute);
+      unread.addEventListener("input", compute);
       compute();
     }
 

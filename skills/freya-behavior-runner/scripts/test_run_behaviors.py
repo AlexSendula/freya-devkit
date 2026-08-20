@@ -502,6 +502,44 @@ class StaticFingerprintTest(unittest.TestCase):
         self.assertEqual(fp2["coverage"], "static")
         self.assertEqual([e["path"] for e in fp2["exercises"]], ["src/a.ts"])
 
+    def test_a_repo_with_unmapped_files_still_fingerprints_static(self):
+        """THE ANTI-REFUSAL PIN (CD-27).
+
+        Blind spots are the normal operating condition of the floor on any polyglot repo, and
+        must never become a refusal the way `degraded_from` is. Extending that refusal here is
+        the first "fix" a future reader will reach for, and it would return `coverage: unknown`
+        for every confirmed and every integration behaviour on every such repository —
+        freezing the committed behavior.json where there is history, writing empty `exercises`
+        where there is not, and taking wrap-up's gate green over zero behaviours.
+
+        A caveat may change what an answer says about itself. It may never change whether
+        there is an answer.
+        """
+        proj = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, proj, ignore_errors=True)
+        os.makedirs(os.path.join(proj, "src"))
+        os.makedirs(os.path.join(proj, "svc"))
+        with open(os.path.join(proj, "src", "a.ts"), "w") as f:
+            f.write("export const a = 1\n")
+        with open(os.path.join(proj, "src", "b.ts"), "w") as f:
+            f.write('import { a } from "./a"\nexport const b = a\n')
+        for i in range(12):
+            with open(os.path.join(proj, "svc", "C%d.java" % i), "w") as f:
+                f.write("class C%d {}\n" % i)
+
+        subprocess.run([sys.executable, str(run_behaviors._CODE_GRAPH), "--build",
+                        "--dir", proj, "--non-interactive"],
+                       capture_output=True, text=True, check=True)
+
+        with open(os.path.join(proj, "knowledge-base", ".graph", "graph.json")) as f:
+            block = json.load(f)["substrate"]["unmapped_source"]
+        self.assertEqual(block["files"], 12, "fixture must actually have blind spots")
+
+        fp = run_behaviors.static_fingerprint(
+            {"behavior_id": "BEH-Z", "entry": "src/b.ts"}, proj)
+        self.assertEqual(fp["coverage"], "static")
+        self.assertTrue(fp["exercises"], "a blind spot must not empty the closure")
+
     def test_a_genuinely_empty_closure_is_still_a_real_answer(self):
         """A file that imports nothing is not a failure, and must not be reported as one."""
         beh = {"behavior_id": "BEH-X", "entry": "app/api/x/route.ts"}

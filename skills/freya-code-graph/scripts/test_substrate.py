@@ -24,10 +24,16 @@ from substrate import (  # noqa: E402
     Coverage,
     Exclusions,
     RELATION_KINDS,
+    SCRIPT_EXTENSIONS,
+    SOURCE_EXTENSIONS,
+    census_candidates,
     conformance_errors,
     graph_metadata,
     is_internal,
-    summarise_coverage,
+    material_extensions,
+    rollup_directories,
+    unmapped_digest,
+    unmapped_report,
     validate_graph,
 )
 
@@ -437,17 +443,116 @@ class TestMetadata(unittest.TestCase):
         meta = graph_metadata('homegrown', Coverage(['python'], ['.py'], ['imports'], True))
         self.assertNotIn('degraded_from', meta)
 
-    def test_summarise_reports_blind_spots_against_files_on_disk(self):
-        g = {
-            'substrate': graph_metadata(
-                'homegrown', Coverage(['python'], ['.py'], ['imports'], True)),
-            'files': {'a.py': {'imports': ['b.py', 'external:os', 'unresolved:.x']},
-                      'b.py': {'imports': []}},
-        }
-        summary = summarise_coverage(g, ['a.py', 'b.py', 'Main.java', 'App.kt'])
-        self.assertEqual(summary['internal_edges'], 1)
-        self.assertEqual(summary['unresolved_imports'], 1)
-        self.assertEqual(summary['blind_spots'], {'.java': 1, '.kt': 1})
+    def test_a_backend_that_reads_everything_needs_no_walk(self):
+        """The short-circuit: no candidates means the census skips the tree entirely."""
+        every = SOURCE_EXTENSIONS | SCRIPT_EXTENSIONS
+        self.assertEqual(census_candidates(every), frozenset())
+        self.assertIn('.java', census_candidates(['.ts', '.py']))
+
+
+class TestUnmappedCensus(unittest.TestCase):
+    """CD-27 — what an answer says about its own completeness.
+
+    The materiality rule is the whole design. A caveat that fires on every repository with a
+    README is one an agent learns to skip inside a single context window, after which it costs
+    tokens forever and changes no decision; a caveat that stays silent on a Java service is
+    the confidently-empty answer ADR-005 exists to stop. These pin both edges.
+    """
+
+    def test_tier_one_is_reported_however_small(self):
+        """One unreadable .java in a 500-file TS repo is exactly the case worth knowing."""
+        self.assertEqual(material_extensions({'.java': 1}, 500), {'.java': 1})
+
+    def test_tier_two_below_the_floor_is_dropped(self):
+        """Two shell scripts are not a blind spot. Measured: this is a real repo's whole
+        finding, and reporting it is how the field becomes noise."""
+        self.assertEqual(material_extensions({'.sh': 2}, 0), {})
+
+    def test_tier_two_the_graph_dominates_is_dropped(self):
+        """A Next.js app with three SQL migrations is not a stored-procedure codebase."""
+        self.assertEqual(material_extensions({'.sql': 3}, 200), {})
+
+    def test_tier_two_that_dominates_is_kept(self):
+        """But a repository that genuinely *is* PowerShell must not go silent."""
+        self.assertEqual(material_extensions({'.ps1': 12}, 0), {'.ps1': 12})
+
+    def test_unlisted_extensions_are_never_reported(self):
+        """Closed-world. Silence is the right default for a signal whose value is being
+        believed — and .md/.json/.png are what 71% of the old disk walk consisted of."""
+        self.assertEqual(
+            material_extensions({'.md': 500, '.json': 40, '.service': 2, '.png': 1}, 0), {})
+
+    def test_the_cap_never_evicts_the_finding_that_mattered(self):
+        """A cap that drops `.prisma` to make room for `.sql` has inverted its own purpose."""
+        counts = {e: 90 for e in list(SCRIPT_EXTENSIONS)[:9]}
+        counts['.prisma'] = 1
+        kept = material_extensions(counts, 0)
+        self.assertIn('.prisma', kept)
+        self.assertLessEqual(len(kept), 8)
+
+    def test_directories_collapse_to_one_grep_target(self):
+        """`{'.java': 12}` makes an agent derive a search target; a directory *is* one."""
+        paths = ['src/main/java/com/example/inventory/%s.java' % n
+                 for n in ('A', 'B', 'C', 'D', 'E', 'F')]
+        self.assertEqual(rollup_directories(paths),
+                         ({'src/main/java/com/example/inventory': 6}, 0))
+
+    def test_roots_stay_separate_and_root_files_map_to_dot(self):
+        paths = ['a.mjs', 'b.mjs', 'c.mjs', 'features/x.feature', 'features/y.feature',
+                 'features/z.feature', 'prisma/schema.prisma']
+        kept, omitted = rollup_directories(paths)
+        self.assertEqual(kept, {'.': 3, 'features': 3, 'prisma': 1})
+        self.assertEqual(omitted, 0)
+
+    def test_directories_are_capped_and_the_overflow_is_counted(self):
+        """Never silently dropped: a truncation nobody is told about reads as completeness."""
+        paths = ['r%d/f.java' % i for i in range(8)]
+        kept, omitted = rollup_directories(paths)
+        self.assertEqual(len(kept), 5)
+        self.assertEqual(omitted, 3)
+
+    def test_the_clean_sentinel_is_files_zero_and_nothing_else(self):
+        """`files: 0` present is what tells a reader "censused and clean" from "this graph
+        predates the census" — without a schema bump that would force a rebuild everywhere."""
+        self.assertEqual(unmapped_report([], 'homegrown', 3),
+                         {'files': 0, 'backend': 'homegrown'})
+
+    def test_the_report_agrees_with_itself(self):
+        report = unmapped_report(['src/main/java/com/acme/C%d.java' % i for i in range(12)],
+                                 'homegrown', 3, {'graphify': 12})
+        self.assertEqual(report['files'], 12)
+        self.assertEqual(report['extensions'], {'.java': 12})
+        self.assertEqual(report['directories'], {'src/main/java/com/acme': 12})
+        self.assertEqual(report['readable_by'], {'graphify': 12})
+        # Substring, not equality: the wording is allowed to change, the facts are not.
+        self.assertIn('12', report['advice'])
+        self.assertIn('src/main/java/com/acme', report['advice'])
+
+    def test_a_census_that_could_not_run_says_so(self):
+        """Never a silent zero — that is indistinguishable from "I read everything"."""
+        self.assertEqual(unmapped_report([], 'homegrown', error='PermissionError'),
+                         {'files': None, 'backend': 'homegrown', 'error': 'PermissionError'})
+
+    def test_the_digest_is_none_when_there_is_nothing_to_say(self):
+        """The CD-26 discharge. This `None` is what keeps a clean repo's answers
+        byte-identical to what they were before the census existed."""
+        self.assertIsNone(unmapped_digest({'files': 0, 'backend': 'homegrown'}))
+        self.assertIsNone(unmapped_digest(None))
+        full = {'files': 2, 'extensions': {'.java': 2}, 'directories': {'src': 2},
+                'backend': 'homegrown', 'advice': 'x'}
+        self.assertEqual(set(unmapped_digest(full)), {'files', 'extensions', 'directories'})
+        self.assertEqual(unmapped_digest(full, full=True), full)
+        self.assertEqual(unmapped_digest({'files': None, 'error': 'OSError'}),
+                         {'files': None, 'error': 'OSError'})
+
+    def test_every_shape_survives_json(self):
+        """`main()`'s set→list conversion is exactly one level deep, so a nested set would
+        raise TypeError — and all three programmatic callers swallow the resulting non-zero
+        exit as a *narrower correct answer*. A slip here is invisible by construction."""
+        for report in (unmapped_report([], 'homegrown', 0),
+                       unmapped_report(['a/B.java'], 'homegrown', 1, {'graphify': 1}),
+                       unmapped_report([], 'homegrown', error='OSError')):
+            self.assertEqual(json.loads(json.dumps(report)), report)
 
 
 class TestIsInternal(unittest.TestCase):
@@ -840,15 +945,21 @@ class TestHomegrownIsAConformingBackend(unittest.TestCase):
         self.assertEqual(reloaded['substrate']['backend'], 'homegrown')
 
     def test_blind_spots_distinguish_an_empty_repo_from_a_blind_backend(self):
-        """The question freya could not answer, and why a Java repo read as greenfield."""
+        """The question freya could not answer, and why a Java repo read as greenfield.
+
+        Through the real build path now, not a hand-assembled graph: the census is recorded in
+        the artifact by `_finalise`, which is the only place that survives `update()` rebuilding
+        the `substrate` block wholesale.
+        """
         g = self.graph_of({
             'src/a.ts': 'export const a = 1\n',
             'Main.java': 'class Main {}\n',
             'Other.java': 'class Other {}\n',
         })
-        summary = summarise_coverage(g.graph, ['src/a.ts', 'Main.java', 'Other.java'])
-        self.assertEqual(summary['blind_spots'], {'.java': 2})
-        self.assertEqual(summary['backend'], 'homegrown')
+        block = g.graph['substrate']['unmapped_source']
+        self.assertEqual(block['extensions'], {'.java': 2})
+        self.assertEqual(block['files'], 2)
+        self.assertEqual(block['backend'], 'homegrown')
 
     def test_exclusions_are_an_input_the_caller_can_supply(self):
         """Obligation 6: `vendor/ is not mine` is a project fact, not a backend opinion."""

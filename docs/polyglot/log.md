@@ -864,8 +864,13 @@ needed here at all. `freya install` is run by a person at a keyboard. Ask there.
 
 ### Still open, and named rather than fixed
 
-- `blind_spots()` is computed and never reported at build time. It is the one nudge that works
-  without the other backend already being installed, and it is still not wired up.
+- ~~`blind_spots()` is computed and never reported at build time. It is the one nudge that works
+  without the other backend already being installed, and it is still not wired up.~~
+  **Closed by CD-27, later the same day** — by supersession rather than by call. The census is
+  computed in `_finalise`, recorded at `substrate.unmapped_source` in the gitignored artifact,
+  and carried in the answers of `--build`/`--update`/`--query`/`--impact`. `summarise_coverage()`
+  and its `blind_spots()` were deleted: the aggregation was never the missing half, the scope
+  rule was.
 - CD-5 says the semantic pass has per-agent default models (`gpt-5.6-luna` on Copilot, Sonnet 5
   on Claude). No code implements that: `--model` is optional with no default, so the CLI's own
   default is used. Second documented-but-unimplemented claim found this session, after the
@@ -921,3 +926,135 @@ with nothing printed. `--use --dir <typo>` created the directory and reported su
 
 **1,315 → 1,367 tests.** Verified three ways: from the repository root, from inside `skills/`
 with a real machine default planted, and with graphify off PATH.
+
+---
+
+## 2026-08-20 — what the graph could not read, told to the agent rather than to nobody
+
+### The question that started it
+
+Asked, after the backend-choice work landed, whether a user could believe a project was 80%
+covered when it was 30%. The answer was worse than the question assumed, and it took a fixture
+to show it rather than an argument: a repository of 12 `.java` files and 3 `.ts` files — 20%
+readable — builds and prints
+
+```
+Found 3 source files
+{ "files_scanned": 3, "total_imports": 2, "status": "built" }
+```
+
+Three files. No warning, no asterisk, exit 0. The 12 Java files are not *skipped* — the scanner
+globs by the extensions the backend reads, so they are never enumerated at all. `files_scanned`
+reads like a denominator and is a numerator.
+
+Then the same repository, asked what shape it is:
+
+```
+recommendation : brownfield
+source_files   : 3
+internal_edges : 2
+runtime        : jvm          ← detected from file extensions
+blind_spots    : (key absent)
+```
+
+It says `jvm` and `3 source files` in one evidence block and never notices the two are in
+tension. The function that resolves it, `unreadable_files()`, is in that same module — gated
+behind `internal_edges == 0`, and two TypeScript imports were enough to clear the gate.
+
+**A correction to what I had said:** I had described this as the build never warning. It does
+warn — but only when the *other backend is already installed*, which is precisely when you need
+it least. The warning existed exactly where it was useless and was absent where it mattered.
+
+### The user's reframing, which was the better design
+
+> "It should maybe be conveyed to the harness so that it knows what parts of the project were
+> not mapped/graphed and it can decide for itself to manually search in those parts."
+
+Right, and my proposed fix — print a census — repeated the exact mistake CD-26 exists to
+correct. `--non-interactive` auto-enables whenever stdin is not a TTY, which is every
+agent-driven run and every `wrap-up` run. I would have put the signal in the one place nobody
+is standing. The codebase already agreed with the user: `get_impact` returns `not_in_graph`
+*in the payload*, with a comment saying stderr is not part of what a caller parses. The
+argument was already written down here, applied to "the file you asked about is unmapped" and
+never generalised to "this answer is incomplete".
+
+### How it was decided
+
+Ten agents: three mapping the surfaces, consumers and census machinery; three independent
+designs under different biases (minimal-diff, correctness-first, agent-ergonomics); three
+judges on distinct lenses (what breaks, does it close the hole, what does it cost); one
+synthesis. What the mapping found changed the design more than the designs did:
+
+- **`graph.json` is gitignored.** The committed-artifact constraint I had assumed does not
+  bind it at all, so the census costs zero tracked diff on every machine.
+- **`backends.extension_census` already exists**, already honours exclusions, is already called
+  at build time — and its result is thrown away. Gated, again, on the other backend being
+  installed.
+- **`--dependents` has zero programmatic consumers**; `--dependencies` has one that validates
+  `isinstance(data, list)`. They are not a matched pair, and only one of them is dangerous.
+- **`update()` rebuilds `graph['substrate']` wholesale**, so anything written under it from
+  inside a backend is dropped by the very next `--update`.
+- **`substrate.exclusions` in the artifact is a strict subset of the build's real scope rule**,
+  and on a first build it is computed before classification has run.
+
+The measurement that settled the filter: a census keyed on gitignore-style patterns reports 96
+unread files on this repository, **68 of them deliberately out of scope**. A 71% phantom. A
+caveat that cries wolf is worse than no caveat, because an agent learns to skip the field and
+then misses the one time it was real.
+
+### What shipped — CD-27
+
+One pruned walk in `_finalise`, filtered by the build's own `_should_exclude`, recorded at
+`substrate.unmapped_source`. `--build`/`--update`/`--query`/`--impact` carry it in the answer;
+`--dependents`/`--dependencies` keep their bare arrays and say it on stderr, because wrapping
+`--dependencies` in an envelope breaks `run_behaviors` *closed* — into a repo-wide silent green
+with zero behaviours run, not a loud failure.
+
+`directories`, not just extensions: `{".java": 12}` makes an agent derive a search target,
+`{"src/main/java/com/acme": 12}` **is** one.
+
+Two tiers draw the noise line. Definite program source is always reported; `.sh`/`.sql`/`.ps1`
+only when they outnumber what the graph actually holds. Measured across seven real
+repositories: silent on three, including this one.
+
+`readable_by` now names the remedy on a machine that has never installed it — the coverage
+declaration is a module-level constant, so it needs no binary and no `PATH` check.
+
+### Three rules that are now written into the source, not just the design
+
+- **It is never a refusal.** `degraded_from` means "you asked for X and got Y" and rightly makes
+  behaviour fingerprinting decline. Blind spots are the floor's normal condition on any polyglot
+  repo; refusing on them would freeze the committed `behavior.json` toolkit-wide. The comment
+  sits beside the refusal it must not join, and a named test fails if anyone joins them.
+- **It never changes whether there is an answer** — only what the answer says about itself.
+- **It is absent when there is nothing to say.** Asserted as an exact key set, so a clean
+  repository's output is byte-identical to what it was before the census existed.
+
+### Two verdict changes, deliberate and pinned
+
+A shell- or SQL-dominant repository with no edges was `greenfield` and is now `unknown` — those
+extensions were on a *not-source* list, so a codebase made of shell scripts told its own tooling
+it was an empty scaffold. A TypeScript scaffold with one `.ps1` installer was `unknown` and is
+now `greenfield`. Both have named tests asserting the new value.
+
+### Deleted
+
+`summarise_coverage()` and the `blind_spots()` it wrapped. Left deliberately unwired in Phase 2
+on the grounds that nothing could use them yet — correct then, wrong once something could. Its
+`blind_spots()` has no dotfile guard (`.env.local` → `.local`), no materiality filter and no
+notion of scope. The aggregation was never the missing half; the scope rule was. A dead function
+that looks like the answer is how the next person reimplements the wrong thing.
+
+**1,367 → 1,409 tests**, including the first tests of `main()` and `format_summary` this
+repository has ever had — the entire CLI presentation layer, the surface every agent actually
+reads, was unguarded. Green from the repository root, from `skills/`, from the scripts
+directory, and with graphify off `PATH`.
+
+### Still open, named rather than fixed
+
+- Extension is structurally the wrong key for one category: a file the backend *can* read that
+  is out of scope (a `.ts` under `docs/`) is inexpressible. `directories` is a half-step.
+- The tier lists are curated, so a language nobody listed gets silence — a narrower instance of
+  the hole being closed, and the price of a signal quiet enough to be believed.
+- An unmapped file still cannot surface as a coverage gap in the git-tracked `BACKLOG.md`.
+  The block is now in `graph.json` for `gaps()` to read whenever the churn is judged worth it.

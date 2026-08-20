@@ -297,6 +297,12 @@ straight into set arithmetic, where an edge object would raise `unhashable type:
 | `--query <file>` | **Edge objects.** "Tell me about this file", so kind and provenance are the point |
 | `--impact` / `--dependents` / `--dependencies` | **Path strings.** "Which files are affected" — a set of nodes, not edges |
 
+`--build`, `--update`, `--query` and `--impact` may also carry an **`unmapped_source`** key
+naming the in-scope source files the backend could not read, with the directories to search
+instead. It is absent whenever there is nothing to say, so its presence means the answer above
+it is computed over an incomplete graph. `--dependents`/`--dependencies` keep their bare arrays
+and say the same thing on stderr.
+
 ### Import Parsing
 
 The script parses imports for multiple languages:

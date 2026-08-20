@@ -807,31 +807,218 @@ def validate_graph(graph: Dict[str, Any], coverage: Optional[Coverage] = None) -
     return errors
 
 
-def summarise_coverage(graph: Dict[str, Any], present_files: Iterable[str]) -> Dict[str, Any]:
-    """What this graph saw, and what it did not, against the files actually on disk.
+# ---------------------------------------------------------------------------
+# The unmapped-source census — CD-27
+# ---------------------------------------------------------------------------
+#
+# ADR-005 says the graph must never answer "nothing" when it means "I don't know". That was
+# implemented at the *repository* level: a Java repo will not classify itself greenfield. It
+# was never implemented at the *answer* level, and the two are different claims. "3 dependents"
+# and "3 dependents, and I could not read a fifth of this repo" are not the same sentence, and
+# until now the tool said the first when it meant the second.
+#
+# The consumer here is the agent driving the toolkit, not a person. A build runs with no
+# keyboard attached almost every time — `--non-interactive` auto-enables whenever stdin is not
+# a TTY, which is every agent-driven run and every `wrap-up` — so a printed warning lands
+# nowhere. The signal has to ride in the machine-readable answer, which is the same argument
+# `get_impact` already makes for `not_in_graph`, generalised from "the file you asked about is
+# unmapped" to "this answer is incomplete".
+#
+# CD-26's discipline applies: absent when there is nothing to say. A field that fires on every
+# repository with a README is one an agent learns to skip inside a single context window, after
+# which it costs tokens forever and changes no decision.
 
-    The answer to "is this repo really this sparse, or is my backend blind?" — which nothing
-    in the toolkit could answer before, and which is why a Java repo read as greenfield.
+# Program source a backend might reasonably be expected to graph. Closed-world on purpose: an
+# extension nobody listed produces silence, which is the right default for a signal whose only
+# value is being believed. The cost is that a language nobody listed goes unreported — a real,
+# narrower instance of the hole this closes, and recorded as such in CD-27.
+SOURCE_EXTENSIONS = frozenset({
+    # JVM / .NET
+    '.java', '.kt', '.kts', '.scala', '.groovy', '.gradle', '.clj', '.cljs', '.cljc',
+    '.cs', '.fs', '.fsx', '.vb', '.razor', '.cshtml', '.csproj', '.fsproj', '.vbproj',
+    # C family
+    '.c', '.h', '.cc', '.cpp', '.cxx', '.hpp', '.hh', '.m', '.mm', '.cu', '.cuh', '.metal',
+    # dynamic
+    '.rb', '.rake', '.php', '.pl', '.pm', '.lua', '.luau', '.r', '.jl', '.pas', '.tcl',
+    # systems / functional
+    '.rs', '.go', '.swift', '.dart', '.zig', '.ex', '.exs', '.erl', '.hrl', '.cr', '.nim',
+    '.hs', '.ml', '.mli', '.elm', '.lisp', '.cl', '.asd', '.lsp', '.dm',
+    # hardware / scientific
+    '.v', '.sv', '.svh', '.vhd', '.f', '.f90', '.f95', '.f03', '.f08',
+    # platform-specific source
+    '.cls', '.trigger', '.xaml',
+    # web component source the floor cannot read
+    '.vue', '.svelte', '.astro',
+    # ESM/TS variants outside the floor's FILE_PATTERNS
+    '.mjs', '.cjs', '.mts', '.cts', '.pyi', '.pyx',
+    # declarative source: schemas, contracts, executable specs
+    '.tf', '.tfvars', '.hcl', '.proto', '.sol', '.prisma', '.feature',
+})
+
+# Source in *some* repositories, glue in most. Reported only when they dominate — see
+# `material_extensions`. Splitting these out is what keeps one PowerShell installer or three
+# SQL migrations from firing the caveat on every build of every repo, without going silent on
+# a repository that genuinely *is* a shell or stored-procedure codebase.
+SCRIPT_EXTENSIONS = frozenset({
+    '.sh', '.bash', '.zsh', '.ksh', '.fish', '.ps1', '.psm1', '.psd1',
+    '.sql', '.awk', '.bat', '.cmd', '.vbs', '.applescript',
+})
+
+# A tier-2 extension has to beat both the graphed file count and this floor. The floor is what
+# stops a two-file repository reporting its own build script; it is a tuned constant, chosen
+# because it silences a single `.sh` without silencing a twelve-file PowerShell project.
+SCRIPT_MATERIALITY_FLOOR = 2
+
+# Directories never worth descending into for a census. A fourth copy of this idea — the other
+# three are in project_shape, backends and detect_project, and they disagree with each other.
+# Put here because the contract is what a consolidation would consolidate onto.
+CENSUS_PRUNE = frozenset({
+    'node_modules', 'dist', 'build', 'out', '.output', '.next', '__pycache__',
+    'venv', '.venv', 'vendor', 'target', 'coverage', 'graphify-out',
+})
+
+CENSUS_LIMIT = 20000
+UNMAPPED_EXT_CAP = 8
+UNMAPPED_DIR_CAP = 5
+
+
+def census_candidates(covered_extensions: Iterable[str]) -> frozenset:
+    """Extensions worth walking for, given what the running backend already reads.
+
+    Empty means the backend covers every candidate, and the caller can skip the walk entirely.
     """
-    substrate = graph.get('substrate') or {}
-    coverage = Coverage.from_dict(substrate.get('coverage'))
-    files = graph.get('files') or {}
+    covered = {str(e).lower() for e in covered_extensions or ()}
+    return frozenset((SOURCE_EXTENSIONS | SCRIPT_EXTENSIONS) - covered)
 
-    ends = [edge_other(e) for info in files.values() for e in (info.get('imports') or [])]
-    internal = sum(1 for end in ends if is_internal(end))
-    unresolved = sum(1 for end in ends if end.startswith('unresolved:'))
 
-    summary = {
-        'backend': substrate.get('backend'),
-        'files_graphed': len(files),
-        'internal_edges': internal,
-        'unresolved_imports': unresolved,
-        'degraded_from': substrate.get('degraded_from'),
+def material_extensions(counts: Dict[str, int], files_graphed: int) -> Dict[str, int]:
+    """Which unread extensions are worth reporting, given how much *was* read.
+
+    Tier 1 is unconditional: one unreadable `.java` in a 500-file TypeScript repo is exactly
+    the case worth knowing about, and a count-based threshold would hide it. Tier 2 has to
+    dominate — more unread files than the graph holds, and more than the floor — because a
+    build script is not a blind spot in a repository that is not made of build scripts.
+    """
+    material = {}  # type: Dict[str, int]
+    bar = max(files_graphed, SCRIPT_MATERIALITY_FLOOR)
+    for ext, count in (counts or {}).items():
+        if ext in SOURCE_EXTENSIONS:
+            material[ext] = count
+        elif ext in SCRIPT_EXTENSIONS and count > bar:
+            material[ext] = count
+    # Tier 1 first, so a high-count tier-2 entry can never evict the finding that mattered —
+    # a cap that drops `.prisma` to make room for `.sql` has inverted its own purpose.
+    ordered = sorted(material.items(),
+                     key=lambda kv: (kv[0] not in SOURCE_EXTENSIONS, -kv[1], kv[0]))
+    return dict(ordered[:UNMAPPED_EXT_CAP])
+
+
+def rollup_directories(paths: Iterable[str]) -> Tuple[Dict[str, int], int]:
+    """Group unread paths into the fewest directories an agent could usefully grep.
+
+    `{".java": 12}` makes an agent derive a search target; `{"src/main/java/com/acme": 12}`
+    *is* the search target. Grouped by top-level root, then collapsed to the deepest prefix
+    common to everything under that root, so a package tree becomes one entry rather than four.
+    """
+    by_root = {}  # type: Dict[str, List[List[str]]]
+    for path in paths:
+        parts = (path or '').split('/')
+        root = parts[0] if len(parts) > 1 else '.'
+        by_root.setdefault(root, []).append(parts[:-1])
+
+    grouped = {}  # type: Dict[str, int]
+    for root, dirs in by_root.items():
+        common = list(dirs[0])
+        for parts in dirs[1:]:
+            keep = 0
+            for a, b in zip(common, parts):
+                if a != b:
+                    break
+                keep += 1
+            common = common[:keep]
+        grouped['/'.join(common) if common else '.'] = len(dirs)
+
+    ordered = sorted(grouped.items(), key=lambda kv: (-kv[1], kv[0]))
+    kept = dict(ordered[:UNMAPPED_DIR_CAP])
+    return kept, max(0, len(ordered) - UNMAPPED_DIR_CAP)
+
+
+def unmapped_report(paths: Iterable[str], backend: Optional[str], files_graphed: int = 0,
+                    readable_by: Optional[Dict[str, int]] = None,
+                    truncated: bool = False,
+                    error: Optional[str] = None) -> Dict[str, Any]:
+    """The census block, as it is recorded in the graph artifact.
+
+    `files` and `backend` are always present. The always-present `files: 0` is the
+    discriminator that lets a reader tell "censused and clean" from "this graph predates the
+    census" without bumping the schema version — which would force a rebuild everywhere and
+    churn every committed behaviour fingerprint for a field nothing reads yet.
+    """
+    if error is not None:
+        # Never a silent zero. A census that could not run is precisely the "I don't know"
+        # ADR-005 exists for, and it is reported as one.
+        return {'files': None, 'backend': backend, 'error': error}
+
+    counts = {}  # type: Dict[str, int]
+    for path in paths:
+        ext = os.path.splitext(path)[1].lower()
+        counts[ext] = counts.get(ext, 0) + 1
+    material = material_extensions(counts, files_graphed)
+    if not material:
+        return {'files': 0, 'backend': backend}
+
+    kept_paths = [p for p in paths if os.path.splitext(p)[1].lower() in material]
+    directories, omitted = rollup_directories(kept_paths)
+    total = sum(material.values())
+    exts = ', '.join(sorted(material))
+    where = ', '.join(sorted(directories))
+    advice = ('%d source file(s) here are not in this graph: %r does not read %s. Every '
+              'dependency, dependent and impact answer from this graph excludes them. Before '
+              'concluding a change is contained, search these paths directly (grep/glob): %s.'
+              % (total, backend, exts, where))
+    if readable_by:
+        best = sorted(readable_by.items(), key=lambda kv: (-kv[1], kv[0]))[0]
+        advice += (' (%r reads %d of them — freya code-graph --use %s.)'
+                   % (best[0], best[1], best[0]))
+
+    report = {
+        'files': total,
+        'extensions': material,
+        'directories': directories,
+        'backend': backend,
+        'advice': advice,
     }  # type: Dict[str, Any]
-    if coverage is not None:
-        summary['coverage'] = coverage.to_dict()
-        summary['blind_spots'] = coverage.blind_spots(present_files)
-    return summary
+    if readable_by:
+        report['readable_by'] = dict(sorted(readable_by.items()))
+    if omitted:
+        report['directories_omitted'] = omitted
+    if truncated:
+        report['truncated'] = True
+    return report
+
+
+def unmapped_digest(block: Any, full: bool = False) -> Optional[Dict[str, Any]]:
+    """What an answer carries, or `None` when there is nothing to say.
+
+    `None` on a clean repository is what keeps every answer byte-identical to what it was
+    before this existed — the CD-26 discharge, enforced in one place rather than at each of
+    the surfaces.
+    """
+    if not isinstance(block, dict):
+        return None
+    files = block.get('files')
+    if files is None and block.get('error'):
+        return {'files': None, 'error': block['error']}
+    if not files:
+        return None
+    if full:
+        return dict(block)
+    # The prose and the backend recommendation ride the build payload and stderr only. This
+    # digest is attached to surfaces an agent hits repeatedly in one session, where a sentence
+    # that restates the structured fields is pure cost.
+    return {'files': files,
+            'extensions': dict(block.get('extensions') or {}),
+            'directories': dict(block.get('directories') or {})}
 
 
 def load_graph(path: str) -> Optional[Dict[str, Any]]:

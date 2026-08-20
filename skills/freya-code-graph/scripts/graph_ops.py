@@ -2127,13 +2127,15 @@ Respond with ONLY a JSON object, no markdown formatting:
         # No `category`. CD-12 removed the field from the graph, and this kept reporting it
         # anyway — always as the literal string 'unknown', for every file, because nothing
         # writes it any more. A field that can only ever hold a placeholder is not a field.
-        return {
+        answer = {
             'file': file_path,
             'exports': info.get('exports', []),
             'imports': info.get('imports', []),
             'dependents': info.get('dependents', []),
             'language': info.get('language'),
         }
+        answer.update(_answer_caveats(graph))
+        return answer
 
     def get_dependents(self, file_path: str,
                        transitive: bool = True) -> Optional[Set[str]]:
@@ -2173,6 +2175,9 @@ Respond with ONLY a JSON object, no markdown formatting:
                         traverse(dep)
 
         traverse(file_path)
+        # A bare array has nowhere to qualify itself, so the caveat goes to stderr. See
+        # `_announce_unmapped` for why the shape must not change instead.
+        _announce_unmapped(graph)
         return result
 
     def get_dependencies(self, file_path: str,
@@ -2200,6 +2205,9 @@ Respond with ONLY a JSON object, no markdown formatting:
                         traverse(imp)
 
         traverse(file_path)
+        # A bare array has nowhere to qualify itself, so the caveat goes to stderr. See
+        # `_announce_unmapped` for why the shape must not change instead.
+        _announce_unmapped(graph)
         return result
 
     def get_impact(self, file_paths: List[str]) -> Dict[str, Set[str]]:
@@ -2242,7 +2250,7 @@ Respond with ONLY a JSON object, no markdown formatting:
                 % (len(unknown), len(file_paths),
                    ', '.join(sorted(unknown)[:5]) + (', …' if len(unknown) > 5 else '')))
 
-        return {
+        answer = {
             'input_files': set(file_paths),
             'direct_dependents': direct,
             'transitive_dependents': all_dependents - set(file_paths) - direct,
@@ -2251,6 +2259,14 @@ Respond with ONLY a JSON object, no markdown formatting:
             # skill reading `--format json`, and stderr is not part of what it parses.
             'not_in_graph': unknown,
         }
+        # The same argument, one step wider: `not_in_graph` says the file you asked about is
+        # unmapped, `unmapped_source` says this answer is computed over an incomplete graph.
+        # Added only inside the populated envelope — the `{}` no-graph branch above is left
+        # alone because `drift.py` uses the *presence* of `all_affected` as its "the graph
+        # actually ran" signal, and an extra key there would flip every drift run to
+        # `changed-only` at exit 0 with nothing going red.
+        answer.update(_answer_caveats(graph))
+        return answer
 
     def clear(self) -> bool:
         """Clear the cached graph, including every backend's copy.
@@ -2324,7 +2340,8 @@ def persist_graph(project_dir: Any, backend_name: str, graph: Dict[str, Any]) ->
     return active
 
 
-def _finalise(backend: Any, result: Any) -> Dict[str, Any]:
+def _finalise(backend: Any, result: Any,
+              exclusions: Optional[substrate.Exclusions] = None) -> Dict[str, Any]:
     """Link, check and persist whatever a backend produced."""
     if not isinstance(result, substrate.Result):
         raise TypeError(
@@ -2350,7 +2367,13 @@ def _finalise(backend: Any, result: Any) -> Dict[str, Any]:
                   'cannot be recovered from it.'
                   % (getattr(backend, 'name', '?'), result.graph.get('version')),
                   file=sys.stderr)
-        return {'status': result.status, 'files_changed': 0}
+        # The previous census is carried forward from the loaded artifact rather than re-run.
+        # A steady-state `--update` that finds nothing changed still says what the graph
+        # cannot see, pays no walk, and writes nothing.
+        summary = {'status': result.status, 'files_changed': 0}
+        summary.update(_answer_caveats(
+            result.graph if isinstance(result.graph, dict) else None, full=True))
+        return summary
 
     graph = substrate.link_dependents(result.graph)
 
@@ -2379,14 +2402,28 @@ def _finalise(backend: Any, result: Any) -> Dict[str, Any]:
               'writing it anyway and recording them under substrate.validation. First: %s'
               % (getattr(backend, 'name', '?'), len(errors), errors[0]), file=sys.stderr)
 
+    # Before `persist_graph`, and here rather than inside `build()`, because `CodeGraph.update`
+    # rebuilds `graph['substrate']` wholesale from `graph_metadata()` — anything written under
+    # that key from inside a backend is dropped by the very next `--update`. This is also after
+    # `_classify_directories` has persisted, so the census sees accurate scope on a first build.
+    if not isinstance(graph.get('substrate'), dict):
+        graph['substrate'] = {}
+    census = _census(backend, graph, exclusions)
+    graph['substrate']['unmapped_source'] = census
+    if census.get('advice'):
+        _announce_once('code-graph: %s' % census['advice'])
+
     cached_to = persist_graph(backend.project_dir, backend.name, graph)
 
     if result.status != substrate.Result.BUILT:
-        return {'status': result.status,
-                'files_changed': result.files_changed or 0,
-                'commit': graph.get('commit')}
+        summary = {'status': result.status,
+                   'files_changed': result.files_changed or 0,
+                   'commit': graph.get('commit')}
+        summary.update(_answer_caveats(graph, full=True))
+        return summary
     summary = substrate.build_summary(graph, cached_to)
     summary['status'] = result.status
+    summary.update(_answer_caveats(graph, full=True))
     return summary
 
 
@@ -2450,12 +2487,135 @@ def _run_or_degrade(runner: Any, backend: Any, floor: Any, non_interactive: bool
 
 def run_build(backend: Any, **kwargs: Any) -> Dict[str, Any]:
     """Build through `backend`, finalise, and return the summary."""
-    return _finalise(backend, backend.build(**kwargs))
+    return _finalise(backend, backend.build(**kwargs), kwargs.get('exclusions'))
 
 
 def run_update(backend: Any, **kwargs: Any) -> Dict[str, Any]:
     """Update through `backend`, finalise, and return the summary."""
-    return _finalise(backend, backend.update(**kwargs))
+    return _finalise(backend, backend.update(**kwargs), kwargs.get('exclusions'))
+
+
+def _unmapped_source_paths(scope: 'CodeGraph', covered_extensions: Any,
+                           exclusions: Optional[substrate.Exclusions] = None,
+                           limit: int = substrate.CENSUS_LIMIT) -> Tuple[List[str], bool]:
+    """In-scope files on disk whose extension the running backend does not read.
+
+    Uses the build's *own* scope rule — `_should_exclude` plus the caller's `Exclusions`,
+    exactly the two layers `build()` applies — rather than the `substrate.exclusions` recorded
+    in the artifact. The recorded set is a strict subset: it carries no `always_exclude_files`,
+    no `top_level_exclude_dirs` and no `always_exclude_dirs` below depth two, and on a fresh
+    project it is computed before directory classification has run, so it is nearly empty on
+    exactly the bootstrap build this exists to serve.
+
+    Getting that wrong is not cosmetic. Measured on this repository, a census that consults
+    only `.gitignore`-style patterns reports 96 unread files of which 68 are deliberately out
+    of scope — a 71% phantom. A caveat that cries wolf is worse than no caveat, because an
+    agent learns to skip the field and then misses the one time it was real.
+    """
+    candidates = substrate.census_candidates(covered_extensions)
+    if not candidates:
+        return [], False
+
+    gitignore = scope._parse_gitignore()
+    classified = (scope._load_classifications().get('directories') or {})
+    root = str(scope.project_dir)
+    found = []  # type: List[str]
+
+    for dirpath, dirnames, filenames in os.walk(root):
+        # Prune before matching: `_should_exclude` is fnmatch-heavy and is only affordable
+        # over the survivors.
+        dirnames[:] = [d for d in dirnames
+                       if d not in substrate.CENSUS_PRUNE and not d.startswith('.')]
+        for filename in filenames:
+            if filename.startswith('.'):
+                continue  # dotfiles are configuration, not unread source
+            ext = os.path.splitext(filename)[1].lower()
+            if ext not in candidates:
+                continue
+            rel = normalize_key(os.path.relpath(os.path.join(dirpath, filename), root))
+            if scope._should_exclude(rel, gitignore, classified):
+                continue
+            if exclusions is not None and exclusions.excludes(rel):
+                continue
+            found.append(rel)
+            if len(found) >= limit:
+                return found, True
+    return found, False
+
+
+def _census(backend: Any, graph: Dict[str, Any],
+            exclusions: Optional[substrate.Exclusions] = None) -> Dict[str, Any]:
+    """The `unmapped_source` block for a graph that is about to be written.
+
+    Never fatal. A census that raises records an explicit error rather than a zero, because a
+    silent zero here is indistinguishable from "this backend read everything" — which is the
+    confidently-empty answer the whole feature exists to stop.
+    """
+    name = getattr(backend, 'name', None)
+    try:
+        try:
+            covered = backend.coverage().extensions
+        except Exception:
+            covered = ()
+        scope = CodeGraph(str(backend.project_dir))
+        paths, truncated = _unmapped_source_paths(scope, covered, exclusions)
+        counts = {}  # type: Dict[str, int]
+        for path in paths:
+            ext = os.path.splitext(path)[1].lower()
+            counts[ext] = counts.get(ext, 0) + 1
+        graphed = len(graph.get('files') or {})
+        material = substrate.material_extensions(counts, graphed)
+        remedies = {}  # type: Dict[str, int]
+        if material:
+            try:
+                import backends
+                remedies = backends.readable_by(material, covered)
+            except Exception:
+                remedies = {}
+        return substrate.unmapped_report(paths, name, graphed, remedies, truncated)
+    except Exception as exc:
+        return substrate.unmapped_report([], name, error=type(exc).__name__)
+
+
+def _answer_caveats(graph: Optional[Dict[str, Any]], full: bool = False) -> Dict[str, Any]:
+    """The caveat keys an answer computed from `graph` has to carry, or `{}`.
+
+    Absent — not empty — when there is nothing to say. That is the CD-26 discipline enforced in
+    one place rather than at each of the four surfaces: a monoglot repository's answers stay
+    byte-identical to what they were before this existed, so nobody pays tokens for a field
+    that would always read the same.
+    """
+    block = ((graph or {}).get('substrate') or {}).get('unmapped_source')
+    digest = substrate.unmapped_digest(block, full=full)
+    return {'unmapped_source': digest} if digest else {}
+
+
+def _announce_unmapped(graph: Optional[Dict[str, Any]]) -> None:
+    """The caveat for the two surfaces that answer with a bare array.
+
+    `--dependents` and `--dependencies` return a JSON list, which has nowhere to carry a
+    qualification about itself. Changing them to objects was considered and rejected:
+    `run_behaviors._code_graph_deps` validates `--dependencies` with `isinstance(data, list)`
+    and falls to `graph-query-failed` otherwise, which routes every confirmed and every
+    integration behaviour to `coverage: unknown` — freezing the committed `behavior.json` and
+    taking wrap-up's gate green over zero behaviours. Breaking closed here is a repo-wide
+    silent pass, not a loud failure.
+
+    So the caveat goes to stderr, which is dead exactly where it must be dead and alive exactly
+    where it must be alive: all three programmatic callers capture stderr and read only stdout
+    on success, while `bin/freya_cli.py` inherits the streams, so an agent running the command
+    from a shell sees it in the tool result. Do not "fix" this by moving it into the payload.
+    """
+    block = ((graph or {}).get('substrate') or {}).get('unmapped_source')
+    if not isinstance(block, dict) or not block.get('files'):
+        return
+    where = ', '.join(sorted(block.get('directories') or {})) or 'the paths above'
+    _announce_once(
+        'code-graph: this answer excludes %d source file(s) %r does not read (%s) under %s.\n'
+        '  --dependents/--dependencies answer over the mapped subset only; grep those paths '
+        'directly before concluding a change is contained.'
+        % (block['files'], block.get('backend'),
+           ', '.join(sorted(block.get('extensions') or {})), where))
 
 
 def _edge_annotation(edge: Any) -> str:
@@ -2475,24 +2635,50 @@ def _edge_annotation(edge: Any) -> str:
     return '  [%s: %s%s]' % (kind, detail, ':%d' % line if isinstance(line, int) else '')
 
 
+def _unmapped_line(data: Any, indent: str = '  - ') -> str:
+    """The `NOT GRAPHED:` line for `--format summary`, or `''` when there is nothing to say.
+
+    Empty string rather than a placeholder, so the human-readable output of a repository the
+    backend reads completely is byte-identical to what it was before the census existed.
+    """
+    block = data.get('unmapped_source') if isinstance(data, dict) else None
+    if not isinstance(block, dict):
+        return ''
+    if block.get('files') is None and block.get('error'):
+        return '%sNOT GRAPHED: the coverage census could not run (%s)' % (indent, block['error'])
+    if not block.get('files'):
+        return ''
+    exts = sorted(block.get('extensions') or {})
+    where = sorted(block.get('directories') or {})
+    tail = ' under %s' % ', '.join(where[:2]) if where else ''
+    return ('%sNOT GRAPHED: %d source file(s) this backend cannot read (%s)%s'
+            % (indent, block['files'], ', '.join(exts[:3]), tail))
+
+
 def format_summary(data: Any, operation: str) -> str:
     """Format output as human-readable summary."""
     if operation == 'build':
-        return f"""Built dependency graph:
+        lines = [f"""Built dependency graph:
   - {data['files_scanned']} files scanned
   - {data['total_imports']} import relationships
-  - {data['total_exports']} export declarations
-  - Cached to {data['cached_to']}"""
+  - {data['total_exports']} export declarations"""]
+        unmapped = _unmapped_line(data)
+        if unmapped:
+            lines.append(unmapped)
+        lines.append(f"  - Cached to {data['cached_to']}")
+        return '\n'.join(lines)
 
     elif operation == 'update':
         if data.get('status') == 'up_to_date':
-            return "Graph is up to date. No changes detected."
+            return '\n'.join(x for x in ["Graph is up to date. No changes detected.",
+                                         _unmapped_line(data)] if x)
         if data.get('status') == substrate.Result.BUILT:
             # `--update` falls back to a full build when there is no usable cache.
             return format_summary(data, 'build')
-        return f"""Updated dependency graph:
+        return '\n'.join(x for x in [f"""Updated dependency graph:
   - {data['files_changed']} files changed since last build
-  - Graph updated at commit {data.get('commit', 'unknown')}"""
+  - Graph updated at commit {data.get('commit', 'unknown')}""",
+                                     _unmapped_line(data)] if x)
 
     elif operation == 'query':
         if not data:
@@ -2522,6 +2708,9 @@ def format_summary(data: Any, operation: str) -> str:
 
         if data.get('language'):
             lines.append(f"Language: {data['language']}")
+        unmapped = _unmapped_line(data, indent='')
+        if unmapped:
+            lines.extend(["", unmapped])
         return '\n'.join(lines)
 
     elif operation == 'impact':
@@ -2548,6 +2737,9 @@ def format_summary(data: Any, operation: str) -> str:
                          f"no blast radius could be computed for these:")
             for path in sorted(data['not_in_graph']):
                 lines.append(f"  - {path}")
+        unmapped = _unmapped_line(data, indent='')
+        if unmapped:
+            lines.extend(["", unmapped])
         return '\n'.join(lines)
 
     elif operation == 'dependents':

@@ -1977,5 +1977,253 @@ class TestRecordingTheBackendChoice(Base):
         self.assertEqual(settings.load(proj).backend, "homegrown")
 
 
+class TestUnmappedSourceWalk(Base):
+    """CD-27 — the census walk, and the scope rule it has to honour.
+
+    The scope rule is the whole difference between a signal and noise. Measured on this
+    repository, a census that consults only gitignore-style patterns reports 96 unread files of
+    which 68 are deliberately out of scope — a 71% phantom. These pin the four rules that
+    remove it.
+    """
+
+    def walk(self, files, exclusions=None):
+        d = self.mk(files)
+        g = CodeGraph(d)
+        return graph_ops._unmapped_source_paths(
+            g, ['.ts', '.tsx', '.js', '.jsx', '.py', '.go'], exclusions)
+
+    def test_it_finds_the_unread_source(self):
+        paths, truncated = self.walk({
+            "web/src/a.ts": "export const a = 1\n",
+            "src/main/java/com/acme/A.java": "class A {}\n",
+            "src/main/java/com/acme/B.java": "class B {}\n",
+        })
+        self.assertEqual(sorted(paths), ["src/main/java/com/acme/A.java",
+                                         "src/main/java/com/acme/B.java"])
+        self.assertFalse(truncated)
+
+    def test_it_honours_the_build_s_own_exclusions(self):
+        """Not `substrate.exclusions` from the artifact — that is a strict subset of the real
+        rule, and on a first build it is computed before classification has even run."""
+        paths, _ = self.walk({
+            "src/a.ts": "export const a = 1\n",
+            "node_modules/pkg/X.java": "class X {}\n",
+            "a/b/dist/Y.java": "class Y {}\n",
+            "real/Z.java": "class Z {}\n",
+        })
+        self.assertEqual(paths, ["real/Z.java"])
+
+    def test_it_honours_a_caller_supplied_exclusions_on_top(self):
+        """Obligation 6: the two layers `build()` applies, both applied here."""
+        files = {"src/a.ts": "export const a = 1\n", "thirdparty/B.java": "class B {}\n"}
+        self.assertEqual(self.walk(files)[0], ["thirdparty/B.java"])
+        excl = substrate.Exclusions(directories=["thirdparty"])
+        self.assertEqual(self.walk(files, excl)[0], [])
+
+    def test_dotfiles_and_extensionless_files_are_skipped(self):
+        """`Coverage.blind_spots` has no dotfile guard and yields `.local` for `.env.local`.
+        The two implementations disagree; this asserts which one the census follows."""
+        paths, _ = self.walk({
+            "src/a.ts": "export const a = 1\n",
+            ".env.local": "X=1\n",
+            "a/.eslintrc.json": "{}\n",
+            "bin/freya": "#!/bin/sh\n",
+            "Makefile": "all:\n",
+        })
+        self.assertEqual(paths, [])
+
+    def test_the_limit_bounds_the_walk_and_says_so(self):
+        files = {"src/a.ts": "export const a = 1\n"}
+        files.update({"j/C%d.java" % i: "class C%d {}\n" % i for i in range(10)})
+        d = self.mk(files)
+        paths, truncated = graph_ops._unmapped_source_paths(
+            CodeGraph(d), ['.ts'], None, limit=4)
+        self.assertEqual(len(paths), 4)
+        self.assertTrue(truncated)
+
+    def test_a_census_that_raises_never_takes_the_build_down(self):
+        """A census failure must not fail a build, and must not look like a clean census."""
+        d = self.mk({"src/a.ts": "export const a = 1\n"})
+        g = CodeGraph(d)
+        original = graph_ops._unmapped_source_paths
+        graph_ops._unmapped_source_paths = lambda *a, **k: (_ for _ in ()).throw(OSError("no"))
+        try:
+            block = graph_ops._census(g, {"files": {}})
+        finally:
+            graph_ops._unmapped_source_paths = original
+        self.assertIsNone(block["files"])
+        self.assertEqual(block["error"], "OSError")
+
+
+class TestReadableBy(Base):
+    """The remedy has to be nameable on a machine that has never installed the remedy.
+
+    `select`'s existing hint is gated on `len(available_backends()) > 1`, so it recommends
+    graphify only where graphify is already present — a discovery path that requires you to
+    own the thing before being told you might want it. This works because a backend declares
+    its coverage from a module-level constant rather than by asking the binary.
+    """
+
+    def test_it_fires_without_the_backend_on_path(self):
+        import backends
+        import shutil as sh
+        original = sh.which
+        sh.which = lambda *a, **k: None
+        try:
+            self.assertEqual(
+                backends.readable_by({'.java': 12},
+                                     ['.ts', '.tsx', '.js', '.jsx', '.py', '.go']),
+                {'graphify': 12})
+        finally:
+            sh.which = original
+
+    def test_it_drops_over_claimed_extensions(self):
+        """graphify's `.json` selection is name-based — `package.json` produces nodes, an
+        arbitrary `x.json` does not. Counting it would fire the recommendation on every
+        repository in existence."""
+        import backends
+        self.assertEqual(
+            backends.readable_by({'.json': 40},
+                                 ['.ts', '.tsx', '.js', '.jsx', '.py', '.go']),
+            {})
+
+
+class TestUnmappedSourceCLI(Base):
+    """The first tests of `main()` and `format_summary` in this repository.
+
+    Verified by grep before writing them: `format_summary` appeared only at its definition,
+    one recursive call, one call site and one comment, and no test invoked `main()` at all.
+    The entire CLI presentation layer — the surface every agent actually reads — was unguarded
+    in a suite of well over a thousand tests.
+    """
+
+    def run_cli(self, *args):
+        return subprocess.run([sys.executable, graph_ops.__file__, *args],
+                              capture_output=True, text=True)
+
+    def mixed(self):
+        files = {"web/src/a.ts": "export const a = 1\n",
+                 "web/src/b.ts": 'import { a } from "./a";\nexport const b = a;\n'}
+        files.update({"src/main/java/com/acme/C%d.java" % i: "class C%d {}\n" % i
+                      for i in range(12)})
+        return self.mk(files)
+
+    def clean(self):
+        return self.mk({"src/a.ts": "export const a = 1\n",
+                        "src/b.ts": 'import { a } from "./a";\nexport const b = a;\n',
+                        "README.md": "# x\n", "package.json": '{"name":"x"}\n'})
+
+    def test_a_build_names_what_it_could_not_read(self):
+        """The headline case: `files_scanned: 3` stops reading as a denominator the moment
+        `unmapped_source.files: 12` sits in the same object."""
+        out = self.run_cli("--build", "--dir", self.mixed(), "--non-interactive")
+        self.assertEqual(out.returncode, 0, out.stderr)
+        block = json.loads(out.stdout)["unmapped_source"]
+        self.assertEqual(block["files"], 12)
+        self.assertEqual(block["extensions"], {".java": 12})
+        self.assertEqual(block["directories"], {"src/main/java/com/acme": 12})
+
+    def test_a_clean_repo_pays_nothing_at_all(self):
+        """THE CD-26 GUARANTEE. Asserted as an exact key set, not as an absence: a field that
+        fires on every repository with a README is one an agent learns to skip, after which it
+        costs tokens forever and changes no decision."""
+        out = self.run_cli("--build", "--dir", self.clean(), "--non-interactive")
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertEqual(set(json.loads(out.stdout)),
+                         {"files_scanned", "total_imports", "total_exports",
+                          "commit", "cached_to", "status"})
+
+    def test_the_clean_sentinel_reaches_the_artifact(self):
+        """`files: 0` in the gitignored artifact is what lets project_shape tell "censused and
+        clean" from "this graph predates the census" — with no schema bump."""
+        proj = self.clean()
+        self.run_cli("--build", "--dir", proj, "--non-interactive")
+        with open(os.path.join(proj, "knowledge-base", ".graph", "graph.json")) as f:
+            block = json.load(f)["substrate"]["unmapped_source"]
+        self.assertEqual(block["files"], 0)
+
+    def test_impact_with_no_graph_is_still_exactly_empty(self):
+        """DRIFT'S LOAD-BEARING CONTRACT. `drift.py` uses the *presence* of `all_affected` as
+        its "the graph actually ran" signal, so an extra key in this branch would flip every
+        drift run to `changed-only` at exit 0 with nothing going red. Previously unguarded."""
+        out = self.run_cli("--impact", "foo.ts", "--dir", self.mk({}), "--format", "json")
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertEqual(json.loads(out.stdout), {})
+
+    def test_impact_carries_the_digest_and_keeps_every_original_key(self):
+        proj = self.mixed()
+        self.run_cli("--build", "--dir", proj, "--non-interactive")
+        out = self.run_cli("--impact", "web/src/a.ts", "--dir", proj, "--format", "json")
+        data = json.loads(out.stdout)
+        self.assertEqual(set(data), {"input_files", "direct_dependents",
+                                     "transitive_dependents", "all_affected",
+                                     "not_in_graph", "unmapped_source"})
+        self.assertEqual(set(data["unmapped_source"]), {"files", "extensions", "directories"})
+
+    def test_query_keeps_its_edge_objects(self):
+        """CD-20's edges-vs-paths distinction is untouched by the caveat."""
+        proj = self.mixed()
+        self.run_cli("--build", "--dir", proj, "--non-interactive")
+        data = json.loads(self.run_cli("--query", "web/src/a.ts", "--dir", proj,
+                                       "--format", "json").stdout)
+        self.assertEqual(set(data) - {"unmapped_source"},
+                         {"file", "exports", "imports", "dependents", "language"})
+        self.assertTrue(all(isinstance(e, dict) for e in data["dependents"]))
+
+    def test_dependencies_stays_a_bare_array_and_says_so_on_stderr(self):
+        """THE SHAPE PIN. `run_behaviors` validates this with `isinstance(data, list)` and
+        falls to `graph-query-failed` otherwise — which routes every confirmed and every
+        integration behaviour to `coverage: unknown`, freezing the committed behavior.json and
+        taking wrap-up's gate green over zero behaviours. Breaking closed here is a repo-wide
+        silent pass. Both halves in one test, because the strategy needs both to be true."""
+        proj = self.mixed()
+        self.run_cli("--build", "--dir", proj, "--non-interactive")
+        out = self.run_cli("--dependencies", "web/src/b.ts", "--dir", proj, "--format", "json")
+        self.assertEqual(out.returncode, 0, out.stderr)
+        data = json.loads(out.stdout)
+        self.assertIsInstance(data, list)
+        self.assertTrue(all(isinstance(x, str) for x in data))
+        self.assertIn("excludes 12 source file(s)", out.stderr)
+
+    def test_dependents_stays_a_bare_array_and_says_so_on_stderr(self):
+        proj = self.mixed()
+        self.run_cli("--build", "--dir", proj, "--non-interactive")
+        out = self.run_cli("--dependents", "web/src/a.ts", "--dir", proj, "--format", "json")
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertIsInstance(json.loads(out.stdout), list)
+        self.assertIn("excludes 12 source file(s)", out.stderr)
+
+    def test_an_up_to_date_update_carries_the_census_without_re_walking(self):
+        proj = self.mixed()
+        # A real commit, because `update()` falls back to a full build without one — and a
+        # full build would re-walk, which is exactly what this test claims does not happen.
+        for cmd in (["init", "-q"], ["add", "-A"],
+                    ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "x"]):
+            subprocess.run(["git", *cmd], cwd=proj, capture_output=True)
+        self.run_cli("--build", "--dir", proj, "--non-interactive")
+        artifact = os.path.join(proj, "knowledge-base", ".graph", "graph.json")
+        before = os.path.getmtime(artifact)
+        out = self.run_cli("--update", "--dir", proj, "--non-interactive", "--format", "json")
+        data = json.loads(out.stdout)
+        self.assertEqual(data["status"], "up_to_date")
+        self.assertEqual(data["unmapped_source"]["files"], 12)
+        self.assertEqual(os.path.getmtime(artifact), before)
+
+    def test_the_summary_format_gains_a_line_only_when_there_is_one(self):
+        """FIRST TEST OF format_summary. Both directions: the new line appears, and a clean
+        repo's four lines are byte-identical to what they were before the census existed."""
+        dirty = self.run_cli("--build", "--dir", self.mixed(), "--non-interactive",
+                             "--format", "summary").stdout
+        self.assertIn("NOT GRAPHED: 12 source file(s)", dirty)
+        self.assertIn("src/main/java/com/acme", dirty)
+        clean = self.run_cli("--build", "--dir", self.clean(), "--non-interactive",
+                             "--format", "summary").stdout
+        self.assertNotIn("NOT GRAPHED", clean)
+        body = clean.strip().splitlines()
+        self.assertEqual(body[0], "Built dependency graph:")
+        self.assertEqual([ln.strip().split(" ")[0] for ln in body[1:]], ["-"] * 4)
+        self.assertTrue(body[-1].strip().startswith("- Cached to"))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

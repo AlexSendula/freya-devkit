@@ -261,6 +261,7 @@ classify as greenfield.
 | `coverage.incremental` | `false` means the backend cannot reliably drop deleted nodes, and the contract rebuilds from scratch instead |
 | `degraded_from` | Present **only** on a fallback: the backend that was configured but unavailable |
 | `exclusions` | What the project declared out of scope for this build |
+| `unmapped_source` | In-scope program-source files on disk this backend does not read: `{files, extensions, directories, backend[, readable_by, advice, directories_omitted, truncated, error]}`. `files: 0` means the census ran and found none; the key's **absence** means the graph predates it. `files: null` with `error` means the census could not run. Never a refusal — see CD-27 |
 
 ### FileInfo Fields
 
