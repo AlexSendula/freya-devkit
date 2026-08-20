@@ -23,7 +23,8 @@ Shape:
 
     {
       "substrate": {
-        "backend": "auto"          // auto | homegrown | <name of an installed backend>
+        "backend": "auto",         // auto | homegrown | <name of an installed backend>
+        "symbols": false           // record which symbol each edge leaves and arrives at
       },
       "directories": {
         "docs": "source",          // this project's docs/ really is source
@@ -57,6 +58,13 @@ BACKEND_AUTO = 'auto'
 DEFAULTS = {
     'substrate': {
         'backend': BACKEND_AUTO,
+        # Off by default. Symbol refinement is genuinely useful and genuinely not free:
+        # measured on this repository it turns 73 file-level edges into 417, because a test
+        # module calling one helper sixty times is sixty distinct symbol pairs and one
+        # dependency. Nothing downstream reads them yet, so switching it on for everybody
+        # would be paying the size now for a consumer that does not exist. Spec §5 is
+        # explicit that file-level behaviour is the floor and symbols only refine it.
+        'symbols': False,
     },
     'directories': {},
 }
@@ -143,12 +151,25 @@ class Settings:
             verdicts[key] = verdict
         return verdicts
 
+    @property
+    def symbols(self) -> bool:
+        """Should edges record the symbols they leave and arrive at, where the backend knows?
+
+        A backend that cannot see symbols is unaffected — this asks for refinement, it does
+        not require it, so turning it on never makes a graph worse or a build fail.
+        """
+        substrate = self.data.get('substrate')
+        if not isinstance(substrate, dict):
+            return False
+        return substrate.get('symbols') is True
+
     def to_dict(self) -> Dict[str, Any]:
         return json.loads(json.dumps(self.data))  # deep copy, plain types only
 
     def __repr__(self) -> str:
-        return 'Settings(backend=%r, directories=%d, present=%s, warnings=%d)' % (
-            self.backend, len(self.directories), self.present, len(self.warnings))
+        return 'Settings(backend=%r, symbols=%s, directories=%d, present=%s, warnings=%d)' % (
+            self.backend, self.symbols, len(self.directories), self.present,
+            len(self.warnings))
 
 
 def load(project_dir: str) -> Settings:

@@ -1,0 +1,260 @@
+{
+ "_README": "Fixture for the spec \u00a79.1 gate: does graphify lose an edge the homegrown resolver finds? `files` is materialised into a temp dir at test time so no stray source lands in this repository; `graphify` is a real recorded graphify 0.9.47 extraction of exactly that tree, slimmed to the fields the projection reads. Regenerate with test_backend_graphify.py --record.",
+ "files": {
+  "java/Repo.java": "public class Repo {\n  public int fetch() { return 3; }\n}\n",
+  "java/Service.java": "public class Service {\n  public int run() { return new Repo().fetch(); }\n}\n",
+  "src/app.ts": "import { helper } from './helper';\nexport const app = () => helper();\n",
+  "src/helper.ts": "export function helper(): number { return 1; }\n",
+  "src/main.py": "from util import compute\ndef run(): return compute()\n",
+  "src/shim.py": "SHIM = \"from util import compute\\n\"\ndef emit(): return SHIM\n",
+  "src/util.py": "def compute(): return 2\n"
+ },
+ "graphify": {
+  "built_at_commit": null,
+  "links": [
+   {
+    "confidence": "EXTRACTED",
+    "relation": "calls",
+    "source": "src_app_app",
+    "source_file": "src/app.ts",
+    "source_location": "L2",
+    "target": "src_helper_helper"
+   },
+   {
+    "confidence": "EXTRACTED",
+    "relation": "calls",
+    "source": "src_main_run",
+    "source_file": "src/main.py",
+    "source_location": "L2",
+    "target": "src_util_compute"
+   },
+   {
+    "confidence": "EXTRACTED",
+    "relation": "imports",
+    "source": "src_app",
+    "source_file": "src/app.ts",
+    "source_location": "L1",
+    "target": "src_helper_helper"
+   },
+   {
+    "confidence": "EXTRACTED",
+    "relation": "imports",
+    "source": "src_main",
+    "source_file": "src/main.py",
+    "source_location": "L1",
+    "target": "src_util_compute"
+   },
+   {
+    "confidence": "EXTRACTED",
+    "relation": "imports_from",
+    "source": "src_app",
+    "source_file": "src/app.ts",
+    "source_location": "L1",
+    "target": "src_helper"
+   },
+   {
+    "confidence": "EXTRACTED",
+    "relation": "imports_from",
+    "source": "src_main",
+    "source_file": "src/main.py",
+    "source_location": "L1",
+    "target": "src_util"
+   },
+   {
+    "confidence": "EXTRACTED",
+    "relation": "contains",
+    "source": "java_repo",
+    "source_file": "java/Repo.java",
+    "source_location": "L1",
+    "target": "java_repo_repo"
+   },
+   {
+    "confidence": "EXTRACTED",
+    "relation": "contains",
+    "source": "java_service",
+    "source_file": "java/Service.java",
+    "source_location": "L1",
+    "target": "java_service_service"
+   },
+   {
+    "confidence": "EXTRACTED",
+    "relation": "contains",
+    "source": "src_app",
+    "source_file": "src/app.ts",
+    "source_location": "L2",
+    "target": "src_app_app"
+   },
+   {
+    "confidence": "EXTRACTED",
+    "relation": "contains",
+    "source": "src_helper",
+    "source_file": "src/helper.ts",
+    "source_location": "L1",
+    "target": "src_helper_helper"
+   },
+   {
+    "confidence": "EXTRACTED",
+    "relation": "contains",
+    "source": "src_main",
+    "source_file": "src/main.py",
+    "source_location": "L2",
+    "target": "src_main_run"
+   },
+   {
+    "confidence": "EXTRACTED",
+    "relation": "contains",
+    "source": "src_shim",
+    "source_file": "src/shim.py",
+    "source_location": "L2",
+    "target": "src_shim_emit"
+   },
+   {
+    "confidence": "EXTRACTED",
+    "relation": "contains",
+    "source": "src_util",
+    "source_file": "src/util.py",
+    "source_location": "L1",
+    "target": "src_util_compute"
+   },
+   {
+    "confidence": "EXTRACTED",
+    "relation": "method",
+    "source": "java_repo_repo",
+    "source_file": "java/Repo.java",
+    "source_location": "L2",
+    "target": "java_repo_repo_fetch"
+   },
+   {
+    "confidence": "EXTRACTED",
+    "relation": "method",
+    "source": "java_service_service",
+    "source_file": "java/Service.java",
+    "source_location": "L2",
+    "target": "java_service_service_run"
+   },
+   {
+    "confidence": "INFERRED",
+    "relation": "calls",
+    "source": "java_service_service_run",
+    "source_file": "java/Service.java",
+    "source_location": "L2",
+    "target": "java_repo_repo"
+   }
+  ],
+  "nodes": [
+   {
+    "file_type": "code",
+    "id": "java_repo_repo",
+    "label": "Repo",
+    "source_file": "java/Repo.java",
+    "source_location": "L1"
+   },
+   {
+    "file_type": "code",
+    "id": "java_service_service",
+    "label": "Service",
+    "source_file": "java/Service.java",
+    "source_location": "L1"
+   },
+   {
+    "file_type": "code",
+    "id": "java_repo_repo_fetch",
+    "label": ".fetch()",
+    "source_file": "java/Repo.java",
+    "source_location": "L2"
+   },
+   {
+    "file_type": "code",
+    "id": "java_service_service_run",
+    "label": ".run()",
+    "source_file": "java/Service.java",
+    "source_location": "L2"
+   },
+   {
+    "file_type": "code",
+    "id": "src_app_app",
+    "label": "app()",
+    "source_file": "src/app.ts",
+    "source_location": "L2"
+   },
+   {
+    "file_type": "code",
+    "id": "src_helper_helper",
+    "label": "helper()",
+    "source_file": "src/helper.ts",
+    "source_location": "L1"
+   },
+   {
+    "file_type": "code",
+    "id": "src_main_run",
+    "label": "run()",
+    "source_file": "src/main.py",
+    "source_location": "L2"
+   },
+   {
+    "file_type": "code",
+    "id": "src_util_compute",
+    "label": "compute()",
+    "source_file": "src/util.py",
+    "source_location": "L1"
+   },
+   {
+    "file_type": "code",
+    "id": "src_shim_emit",
+    "label": "emit()",
+    "source_file": "src/shim.py",
+    "source_location": "L2"
+   },
+   {
+    "file_type": "code",
+    "id": "java_repo",
+    "label": "Repo.java",
+    "source_file": "java/Repo.java",
+    "source_location": "L1"
+   },
+   {
+    "file_type": "code",
+    "id": "java_service",
+    "label": "Service.java",
+    "source_file": "java/Service.java",
+    "source_location": "L1"
+   },
+   {
+    "file_type": "code",
+    "id": "src_app",
+    "label": "app.ts",
+    "source_file": "src/app.ts",
+    "source_location": "L1"
+   },
+   {
+    "file_type": "code",
+    "id": "src_helper",
+    "label": "helper.ts",
+    "source_file": "src/helper.ts",
+    "source_location": "L1"
+   },
+   {
+    "file_type": "code",
+    "id": "src_main",
+    "label": "main.py",
+    "source_file": "src/main.py",
+    "source_location": "L1"
+   },
+   {
+    "file_type": "code",
+    "id": "src_util",
+    "label": "util.py",
+    "source_file": "src/util.py",
+    "source_location": "L1"
+   },
+   {
+    "file_type": "code",
+    "id": "src_shim",
+    "label": "shim.py",
+    "source_file": "src/shim.py",
+    "source_location": "L1"
+   }
+  ]
+ },
+ "graphify_version": "0.9.47"
+}

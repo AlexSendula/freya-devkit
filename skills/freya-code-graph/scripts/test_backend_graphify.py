@@ -196,6 +196,65 @@ class TestWhatIsDeliberatelyNotAnEdge(Base):
                          {'imports', 'calls'})
 
 
+class TestSymbolRefinement(Base):
+    """Phase 3. Symbols refine a file anchor; they never replace it (spec §5, CD-6)."""
+
+    def test_off_by_default(self):
+        """Measured on this repository, symbols turn 73 file-level edges into 417 — a test
+        module calling one helper sixty times is sixty symbol pairs and one dependency.
+        Nothing downstream reads them yet, so the cost is not imposed by default."""
+        g = self.translate([node('a', 'src/a.py', 'main'), node('b', 'src/b.py', 'helper')],
+                           [link('a', 'b', 'calls')])
+        self.assertEqual(self.edges(g, 'src/a.py')[0],
+                         {'to': 'src/b.py', 'kind': 'calls', 'provenance': 'extracted'})
+
+    def test_on_request_an_edge_names_both_ends(self):
+        g = self.translate([node('a', 'src/a.py', 'main'), node('b', 'src/b.py', 'helper')],
+                           [link('a', 'b', 'calls', location='L42')], symbols=True)
+        self.assertEqual(self.edges(g, 'src/a.py')[0], {
+            'to': 'src/b.py', 'kind': 'calls', 'provenance': 'extracted',
+            'from_symbol': 'main', 'to_symbol': 'helper', 'line': 42})
+
+    def test_the_file_anchor_survives_refinement(self):
+        """The floor. A consumer that ignores symbols must behave exactly as before."""
+        plain = self.translate([node('a', 'src/a.py', 'm'), node('b', 'src/b.py', 'h')],
+                               [link('a', 'b', 'imports')])
+        refined = self.translate([node('a', 'src/a.py', 'm'), node('b', 'src/b.py', 'h')],
+                                 [link('a', 'b', 'imports')], symbols=True)
+        self.assertEqual(substrate.edge_ends(self.edges(plain, 'src/a.py')),
+                         substrate.edge_ends(self.edges(refined, 'src/a.py')))
+
+    def test_symbols_split_edges_the_file_view_would_merge(self):
+        """Two calls into one file are one dependency and two facts. Without symbols they
+        collapse; with them, both survive — which is the whole point of the refinement."""
+        nodes = [node('a1', 'src/a.py', 'first'), node('a2', 'src/a.py', 'second'),
+                 node('b', 'src/b.py', 'helper')]
+        links = [link('a1', 'b', 'calls'), link('a2', 'b', 'calls')]
+        self.assertEqual(len(self.edges(self.translate(nodes, links), 'src/a.py')), 1)
+        self.assertEqual(
+            len(self.edges(self.translate(nodes, links, symbols=True), 'src/a.py')), 2)
+
+    def test_a_missing_line_is_omitted_rather_than_guessed(self):
+        bad = link('a', 'b', 'calls')
+        bad['source_location'] = 'not-a-line'
+        g = self.translate([node('a', 'src/a.py', 'm'), node('b', 'src/b.py', 'h')],
+                           [bad], symbols=True)
+        self.assertNotIn('line', self.edges(g, 'src/a.py')[0])
+
+    def test_an_unnamed_symbol_is_omitted_rather_than_recorded_empty(self):
+        g = self.translate([node('a', 'src/a.py', ''), node('b', 'src/b.py', 'h')],
+                           [link('a', 'b', 'calls')], symbols=True)
+        edge = self.edges(g, 'src/a.py')[0]
+        self.assertNotIn('from_symbol', edge)
+        self.assertEqual(edge['to_symbol'], 'h')
+
+    def test_a_refined_graph_still_validates(self):
+        g = self.translate([node('a', 'src/a.py', 'm'), node('b', 'src/b.py', 'h')],
+                           [link('a', 'b', 'imports')], symbols=True)
+        substrate.link_dependents(g)
+        self.assertEqual(substrate.validate_graph(g, self.backend.coverage()), [])
+
+
 class TestExclusionsArePostFiltered(Base):
     """`graphify update` takes no exclusion flag, so obligation 6 is honoured on the way out.
     That settles spec open question 3, which had left the mechanism undecided."""
@@ -227,12 +286,45 @@ class TestTheContractIsSatisfied(Base):
     def test_it_conforms(self):
         self.assertEqual(substrate.conformance_errors(self.backend), [])
 
-    def test_it_declares_only_relations_it_can_emit(self):
-        """`re_exports` is absent because graphify has no relation meaning it. Claiming a kind
-        a backend cannot emit is how a caller trusts a query that always returns nothing."""
-        relations = self.backend.coverage().relations
-        self.assertNotIn('re_exports', relations)
-        self.assertEqual(set(relations), set(backend_graphify.RELATIONS.values()) - {None})
+    def test_the_declaration_is_derived_from_the_mapping_table(self):
+        """Written down twice, the two drift. A row added to the table must not leave the
+        coverage declaration claiming less — or more — than the projection can emit."""
+        self.assertEqual(set(self.backend.coverage().relations),
+                         set(backend_graphify.RELATIONS.values()) - {None})
+
+    def test_an_unmapped_relation_is_reported_rather_than_defaulted(self):
+        """The vocabulary cannot be enumerated: grepping graphify's source finds 26 relation
+        names, and `reads_from` — which this repository's own graph contains — is not one of
+        them. So a name this table has never seen is a capability arriving upstream, and it
+        has to surface as "dropped N links" rather than as a repository that looks thin."""
+        g = self.translate(
+            [node('a', 'src/a.py'), node('b', 'src/b.py')],
+            [link('a', 'b', 'teleports_to'), link('a', 'b', 'teleports_to'),
+             link('a', 'b', 'imports')])
+        self.assertEqual(g['substrate']['unmapped_relations'], {'teleports_to': 2})
+        self.assertEqual(len(self.edges(g, 'src/a.py')), 1)
+
+    def test_a_relation_known_not_to_be_a_dependency_is_not_reported(self):
+        """`contains` is listed with an explicit None. Being on the table is what stops it
+        appearing in the unmapped report on every single build."""
+        g = self.translate([node('a', 'src/a.py'), node('b', 'src/a.py')],
+                           [link('a', 'b', 'contains')])
+        self.assertNotIn('unmapped_relations', g['substrate'])
+
+    def test_direction_disagreeing_with_the_link_s_own_source_file_is_counted(self):
+        """graphify writes `directed: false`, so field order is the only carrier of
+        direction — and Phase 0 measured that losing it takes mean blast radius from 5 files
+        to 188. Each link repeats its own source_file, which is a free cross-check."""
+        bad = link('a', 'b', 'imports')
+        bad['source_file'] = 'somewhere/else.py'
+        g = self.translate([node('a', 'src/a.py'), node('b', 'src/b.py')], [bad])
+        self.assertEqual(g['substrate']['direction_warnings'], 1)
+
+    def test_a_consistent_graph_carries_no_direction_warning(self):
+        good = link('a', 'b', 'imports')
+        good['source_file'] = 'src/a.py'
+        g = self.translate([node('a', 'src/a.py'), node('b', 'src/b.py')], [good])
+        self.assertNotIn('direction_warnings', g['substrate'])
 
     def test_a_translated_graph_validates(self):
         g = self.translate([node('a', 'src/a.py'), node('b', 'src/b.py')],
@@ -305,6 +397,112 @@ class TestFailureIsReportedNotSwallowed(Base):
         floor = BrokenFloor(self.tmp)
         with self.assertRaises(RuntimeError):
             graph_ops._run_or_degrade(graph_ops.run_build, floor, floor, True, None, None)
+
+
+class TestTheUnderReportingGate(unittest.TestCase):
+    """Spec §9.1, the test that blocks adoption: **does graphify lose an edge the homegrown
+    resolver finds?** A lost edge narrows a behaviour's blast radius, the behaviour is not
+    flagged, and a regression walks through the wrap-up gate.
+
+    Run against a committed fixture and a *recorded* graphify extraction, so it gates the half
+    that can regress here — our projection — on any machine, with no binary. graphify's own
+    extraction is gated separately by the live tests below, which skip when it is absent.
+    """
+
+    FIXTURE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                           'testdata', 'gate91.json')
+
+    @classmethod
+    def setUpClass(cls):
+        with open(cls.FIXTURE, encoding='utf-8') as handle:
+            cls.data = json.load(handle)
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        for rel, body in self.data['files'].items():
+            path = os.path.join(self.tmp, rel)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, 'w', encoding='utf-8') as handle:
+                handle.write(body)
+
+    def pairs(self, graph):
+        return {(src, substrate.edge_other(e))
+                for src, info in graph['files'].items()
+                for e in info['imports']
+                if substrate.is_internal(substrate.edge_other(e))}
+
+    def both(self):
+        homegrown = graph_ops.CodeGraph(self.tmp).build(non_interactive=True).graph
+        translated = GraphifyBackend(self.tmp).translate(self.data['graphify'])
+        return self.pairs(homegrown), self.pairs(translated)
+
+    def test_graphify_loses_no_edge_the_floor_finds(self):
+        floor, graphify = self.both()
+        missed = floor - graphify
+        # The one known exception, and it is homegrown's defect rather than graphify's:
+        # `shim.py` contains `from util import compute` inside a *string literal*, and the
+        # homegrown regexes read string bodies (backlog item 10). graphify parses.
+        self.assertEqual(missed, {('src/shim.py', 'src/util.py')},
+                         'graphify lost edges beyond the known homegrown false positive: %s'
+                         % sorted(missed - {('src/shim.py', 'src/util.py')}))
+
+    def test_the_known_miss_really_is_a_string_literal(self):
+        """Pinned so the exemption above cannot quietly start excusing something else."""
+        body = self.data['files']['src/shim.py']
+        self.assertIn('"from util import compute', body)
+
+    def test_graphify_sees_a_language_the_floor_is_blind_to(self):
+        """The polyglot half. Without this the gate would pass for a backend that merely
+        matched the floor, which is not why the second substrate exists."""
+        floor, graphify = self.both()
+        java = {p for p in graphify if p[0].endswith('.java')}
+        self.assertTrue(java, 'no Java edge in the recorded extraction')
+        self.assertFalse({p for p in floor if p[0].endswith('.java')})
+
+    def test_direction_is_preserved_and_not_symmetrised(self):
+        """graphify writes `directed: false`. Phase 0 measured that reading it as undirected
+        takes mean blast radius from 5 files to 188, so direction is the single
+        highest-consequence silent regression available here."""
+        _, graphify = self.both()
+        self.assertIn(('src/app.ts', 'src/helper.ts'), graphify)
+        self.assertNotIn(('src/helper.ts', 'src/app.ts'), graphify)
+
+    def test_the_projected_edge_set_is_pinned_exactly(self):
+        """Pairs alone are a weak gate on this fixture: three relations carry each pair, so
+        dropping one changes nothing observable. Pinning (from, to, kind) catches a mapping
+        change that *does* alter the graph — most importantly losing `calls`, which is the
+        only relation carrying the Java edge and therefore the whole polyglot claim.
+        """
+        translated = GraphifyBackend(self.tmp).translate(self.data['graphify'])
+        got = {(src, substrate.edge_other(e), substrate.edge_kind(e))
+               for src, info in translated['files'].items() for e in info['imports']}
+        self.assertEqual(got, {
+            ('src/app.ts', 'src/helper.ts', 'imports'),
+            ('src/app.ts', 'src/helper.ts', 'calls'),
+            ('src/main.py', 'src/util.py', 'imports'),
+            ('src/main.py', 'src/util.py', 'calls'),
+            ('java/Service.java', 'java/Repo.java', 'calls'),
+        })
+
+    def test_the_translated_graph_satisfies_the_contract(self):
+        translated = GraphifyBackend(self.tmp).translate(self.data['graphify'])
+        substrate.link_dependents(translated)
+        errors = substrate.validate_graph(translated,
+                                          GraphifyBackend(self.tmp).coverage())
+        self.assertEqual(errors, [])
+
+    @needs_graphify
+    def test_the_recording_still_matches_what_graphify_produces(self):
+        """The fixture is a snapshot, and a snapshot rots. This is the canary: when graphify
+        changes what it emits for this tree, the gate above is still passing against a graph
+        nobody produces any more."""
+        live = GraphifyBackend(self.tmp).build().graph
+        self.assertEqual(self.pairs(live),
+                         self.pairs(GraphifyBackend(self.tmp).translate(
+                             self.data['graphify'])),
+                         'recorded fixture has drifted from graphify %s — re-record it'
+                         % self.data.get('graphify_version'))
 
 
 @needs_graphify

@@ -100,8 +100,15 @@ def is_internal(specifier: str) -> bool:
 #   kind          one of RELATION_KINDS.
 #   provenance    one of PROVENANCE — how directly it was read out of the source.
 #
-# Phase 3 adds `from_symbol`, `to_symbol` and `line` on top. They are deliberately not
-# reserved here: the point of an object is that a field can arrive without a migration.
+# and optionally, when a backend can see that far (Phase 3):
+#
+#   from_symbol   the symbol the edge leaves, e.g. `conformance_errors`
+#   to_symbol     the symbol it arrives at
+#   line          1-based line of the statement that produced it
+#
+# The three are *refinement*, never replacement (spec §5, CD-6). Every edge keeps its file
+# anchor, so a consumer that ignores them behaves exactly as it did before they existed —
+# which is what makes symbol support optional per backend rather than a schema change.
 #
 # Every reader goes through the accessors below, which take a string *or* an object. That
 # tolerance is not politeness to old code — an already-written graph.json on someone's disk
@@ -160,6 +167,42 @@ def edge_ends(edges: Any) -> List[str]:
 def internal_ends(edges: Any) -> List[str]:
     """The far ends that name a file in this project, dropping the signals."""
     return [end for end in edge_ends(edges) if is_internal(end)]
+
+
+SYMBOL_FIELDS = ('from_symbol', 'to_symbol')
+
+
+def _symbol_errors(edge: Dict[str, Any]) -> List[str]:
+    """Ways an edge's optional symbol refinement is malformed. Absent is always fine.
+
+    Checked because "optional" is where the sloppiness goes. An empty string or a `null` is
+    not a symbol, and it reads as one to anything doing a truthiness test — the difference
+    between "this edge has no symbol" and "this edge has a symbol whose name is nothing"
+    matters to whoever tries to display it.
+    """
+    problems = []  # type: List[str]
+    for field in SYMBOL_FIELDS:
+        if field not in edge:
+            continue
+        value = edge[field]
+        if not isinstance(value, str) or not value.strip():
+            problems.append('has %s %r, which is not a symbol name' % (field, value))
+    if 'line' in edge:
+        line = edge['line']
+        if not isinstance(line, int) or isinstance(line, bool) or line < 1:
+            problems.append('has line %r, which is not a 1-based line number' % (line,))
+    return problems
+
+
+def edge_symbols(edge: Any) -> Tuple[Optional[str], Optional[str]]:
+    """`(from_symbol, to_symbol)` for an edge, or `(None, None)` if it carries none."""
+    if not isinstance(edge, dict):
+        return (None, None)
+    out = []
+    for field in SYMBOL_FIELDS:
+        value = edge.get(field)
+        out.append(value if isinstance(value, str) and value.strip() else None)
+    return (out[0], out[1])
 
 
 def upgrade_edges(graph: Dict[str, Any]) -> Dict[str, Any]:
@@ -270,6 +313,12 @@ def link_dependents(graph: Dict[str, Any]) -> Dict[str, Any]:
             continue
         for edge in info.get('imports') or []:
             target = edge_other(edge)
+            if target == path:
+                # Never link a file to itself; `validate_graph` reports it separately. Doing
+                # it here as well means a backend that emits one gets a wrong-looking graph
+                # rather than a wrong *answer* — blast radius walks `dependents`, so a
+                # self-entry puts every file in its own blast radius.
+                continue
             # `isinstance` on the *target's* entry, not just this one. Linking runs before
             # validation — it has to, since validation checks the reverse index it produces —
             # so a backend emitting a non-dict node would crash here with
@@ -627,7 +676,21 @@ def validate_graph(graph: Dict[str, Any], coverage: Optional[Coverage] = None) -
                 if edge.get('provenance') not in PROVENANCE:
                     errors.append('files[%r]: edge to %r has provenance %r, not one of %s'
                                   % (path, spec, edge.get('provenance'), list(PROVENANCE)))
-            if is_internal(spec) and spec not in files:
+                errors.extend('files[%r]: edge to %r %s' % (path, spec, why)
+                              for why in _symbol_errors(edge))
+            if spec == path:
+                # A file is never its own dependency. `link_dependents` would make it its own
+                # dependent and every traversal walks that, so `--impact` on the file reports
+                # the file as directly affected by itself.
+                #
+                # The homegrown resolver has dropped these since it learned to (its comment at
+                # `_classify_import` explains the `rich/abc.py` case), but nothing *checked* —
+                # so the rule lived in one backend rather than in the contract. graphify is
+                # the reason it matters: 1,516 of its mapped links on this repository are
+                # intra-file, which at file level is 1,516 self-edges.
+                errors.append('files[%r]: edge to itself — a file is not its own dependency'
+                              % path)
+            elif is_internal(spec) and spec not in files:
                 # Obligation 2 inverted: an internal edge must name a file in the graph.
                 # Anything unresolvable belongs behind `unresolved:`, where it is visible.
                 errors.append(

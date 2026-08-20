@@ -63,7 +63,8 @@ Optional. Absent, everything below is the default.
 ```json
 {
   "substrate": {
-    "backend": "auto"
+    "backend": "auto",
+    "symbols": false
   },
   "directories": {
     "docs": "source"
@@ -74,8 +75,14 @@ Optional. Absent, everything below is the default.
 `directories` is how a project argues with the built-in exclusions — see
 [Overriding the built-in exclusions](#overriding-the-built-in-exclusions) below.
 
-`auto` picks whichever installed backend can read the most of the repo, preferring the built-in
-one on a tie. Naming a backend that is not installed does not fail the build — it falls back,
+`symbols` asks a backend to record *which symbol* each edge leaves and arrives at, where it
+knows. Off by default: measured on this repository it turns 73 file-level edges into 417,
+because a test module calling one helper sixty times is sixty symbol pairs and one dependency.
+A backend that cannot see symbols is unaffected — this asks for refinement, it does not
+require it.
+
+`auto` is the built-in backend. Naming another one *is* the opt-in — see
+[Backends](#backends). Naming one that is not installed does not fail the build; it falls back,
 and says so on stderr:
 
 ```
@@ -89,11 +96,30 @@ would take a real decision with it.
 ### Backends
 
 The graph is produced by a **substrate backend** behind a fixed contract
-(`scripts/substrate.py`). One ships today:
+(`scripts/substrate.py`). Two ship today:
 
 | Backend | Languages | Requires |
 |---|---|---|
 | `homegrown` | TypeScript, JavaScript, Python, Go | nothing — stdlib only |
+| `graphify` | 25, incl. Java, Rust, C#, Kotlin, Swift, Scala, Ruby, PHP, SQL, Terraform | the `graphify` binary on PATH |
+
+`graphify` also emits `calls`, `inherits` and `references` — relations the homegrown resolver
+has no notion of, because it resolves module references between files and has no idea what a
+symbol is.
+
+**It is opt-in, deliberately.** `auto` stays on the floor even when another backend would read
+more of your repository, and tells you what it is leaving out:
+
+```
+code-graph: 'graphify' is installed and reads 5 file(s) here that 'homegrown' cannot
+(.json, .ps1, .sh). It is opt-in: set substrate.backend to 'graphify' in
+knowledge-base/settings.json to use it.
+```
+
+Scoring silently would mean that installing a binary anywhere on PATH changed the substrate —
+and therefore every blast radius — for every project on the machine at once, with no diff.
+A substrate change is a measured migration (CD-13): `graph.<backend>.json` is written beside
+`graph.json` precisely so you can diff the new one against the old before trusting it.
 
 Every graph records which backend built it and what that backend can read:
 
@@ -206,6 +232,10 @@ it is wrong for somebody.
   }
 }
 ```
+
+With `symbols` on, an edge also carries `from_symbol`, `to_symbol` and `line`. Those refine
+the file anchor and never replace it, so anything that ignores them behaves exactly as it did
+before they existed.
 
 An edge names its far end in `to` (or `from`, going backwards), and that end is one of three
 things: a project-relative path (a real edge), `external:<pkg>` (third-party), or

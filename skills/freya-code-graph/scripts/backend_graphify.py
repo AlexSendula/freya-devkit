@@ -40,6 +40,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import settings as settings_mod  # noqa: E402
 import substrate  # noqa: E402
 
 BINARY = 'graphify'
@@ -62,27 +63,70 @@ UPDATE_TIMEOUT_SECONDS = 900
 #   contains      1,199 links, every one of them intra-file or pointing at a non-code node.
 #                 This is the *node hierarchy* — file contains symbol — not a dependency.
 #   method        1,119 links, all intra-file. Class-has-method. Same thing one level down.
-#   rationale_for   543 links, every endpoint a `rationale` or `document` node. This is
-#                 graphify's own documentation graph. We have one of those (docs.json, CD-7),
-#                 built from citations we control; adopting a second would give two answers to
-#                 "which docs describe this file".
+#   rationale_for   543 links, a `rationale` node to a `code` node, 543 of 543 intra-file and
+#                 543 of 543 in `.py` files. It is a *docstring index* — the source node's
+#                 label is the first line of a docstring — not a documentation graph. It does
+#                 not overlap docs.json (which is doc-section → code-file, CD-7) and does not
+#                 compete with it; it simply cannot express a dependency between two files.
 #
-# Emitting any of the three as a dependency edge would put 2,861 structural facts into a blast
-# radius that is meant to answer "what breaks if I change this file".
+# All 2,861 are 100% intra-file, which is the argument on its own: a relation that never
+# crosses a file boundary cannot produce a file → file edge under any mapping. It can only
+# produce self-edges, and 57.8% of the graph is this.
+#
+# The table below covers far more than the eleven relations a Python repository exercises,
+# because **the vocabulary cannot be enumerated reliably**. Grepping graphify's own source for
+# relation assignments yields 26 names — and `reads_from`, which this repository's graph
+# actually contains, is not among them. Some are built somewhere a static scan does not reach.
+#
+# That is precisely why there is no default. An unlisted relation is counted into
+# `substrate.unmapped_relations` and reported on stderr, so a capability arriving upstream
+# shows up as "dropped 40 `embeds` links" rather than as a repository that looks thinner than
+# it is. A silent fallthrough is the failure Phase 0 recorded against config coverage:
+# "nothing, and no warning".
+#
+# Names verified present in graphify 0.9.47's source are mapped. Names that are plausible but
+# unverified are deliberately absent — being told about them once is better than guessing at
+# them forever.
 RELATIONS = {
+    # Module-level dependency.
     'imports': 'imports',
     'imports_from': 'imports',
+    'includes': 'imports',
+    'crate_depends_on': 'imports',
+    'depends_on': 'imports',
+    're_exports': 're_exports',
+    # Invocation. `instantiates` is constructing a type, which is calling its constructor.
     'calls': 'calls',
     'indirect_call': 'calls',
+    'instantiates': 'calls',
+    # Type hierarchy.
     'inherits': 'inherits',
+    'implements': 'inherits',
+    'mixes_in': 'inherits',
+    # Named without being invoked.
     'references': 'references',
+    'references_constant': 'references',
     'uses': 'references',
+    'uses_component': 'references',
+    'uses_static_prop': 'references',
     'reads_from': 'references',
-    # Structural, deliberately unmapped — see above.
-    'contains': None,
-    'method': None,
-    'rationale_for': None,
+    'bound_to': 'references',
+    # Not dependencies, and explicitly so rather than by omission — being listed here is what
+    # stops them showing up in the unmapped report every single build.
+    'contains': None,          # file has symbol — the node hierarchy
+    'method': None,            # class has method — the same, one level down
+    'binds_method': None,      # ditto
+    'defines': None,           # ditto
+    'rationale_for': None,     # docstring index; see above
+    'cites': None,             # prose citation — docs.json owns that question (CD-7)
+    'requires_env': None,      # an environment variable is not a file
+    'listened_by': None,       # event wiring, not a source dependency
+    'semantically_similar_to': None,   # clustering output, not a fact about the code
 }
+
+# Every kind the table can produce. Derived rather than written down twice, so a new row
+# cannot claim a relation the coverage declaration then denies.
+EMITTED_KINDS = tuple(k for k in substrate.RELATION_KINDS if k in set(RELATIONS.values()))
 
 # graphify's own trust axis, which lines up with the contract's. Phase 0 recorded that the
 # two-tier design was "unexercised" because no file-level edge rested solely on an INFERRED
@@ -164,15 +208,15 @@ class GraphifyBackend:
     def coverage(self) -> substrate.Coverage:
         """What this backend reads, and which relations it emits.
 
-        `relations` omits `re_exports`: graphify has no relation that means it, and claiming a
-        kind a backend cannot emit is how a caller ends up trusting a query that always comes
-        back empty. The homegrown backend claims it and this one does not, which is precisely
-        the per-backend difference `Coverage` exists to express (CD-16).
+        `relations` is derived from the mapping table, so adding a row cannot leave the
+        declaration claiming less — or more — than the projection can actually emit. That is
+        the per-backend difference `Coverage` exists to express (CD-16): a caller needing
+        `calls` can see that this backend has them and the homegrown one does not.
         """
         return substrate.Coverage(
             languages=LANGUAGES,
             extensions=EXTENSIONS,
-            relations=('imports', 'calls', 'inherits', 'references'),
+            relations=EMITTED_KINDS,
             # Measured, not assumed. A file deleted between runs loses its nodes and its
             # links — verified at both 1-of-2 and 19-of-20 files removed, the second being
             # well past the shrink guard that `--force` exists to override.
@@ -185,7 +229,8 @@ class GraphifyBackend:
         """Extract, then project onto the contract. Produces; `run_build` persists."""
         raw = self._extract()
         graph = self.translate(raw, exclusions=exclusions,
-                               selection_metadata=selection_metadata)
+                               selection_metadata=selection_metadata,
+                               symbols=self._symbols_requested())
         self.graph = graph
         return substrate.Result(graph, substrate.Result.BUILT)
 
@@ -205,6 +250,15 @@ class GraphifyBackend:
                                 len(result.graph.get('files') or {}))
 
     # -- extraction --------------------------------------------------------
+
+    def _symbols_requested(self) -> bool:
+        """Does this project want symbol refinement on its edges? (Phase 3, opt-in.)"""
+        try:
+            return settings_mod.load(self.project_dir).symbols
+        except Exception:
+            # Configuration must never be the reason a build fails; the floor behaviour —
+            # file-level edges — is the correct answer either way.
+            return False
 
     def output_path(self) -> str:
         return os.path.join(self.project_dir, OUTPUT_DIR, OUTPUT_FILE)
@@ -275,7 +329,15 @@ class GraphifyBackend:
             })
 
         seen = set()  # type: set
+        unmapped = {}  # type: Dict[str, int]
+        misdirected = 0
         for link in raw.get('links') or []:
+            if isinstance(link, dict):
+                relation = link.get('relation')
+                if relation not in RELATIONS:
+                    unmapped[str(relation)] = unmapped.get(str(relation), 0) + 1
+                if self._misdirected(link, nodes):
+                    misdirected += 1
             edge = self._project(link, nodes, symbols=symbols)
             if edge is None:
                 continue
@@ -290,15 +352,34 @@ class GraphifyBackend:
                                                 e.get('from_symbol') or '',
                                                 e.get('to_symbol') or ''))
 
+        metadata = substrate.graph_metadata(
+            self.name, self.coverage(), exclusions,
+            degraded_from=(selection_metadata or {}).get('degraded_from'),
+            degraded_reason=(selection_metadata or {}).get('degraded_reason'))
+        if unmapped:
+            # Reported, not defaulted. A relation this table has never seen is a capability
+            # arriving, and the graph should say it was dropped rather than let a caller infer
+            # from a thin result that the repository is thin.
+            metadata['unmapped_relations'] = dict(sorted(unmapped.items()))
+            print('code-graph: graphify emitted %d relation(s) this backend does not map (%s);'
+                  ' they are recorded under substrate.unmapped_relations and dropped.'
+                  % (sum(unmapped.values()), ', '.join(sorted(unmapped))), file=sys.stderr)
+        if misdirected:
+            # graphify writes `directed: false`, so the source/target field order is the only
+            # carrier of direction. Phase 0 measured what losing it costs: reading the graph as
+            # undirected took mean blast radius from 5 files to 188. Each link also repeats its
+            # own `source_file`, which gives a free cross-check on that field order — if the two
+            # ever disagree, the assumption this backend rests on has broken.
+            metadata['direction_warnings'] = misdirected
+            print('code-graph: %d graphify link(s) disagree with their own source_file; edge '
+                  'direction may be unreliable in this graph.' % misdirected, file=sys.stderr)
+
         return {
             'version': substrate.GRAPH_SCHEMA_VERSION,
             'commit': raw.get('built_at_commit') or self._git_commit(),
             'timestamp': datetime.now(timezone.utc).isoformat(),
             'project_root': self.project_dir,
-            'substrate': substrate.graph_metadata(
-                self.name, self.coverage(), exclusions,
-                degraded_from=(selection_metadata or {}).get('degraded_from'),
-                degraded_reason=(selection_metadata or {}).get('degraded_reason')),
+            'substrate': metadata,
             'files': files,
         }
 
@@ -366,6 +447,21 @@ class GraphifyBackend:
         key = (source[0], target[0], kind,
                extra.get('from_symbol'), extra.get('to_symbol'))
         return source[0], payload, key
+
+    @staticmethod
+    def _misdirected(link: Dict[str, Any],
+                     nodes: Dict[str, Tuple[str, str, Optional[int]]]) -> bool:
+        """Does a link's own `source_file` disagree with its source node's?
+
+        A free consistency check on the one assumption this whole projection rests on. It is
+        counted rather than raised: one odd link is not a reason to refuse a graph, but a
+        graph full of them means direction is no longer readable and the caller must be told.
+        """
+        stated = link.get('source_file')
+        source = nodes.get(link.get('source'))
+        if source is None or not isinstance(stated, str) or not stated:
+            return False
+        return stated.replace('\\', '/').lstrip('/') != source[0]
 
     def _git_commit(self) -> Optional[str]:
         try:

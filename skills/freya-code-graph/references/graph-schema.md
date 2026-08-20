@@ -114,6 +114,19 @@ The graph is stored inside the project under `knowledge-base/` so it stays versi
           "type": "string",
           "enum": ["extracted", "inferred"],
           "description": "How directly it was read out of the source"
+        },
+        "from_symbol": {
+          "type": "string",
+          "description": "Optional. The symbol the edge leaves. Refines the file anchor, never replaces it"
+        },
+        "to_symbol": {
+          "type": "string",
+          "description": "Optional. The symbol it arrives at"
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Optional. 1-based line of the statement that produced the edge"
         }
       }
     },
@@ -247,6 +260,14 @@ classify as greenfield.
 | `to` / `from` | string | The far end. `to` on an import, `from` on a dependent |
 | `kind` | string | One of `imports`, `re_exports`, `calls`, `inherits`, `references` |
 | `provenance` | string | `extracted` (stated in the source) or `inferred` (derived by resolution) |
+| `from_symbol` / `to_symbol` | string | Optional. Which symbol each end is, when the backend can see that far |
+| `line` | integer | Optional. 1-based line of the statement that produced the edge |
+
+The last three are **refinement, never replacement** (spec §5, CD-6). Every edge keeps its
+file anchor, so a consumer that ignores them behaves exactly as it did before they existed —
+which is what lets symbol support be a per-backend capability rather than a schema change.
+They appear only when `substrate.symbols` is enabled *and* the backend provides them; the
+homegrown resolver never does, because it has no notion of a symbol.
 
 `provenance` is **not** the deterministic-vs-model axis. Phase 0 measured graphify emitting
 `INFERRED` edges from a pure AST pass with no model involved; it records how directly the edge

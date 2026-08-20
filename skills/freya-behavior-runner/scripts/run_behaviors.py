@@ -91,9 +91,60 @@ def coverage_files_to_keys(coverage_final, project_dir, exclude=None):
     return sorted(keys)
 
 
-def shape_fingerprint(exercised_keys, commit, source="observed", confidence=None, reason=None):
+def coverage_symbols(coverage_final, project_dir, exclude=None):
+    """Map an istanbul coverage-final.json to the *named functions that actually ran*.
+
+    Phase 3's symbol refinement, and it comes from the coverage report rather than from the
+    code graph on purpose. An `observed` exercise means "the test ran this"; taking its
+    symbols from a graph would mix in something nobody executed. `fnMap[i]` names each
+    function and `f[i]` counts its executions, so this is measurement, not inference.
+
+    Two rules, both from looking at real coverage output (775 functions across 123 files):
+
+    - **`f[i] > 0` only.** A function that was loaded but never entered is not exercised.
+    - **Named functions only.** 405 of those 775 are `(anonymous_N)`, and N is a *positional*
+      counter per file — `(anonymous_1)` occurs in 44 files, and inserting one function
+      renumbers every later one. Committing those into `behavior.json` (which is tracked,
+      ADR-017) would churn the diff on edits that changed nothing about what ran.
+    """
+    exclude = exclude or set()
+    project = Path(project_dir).resolve()
+    symbols = {}
+    for abs_path, entry in (coverage_final or {}).items():
+        fn_map = (entry or {}).get("fnMap") or {}
+        counts = (entry or {}).get("f") or {}
+        if not fn_map:
+            continue
+        try:
+            rel = Path(abs_path).resolve().relative_to(project).as_posix()
+        except ValueError:
+            continue
+        if rel in exclude or rel.startswith("node_modules/") or "/node_modules/" in rel:
+            continue
+        names = set()
+        for index, fn in fn_map.items():
+            if not counts.get(index):
+                continue
+            name = (fn or {}).get("name")
+            if isinstance(name, str) and name and not name.startswith("(anonymous"):
+                names.add(name)
+        if names:
+            symbols[rel] = sorted(names)
+    return symbols
+
+
+def shape_fingerprint(exercised_keys, commit, source="observed", confidence=None, reason=None,
+                      symbols=None):
     """Build a per-behavior fingerprint. `source` ("observed"|"static") sets the
-    coverage value and each edge's source; unknown when there are no keys."""
+    coverage value and each edge's source; unknown when there are no keys.
+
+    `symbols` optionally refines an entry with the named functions that ran in that file. It
+    is a *list on the existing per-file entry*, not an entry per symbol: the file key is what
+    `behavior-graph` intersects against the impact set, and splitting the entry would change
+    that set's cardinality and every count derived from it. Refinement never replaces the file
+    anchor (spec §5) — an entry with no symbols is byte-identical to one from before this
+    existed, which is what makes the addition safe on a committed artifact.
+    """
     if not exercised_keys:
         result = {"coverage": "unknown", "exercises": []}
         if reason is not None:
@@ -101,13 +152,15 @@ def shape_fingerprint(exercised_keys, commit, source="observed", confidence=None
         return result
     if confidence is None:
         confidence = STATIC_CONFIDENCE if source == "static" else OBSERVED_CONFIDENCE
-    return {
-        "coverage": source,
-        "exercises": [
-            {"path": k, "source": source, "confidence": confidence, "freshness": commit}
-            for k in exercised_keys
-        ],
-    }
+    symbols = symbols or {}
+    exercises = []
+    for k in exercised_keys:
+        edge = {"path": k, "source": source, "confidence": confidence, "freshness": commit}
+        named = symbols.get(k)
+        if named:
+            edge["symbols"] = sorted(named)
+        exercises.append(edge)
+    return {"coverage": source, "exercises": exercises}
 
 
 def static_exercises(entry, deps):
@@ -160,7 +213,9 @@ def run_unit_behavior(behavior, project_dir):
     with open(cov_path, encoding="utf-8") as f:
         coverage_final = json.load(f)
     keys = coverage_files_to_keys(coverage_final, project_dir, exclude={test_file})
-    return shape_fingerprint(keys, commit)
+    return shape_fingerprint(
+        keys, commit,
+        symbols=coverage_symbols(coverage_final, project_dir, exclude={test_file}))
 
 
 def _code_graph_deps(entry, project_dir):

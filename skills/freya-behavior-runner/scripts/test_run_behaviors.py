@@ -1,3 +1,4 @@
+import json
 import os
 import shutil
 import subprocess
@@ -205,6 +206,69 @@ class RunUnitBehaviorFailureTest(unittest.TestCase):
         self.assertEqual(fp["coverage"], "unknown")
         self.assertEqual(fp["exercises"], [])
         self.assertEqual(fp["reason"], "test-failed")
+
+
+class CoverageSymbolsTest(unittest.TestCase):
+    """Phase 3 — an exercise entry may name the functions that actually ran.
+
+    Sourced from the coverage report, not the code graph: `observed` means "the test ran
+    this", and taking symbols from a graph would mix in things nobody executed.
+    """
+
+    COV = {
+        "/proj/lib/webauthn.ts": {
+            "s": {"0": 3},
+            "fnMap": {"0": {"name": "verifyChallenge"}, "1": {"name": "unusedHelper"},
+                      "2": {"name": "(anonymous_1)"}},
+            "f": {"0": 5, "1": 0, "2": 9},
+        },
+        "/proj/lib/plain.ts": {"s": {"0": 1}, "fnMap": {}, "f": {}},
+        "/proj/node_modules/pkg/i.js": {"s": {"0": 1},
+                                        "fnMap": {"0": {"name": "vendored"}}, "f": {"0": 1}},
+    }
+
+    def test_only_functions_that_ran_are_recorded(self):
+        syms = run_behaviors.coverage_symbols(self.COV, "/proj")
+        self.assertEqual(syms["lib/webauthn.ts"], ["verifyChallenge"])
+
+    def test_anonymous_functions_are_never_recorded(self):
+        """`(anonymous_N)` is a positional counter per file — inserting one function
+        renumbers every later one. behavior.json is committed (ADR-017), so those names
+        would churn the tracked diff on edits that changed nothing about what ran."""
+        syms = run_behaviors.coverage_symbols(self.COV, "/proj")
+        self.assertNotIn("(anonymous_1)", syms["lib/webauthn.ts"])
+
+    def test_a_file_with_no_named_functions_is_simply_absent(self):
+        self.assertNotIn("lib/plain.ts", run_behaviors.coverage_symbols(self.COV, "/proj"))
+
+    def test_vendored_code_is_excluded_as_it_is_for_paths(self):
+        syms = run_behaviors.coverage_symbols(self.COV, "/proj")
+        self.assertEqual(list(syms), ["lib/webauthn.ts"])
+
+    def test_symbols_refine_an_entry_without_replacing_its_path(self):
+        fp = run_behaviors.shape_fingerprint(
+            ["lib/webauthn.ts", "lib/plain.ts"], "c1",
+            symbols={"lib/webauthn.ts": ["verifyChallenge"]})
+        by_path = {e["path"]: e for e in fp["exercises"]}
+        self.assertEqual(by_path["lib/webauthn.ts"]["symbols"], ["verifyChallenge"])
+        self.assertEqual(sorted(by_path), ["lib/plain.ts", "lib/webauthn.ts"])
+
+    def test_an_unrefined_entry_is_byte_identical_to_before_symbols_existed(self):
+        """The compatibility guarantee for a *committed* artifact. A project whose backend
+        cannot see symbols must produce exactly the file it produced yesterday."""
+        without = run_behaviors.shape_fingerprint(["a.ts", "b.ts"], "c1")
+        with_none = run_behaviors.shape_fingerprint(["a.ts", "b.ts"], "c1", symbols={})
+        self.assertEqual(json.dumps(without, sort_keys=True),
+                         json.dumps(with_none, sort_keys=True))
+        self.assertTrue(all("symbols" not in e for e in without["exercises"]))
+
+    def test_one_entry_per_file_not_one_per_symbol(self):
+        """`behavior-graph` intersects `exercises[].path` against the impact set. Splitting
+        the entry would change that set's cardinality and every count derived from it."""
+        fp = run_behaviors.shape_fingerprint(
+            ["lib/a.ts"], "c1", symbols={"lib/a.ts": ["one", "two", "three"]})
+        self.assertEqual(len(fp["exercises"]), 1)
+        self.assertEqual(fp["exercises"][0]["symbols"], ["one", "three", "two"])
 
 
 class ShapeFingerprintStaticTest(unittest.TestCase):
