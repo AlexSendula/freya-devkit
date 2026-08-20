@@ -270,7 +270,12 @@ def link_dependents(graph: Dict[str, Any]) -> Dict[str, Any]:
             continue
         for edge in info.get('imports') or []:
             target = edge_other(edge)
-            if is_internal(target) and target in files:
+            # `isinstance` on the *target's* entry, not just this one. Linking runs before
+            # validation — it has to, since validation checks the reverse index it produces —
+            # so a backend emitting a non-dict node would crash here with
+            # `TypeError: string indices must be integers`, one line before the validator
+            # that was about to name the offending file.
+            if is_internal(target) and isinstance(files.get(target), dict):
                 # The reverse edge carries the forward edge's kind and provenance. An
                 # `inherits` edge read backwards is still an `inherits` edge, and blast
                 # radius has to be able to ask which kind reached it.

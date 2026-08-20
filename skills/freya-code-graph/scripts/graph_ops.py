@@ -26,6 +26,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Dict, List, Optional, Sequence, Set
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import settings  # noqa: E402  — knowledge-base/settings.json, the committed half
 import substrate  # noqa: E402  — the contract this module's CodeGraph implements
 
 
@@ -983,10 +984,13 @@ class CodeGraph:
     def _parse_imports(self, content: str, language: str) -> List[tuple]:
         """Extract `(specifier, relation)` pairs from file content.
 
-        One pair per distinct specifier. When a file both imports and re-exports the same
-        module it is recorded as an import: it genuinely depends on it, and two edges to one
-        target would double it in every dependents list. `re_exports` is reserved for the
-        case where re-exporting is *all* the file does with it — the barrel.
+        One pair per distinct specifier, with `imports` beating `re_exports` when a file does
+        both to the same one: it genuinely depends on the module, and `re_exports` is for the
+        case where forwarding is *all* it does with it — the barrel.
+
+        Deduping by specifier is not enough on its own. `./sub` and `./sub/index` are two
+        specifiers naming one file, so the second dedupe — by *resolved target* — happens in
+        `_build_file_info`, which is the first place that knows they are the same.
         """
         kinds = {}  # type: Dict[str, str]
 
@@ -1348,34 +1352,70 @@ class CodeGraph:
 
         return sorted(set(directories))
 
-    def _load_classifications(self) -> Dict[str, Any]:
-        """Load cached classifications, discarding verdicts the rules have outgrown.
+    def _declared_directories(self) -> Dict[str, Any]:
+        """Directory verdicts from `knowledge-base/settings.json`, as classification entries.
 
-        The builder skips any directory already present here, so without this a rule
-        change only ever reached a fresh clone: every project graphed before the
-        change kept the old answer indefinitely, and `--clear` does not remove this
-        file. That is how a fix for a directory being wrongly excluded would have
-        shipped to nobody.
+        This is the committed half, and it is the only half that survives a clone.
+        `classifications.json` is gitignored regenerable cache, so an override recorded only
+        there worked for whoever typed it and vanished for everyone else — CI and every
+        colleague silently graphed a smaller codebase and were told the build succeeded.
+        CD-15 had already rejected that file as a home for a decision, on exactly this
+        ground, before the override was put in it.
 
-        Only `rule` and `gitignore` verdicts are dropped — they are re-derivable, so
-        the rules are their single source of truth. A `user` or `ai` verdict is a
-        judgement about this project that no rule change invalidates, and it stays.
+        Labelled `source: 'user'` because that is what a committed, hand-written settings file
+        is, and it is what earns the strongest override tier.
         """
-        if not self.classifications_path.exists():
-            return {'version': 1, 'rules_version': RULES_VERSION, 'directories': {}}
-        try:
-            with open(self.classifications_path) as f:
-                data = json.load(f)
-        except Exception:
-            return {'version': 1, 'rules_version': RULES_VERSION, 'directories': {}}
+        conf = settings.load(str(self.project_dir))
+        for warning in conf.warnings:
+            print('code-graph: %s' % warning, file=sys.stderr)
+        return {
+            name: {'type': verdict, 'confidence': 1.0, 'source': 'user',
+                   'reasoning': 'declared in knowledge-base/settings.json'}
+            for name, verdict in conf.directories.items()
+        }
 
+    def _load_classifications(self) -> Dict[str, Any]:
+        """Directory verdicts: the committed ones, over the cached ones.
+
+        The cache is `classifications.json`. The builder skips any directory already present
+        there, so without the `RULES_VERSION` discard a rule change only ever reached a fresh
+        clone: every project graphed before the change kept the old answer indefinitely, and
+        `--clear` does not remove the file. Only `rule` and `gitignore` verdicts are dropped —
+        they are re-derivable, so the rules are their single source of truth. An `ai` verdict
+        is a judgement about this project that no rule change invalidates, and it stays.
+
+        Over the top of all that go the verdicts declared in `settings.json`, which win because
+        they are the ones a person wrote down and committed.
+
+        Keys are folded to the form the graph uses. `"docs/"`, `"./docs"`, `"docs\\lit"` and
+        `"docs//lit"` all name the same directory to a person, and only one of them used to
+        match anything — the rest were dead keys that produced no error and no effect.
+        """
+        data = {'version': 1, 'rules_version': RULES_VERSION, 'directories': {}}
+        if self.classifications_path.exists():
+            try:
+                with open(self.classifications_path) as f:
+                    loaded = json.load(f)
+                if isinstance(loaded, dict):
+                    data = loaded
+            except Exception:
+                pass
+
+        cached = data.get('directories')
+        cached = cached if isinstance(cached, dict) else {}
         if data.get('rules_version') != RULES_VERSION:
-            data['directories'] = {
-                name: verdict
-                for name, verdict in (data.get('directories') or {}).items()
-                if (verdict or {}).get('source') not in ('rule', 'gitignore')
-            }
+            cached = {name: verdict for name, verdict in cached.items()
+                      if not isinstance(verdict, dict)
+                      or verdict.get('source') not in ('rule', 'gitignore')}
             data['rules_version'] = RULES_VERSION
+
+        folded = {}  # type: Dict[str, Any]
+        for name, verdict in cached.items():
+            key = settings.normalise_dir_key(name)
+            if key:
+                folded[key] = verdict
+        folded.update(self._declared_directories())
+        data['directories'] = folded
         return data
 
     def _save_classifications(self, classifications: Dict[str, Any]) -> None:
@@ -1782,10 +1822,18 @@ Respond with ONLY a JSON object, no markdown formatting:
         # each as an edge. Provenance is `extracted` throughout: this resolver reads import
         # statements out of the source text and nothing else, so claiming `inferred`
         # anywhere would overstate what it did.
-        resolved = [
-            substrate.make_edge(self._classify_import(imp, rel_path, language), kind=kind)
-            for imp, kind in imports
-        ]
+        #
+        # Keyed by resolved target, because two specifiers can name one file: `./sub` and
+        # `./sub/index` both land on `src/sub/index.ts`. Keyed by specifier instead, that
+        # file would carry two edges to one target with contradictory kinds, and every
+        # dependents list would count it twice.
+        by_target = {}  # type: Dict[str, str]
+        for imp, kind in imports:
+            target = self._classify_import(imp, rel_path, language)
+            if by_target.get(target) != _IMPORTS:
+                by_target[target] = kind
+        resolved = [substrate.make_edge(target, kind=kind)
+                    for target, kind in sorted(by_target.items())]
 
         return {
             'exports': exports,
@@ -1815,15 +1863,21 @@ Respond with ONLY a JSON object, no markdown formatting:
                         not only on the stderr of the run that produced it — a thin graph
                         must never be mistakable for a thin repo.
         """
-        print(f'Scanning {self.project_dir}...')
+        print(f'Scanning {self.project_dir}...', file=sys.stderr)
 
         # Step 1: Classify directories (rules → AI → user)
-        print('Classifying directories...')
+        print('Classifying directories...', file=sys.stderr)
         classifications = self._classify_directories(use_ai=True, ai_response=ai_response,
                                                       non_interactive=non_interactive)
-        source_count = sum(1 for d in classifications.get('directories', {}).values() if d.get('type') == 'source')
-        exclude_count = sum(1 for d in classifications.get('directories', {}).values() if d.get('type') == 'exclude')
-        print(f'Classified: {source_count} source dirs, {exclude_count} excluded dirs')
+        # `isinstance` because hand-editing this file is a documented path, and every other
+        # reader already guards. Without it `"docs": "source"` — the obvious shorthand
+        # mistake, given the docs talk about a `source` field — aborted the build with a raw
+        # AttributeError instead of a message naming the bad key.
+        verdicts = [v for v in (classifications.get('directories') or {}).values()
+                    if isinstance(v, dict)]
+        source_count = sum(1 for v in verdicts if v.get('type') == 'source')
+        exclude_count = sum(1 for v in verdicts if v.get('type') == 'exclude')
+        print(f'Classified: {source_count} source dirs, {exclude_count} excluded dirs', file=sys.stderr)
 
         # Step 2: Scan files using classifications
         files = self._scan_files(classifications)
@@ -1834,7 +1888,7 @@ Respond with ONLY a JSON object, no markdown formatting:
         if exclusions is not None:
             files = [f for f in files
                      if not exclusions.excludes(normalize_key(f.relative_to(self.project_dir)))]
-        print(f'Found {len(files)} source files')
+        print(f'Found {len(files)} source files', file=sys.stderr)
 
         # Build file info
         graph = {
@@ -1879,13 +1933,28 @@ Respond with ONLY a JSON object, no markdown formatting:
         """Incrementally update the graph. Produces; `run_update` persists."""
         graph = self.load()
         if not graph:
-            print('No cached graph found. Running full build...')
+            print('No cached graph found. Running full build...', file=sys.stderr)
             return self.build(non_interactive=non_interactive, exclusions=exclusions,
                               selection_metadata=selection_metadata)
 
         last_commit = graph.get('commit')
         if not last_commit:
-            print('No commit info in cached graph. Running full build...')
+            print('No commit info in cached graph. Running full build...', file=sys.stderr)
+            return self.build(non_interactive=non_interactive, exclusions=exclusions,
+                              selection_metadata=selection_metadata)
+
+        if substrate.is_stale(graph):
+            # A rebuild, not a rewrite. `load()` brings the *edges* forward, but a graph old
+            # enough to be stale may predate the `substrate` block entirely — and that block
+            # cannot be reconstructed from the artifact, only from a real build: it records
+            # which backend ran and what that backend can see.
+            #
+            # Stamping the version without it was worse than doing nothing. The graph stopped
+            # being stale, so `--update` never looked again, and it was left permanently
+            # claiming no backend and no coverage — which is exactly the "is this repo empty
+            # or is my backend blind?" question the block exists to answer.
+            print('Cached graph is schema v%s (current is v%d). Running full build...'
+                  % (graph.get('version'), substrate.GRAPH_SCHEMA_VERSION), file=sys.stderr)
             return self.build(non_interactive=non_interactive, exclusions=exclusions,
                               selection_metadata=selection_metadata)
 
@@ -1893,7 +1962,7 @@ Respond with ONLY a JSON object, no markdown formatting:
         if not changed_files:
             return substrate.Result(graph, substrate.Result.UP_TO_DATE, 0)
 
-        print(f'Updating graph for {len(changed_files)} changed files...')
+        print(f'Updating graph for {len(changed_files)} changed files...', file=sys.stderr)
 
         # Re-parse changed files. `git diff --name-only` already emits POSIX paths on
         # every host, but normalizing keeps the key that indexes the graph and the key
@@ -1946,7 +2015,7 @@ Respond with ONLY a JSON object, no markdown formatting:
         """
         graph = self.load()
         if not graph:
-            print('No cached graph found. Run /code-graph build first.')
+            print('No cached graph found. Run /code-graph build first.', file=sys.stderr)
             return None
 
         # Normalize path. A caller on Windows naturally passes the path its shell,
@@ -1956,7 +2025,7 @@ Respond with ONLY a JSON object, no markdown formatting:
 
         info = graph['files'].get(file_path)
         if not info:
-            print(f'File not found in graph: {file_path}')
+            print(f'File not found in graph: {file_path}', file=sys.stderr)
             return None
 
         return {
@@ -1968,13 +2037,28 @@ Respond with ONLY a JSON object, no markdown formatting:
             'language': info.get('language'),
         }
 
-    def get_dependents(self, file_path: str, transitive: bool = True) -> Set[str]:
-        """Get all files that depend on this file."""
+    def get_dependents(self, file_path: str,
+                       transitive: bool = True) -> Optional[Set[str]]:
+        """Which files depend on this one. `None` if the graph cannot answer.
+
+        `None` and `set()` are different answers and used to be the same one. An empty set
+        meant both "nothing imports this" and "this file is not in the graph" — so a caller
+        asking about a file the backend never indexed was told, confidently, that nothing
+        depends on it.
+
+        behavior-runner is where that lands: it takes an empty closure as a real answer and
+        writes a one-file fingerprint into the committed `behavior.json`, which then narrows
+        every later blast radius. Moving `scripts` back to a root-level exclusion made it
+        newly reachable for any behaviour whose entry lives under one.
+        """
         graph = self.load()
         if not graph:
-            return set()
+            return None
 
         file_path = normalize_key(file_path)
+        if file_path not in (graph.get('files') or {}):
+            print('File not found in graph: %s' % file_path, file=sys.stderr)
+            return None
 
         result = set()
 
@@ -1993,13 +2077,18 @@ Respond with ONLY a JSON object, no markdown formatting:
         traverse(file_path)
         return result
 
-    def get_dependencies(self, file_path: str, transitive: bool = True) -> Set[str]:
-        """Get all files this file depends on."""
+    def get_dependencies(self, file_path: str,
+                         transitive: bool = True) -> Optional[Set[str]]:
+        """Which files this one depends on. `None` if the graph cannot answer — see
+        `get_dependents` for why that is not the same as an empty set."""
         graph = self.load()
         if not graph:
-            return set()
+            return None
 
         file_path = normalize_key(file_path)
+        if file_path not in (graph.get('files') or {}):
+            print('File not found in graph: %s' % file_path, file=sys.stderr)
+            return None
 
         result = set()
 
@@ -2035,7 +2124,9 @@ Respond with ONLY a JSON object, no markdown formatting:
             if info:
                 direct.update(substrate.edge_ends(info.get('dependents')))
                 all_dependents.add(file_path)
-                all_dependents.update(self.get_dependents(file_path, transitive=True))
+                # `info` is truthy, so the file is a node and this cannot be None. Guarded
+                # anyway: the two are three lines apart today and will not always be.
+                all_dependents.update(self.get_dependents(file_path, transitive=True) or ())
 
         return {
             'input_files': set(file_paths),
@@ -2113,23 +2204,26 @@ def _finalise(backend: Any, result: Any) -> Dict[str, Any]:
             '%r.%s returned %s; the contract requires a substrate.Result'
             % (getattr(backend, 'name', '?'), 'build/update', type(result).__name__))
 
-    migrated = False
     if not result.needs_writing:
-        # "Nothing changed" is about the *source*, not the artifact. A graph loaded from an
-        # older schema was brought forward in memory on the way in; if it is not written back
-        # it is brought forward again on every read, forever, and every direct reader that
-        # does not go through `load()` keeps seeing the old shape. `--update` is the command
-        # the steady-state workflow runs, so without this the migration reaches almost nobody.
-        # `Result` permits a null graph on this status, and a backend that is not this repo's
-        # will eventually use that. There is then nothing to rewrite, and `is_stale({})` says
-        # True — so testing staleness first would try to stamp a version onto None.
-        if not isinstance(result.graph, dict) or not substrate.is_stale(result.graph):
-            return {'status': result.status, 'files_changed': 0}
-        migrated = True
-        print('code-graph: rewriting the cached graph in the current schema (was v%s, now v%d)'
-              % (result.graph.get('version'), substrate.GRAPH_SCHEMA_VERSION),
-              file=sys.stderr)
-        result.graph['version'] = substrate.GRAPH_SCHEMA_VERSION
+        # Nothing to write — and deliberately so, even when the artifact is schema-old.
+        #
+        # This branch used to rewrite it: stamp the current version, relink, persist. That was
+        # worse than leaving it. A graph old enough to be stale may predate the `substrate`
+        # metadata block entirely, and that block cannot be reconstructed from the artifact —
+        # only a real build knows which backend ran and what it can see. So the rewrite
+        # produced a graph claiming no backend and no coverage, and by stamping the version it
+        # guaranteed nothing would ever look at it again.
+        #
+        # Deciding to rebuild belongs to the backend, which has the metadata.
+        # `CodeGraph.update` does it. A backend that reports `up_to_date` over a stale artifact
+        # is breaking the contract, so say so rather than papering over it.
+        if isinstance(result.graph, dict) and substrate.is_stale(result.graph):
+            print('code-graph: %r reported up_to_date for a schema-v%s graph, which it should '
+                  'have rebuilt. Leaving the artifact alone rather than stamping metadata that '
+                  'cannot be recovered from it.'
+                  % (getattr(backend, 'name', '?'), result.graph.get('version')),
+                  file=sys.stderr)
+        return {'status': result.status, 'files_changed': 0}
 
     graph = substrate.link_dependents(result.graph)
 
@@ -2159,12 +2253,9 @@ def _finalise(backend: Any, result: Any) -> Dict[str, Any]:
     cached_to = persist_graph(backend.project_dir, backend.name, graph)
 
     if result.status != substrate.Result.BUILT:
-        out = {'status': result.status,
-               'files_changed': result.files_changed or 0,
-               'commit': graph.get('commit')}
-        if migrated:
-            out['migrated_to_schema'] = substrate.GRAPH_SCHEMA_VERSION
-        return out
+        return {'status': result.status,
+                'files_changed': result.files_changed or 0,
+                'commit': graph.get('commit')}
     summary = substrate.build_summary(graph, cached_to)
     summary['status'] = result.status
     return summary

@@ -465,6 +465,35 @@ class TestEdgesAreObjects(Base):
             {"to": "src/widget.ts", "kind": "imports", "provenance": "extracted"},
         ])
 
+    def test_two_specifiers_naming_one_file_are_one_edge(self):
+        """Deduping by specifier is not enough — `./sub` and `./sub/index` are two
+        specifiers and one file. Left as two edges they contradict each other on `kind` and
+        double the target in every dependents list, which is exactly what the dedupe exists
+        to prevent."""
+        proj = self.mk({
+            "src/index.ts": ("import { q } from './sub'\n"
+                             "export * from './sub/index'\n"),
+            "src/sub/index.ts": "export const q = 1\n",
+        })
+        g = CodeGraph(proj)
+        graph_ops.run_build(g, non_interactive=True)
+        self.assertEqual(self.edges(g, "src/index.ts"), [
+            {"to": "src/sub/index.ts", "kind": "imports", "provenance": "extracted"},
+        ])
+        self.assertEqual(len(self.edges(g, "src/sub/index.ts", "dependents")), 1)
+
+    def test_a_pure_barrel_reached_by_two_specifiers_stays_a_re_export(self):
+        proj = self.mk({
+            "src/index.ts": ("export * from './sub'\n"
+                             "export * from './sub/index'\n"),
+            "src/sub/index.ts": "export const q = 1\n",
+        })
+        g = CodeGraph(proj)
+        graph_ops.run_build(g, non_interactive=True)
+        self.assertEqual(self.edges(g, "src/index.ts"), [
+            {"to": "src/sub/index.ts", "kind": "re_exports", "provenance": "extracted"},
+        ])
+
     def test_the_reverse_edge_keeps_the_forward_edge_s_kind(self):
         proj = self.mk({
             "src/index.ts": "export * from './widget'\n",
@@ -558,47 +587,147 @@ class TestOlderGraphsWithStringEdges(Base):
         g = CodeGraph(self.stale(None))
         self.assertTrue(substrate.is_stale(g.load()))
 
-    def test_an_up_to_date_update_still_rewrites_a_legacy_artifact(self):
-        """Otherwise the migration reaches almost nobody.
+    def test_a_stale_artifact_triggers_a_full_rebuild_not_a_rewrite(self):
+        """A rewrite was the first attempt, and it was worse than doing nothing.
 
-        `--update` is what the steady-state workflow runs, and it short-circuits when no
-        source file changed. Left there, the old artifact stays on disk indefinitely and
-        every direct reader that does not go through `load()` keeps seeing string edges.
+        A graph old enough to be stale may predate the `substrate` metadata block, and that
+        block cannot be reconstructed from the artifact — only a real build knows which
+        backend ran and what it can see. Stamping the version without it left the graph
+        claiming no backend and no coverage, *and* stopped it being stale, so nothing would
+        ever have looked at it again.
         """
-        proj = self.stale(None)
-        g = CodeGraph(proj)
-        out = graph_ops.run_update(g, non_interactive=True)
+        proj = self.mk({
+            "src/a.ts": "import { b } from './b'\n",
+            "src/b.ts": "export const b = 1\n",
+            "knowledge-base/.graph/graph.json": json.dumps({
+                "version": 1,
+                "commit": "abc123def456",
+                "files": {"src/a.ts": {"exports": [], "imports": ["src/b.ts"],
+                                       "dependents": []}},
+            }),
+        })
+        out = graph_ops.run_update(CodeGraph(proj), non_interactive=True)
 
-        self.assertEqual(out["migrated_to_schema"], substrate.GRAPH_SCHEMA_VERSION)
+        self.assertEqual(out["status"], substrate.Result.BUILT)
         on_disk = json.loads(
             (Path(proj) / "knowledge-base" / ".graph" / "graph.json").read_text())
-        self.assertEqual(on_disk["version"], substrate.GRAPH_SCHEMA_VERSION)
-        self.assertEqual(on_disk["files"]["src/a.ts"]["imports"][0]["to"], "src/b.ts")
         self.assertFalse(substrate.is_stale(on_disk))
+        self.assertEqual(on_disk["files"]["src/a.ts"]["imports"][0]["to"], "src/b.ts")
 
-    def test_a_current_artifact_is_not_rewritten_for_nothing(self):
+    def test_the_rebuilt_artifact_carries_real_substrate_metadata(self):
+        """The whole reason it is a rebuild. `backend` and `coverage` are what let a caller
+        tell an empty repo from a blind backend, and they cannot be invented."""
+        proj = self.mk({
+            "src/a.ts": "export const a = 1\n",
+            "knowledge-base/.graph/graph.json": json.dumps({
+                "version": 1, "commit": "abc123def456",
+                "files": {"src/a.ts": {"exports": [], "imports": [], "dependents": []}},
+            }),
+        })
+        graph_ops.run_update(CodeGraph(proj), non_interactive=True)
+        block = json.loads((Path(proj) / "knowledge-base" / ".graph"
+                            / "graph.json").read_text())["substrate"]
+        self.assertEqual(block["backend"], "homegrown")
+        self.assertTrue(block["coverage"]["languages"])
+        self.assertNotIn("validation", block)
+
+    def test_a_current_artifact_is_not_rebuilt_for_nothing(self):
         proj = self.mk({"knowledge-base/.graph/graph.json": json.dumps({
             "version": substrate.GRAPH_SCHEMA_VERSION,
             "commit": "abc123def456", "files": {},
         })})
         out = graph_ops.run_update(CodeGraph(proj), non_interactive=True)
-        self.assertNotIn("migrated_to_schema", out)
+        self.assertEqual(out["status"], substrate.Result.UP_TO_DATE)
 
-    def test_the_rewrite_relinks_dependents_rather_than_trusting_the_old_ones(self):
-        """A legacy artifact's reverse index is legacy too, and `link_dependents` rebuilds
-        from scratch — so a dependent whose import no longer exists does not survive."""
-        proj = self.mk({"knowledge-base/.graph/graph.json": json.dumps({
-            "version": 1,
-            "commit": "abc123def456",
-            "files": {
-                "src/a.ts": {"exports": [], "imports": [], "dependents": []},
-                "src/b.ts": {"exports": [], "imports": [], "dependents": ["src/a.ts"]},
-            },
-        })})
-        graph_ops.run_update(CodeGraph(proj), non_interactive=True)
-        on_disk = json.loads(
-            (Path(proj) / "knowledge-base" / ".graph" / "graph.json").read_text())
-        self.assertEqual(on_disk["files"]["src/b.ts"]["dependents"], [])
+
+class TestAnOverrideSurvivesAClone(Base):
+    """An override recorded only in the cache is an override only one machine has.
+
+    The first version of this feature put it in `knowledge-base/.graph/classifications.json`,
+    which `CACHE_GITIGNORE` declares regenerable and not to be committed. It worked for
+    whoever typed it and vanished on clone: CI and every colleague graphed a smaller codebase
+    and were told the build succeeded. CD-15 had already rejected that file as a home for a
+    decision, on exactly this ground, before the override was put in it.
+    """
+
+    def settings(self, proj, directories):
+        kb = Path(proj) / "knowledge-base"
+        kb.mkdir(parents=True, exist_ok=True)
+        (kb / "settings.json").write_text(
+            json.dumps({"directories": directories}), encoding="utf-8")
+
+    def test_a_committed_verdict_overrides_a_convention_name(self):
+        proj = self.mk({"docs/literate/engine.ts": "export const e = 1\n"})
+        self.settings(proj, {"docs": "source"})
+        g = CodeGraph(proj)
+        graph_ops.run_build(g, non_interactive=True, exclusions=g.project_exclusions())
+        self.assertIn("docs/literate/engine.ts", g.graph["files"])
+
+    def test_it_still_works_with_the_gitignored_cache_deleted(self):
+        """The clone. `knowledge-base/.graph/` never travels; `settings.json` does."""
+        proj = self.mk({"docs/literate/engine.ts": "export const e = 1\n"})
+        self.settings(proj, {"docs": "source"})
+        g = CodeGraph(proj)
+        graph_ops.run_build(g, non_interactive=True, exclusions=g.project_exclusions())
+        shutil.rmtree(Path(proj) / "knowledge-base" / ".graph")
+
+        fresh = CodeGraph(proj)
+        graph_ops.run_build(fresh, non_interactive=True,
+                            exclusions=fresh.project_exclusions())
+        self.assertIn("docs/literate/engine.ts", fresh.graph["files"])
+
+    def test_a_committed_verdict_beats_a_stale_cached_rule_verdict(self):
+        proj = self.mk({"docs/literate/engine.ts": "export const e = 1\n"})
+        g = CodeGraph(proj)
+        graph_ops.run_build(g, non_interactive=True)
+        self.assertEqual(set(g.graph["files"]), set())      # docs excluded, cached as `rule`
+
+        self.settings(proj, {"docs": "source"})
+        g2 = CodeGraph(proj)
+        graph_ops.run_build(g2, non_interactive=True, exclusions=g2.project_exclusions())
+        self.assertIn("docs/literate/engine.ts", g2.graph["files"])
+
+    def test_a_committed_exclude_narrows_scope_too(self):
+        proj = self.mk({
+            "src/a.ts": "export const a = 1\n",
+            "src/legacy/old.ts": "export const o = 1\n",
+        })
+        self.settings(proj, {"src/legacy": "exclude"})
+        g = CodeGraph(proj)
+        graph_ops.run_build(g, non_interactive=True, exclusions=g.project_exclusions())
+        self.assertEqual(set(g.graph["files"]), {"src/a.ts"})
+
+    def test_the_spellings_people_actually_type_all_resolve(self):
+        """The docs write directories with a trailing slash throughout, Windows users type
+        backslashes, and hand-edited files pick up `./`. Only one spelling used to match —
+        the rest were dead keys with no error, no warning, and no effect."""
+        for spelling in ("docs/", "./docs", "docs", "/docs/"):
+            proj = self.mk({"docs/literate/engine.ts": "export const e = 1\n"})
+            self.settings(proj, {spelling: "source"})
+            g = CodeGraph(proj)
+            graph_ops.run_build(g, non_interactive=True, exclusions=g.project_exclusions())
+            self.assertIn("docs/literate/engine.ts", g.graph["files"], spelling)
+
+    def test_a_bad_verdict_warns_and_is_skipped_rather_than_crashing(self):
+        proj = self.mk({"docs/literate/engine.ts": "export const e = 1\n"})
+        self.settings(proj, {"docs": "yes please"})
+        g = CodeGraph(proj)
+        graph_ops.run_build(g, non_interactive=True, exclusions=g.project_exclusions())
+        self.assertEqual(set(g.graph["files"]), set())
+
+    def test_a_hand_edited_shorthand_in_the_cache_does_not_abort_the_build(self):
+        """`"docs": "source"` in classifications.json is the obvious mistake — the docs talk
+        about a `source` field. It used to abort the build with a raw AttributeError."""
+        proj = self.mk({"src/a.ts": "export const a = 1\n"})
+        gdir = Path(proj) / "knowledge-base" / ".graph"
+        gdir.mkdir(parents=True, exist_ok=True)
+        (gdir / "classifications.json").write_text(json.dumps({
+            "version": 1, "rules_version": graph_ops.RULES_VERSION,
+            "directories": {"docs": "source", "src": None},
+        }), encoding="utf-8")
+        g = CodeGraph(proj)
+        graph_ops.run_build(g, non_interactive=True)
+        self.assertIn("src/a.ts", g.graph["files"])
 
 
 class TestAProjectCanOverrideTheDefaults(Base):

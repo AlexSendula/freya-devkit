@@ -64,9 +64,15 @@ Optional. Absent, everything below is the default.
 {
   "substrate": {
     "backend": "auto"
+  },
+  "directories": {
+    "docs": "source"
   }
 }
 ```
+
+`directories` is how a project argues with the built-in exclusions — see
+[Overriding the built-in exclusions](#overriding-the-built-in-exclusions) below.
 
 `auto` picks whichever installed backend can read the most of the repo, preferring the built-in
 one on a tie. Naming a backend that is not installed does not fail the build — it falls back,
@@ -135,27 +141,35 @@ Some directory names are excluded by default — artifact trees like `node_modul
 
 Those are **defaults, not verdicts.** Nothing in this skill can know that your repository
 keeps real source in a directory called `target`, or that your `docs/` is a literate
-programming tree. Say so and it is believed:
+programming tree. Say so in `knowledge-base/settings.json` and it is believed:
 
 ```json
-"directories": {
-  "docs": { "type": "source", "confidence": 1.0, "source": "user" }
+{
+  "directories": {
+    "docs": "source",
+    "packages/legacy": "exclude"
+  }
 }
 ```
 
-| `source` field | Overrides |
+`settings.json` and not `classifications.json`: the latter is gitignored regenerable cache,
+so a verdict written there works for whoever typed it and vanishes on clone — CI and every
+colleague would silently graph a smaller codebase and be told the build succeeded. Keys are
+folded, so `docs`, `docs/`, `./docs` and `docs\lit` all name what you meant.
+
+| Verdict source | Overrides |
 |---|---|
-| `user` | Everything, including artifact-tree names and `.gitignore` |
-| `ai` | Root convention names and `.gitignore`, but not artifact trees |
-| `rule` / `gitignore` | Nothing — these *are* the defaults' own output, so letting them override would be circular |
+| `settings.json`, or a `user` classification | Everything, including artifact-tree names and `.gitignore` |
+| An `ai` classification | Root convention names and `.gitignore`, but not artifact trees |
+| `rule` / `gitignore` classifications | Nothing — these *are* the defaults' own output, so letting them override would be circular |
 
 Two things a verdict does not override: file-kind patterns (`*.d.ts`, `*.min.js` — claims
 about what a file is, not which directories are in scope), and a more specific verdict
 beneath it (`packages/` can be source while `packages/legacy/` is excluded).
 
-A `user` or `ai` verdict also survives a rules change; `rule` and `gitignore` verdicts are
-discarded and re-derived, which is how a fix to the defaults reaches a project that was
-already graphed.
+`classifications.json` still holds the *derived* verdicts, and the model's. Those are cache:
+`rule` and `gitignore` entries are discarded and re-derived whenever the rules change, which
+is how a fix to the defaults reaches a project that was already graphed.
 
 Until 2026-08-20 a `source` verdict was accepted, written to disk, and then silently
 overruled — `_should_exclude` never consulted classifications at all. A default that cannot

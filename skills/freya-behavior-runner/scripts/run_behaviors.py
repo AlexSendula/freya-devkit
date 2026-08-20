@@ -190,7 +190,14 @@ def _code_graph_deps(entry, project_dir):
             capture_output=True, text=True, check=True,
         )
         data = json.loads(out.stdout)
-    except (subprocess.CalledProcessError, json.JSONDecodeError, FileNotFoundError, OSError):
+    except subprocess.CalledProcessError as exc:
+        # A non-zero exit includes "this entry is not a node in the graph", which code-graph
+        # reports rather than answering `[]` — the entry may sit under a directory the graph
+        # excludes, which is a coverage gap and not an absence of dependencies. Its message
+        # goes through verbatim so the operator sees which of the two it was.
+        detail = (exc.stderr or "").strip().splitlines()
+        return None, "graph-query-failed: %s" % (detail[-1] if detail else "no detail")
+    except (json.JSONDecodeError, FileNotFoundError, OSError):
         return None, "graph-query-failed"
     if not isinstance(data, list) or not all(isinstance(k, str) for k in data):
         # `--dependencies` answers in path strings. Anything else means the artifact's
@@ -216,7 +223,8 @@ def static_fingerprint(behavior, project_dir):
     if deps is None:
         detail = (f"no code-graph at {project_dir} (run code-graph build)"
                   if reason == "no-graph"
-                  else f"code-graph could not answer --dependencies for {entry}")
+                  else f"code-graph could not answer --dependencies for {entry}"
+                       f" ({reason.split(': ', 1)[-1]})")
         sys.stderr.write(
             f"[behavior-runner] {behavior.get('behavior_id')}: {detail}"
             f" — cannot derive static fingerprint\n"

@@ -1,4 +1,7 @@
 import os
+import shutil
+import subprocess
+import sys
 import tempfile
 import unittest
 import unittest.mock as mock
@@ -289,6 +292,40 @@ class StaticFingerprintTest(unittest.TestCase):
         self.assertEqual(fp["coverage"], "unknown")
         self.assertEqual(fp["reason"], "graph-query-failed")
         self.assertEqual(fp["exercises"], [])
+
+    def test_an_entry_outside_the_graph_is_unknown_not_an_empty_closure(self):
+        """The same silent narrowing, through a different door.
+
+        `--dependencies` used to answer `[]` both for "imports nothing" and for "not a node
+        in the graph", so a behaviour whose entry sits under an excluded directory produced a
+        confident one-file fingerprint. Moving `scripts` back to a root-level exclusion made
+        that newly reachable. Exercised end to end against a real graph rather than a mock,
+        because the defect lived in the seam between the two processes.
+        """
+        proj = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, proj, ignore_errors=True)
+        os.makedirs(os.path.join(proj, "src"))
+        os.makedirs(os.path.join(proj, "scripts"))
+        with open(os.path.join(proj, "src", "a.ts"), "w") as f:
+            f.write("export const a = 1\n")
+        with open(os.path.join(proj, "scripts", "tool.ts"), "w") as f:
+            f.write("export const t = 1\n")
+
+        subprocess.run([sys.executable, str(run_behaviors._CODE_GRAPH), "--build",
+                        "--dir", proj, "--non-interactive"],
+                       capture_output=True, text=True, check=True)
+
+        beh = {"behavior_id": "BEH-X", "entry": "scripts/tool.ts"}
+        fp = run_behaviors.static_fingerprint(beh, proj)
+        self.assertEqual(fp["coverage"], "unknown")
+        self.assertEqual(fp["exercises"], [])
+        self.assertTrue(fp["reason"].startswith("graph-query-failed"), fp["reason"])
+
+        # ...and a node that really is in the graph still answers.
+        fp2 = run_behaviors.static_fingerprint(
+            {"behavior_id": "BEH-Y", "entry": "src/a.ts"}, proj)
+        self.assertEqual(fp2["coverage"], "static")
+        self.assertEqual([e["path"] for e in fp2["exercises"]], ["src/a.ts"])
 
     def test_a_genuinely_empty_closure_is_still_a_real_answer(self):
         """A file that imports nothing is not a failure, and must not be reported as one."""

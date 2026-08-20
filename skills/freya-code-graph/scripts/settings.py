@@ -24,16 +24,30 @@ Shape:
     {
       "substrate": {
         "backend": "auto"          // auto | homegrown | <name of an installed backend>
+      },
+      "directories": {
+        "docs": "source",          // this project's docs/ really is source
+        "packages/legacy": "exclude"
       }
     }
+
+`directories` is where a project argues with the built-in exclusion lists. It landed here on
+2026-08-20 rather than in `classifications.json`, which is where the override was first put —
+and which is the mistake this module's second paragraph was already written to prevent. An
+override survived on the machine that made it and vanished on clone, so CI and every colleague
+silently graphed a smaller codebase and were told it succeeded.
 """
 
 import json
 import os
+import posixpath
 from typing import Any, Dict, List, Optional
 
 SETTINGS_DIRNAME = 'knowledge-base'
 SETTINGS_FILENAME = 'settings.json'
+
+# What a project may say about one of its directories.
+DIRECTORY_VERDICTS = ('source', 'exclude')
 
 # `auto` is the default and means: prefer the backend that can see the most of this project,
 # fall back to the one that is always installed. Resolved at selection time, not here — this
@@ -44,7 +58,25 @@ DEFAULTS = {
     'substrate': {
         'backend': BACKEND_AUTO,
     },
+    'directories': {},
 }
+
+
+def normalise_dir_key(name: Any) -> str:
+    """A directory key as the graph spells it: POSIX, no leading or trailing slash.
+
+    Every form a person actually types has to land on the same key. The docs here and in
+    SKILL.md write directories with a trailing slash throughout (`node_modules/`, `dist/`),
+    Windows users type backslashes, and a hand-edited file picks up `./` and doubled slashes.
+    Without folding them, `"docs/"` was a key nothing ever looked up: no error, no warning, an
+    unchanged graph — and, worse, it still reached the contract as a live override, so the
+    artifact claimed a scope the filter had not applied.
+    """
+    text = str(name or '').replace('\\', '/').strip()
+    if not text:
+        return ''
+    text = posixpath.normpath(text).strip('/')
+    return '' if text in ('.', '..') else text
 
 
 def settings_path(project_dir: str) -> str:
@@ -80,12 +112,43 @@ class Settings:
             return BACKEND_AUTO
         return name.strip()
 
+    @property
+    def directories(self) -> Dict[str, str]:
+        """Committed directory verdicts, keyed the way the graph keys paths.
+
+        These outrank the built-in exclusion lists. They live here rather than in
+        `classifications.json` because that file is gitignored regenerable cache: an override
+        recorded there worked for whoever typed it and disappeared on clone, so CI and every
+        colleague graphed a smaller codebase and were told the build succeeded.
+
+        A bad value is a warning and a skip, never a crash and never a silent drop. Getting no
+        graph because of a typo, or getting a quietly different one, are both worse than being
+        told which key was wrong.
+        """
+        declared = self.data.get('directories')
+        if not isinstance(declared, dict):
+            return {}
+        verdicts = {}  # type: Dict[str, str]
+        for name, verdict in declared.items():
+            key = normalise_dir_key(name)
+            if not key:
+                self.warnings.append('%s: directories: %r is not a directory path; ignored'
+                                     % (self.path, name))
+                continue
+            if verdict not in DIRECTORY_VERDICTS:
+                self.warnings.append(
+                    '%s: directories.%s: %r is not one of %s; ignored'
+                    % (self.path, key, verdict, ', '.join(DIRECTORY_VERDICTS)))
+                continue
+            verdicts[key] = verdict
+        return verdicts
+
     def to_dict(self) -> Dict[str, Any]:
         return json.loads(json.dumps(self.data))  # deep copy, plain types only
 
     def __repr__(self) -> str:
-        return 'Settings(backend=%r, present=%s, warnings=%d)' % (
-            self.backend, self.present, len(self.warnings))
+        return 'Settings(backend=%r, directories=%d, present=%s, warnings=%d)' % (
+            self.backend, len(self.directories), self.present, len(self.warnings))
 
 
 def load(project_dir: str) -> Settings:
