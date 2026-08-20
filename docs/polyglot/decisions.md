@@ -951,3 +951,181 @@ file *is*, not about which directories are in scope.
 - A nested source verdict widens the top-level scan root, or the override records an opinion
   nothing ever globs for.
 - `RULES_VERSION` bumped to `2026-08-20`, so cached `rule`/`gitignore` verdicts are re-derived.
+
+---
+
+## CD-22 — graphify's symbol graph is projected onto file pairs, and three relations are dropped
+
+**Status:** accepted 2026-08-20 · Phase 2
+
+### Context
+
+graphify's nodes are *symbols*; the contract's are *files*. Its links run symbol → symbol, and
+it emits at least eleven relations against the contract's five.
+
+### Decision
+
+Every link is projected onto the file pair its endpoints live in. The mapping table is derived
+from counting what each relation actually connects, not from its name.
+
+Dropped, with the measurement that decided it:
+
+| Relation | Links | Why not an edge |
+|---|---|---|
+| `contains` | 1,199 | File has symbol — the node hierarchy |
+| `method` | 1,119 | Class has method — the same, one level down |
+| `rationale_for` | 543 | A docstring index: 543/543 `rationale` → `code`, intra-file, `.py` only |
+
+All 2,861 are 100% intra-file, which is the argument by itself: a relation that never crosses a
+file boundary cannot produce a file → file edge under any mapping.
+
+Intra-file links of the *kept* relations go too — 1,516 of the 2,007 survivors, 75% — because
+each would make a file its own dependent and blast radius walks those edges.
+
+**The table has no default.** graphify's vocabulary cannot be enumerated: grepping its source
+yields 26 relation names, and `reads_from` — present in this repository's own graph — is not
+one of them. An unlisted relation is counted into `substrate.unmapped_relations` and reported.
+
+### Rejected
+
+**Adopt `rationale_for` as a docs graph.** It is not one. It is a docstring index and cannot
+express a relationship between two files. docs.json (CD-7) answers that question from citations
+we control.
+
+**Default unknown relations to `references`.** A silent fallthrough is the failure Phase 0
+recorded against config coverage — "nothing, and no warning" — and would make an upstream
+capability arrive as a graph that merely looks thin.
+
+**Keep intra-file calls as self-edges.** Verified: one self-edge makes `--impact` report a file
+as its own direct dependent. Now a validation error, and skipped when linking.
+
+### Consequences
+
+- §9.1 passes: 73 file pairs against homegrown's 65, losing nothing. The single edge homegrown
+  has and graphify does not is an import inside a *string literal* — homegrown's own false
+  positive (backlog item 10).
+- Two file pairs rest solely on `INFERRED` links, so the two-tier trust design Phase 0 called
+  "unexercised" is now exercised.
+- Exclusions are a post-filter; `graphify update` has no exclusion flag. That settles spec open
+  question 3.
+- The intra-file call graph is a deliberately discarded capability, filed rather than lost.
+
+---
+
+## CD-23 — `auto` is the floor; any other backend is opt-in
+
+**Status:** accepted 2026-08-20 · Phase 2 · supersedes the scoring behaviour added in Phase 1
+
+### Context
+
+`select()` resolved `auto` by scoring each installed backend against the repository and picking
+the widest. With a second backend registered that stopped being hypothetical: graphify scored
+63 to homegrown's 58 on this repository and would have taken over on the next build.
+
+### Decision
+
+`auto` is the floor. Naming a backend in `knowledge-base/settings.json` *is* the opt-in.
+`auto` still runs the census, but only to say what it is leaving out:
+
+```
+code-graph: 'graphify' is installed and reads 5 file(s) here that 'homegrown' cannot
+(.json, .ps1, .sh). It is opt-in: set substrate.backend to 'graphify' to use it.
+```
+
+### Rejected
+
+**Keep scoring.** It means installing a binary anywhere on `PATH` silently changes the
+substrate — and therefore every blast radius — for every project on the machine at once, with
+no diff. Spec §11 mitigates the zero-install risk with *graphify is opt-in*; CD-13 requires a
+substrate change to be a measured migration.
+
+**A separate `substrate.allow` list.** More machinery for the same answer. A project that has
+written the name down has decided.
+
+**Silence when a better backend is available.** Opt-in must not mean undiscoverable. Which of
+its own files another backend would read is the one thing a project cannot work out for itself.
+
+### Consequences
+
+- A backend that fails *during the build* now degrades to the floor rather than taking the
+  build down. Selection already degraded on unavailability; there was no other half.
+- The fallback is recorded as `degraded_from` in the artifact, not merely printed.
+
+---
+
+## CD-24 — symbols refine an edge, and are off by default
+
+**Status:** accepted 2026-08-20 · Phase 3
+
+### Context
+
+Spec §5 and CD-6: symbols refine file anchors, they never replace them. Phase 3's deliverable
+is the optional refinement, not a new node type.
+
+### Decision
+
+An edge may carry `from_symbol`, `to_symbol` and `line`, behind `substrate.symbols` (default
+off). A backend that cannot see symbols is unaffected — this asks for refinement, it does not
+require it.
+
+### Rejected
+
+**On by default.** Measured: 73 file-level edges become 417, because a test module calling one
+helper sixty times is sixty symbol pairs and one dependency. Nothing downstream reads them yet.
+
+**Symbols as graph nodes.** That is a different graph, and it would break every consumer that
+joins artifacts on file path (CD-3).
+
+### Consequences
+
+- Verified rather than assumed: `--impact`, `--dependents` and `--dependencies` return the same
+  path strings with refinement on or off.
+- An unnamed symbol is omitted rather than recorded as an empty string, and validation rejects
+  a symbol field that is present but not a name.
+
+---
+
+## CD-25 — a behaviour's symbols come from coverage, never from the graph
+
+**Status:** accepted 2026-08-20 · Phase 3
+
+### Context
+
+Spec §10 asks for symbols threaded through `behavior.json`'s `exercises`. The obvious source is
+the code graph; it is the wrong one.
+
+### Decision
+
+They come from the istanbul coverage report — `fnMap` names each function, `f` counts its
+executions. An exercise entry gains an optional `symbols` list. One entry per file, not one per
+symbol.
+
+Two filters, both from reading real output (775 functions across 123 files):
+
+- **executed only** (`f[i] > 0`);
+- **named only.** 405 of the 775 are `(anonymous_N)`, where N is a positional counter per file,
+  so inserting one function renumbers every later one.
+
+### Rejected
+
+**Take symbols from the graph.** `observed` means "the test ran this". Graph symbols would mix
+in things nobody executed, which is the difference between measurement and inference — the
+distinction the whole trust model rests on.
+
+**One exercise entry per symbol.** `behavior-graph` intersects `exercises[].path` against the
+impact set; splitting the entry changes that set's cardinality and every count derived from it.
+
+**Bump `behavior.json`'s version.** It is written and read by nobody. The real compatibility
+guarantee is that an entry with no symbols is byte-identical to one from before this existed —
+which is asserted.
+
+**Narrow Direction A with symbols.** `--impact` answers in path strings by design (CD-20), so
+there is no symbol on the impact side to intersect against. Narrowing is the miss-generating
+direction.
+
+### Consequences
+
+- `merge_fingerprint` needed no change: it copies entries by reference, so symbols ride through.
+- Spec §10's "thread it through the fingerprint comparison" describes something that does not
+  exist — nothing compares two fingerprints' exercise sets. Recorded in the log rather than
+  silently reinterpreted.

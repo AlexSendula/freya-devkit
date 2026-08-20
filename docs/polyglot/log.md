@@ -548,3 +548,73 @@ code written earlier the same day.
 | Clone test | `git clone` of a project with a `settings.json` override: graphs the overridden tree, records `overrides: ["docs"]` |
 | freya-devkit | 57 files, 424 edges — +5 on the prior run, all of them this change's own new import lines |
 | Tests | 1,186 → 1,200 |
+
+---
+
+## 2026-08-20 (Phases 2 and 3) — the second substrate, and what it cost to trust it
+
+**Status:** shipped as `4f40692` and `6df1ce1`. Decisions distilled as CD-22..CD-25.
+
+### Measurements
+
+| | |
+|---|---|
+| graphify 0.9.47 on this repo | 3,692 nodes / 6,289 links, 2.4s, no model, no network |
+| Projected onto the contract | 73 distinct file pairs, 113 edges (file-level), 634 (symbol-refined) |
+| **§9.1, the blocking gate** | **73 pairs against homegrown's 65 — nothing lost** |
+| The one "miss" | `bin/installer.py -> bin/freya_cli.py`: an import inside a *string literal*. Homegrown's own false positive (backlog item 10) |
+| Structural links dropped | 2,861 of 6,289 — 57.8% — all 100% intra-file |
+| Intra-file links of kept relations | 1,516 of 2,007 survivors (75%), dropped as self-edges |
+| Resting solely on INFERRED | 2 file pairs |
+| Extensions read | 33, against homegrown's 6 |
+| Determinism | Two cold builds of the whole repo, graphify-out destroyed between: 69 files / 662 edges, byte-identical |
+| Tests | 1,202 -> 1,264 |
+
+### Reversals
+
+| Planned / believed | What replaced it | Why |
+|---|---|---|
+| `auto` picks whichever backend reads most (Phase 1) | `auto` is the floor; naming a backend is the opt-in | Not hypothetical the moment a second backend existed: graphify scored 63 to homegrown's 58 here and would have taken over on the next build. Installing a binary on PATH would have changed every blast radius on the machine, with no diff. Spec §11 already said *graphify is opt-in* |
+| `rationale_for` is graphify's own docs graph | It is a *docstring index* | 543/543 `rationale` -> `code`, intra-file, `.py` only. The source node's label is the first line of a docstring. It cannot express a relationship between two files, so it neither overlaps docs.json nor competes with it |
+| Coverage declared from one language fixture | Declared from two fixtures plus a census of real output | The first probe found 17 extensions; the artifact immediately failed validation on `.json`, `.sql`, `.tf`, `.ps1`. The validator caught the under-claim on its first real run |
+| Symbols threaded from the graph into behavior.json | Threaded from the *coverage report* | `observed` means "the test ran this". Graph symbols would mix in things nobody executed — measurement versus inference, which is the distinction the trust model rests on |
+
+### Worth carrying
+
+- **The declared coverage was wrong on its first real run, and the contract caught it.**
+  `validate_graph` reported five files outside the declared extensions within seconds of the
+  backend first producing a graph. That is the first time the contract has caught a backend
+  rather than a caller, which is what it was written for.
+- **A vocabulary you cannot enumerate needs a report, not a default.** Grepping graphify's
+  source yields 26 relation names; `reads_from`, which this repository's graph contains, is not
+  one of them. So there is no fallthrough — an unlisted relation is counted and announced.
+- **Agents invent plausible specifics.** A probe reported graphify's vocabulary as including
+  `extends`, `dynamic_import`, `embeds` and `requires`. None of the four exists. Checking took
+  one grep; taking it on trust would have put four dead rows in the mapping table and a
+  confident sentence in the docs.
+- **A gate that does not bite is not a gate.** The first §9.1 test asserted file *pairs*, and
+  the fixture carries each pair on three relations — so dropping a relation changed nothing it
+  could see. Mutation-testing it found that in one run; pinning `(from, to, kind)` fixed it.
+  Four mutations now fail it.
+- **Spec §10 asks for something that does not exist.** "Thread it through the fingerprint
+  comparison" — nothing in the toolkit compares two fingerprints' exercise sets.
+  `merge_fingerprint` compares coverage *labels* and copies the exercises; `stale_bucket`
+  compares `freshness` to HEAD. Recorded here rather than quietly reinterpreted, which is the
+  CD-21 pattern the previous commit exists to remember.
+
+### Doc impact — applied
+
+- `skills/freya-code-graph/SKILL.md` — the backends table, the opt-in, `substrate.symbols`
+- `skills/freya-code-graph/references/graph-schema.md` — the optional symbol fields on Edge
+- New: `skills/freya-code-graph/scripts/backend_graphify.py`, its tests, and
+  `scripts/testdata/gate91.json` — the committed §9.1 fixture
+
+### Still open
+
+- The intra-file call graph (1,516 links here) is a deliberately discarded capability. Filing
+  it needs a node type the contract does not have.
+- `.ejs` and `.ets` have no extractor in graphify's registry and were not probed; `.r` was, and
+  produces nothing.
+- graphify's `community`/`community_name` fields drift between cold builds (1,455 of 3,692
+  nodes measured). Irrelevant here — the projection reads neither — but it means graphify's own
+  artifact is not byte-stable while ours is.
