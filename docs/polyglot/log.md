@@ -1015,7 +1015,7 @@ with zero behaviours run, not a loud failure.
 
 Two tiers draw the noise line. Definite program source is always reported; `.sh`/`.sql`/`.ps1`
 only when they outnumber what the graph actually holds. Measured across seven real
-repositories: silent on three, including this one.
+repositories: silent on two of the four real ones, this repository included.
 
 `readable_by` now names the remedy on a machine that has never installed it — the coverage
 declaration is a module-level constant, so it needs no binary and no `PATH` check.
@@ -1058,3 +1058,19 @@ directory, and with graphify off `PATH`.
   the hole being closed, and the price of a signal quiet enough to be believed.
 - An unmapped file still cannot surface as a coverage gap in the git-tracked `BACKLOG.md`.
   The block is now in `graph.json` for `gaps()` to read whenever the churn is judged worth it.
+
+### A measured claim I propagated without checking
+
+The design agent reported the filter "silent on 3 of 7 real repositories". Checking it before
+believing it: **`acme-lab` is an empty directory.** Its only four files were the graph artifacts
+my own verification run had just created. It was empty when the design measured it, so counting
+it as a real repository — and as evidence of the filter's quietness — is worth nothing.
+
+The honest figure is **two of four real repositories**: this one and a 40-file media server. It
+fires on both polyglot repositories and on both Java fixtures. The 96-files/68-out-of-scope
+measurement, checked the same way, reproduces exactly.
+
+Same failure mode as the four-relation-names episode in Phase 2, arriving from the other
+direction: there, an automated probe's *absence* of evidence was taken as evidence of absence;
+here, a probe's *presence* of a result was taken as evidence it meant something. A number in a
+decision record is a claim, and an inherited one is not a measurement until you have re-run it.
