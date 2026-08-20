@@ -588,10 +588,25 @@ code written earlier the same day.
 - **A vocabulary you cannot enumerate needs a report, not a default.** Grepping graphify's
   source yields 26 relation names; `reads_from`, which this repository's graph contains, is not
   one of them. So there is no fallthrough — an unlisted relation is counted and announced.
-- **Agents invent plausible specifics.** A probe reported graphify's vocabulary as including
-  `extends`, `dynamic_import`, `embeds` and `requires`. None of the four exists. Checking took
-  one grep; taking it on trust would have put four dead rows in the mapping table and a
-  confident sentence in the docs.
+- **I "corrected" a probe that was right, using a worse method than the one it used.** It
+  reported graphify's vocabulary as including `extends`, `dynamic_import`, `embeds` and
+  `requires`. I grepped for `relation = "..."` and `"relation": "..."`, found none of them,
+  removed all four from the mapping table, and wrote in this log that the agent had invented
+  them. All four are real, in `DEFAULT_AFFECTED_RELATIONS` (affected.py:12) — a tuple
+  constant, which is exactly the shape my regexes could not see. My own scan had also failed
+  to find `reads_from`, which this repository's graph *contains*, and I noticed that
+  discrepancy and drew no conclusion from it.
+
+  Verification that only looks one way is not verification. The table is now pinned by a test
+  that reads `DEFAULT_AFFECTED_RELATIONS` out of graphify's own interpreter and fails if any
+  relation it walks is unmapped here — which is the check I should have written instead of
+  the grep.
+
+- **`method` is dropped as an edge and kept as a lookup.** It is not a dependency: 1,119 of
+  1,119 links are intra-file. But graphify labels a method with its own name only —
+  `.setUp()`, `._run()` — and **64 of 1,731 code symbols share a bare label with a sibling in
+  the same file**. Without the owning class, Phase 3's symbol names describe a symbol without
+  identifying one. Qualifying from `method` takes the collisions to zero.
 - **A gate that does not bite is not a gate.** The first §9.1 test asserted file *pairs*, and
   the fixture carries each pair on three relations — so dropping a relation changed nothing it
   could see. Mutation-testing it found that in one run; pinning `(from, to, kind)` fixed it.

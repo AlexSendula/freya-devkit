@@ -84,14 +84,18 @@ UPDATE_TIMEOUT_SECONDS = 900
 # it is. A silent fallthrough is the failure Phase 0 recorded against config coverage:
 # "nothing, and no warning".
 #
-# Names verified present in graphify 0.9.47's source are mapped. Names that are plausible but
-# unverified are deliberately absent — being told about them once is better than guessing at
-# them forever.
+# The authority for which relations are *dependencies* is graphify's own
+# `DEFAULT_AFFECTED_RELATIONS` (affected.py:12) — the vocabulary its blast-radius traversal
+# walks. All fourteen are mapped here. Everything in that tuple and nothing structural: the
+# same file explicitly excludes `contains` and `method` from its walk, which is independent
+# confirmation of the three dropped above.
 RELATIONS = {
     # Module-level dependency.
     'imports': 'imports',
     'imports_from': 'imports',
     'includes': 'imports',
+    'requires': 'imports',
+    'dynamic_import': 'imports',
     'crate_depends_on': 'imports',
     'depends_on': 'imports',
     're_exports': 're_exports',
@@ -101,6 +105,7 @@ RELATIONS = {
     'instantiates': 'calls',
     # Type hierarchy.
     'inherits': 'inherits',
+    'extends': 'inherits',
     'implements': 'inherits',
     'mixes_in': 'inherits',
     # Named without being invoked.
@@ -110,6 +115,7 @@ RELATIONS = {
     'uses_component': 'references',
     'uses_static_prop': 'references',
     'reads_from': 'references',
+    'embeds': 'references',
     'bound_to': 'references',
     # Not dependencies, and explicitly so rather than by omission — being listed here is what
     # stops them showing up in the unmapped report every single build.
@@ -393,6 +399,7 @@ class GraphifyBackend:
         obligation 6 has to be honoured on the way out rather than on the way in. That answers
         spec open question 3, which had left the mechanism undecided.
         """
+        owners = self._method_owners(raw)
         index = {}
         for node in raw.get('nodes') or []:
             if not isinstance(node, dict) or node.get('file_type') != CODE_NODE:
@@ -404,8 +411,38 @@ class GraphifyBackend:
             key = source_file.replace('\\', '/').lstrip('/')
             if exclusions is not None and exclusions.excludes(key):
                 continue
-            index[node_id] = (key, node.get('label') or '', _line(node.get('source_location')))
+            label = node.get('label') or ''
+            index[node_id] = (key, owners.get(node_id, label),
+                              _line(node.get('source_location')))
         return index
+
+    @staticmethod
+    def _method_owners(raw: Dict[str, Any]) -> Dict[str, str]:
+        """node id -> `Class.method()`, for every method the graph names.
+
+        graphify labels a method with its own name only — `.setUp()`, `._run()` — and the
+        owning class reaches it through a `method` link. Measured on this repository, **64 of
+        1,731 code symbols share a bare label with a sibling in the same file**: three
+        different `._run()` in one test module, and so on. Qualifying with the owner takes
+        that to zero.
+
+        Which is why `method` is dropped as an *edge* and kept as a *lookup*. It is not a
+        dependency — it never crosses a file boundary — but it is the only thing that makes
+        Phase 3's symbol names identify a symbol rather than merely describe one.
+        """
+        labels = {n.get('id'): n.get('label') for n in (raw.get('nodes') or [])
+                  if isinstance(n, dict)}
+        owners = {}  # type: Dict[str, str]
+        for link in raw.get('links') or []:
+            if not isinstance(link, dict) or link.get('relation') != 'method':
+                continue
+            owner = labels.get(link.get('source'))
+            member = labels.get(link.get('target'))
+            if isinstance(owner, str) and isinstance(member, str) and owner and member:
+                # Method labels already begin with '.', so this composes to `Class.method()`.
+                owners[link['target']] = owner + member if member.startswith('.') \
+                    else '%s.%s' % (owner, member)
+        return owners
 
     def _project(self, link: Any, nodes: Dict[str, Tuple[str, str, Optional[int]]],
                  symbols: bool) -> Optional[Tuple[str, Dict[str, Any], tuple]]:

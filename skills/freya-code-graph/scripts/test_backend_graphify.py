@@ -15,6 +15,7 @@ Run: python test_backend_graphify.py
 
 import json
 import os
+import pathlib
 import shutil
 import subprocess
 import sys
@@ -30,6 +31,37 @@ from backend_graphify import GraphifyBackend, GraphifyUnavailable  # noqa: E402
 HAVE_GRAPHIFY = shutil.which(backend_graphify.BINARY) is not None
 needs_graphify = unittest.skipUnless(
     HAVE_GRAPHIFY, 'the graphify binary is not installed on this machine')
+
+
+def graphify_module_source(dotted):
+    """Read a module out of graphify's own interpreter, or None if it cannot be reached.
+
+    graphify installs as a `uv tool` in its own virtualenv, so it is on PATH but not on this
+    process's import path. The binary's shebang names the interpreter that *can* import it.
+    """
+    binary = shutil.which(backend_graphify.BINARY)
+    if not binary:
+        return None
+    try:
+        shebang = pathlib.Path(binary).read_text(errors='replace').splitlines()[0]
+    except (OSError, IndexError):
+        return None
+    if not shebang.startswith('#!'):
+        return None
+    interpreter = shebang[2:].strip()
+    try:
+        out = subprocess.run(
+            [interpreter, '-c',
+             'import %s as m; print(m.__file__)' % dotted],
+            capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if out.returncode != 0:
+        return None
+    try:
+        return pathlib.Path(out.stdout.strip()).read_text(encoding='utf-8')
+    except OSError:
+        return None
 
 
 def node(node_id, source_file, label='sym', line='L1', file_type='code'):
@@ -233,6 +265,41 @@ class TestSymbolRefinement(Base):
         self.assertEqual(len(self.edges(self.translate(nodes, links), 'src/a.py')), 1)
         self.assertEqual(
             len(self.edges(self.translate(nodes, links, symbols=True), 'src/a.py')), 2)
+
+    def test_a_method_symbol_is_qualified_by_its_owning_class(self):
+        """graphify labels a method with its own name only — `.setUp()`. Measured on this
+        repository, 64 of 1,731 code symbols share a bare label with a sibling in the same
+        file (three different `._run()` in one test module). Unqualified, a symbol name
+        describes a symbol without identifying one."""
+        g = self.translate(
+            [node('cls', 'src/a.py', 'InitTest'), node('m', 'src/a.py', '.run()'),
+             node('t', 'src/b.py', 'helper')],
+            [link('cls', 'm', 'method'), link('m', 't', 'calls')], symbols=True)
+        self.assertEqual(self.edges(g, 'src/a.py')[0]['from_symbol'], 'InitTest.run()')
+
+    def test_qualification_disambiguates_siblings_that_share_a_bare_label(self):
+        g = self.translate(
+            [node('c1', 'src/a.py', 'FirstTest'), node('c2', 'src/a.py', 'SecondTest'),
+             node('m1', 'src/a.py', '._run()'), node('m2', 'src/a.py', '._run()'),
+             node('t', 'src/b.py', 'helper')],
+            [link('c1', 'm1', 'method'), link('c2', 'm2', 'method'),
+             link('m1', 't', 'calls'), link('m2', 't', 'calls')], symbols=True)
+        self.assertEqual(
+            sorted(e['from_symbol'] for e in self.edges(g, 'src/a.py')),
+            ['FirstTest._run()', 'SecondTest._run()'])
+
+    def test_a_module_level_function_is_left_unqualified(self):
+        """There is nothing to qualify it with, and inventing a prefix would be worse."""
+        g = self.translate([node('a', 'src/a.py', 'main()'), node('b', 'src/b.py', 'h')],
+                           [link('a', 'b', 'calls')], symbols=True)
+        self.assertEqual(self.edges(g, 'src/a.py')[0]['from_symbol'], 'main()')
+
+    def test_method_is_still_not_an_edge(self):
+        """Kept as a lookup, dropped as a dependency — it never crosses a file boundary."""
+        g = self.translate(
+            [node('cls', 'src/a.py', 'C'), node('m', 'src/a.py', '.run()')],
+            [link('cls', 'm', 'method')], symbols=True)
+        self.assertEqual(self.edges(g, 'src/a.py'), [])
 
     def test_a_missing_line_is_omitted_rather_than_guessed(self):
         bad = link('a', 'b', 'calls')
@@ -531,6 +598,47 @@ class TestAgainstTheRealBinary(Base):
 
         floor = graph_ops.CodeGraph(self.tmp).build(non_interactive=True).graph
         self.assertEqual(floor['files'], {}, 'the floor should see no Java at all')
+
+    def test_the_mapping_covers_graphifys_own_dependency_vocabulary(self):
+        """The authority for "is this relation a dependency?" is graphify, not us.
+
+        `DEFAULT_AFFECTED_RELATIONS` is the vocabulary its own blast-radius traversal walks.
+        Every name in it must map to one of our kinds — a name missing from our table is a
+        dependency graphify would follow and we would silently drop.
+
+        This exists because a hand-maintained table drifted within an hour of being written:
+        four relations were removed from it on the strength of a grep that only matched
+        `relation = "..."` assignments and could not see a tuple constant.
+        """
+        import ast
+
+        text = graphify_module_source('graphify.affected')
+        if text is None:
+            self.skipTest('graphify.affected could not be read from its own interpreter')
+        source = ast.parse(text)
+        theirs = None
+        for statement in ast.walk(source):
+            if (isinstance(statement, ast.Assign)
+                    and any(getattr(t, 'id', None) == 'DEFAULT_AFFECTED_RELATIONS'
+                            for t in statement.targets)):
+                theirs = {e.value for e in statement.value.elts
+                          if isinstance(e, ast.Constant) and isinstance(e.value, str)}
+        self.assertTrue(theirs, 'could not read DEFAULT_AFFECTED_RELATIONS')
+
+        unmapped = sorted(r for r in theirs if backend_graphify.RELATIONS.get(r) is None)
+        self.assertEqual(unmapped, [],
+                         'graphify walks these as dependencies and we drop them: %s'
+                         % unmapped)
+
+    def test_graphify_agrees_the_structural_relations_are_not_dependencies(self):
+        """Independent confirmation of the three we drop: graphify's own traversal excludes
+        them too, at affected.py's `not in ("method", "contains")` guard."""
+        source = graphify_module_source('graphify.affected')
+        if source is None:
+            self.skipTest('graphify.affected could not be read from its own interpreter')
+        self.assertIn('"method", "contains"', source)
+        for structural in ('contains', 'method', 'rationale_for'):
+            self.assertIsNone(backend_graphify.RELATIONS[structural])
 
     def test_a_deleted_file_leaves_the_graph(self):
         """This is what `coverage.incremental=True` claims, so it is measured, not assumed."""
