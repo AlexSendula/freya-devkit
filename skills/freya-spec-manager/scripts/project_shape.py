@@ -132,7 +132,7 @@ _NOT_SOURCE = {
 def unmapped_from_graph(project_dir):
     """(extensions, censused) from the graph's own `substrate.unmapped_source` block.
 
-    `censused` is False when the key is absent — the graph predates the census (CD-27) — and
+    `censused` is False when the key is absent — the graph predates the census (ADR-029) — and
     also when the census *ran and failed*, which records `{"files": null, "error": ...}`. Both
     mean "I do not know what this backend could not read", and both must fall back to the walk.
     Treating the error block as a clean answer turned an explicit I-don't-know back into a
@@ -157,7 +157,7 @@ def unmapped_from_graph(project_dir):
 
 
 def _censused(project_dir):
-    """Did a CD-27 census actually run for this graph, and succeed?"""
+    """Did a ADR-029 census actually run for this graph, and succeed?"""
     return unmapped_from_graph(project_dir)[1]
 
 

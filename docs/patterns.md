@@ -232,6 +232,84 @@ else:
 
 **When to use**: Whenever a skill can benefit from another skill but doesn't strictly require it.
 
+## Pattern: An Answer That Qualifies Itself
+
+**Problem**: A caller cannot tell "nothing" from "I could not see". An empty blast radius looks
+exactly like a safe change, and it gets acted on — where an error would have stopped someone.
+
+**Solution**: Every answer carries the limits of the run that produced it, in the answer itself,
+and carries nothing when there is nothing to say.
+
+```python
+# The answer, not a log line, because the consumer is another process
+{
+  "all_affected": ["src/a.ts", "src/b.ts"],
+  "not_in_graph": [],                 # the file you asked about was unmapped
+  "unmapped_source": {                # this answer is over an incomplete graph
+    "files": 12,
+    "extensions": {".java": 12},
+    "directories": {"src/main/java/com/acme": 12}   # go grep here
+  }
+}
+```
+
+Three rules make it work rather than become noise:
+
+1. **Absent when empty.** A field that fires on every repository is one a reader learns to skip
+   inside a single session, after which it costs tokens forever and changes no decision.
+2. **Never a refusal.** It may change what an answer says about itself; it may never change what
+   the answer *is*, or whether there is one. A caveat that becomes a refusal turns a routine
+   condition into an outage.
+3. **Say where, not just what.** `{".java": 12}` makes the caller derive a search target;
+   `{"src/main/java/com/acme": 12}` *is* one.
+
+**Used by**: code-graph (`unmapped_source`, `not_in_graph`, `degraded_from`), behavior-runner
+(`coverage: unknown` with a reason rather than an empty exercise list), spec-manager's drift
+check (narrows its scope *and says so*), the security scan (exits non-zero when every worker
+failed rather than reporting a clean codebase).
+
+**When to use**: Any time a result can be narrower than the question and the caller cannot tell
+from the shape. Ask what a *zero* means in your output — if it has two possible meanings, one of
+them is a bug waiting to be believed.
+
+**See**: ADR-005 (never confidently empty), ADR-029 (the answer-level version).
+
+## Pattern: The Contract Is the Architecture, Not the Tool
+
+**Problem**: A capability depends on a specific tool. Replacing it later means every consumer
+moves with it, so the choice quietly becomes permanent.
+
+**Solution**: Define the contract the tool satisfies, and let the tool be configuration.
+
+```python
+# substrate.py — the socket. Standard library only, so a backend can depend on it
+# without inheriting anything, and structural rather than a base class.
+BUILD_KWARGS = ('exclusions', 'non_interactive', 'selection_metadata')
+# A backend satisfies the contract by having the right attributes, and conformance
+# is checked by BINDING THE SIGNATURE, not by hasattr: "callable" is not a contract.
+```
+
+**Two implementations from the start, deliberately.** An interface with a single implementation
+is fiction — it encodes the assumptions of its only caller, and nobody finds out until the
+second one arrives. This is not a slogan: the substrate contract was written with one backend
+behind it, and the review that built the second found the contract could not actually run
+anything else. Saving the artifact, validating it and building the reverse index all still lived
+*inside* the incumbent, so a conforming backend produced nothing and reported success.
+
+**Keep the humble implementation as the floor.** The zero-install one stays installed and stays
+the default, so the system degrades to *something* everywhere rather than to nothing. Adopting
+the better tool is opt-in, and never automatic: scoring silently would mean installing a binary
+somewhere on `PATH` changed every answer on the machine, with no diff.
+
+**Used by**: code-graph (`substrate.py` with `homegrown` and `graphify`), the behavior layer's
+adapters, the security scan's driver.
+
+**When to use**: When you are about to pick a dependency that five things will stand on. Ask
+what you would have to change to swap it in two years — if the answer is "every consumer", write
+the contract first.
+
+**See**: ADR-018, ADR-019, ADR-020.
+
 ## Pattern: Phase-Based Execution
 
 **Problem**: Complex workflows have multiple steps that should be clear to users.

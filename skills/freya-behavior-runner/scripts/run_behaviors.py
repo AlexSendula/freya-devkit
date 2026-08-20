@@ -314,7 +314,7 @@ def _code_graph_deps(entry, project_dir):
         # honours: the prior fingerprint is preserved rather than replaced. Refusing to
         # answer is the honest move; a narrower answer that looks authoritative is not.
         return None, "graph-degraded: %s" % degraded
-    # `substrate.unmapped_source` (CD-27) is deliberately NOT read here, and extending the
+    # `substrate.unmapped_source` (ADR-029) is deliberately NOT read here, and extending the
     # refusal above to cover it is the first "fix" a future reader will reach for.
     #
     # `degraded_from` means the project asked for a backend and did not get one — abnormal,

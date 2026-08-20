@@ -21,8 +21,27 @@ Quick reference for all ten skills, in tier order — see [Skill Relationships](
 | `impact <file>` | Show blast radius |
 | `dependents <file>` | Files that depend on this |
 | `dependencies <file>` | Files this depends on |
+| `clear` | Delete the cached graph, including every backend's copy |
+| `--use <backend> [--global]` | Record which substrate backend this project — or this machine — uses |
 
-**Output**: `knowledge-base/.graph/graph.json`
+**Output**: `knowledge-base/.graph/graph.json` (active), `graph.<backend>.json` (per-backend
+copy), `classifications.json` — all gitignored. `knowledge-base/settings.json` is **committed**:
+it is where the backend choice and any exclusion overrides live, so a clone and CI resolve the
+same scope you do.
+
+**Backends.** The graph is produced through a contract (ADR-018). `homegrown` ships with the
+toolkit, needs nothing but Python, and reads 4 languages across 6 extensions — it is the floor,
+and it always runs unless something else is named. `graphify` needs its binary on `PATH` and
+reads 40 languages across 93 extensions, plus `calls`/`inherits`/`references` relations the floor
+has no notion of. Choosing one is a person's decision, asked once by `freya install` and recorded
+per project (ADR-019); it is never scored automatically, because installing a binary anywhere on
+`PATH` must not silently change every blast radius on the machine.
+
+**Every answer says what it could not read.** `build`, `update`, `query` and `impact` may carry
+an `unmapped_source` block naming the in-scope source files the backend could not parse and the
+directories to search instead; `dependents`/`dependencies` keep their bare arrays and say the
+same on stderr. The key is absent when there is nothing to say, so its presence means the answer
+above it is computed over an incomplete graph (ADR-029).
 
 **Used by**: docs-manager, spec-manager, behavior-graph, behavior-runner, codebase-security-scan
 

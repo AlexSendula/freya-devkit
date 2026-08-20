@@ -175,7 +175,7 @@ class ClassifyTest(unittest.TestCase):
 
 
 class CensusedGraphTest(unittest.TestCase):
-    """CD-27 — the census in the artifact, preferred over a fresh disk walk.
+    """ADR-029 — the census in the artifact, preferred over a fresh disk walk.
 
     The walk consults a hardcoded skip list that knows nothing about `.gitignore` or this
     project's directory classifications; measured on freya-devkit it reports 96 unread files
@@ -249,7 +249,7 @@ class CensusedGraphTest(unittest.TestCase):
 
     def test_a_pre_census_graph_still_walks_the_disk(self):
         """The compatibility guarantee: deleting the walk would regress every graph written
-        before CD-27 to "no blind spots at all" — the confidently-empty answer it guards."""
+        before ADR-029 to "no blind spots at all" — the confidently-empty answer it guards."""
         self._files("src/Main.java", "src/Other.java", "src/Third.java")
         self._graph({}, None)
         r = project_shape.classify(self.proj)
@@ -265,7 +265,7 @@ class CensusedGraphTest(unittest.TestCase):
     def test_verdict_pin_b_a_shell_repo_becomes_unknown(self):
         """A DELIBERATE CHANGE. Today this is `greenfield`, because `.sh` is in `_NOT_SOURCE`
         — a repository made of shell scripts told its own tooling it was an empty scaffold.
-        Recorded in CD-27 so the new value is a decision rather than a surprise."""
+        Recorded in ADR-029 so the new value is a decision rather than a surprise."""
         self._graph({}, {"files": 40, "extensions": {".sh": 40}})
         self.assertEqual(project_shape.classify(self.proj)["recommendation"], "unknown")
 

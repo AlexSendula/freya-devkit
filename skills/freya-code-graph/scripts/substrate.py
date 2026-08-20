@@ -41,7 +41,7 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tupl
 # and a caller could not then ask "does this backend give me calls?" in a portable way.
 #
 # Defined here in Phase 1 rather than in Phase 3, where symbols land, because inventing a
-# vocabulary during a migration is worse than agreeing one before it (CD-16).
+# vocabulary during a migration is worse than agreeing one before it (ADR-018).
 RELATION_KINDS = (
     'imports',      # a file depends on another file, as stated in source
     're_exports',   # a file re-exports another file's surface (barrels)
@@ -106,7 +106,7 @@ def is_internal(specifier: str) -> bool:
 #   to_symbol     the symbol it arrives at
 #   line          1-based line of the statement that produced it
 #
-# The three are *refinement*, never replacement (spec §5, CD-6). Every edge keeps its file
+# The three are *refinement*, never replacement (spec §5, ADR-024). Every edge keeps its file
 # anchor, so a consumer that ignores them behaves exactly as it did before they existed —
 # which is what makes symbol support optional per backend rather than a schema change.
 #
@@ -258,7 +258,7 @@ def active_graph_path(project_dir: Any) -> str:
 
 
 def backend_graph_path(project_dir: Any, backend_name: str) -> str:
-    """This backend's own copy (CD-17), so a swap can be diffed against the baseline."""
+    """This backend's own copy (ADR-028), so a swap can be diffed against the baseline."""
     return os.path.join(graph_dir(project_dir), 'graph.%s.json' % backend_name)
 
 
@@ -386,7 +386,7 @@ class Coverage:
     Declaring languages answers "can you see this repo at all", which is the headline Track B
     failure: a Java repo graphed as empty and reported as success. Declaring relation kinds
     answers the finer question, so a caller needing symbol-level `calls` can degrade that one
-    query instead of distrusting the whole graph (CD-16).
+    query instead of distrusting the whole graph (ADR-018).
     """
 
     __slots__ = ('languages', 'extensions', 'relations', 'incremental')
@@ -521,7 +521,7 @@ class Exclusions:
         `packages/*/node_modules/**` into the graph. Measured on a two-package fixture: the
         override admitted the whole vendored tree, and the control build without it did not.
 
-        That is the 50,000-file blast radius CD-21's two-tier design exists to prevent,
+        That is the 50,000-file blast radius ADR-022's two-tier design exists to prevent,
         reached through an ordinary ancestor verdict — and nothing could switch it back off,
         because the classifier does not descend into a directory whose ancestor already
         carries a stated verdict, so no nested `exclude` is ever derived to catch it.
@@ -611,7 +611,7 @@ def conformance_errors(backend: Any) -> List[str]:
     if not isinstance(name, str) or not name:
         errors.append('name: must be a non-empty string')
     elif not name.replace('-', '').replace('_', '').isalnum():
-        # The name becomes a filename (graph.<name>.json, CD-17).
+        # The name becomes a filename (graph.<name>.json, ADR-028).
         errors.append('name: %r is not filename-safe (letters, digits, - and _)' % name)
 
     for attr in REQUIRED_BACKEND_ATTRS:
@@ -794,7 +794,7 @@ def validate_graph(graph: Dict[str, Any], coverage: Optional[Coverage] = None) -
 
 
 # ---------------------------------------------------------------------------
-# The unmapped-source census — CD-27
+# The unmapped-source census — ADR-029
 # ---------------------------------------------------------------------------
 #
 # ADR-005 says the graph must never answer "nothing" when it means "I don't know". That was
@@ -810,14 +810,14 @@ def validate_graph(graph: Dict[str, Any], coverage: Optional[Coverage] = None) -
 # `get_impact` already makes for `not_in_graph`, generalised from "the file you asked about is
 # unmapped" to "this answer is incomplete".
 #
-# CD-26's discipline applies: absent when there is nothing to say. A field that fires on every
+# ADR-019's discipline applies: absent when there is nothing to say. A field that fires on every
 # repository with a README is one an agent learns to skip inside a single context window, after
 # which it costs tokens forever and changes no decision.
 
 # Program source a backend might reasonably be expected to graph. Closed-world on purpose: an
 # extension nobody listed produces silence, which is the right default for a signal whose only
 # value is being believed. The cost is that a language nobody listed goes unreported — a real,
-# narrower instance of the hole this closes, and recorded as such in CD-27.
+# narrower instance of the hole this closes, and recorded as such in ADR-029.
 SOURCE_EXTENSIONS = frozenset({
     # JVM / .NET
     '.java', '.kt', '.kts', '.scala', '.groovy', '.gradle', '.clj', '.cljs', '.cljc',
@@ -1009,7 +1009,7 @@ def unmapped_digest(block: Any, full: bool = False) -> Optional[Dict[str, Any]]:
     """What an answer carries, or `None` when there is nothing to say.
 
     `None` on a clean repository is what keeps every answer byte-identical to what it was
-    before this existed — the CD-26 discharge, enforced in one place rather than at each of
+    before this existed — the ADR-019 discharge, enforced in one place rather than at each of
     the surfaces.
     """
     if not isinstance(block, dict):

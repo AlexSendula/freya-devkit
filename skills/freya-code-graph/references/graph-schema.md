@@ -295,7 +295,7 @@ classify as greenfield.
 | `coverage.incremental` | `false` means the backend cannot reliably drop deleted nodes, and the contract rebuilds from scratch instead |
 | `degraded_from` | Present **only** on a fallback: the backend that was configured but unavailable |
 | `exclusions` | What the project declared out of scope for this build |
-| `unmapped_source` | In-scope program-source files on disk this backend does not read: `{files, extensions, directories, backend[, readable_by, advice, directories_omitted, truncated, error]}`. `files: 0` means the census ran and found none; the key's **absence** means the graph predates it. `files: null` with `error` means the census could not run. Never a refusal — see CD-27 |
+| `unmapped_source` | In-scope program-source files on disk this backend does not read: `{files, extensions, directories, backend[, readable_by, advice, directories_omitted, truncated, error]}`. `files: 0` means the census ran and found none; the key's **absence** means the graph predates it. `files: null` with `error` means the census could not run. Never a refusal — see ADR-029 |
 
 ### FileInfo Fields
 
@@ -316,7 +316,7 @@ classify as greenfield.
 | `from_symbol` / `to_symbol` | string | Optional. Which symbol each end is, when the backend can see that far |
 | `line` | integer | Optional. 1-based line of the statement that produced the edge |
 
-The last three are **refinement, never replacement** (spec §5, CD-6). Every edge keeps its
+The last three are **refinement, never replacement** (spec §5, ADR-024). Every edge keeps its
 file anchor, so a consumer that ignores them behaves exactly as it did before they existed —
 which is what lets symbol support be a per-backend capability rather than a schema change.
 They appear only when `substrate.symbols` is enabled *and* the backend provides them; the
@@ -360,7 +360,7 @@ Nothing ever read it: the two live things in this toolkit also called "category"
 findings and spec contexts, and neither comes from here.
 
 Caches written before the removal still contain the key. Readers ignore it, and it disappears
-on the next build. See CD-12 in the Track B decision register.
+on the next build. See ADR-021 in the Track B decision register.
 
 ## Path Resolution
 

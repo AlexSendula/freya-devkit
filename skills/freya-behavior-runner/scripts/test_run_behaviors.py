@@ -503,7 +503,7 @@ class StaticFingerprintTest(unittest.TestCase):
         self.assertEqual([e["path"] for e in fp2["exercises"]], ["src/a.ts"])
 
     def test_a_repo_with_unmapped_files_still_fingerprints_static(self):
-        """THE ANTI-REFUSAL PIN (CD-27).
+        """THE ANTI-REFUSAL PIN (ADR-029).
 
         Blind spots are the normal operating condition of the floor on any polyglot repo, and
         must never become a refusal the way `degraded_from` is. Extending that refusal here is

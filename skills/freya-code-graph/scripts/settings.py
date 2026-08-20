@@ -6,7 +6,7 @@ The toolkit had nowhere to record a project-level choice. Directory classificati
 derived verdict, wrong for a decision. Anything stored there is lost on `--clear` and never
 reaches a fresh clone, so every checkout would re-decide.
 
-`knowledge-base/` is where this belongs (CD-15). It already exists wherever freya runs, its name
+`knowledge-base/` is where this belongs (ADR-019). It already exists wherever freya runs, its name
 is fixed rather than configurable, and only `.graph/` inside it is gitignored — `specs/`,
 `decisions/` and `principles.md` are tracked, so a settings file beside them is committed by
 default and travels with the repo. It also keeps the project root clean, which a `freya.json`
@@ -77,7 +77,7 @@ DIRECTORY_VERDICTS = ('source', 'exclude')
 # It deliberately does not go shopping. Scoring the installed backends against the repo and
 # picking the widest meant that installing a binary anywhere on PATH silently changed the
 # substrate, and therefore every blast radius, for every project on the machine at once
-# (CD-23 removed that behaviour after it had already shipped). A machine-level default is the
+# (ADR-019 removed that behaviour after it had already shipped). A machine-level default is the
 # opposite of that: somebody answered a question, once, on purpose.
 #
 # Naming a backend explicitly — including `homegrown` — is how a project opts *out* of the
@@ -515,7 +515,7 @@ def seed_project_backend(project_dir: str,
 
     Writing it down makes the repository self-describing: a colleague who clones it, and CI,
     resolve the same backend without having to share anyone's machine configuration. That is
-    the same property CD-15 was written for.
+    the same property ADR-019 was written for.
 
     `symbols` rides along when the machine sets it, for the same reason and with more force:
     it changes graph *content* several-fold, so a machine-level `symbols: true` left implicit

@@ -8,7 +8,7 @@ argument: a Java or Rust repository is otherwise graphed as empty and reported a
 
 This module owns exactly one thing — translating `graphify-out/graph.json` into the shape
 `substrate.py` specifies. It does not persist, validate or link `dependents`; the contract
-does that for every backend (CD-19), which is what stops the second backend from having to
+does that for every backend (ADR-020), which is what stops the second backend from having to
 reimplement the first one's private methods.
 
 **The shapes are not the same, and the mismatch is the interesting part.** graphify's nodes are
@@ -66,7 +66,7 @@ UPDATE_TIMEOUT_SECONDS = 900
 #   rationale_for   543 links, a `rationale` node to a `code` node, 543 of 543 intra-file and
 #                 543 of 543 in `.py` files. It is a *docstring index* — the source node's
 #                 label is the first line of a docstring — not a documentation graph. It does
-#                 not overlap docs.json (which is doc-section → code-file, CD-7) and does not
+#                 not overlap docs.json (which is doc-section → code-file, ADR-026) and does not
 #                 compete with it; it simply cannot express a dependency between two files.
 #
 # All 2,861 are 100% intra-file, which is the argument on its own: a relation that never
@@ -124,7 +124,7 @@ RELATIONS = {
     'binds_method': None,      # ditto
     'defines': None,           # ditto
     'rationale_for': None,     # docstring index; see above
-    'cites': None,             # prose citation — docs.json owns that question (CD-7)
+    'cites': None,             # prose citation — docs.json owns that question (ADR-026)
     'requires_env': None,      # an environment variable is not a file
     'listened_by': None,       # event wiring, not a source dependency
     'semantically_similar_to': None,   # clustering output, not a fact about the code
@@ -187,7 +187,7 @@ ANCHOR_NODE_TYPES = ('module', 'namespace')
 # `extract_markdown`'s extensions (`.md`, `.mdx`, `.qmd`, `.skill`) are deliberately excluded:
 # they produce `document` and `rationale` nodes, which this projection filters out. Declaring
 # them would claim coverage of files that can never appear in the graph — which is the *other*
-# failure, "no docs edges" made indistinguishable from "we do not read docs". docs.json (CD-7)
+# failure, "no docs edges" made indistinguishable from "we do not read docs". docs.json (ADR-026)
 # owns that question.
 #
 # Two extensions are still name-based rather than suffix-based, and they knowingly over-claim:
@@ -313,7 +313,7 @@ class GraphifyBackend:
 
         `relations` is derived from the mapping table, so adding a row cannot leave the
         declaration claiming less — or more — than the projection can actually emit. That is
-        the per-backend difference `Coverage` exists to express (CD-16): a caller needing
+        the per-backend difference `Coverage` exists to express (ADR-018): a caller needing
         `calls` can see that this backend has them and the homegrown one does not.
         """
         return substrate.Coverage(

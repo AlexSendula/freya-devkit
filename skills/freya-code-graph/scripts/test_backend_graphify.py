@@ -165,7 +165,7 @@ class TestRelationMapping(Base):
 
     def test_graphifys_own_docs_graph_is_not_adopted(self):
         """`rationale_for` is 543 links between `rationale`/`document` nodes. We already have
-        a docs graph built from citations we control (CD-7); a second one would give two
+        a docs graph built from citations we control (ADR-026); a second one would give two
         answers to "which docs describe this file"."""
         g = self.translate(
             [node('a', 'docs/why.md', file_type='rationale'), node('b', 'src/b.py')],
@@ -229,7 +229,7 @@ class TestWhatIsDeliberatelyNotAnEdge(Base):
 
 
 class TestSymbolRefinement(Base):
-    """Phase 3. Symbols refine a file anchor; they never replace it (spec §5, CD-6)."""
+    """Phase 3. Symbols refine a file anchor; they never replace it (spec §5, ADR-024)."""
 
     def test_off_by_default(self):
         """Measured on this repository, symbols turn 73 file-level edges into 417 — a test

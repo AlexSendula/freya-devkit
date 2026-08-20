@@ -41,7 +41,7 @@ FILE_PATTERNS = {
 # `CATEGORY_PATTERNS` and `_categorize_file` lived here until 2026-08-19. Every file entry
 # carried a path-guessed `category` that no caller ever read — three unrelated things in
 # this repo are called "category", and the live two are security findings and spec
-# contexts. Removed under CD-12; existing caches keep the key harmlessly.
+# contexts. Removed under ADR-021; existing caches keep the key harmlessly.
 
 # Import patterns by language, each tagged with the relation it expresses.
 #
@@ -249,7 +249,7 @@ CACHE_GITIGNORE = (
     '# by running the test suite, so it cannot be rebuilt by re-reading source the\n'
     '# way these can — committing it is what gives a fresh clone a blast radius.\n'
     '#\n'
-    '# graph.*.json is the per-backend artifact (CD-17): each substrate writes its own,\n'
+    '# graph.*.json is the per-backend artifact (ADR-028): each substrate writes its own,\n'
     '# so a swap can be diffed instead of destroying the baseline it should be measured\n'
     '# against. graph.json stays the active graph that other skills read.\n'
     '#\n'
@@ -264,7 +264,7 @@ CACHE_GITIGNORE = (
 #
 # Without this history the upgrade only fired on the legacy `*`, so a project that had run a
 # single build kept its list forever — and every artifact added afterwards arrived un-ignored
-# and committable. CD-17's graph.<backend>.json did exactly that: `git add -A` staged it.
+# and committable. ADR-028's graph.<backend>.json did exactly that: `git add -A` staged it.
 _EVER_IGNORED = frozenset({'*', 'graph.json', 'graph.*.json',
                           'classifications.json', 'docs.json'})
 
@@ -447,7 +447,7 @@ class CodeGraph:
         project running graphify graphed `vendor/`, `target/` and the toolkit's own
         `knowledge-base/`, while the floor on the same repository did not. Measured on a
         fixture: three files graphed, two of which the floor excludes. Two backends disagreeing
-        about scope on the same repository is exactly the outcome CD-11 exists to prevent, and
+        about scope on the same repository is exactly the outcome ADR-018 exists to prevent, and
         the obligation that says so was being honoured by one implementation only.
 
         The three tiers map onto the contract's two:
@@ -706,7 +706,7 @@ class CodeGraph:
         on `packages/domain` is the relationship anyone asking for blast radius cares about.
         Without this it resolves to `external:@scope/name`, indistinguishable from a dependency
         on something off npm, and the graph quietly reports the repo as a set of unrelated
-        islands (CD-18).
+        islands (ADR-019).
 
         npm and yarn declare membership in `package.json#workspaces`, as a list or under a
         `packages` key. pnpm uses `pnpm-workspace.yaml`, read here with a deliberately narrow
@@ -1450,7 +1450,7 @@ class CodeGraph:
         `classifications.json` is gitignored regenerable cache, so an override recorded only
         there worked for whoever typed it and vanished for everyone else — CI and every
         colleague silently graphed a smaller codebase and were told the build succeeded.
-        CD-15 had already rejected that file as a home for a decision, on exactly this
+        ADR-019 had already rejected that file as a home for a decision, on exactly this
         ground, before the override was put in it.
 
         Labelled `source: 'user'` because that is what a committed, hand-written settings file
@@ -1521,7 +1521,7 @@ class CodeGraph:
         (which deliberately keeps this file). The only way back was to hand-edit a
         gitignored cache.
 
-        That inverts CD-15 exactly: the committed file is supposed to be the source of
+        That inverts ADR-019 exactly: the committed file is supposed to be the source of
         truth, and the cache had quietly become the one that won. So the cache never holds
         a settings-declared verdict — it is not cache, it is a decision, and it has a home.
         """
@@ -2187,7 +2187,7 @@ Respond with ONLY a JSON object, no markdown formatting:
             print(f'File not found in graph: {file_path}', file=sys.stderr)
             return None
 
-        # No `category`. CD-12 removed the field from the graph, and this kept reporting it
+        # No `category`. ADR-021 removed the field from the graph, and this kept reporting it
         # anyway — always as the literal string 'unknown', for every file, because nothing
         # writes it any more. A field that can only ever hold a placeholder is not a field.
         answer = {
@@ -2345,7 +2345,7 @@ Respond with ONLY a JSON object, no markdown formatting:
     def clear(self) -> bool:
         """Clear the cached graph, including every backend's copy.
 
-        CD-17 added `graph.<backend>.json` and this was not told about it, so a clear left a
+        ADR-028 added `graph.<backend>.json` and this was not told about it, so a clear left a
         complete, current-looking graph behind that nothing would ever report as stale. It is
         the worse leftover of the two, because `graph.json` at least announces its absence.
 
@@ -2399,8 +2399,8 @@ def persist_graph(project_dir: Any, backend_name: str, graph: Dict[str, Any]) ->
     """Write the graph as both the active artifact and this backend's own copy.
 
     `graph.json` stays the active graph because three other skills read that path directly.
-    `graph.<backend>.json` is the addition (CD-17): without it, switching substrates
-    destroys the baseline at exactly the moment CD-13 requires a diff against it.
+    `graph.<backend>.json` is the addition (ADR-028): without it, switching substrates
+    destroys the baseline at exactly the moment ADR-028 requires a diff against it.
     """
     directory = Path(substrate.graph_dir(project_dir))
     directory.mkdir(parents=True, exist_ok=True)
@@ -2678,7 +2678,7 @@ def _census(backend: Any, graph: Dict[str, Any],
 def _answer_caveats(graph: Optional[Dict[str, Any]], full: bool = False) -> Dict[str, Any]:
     """The caveat keys an answer computed from `graph` has to carry, or `{}`.
 
-    Absent — not empty — when there is nothing to say. That is the CD-26 discipline enforced in
+    Absent — not empty — when there is nothing to say. That is the ADR-019 discipline enforced in
     one place rather than at each of the four surfaces: a monoglot repository's answers stay
     byte-identical to what they were before this existed, so nobody pays tokens for a field
     that would always read the same.

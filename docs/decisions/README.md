@@ -6,9 +6,17 @@ The rejected alternatives are the point. Anyone can read the code to learn what 
 does; only these records say what it could have been and why it isn't. When a question comes
 back around, start here so it doesn't get re-litigated from scratch.
 
-These seventeen records were distilled from the design documents, specs and implementation plans
-accumulated between 2026-06 and 2026-08 — roughly fifty files that mixed decisions with tasks,
-status and superseded reasoning. The originals are in git history; what mattered is here.
+These twenty-nine records were distilled from the design documents, specs and implementation
+plans accumulated between 2026-06 and 2026-08 — roughly fifty files that mixed decisions with
+tasks, status and superseded reasoning — and, for ADR-018 onward, from Track B's own working
+record. The originals are in git history; what mattered is here.
+
+**Distillation is not transcription.** Every record was re-verified against the code as it was
+written, and several claims did not survive: behaviour asserted in the present tense that no
+code implements, and measured figures that no longer reproduce. Where a promise turned out to
+be unimplemented it is recorded as unimplemented — see ADR-021 on per-edge provenance, which
+had been stated as an enforced gate in four separate documents. A record that overstates the
+system is worse than no record, because it is believed.
 
 ## Format
 
@@ -30,8 +38,9 @@ tags: [...]
 **The tooling does not see this directory.** `adr.py` reads `knowledge-base/decisions/`
 (`DECISIONS_RELDIR`, `adr.py:29`) — the layout it writes into an *adopting* project. This repo
 deliberately keeps its root free of `knowledge-base/`, so `freya adr verify --project .` here
-checks zero files and exits 0, and `freya adr list` prints an empty table. These seventeen
-records do satisfy `ADR_SCHEMA`; nothing checks that automatically. The format is shared, the
+checks zero files and exits 0, and `freya adr list` prints an empty table. All twenty-nine
+records do satisfy `ADR_SCHEMA` — verified by running `frontmatter.validate_adr` over the
+directory — but nothing checks it automatically. The format is shared, the
 tooling is not — write new records by hand.
 
 **Authority order: shipped code beats an ADR beats a spec.** An ADR records the decision, not
@@ -63,6 +72,24 @@ add one rather than rewriting history.
 |---|---|
 | [ADR-005](ADR-005-repair-parsing-substrate-in-place.md) | Repair the parsing substrate in place, stdlib-only, and never return a confidently-empty result |
 | [ADR-006](ADR-006-real-interface-execution-and-coverage.md) | Behavior tests drive the app over its real interface; coverage is observed at unit, static closure at integration |
+| [ADR-018](ADR-018-substrate-contract-for-the-code-graph.md) | The code graph is produced through a contract, not by one resolver |
+| [ADR-019](ADR-019-the-floor-and-choosing-a-backend.md) | The floor always ships, and any other backend runs because a person named it |
+| [ADR-020](ADR-020-the-contract-persists-the-graph.md) | The contract persists the graph; a backend only produces it |
+| [ADR-021](ADR-021-an-edge-is-an-object-with-kind-and-provenance.md) | An edge is an object carrying kind and provenance, behind a versioned schema |
+| [ADR-022](ADR-022-every-exclusion-default-is-arguable.md) | Every built-in exclusion is a default a project can overrule, in two tiers |
+| [ADR-023](ADR-023-symbol-graph-projected-onto-file-pairs.md) | A symbol graph is projected onto file pairs, and nothing intra-file becomes an edge |
+| [ADR-024](ADR-024-symbols-refine-an-anchor-never-replace-it.md) | Symbols refine a file anchor, never replace it, and stay off by default |
+| [ADR-025](ADR-025-three-artifacts-joined-on-file-path.md) | Three artifacts, one owner each, joined on file path |
+| [ADR-026](ADR-026-the-docs-graph-anchored-at-section.md) | The docs graph anchors at section, and markdown splits only at headings |
+| [ADR-027](ADR-027-what-is-not-graph-material.md) | Config-as-code and migrations are not graph material |
+| [ADR-028](ADR-028-graphs-are-stored-per-backend.md) | Each backend writes its own graph beside the active one |
+| [ADR-029](ADR-029-an-answer-says-what-it-could-not-read.md) | Every answer says what the backend could not read, and it is never a refusal |
+
+ADR-018 through ADR-029 are the polyglot substrate (Track B), distilled from a working record
+of twenty-seven candidate decisions. Twelve records rather than twenty-seven because several
+entries answered one question in parts, and five recorded the order of the feature's own phases
+rather than anything that outlives it. Read ADR-018 first; ADR-019 and ADR-029 are the two a
+reader is most likely to need.
 
 ### Adoption and governance
 

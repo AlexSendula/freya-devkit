@@ -158,7 +158,7 @@ file the backend may well ignore.
 
 Scoring silently would mean that installing a binary anywhere on PATH changed the substrate —
 and therefore every blast radius — for every project on the machine at once, with no diff.
-A substrate change is a measured migration (CD-13): `graph.<backend>.json` is written beside
+A substrate change is a measured migration (ADR-028): `graph.<backend>.json` is written beside
 `graph.json` precisely so you can diff the new one against the old before trusting it.
 
 Every graph records which backend built it and what that backend can read:

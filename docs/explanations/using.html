@@ -193,15 +193,23 @@ freya doctor          <span class="tok-c"># verify what landed where</span></cod
         The detector never forces a branch: a one-time onboarding decision benefits from a human glance, so
         an unusually structured repo can be overridden on sight rather than silently misclassified.</p>
 
-        <div class="callout callout--danger">
-          <span class="callout-label">The trap, stated plainly</span>
-          <p>On a polyglot repo — Java, Helm charts, Dockerfiles, YAML wiring — the graph produces
-          <strong>zero internal edges</strong>, because its import scraping covers TypeScript, JavaScript,
-          Python and Go and nothing else. The detector then confidently says <em>greenfield</em> on a
-          codebase with a decade of history in it. Override it. This wall was hit on the first real attempt
-          to use the toolkit on a work laptop, and closing it — a real parser for real languages, plus a
-          second graph for reference and deployment edges — is the next initiative, recorded in
-          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/backlog.md">docs/backlog.md</a>.</p>
+        <div class="callout callout--why">
+          <span class="callout-label">The trap this used to be</span>
+          <p>On a polyglot repo — Java, Kotlin, Swift, Rust — the built-in resolver produces
+          <strong>zero internal edges</strong>, because it scrapes imports for TypeScript, JavaScript,
+          Python and Go and nothing else. The detector then said <em>greenfield</em> on a codebase with
+          a decade of history in it. That wall was hit on the first real attempt to use the toolkit on
+          a work laptop.</p>
+          <p>It is closed. The graph is produced through a contract, and an opt-in backend reads 40
+          languages across 93 extensions. More to the point, <strong>an answer now says what it could
+          not read</strong>: a repository the backend cannot see reports <code>unknown</code> and names
+          the extensions, rather than reporting an empty graph as an empty project. The remaining
+          honest limit is that a curated list decides what counts as source, so a language nobody
+          listed is still silent.</p>
+          <ul class="md-links">
+            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-019-the-floor-and-choosing-a-backend.md">ADR-019 — the floor, and choosing a backend</a></li>
+            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-029-an-answer-says-what-it-could-not-read.md">ADR-029 — an answer says what it could not read</a></li>
+          </ul>
         </div>
       </section>
 
@@ -924,7 +932,7 @@ This spends real money. One worker measured ~$0.40 on a trivial fixture.</code><
       var u = parseInt(unread.value, 10); if (isNaN(u) || u < 0) u = 0;
       var rec, cls, reason;
       if (e === 0 && u > 0) {
-        /* CD-27: zero edges plus a blind spot is the case that made a Java repo read as an
+        /* ADR-029: zero edges plus a blind spot is the case that made a Java repo read as an
            empty scaffold. It is the one branch where "I don't know" is the honest answer. */
         rec = "unknown";
         cls = "badge badge--advisory";

@@ -167,7 +167,7 @@ class TestGraphCacheIgnored(Base):
         parse cache later swept up behavior.json, whose observed coverage comes
         from running the test suite and cannot be rebuilt from source.
 
-        `graph.*.json` covers the per-backend artifacts (CD-17), which are as
+        `graph.*.json` covers the per-backend artifacts (ADR-028), which are as
         regenerable as graph.json and must not turn the cache back into a `*`.
         """
         proj = self.mk({"src/b.ts": "export const b = 1\n"})
@@ -682,7 +682,7 @@ class TestAnOverrideSurvivesAClone(Base):
     The first version of this feature put it in `knowledge-base/.graph/classifications.json`,
     which `CACHE_GITIGNORE` declares regenerable and not to be committed. It worked for
     whoever typed it and vanished on clone: CI and every colleague graphed a smaller codebase
-    and were told the build succeeded. CD-15 had already rejected that file as a home for a
+    and were told the build succeeded. ADR-019 had already rejected that file as a home for a
     decision, on exactly this ground, before the override was put in it.
     """
 
@@ -973,7 +973,7 @@ class TestStaleRuleClassificationsAreRefreshed(Base):
 
 
 class TestDeadCategoryFieldIsGone(Base):
-    """CD-12. `category` was written on every file and read by nothing.
+    """ADR-021. `category` was written on every file and read by nothing.
 
     Three unrelated things in this repo are called "category"; the other two — security
     findings and spec contexts — are live and untouched. This one guessed a label from the
@@ -1007,7 +1007,7 @@ class TestWorkspaceResolution(Base):
 
     Measured before this landed: `apps/mobile` importing `@acme/domain` resolved to
     `external:@acme/domain` — the toolkit reporting the most important relationship in the
-    repo as an npm dependency. CD-18.
+    repo as an npm dependency. ADR-019.
     """
 
     WS_ROOT = '{"name":"root","private":true,"workspaces":["packages/*","apps/*"]}'
@@ -1818,7 +1818,7 @@ class TestASettingsVerdictCanBeWithdrawn(Base):
     changed nothing, because the cached copy still outranked every rule, survived the
     RULES_VERSION discard (only `rule`/`gitignore` are dropped) and survived `--clear`.
     The only way back was to hand-edit a cache the toolkit says is regenerable — which
-    inverts CD-15 exactly.
+    inverts ADR-019 exactly.
     """
 
     def test_removing_the_entry_takes_effect_on_the_next_build(self):
@@ -1978,7 +1978,7 @@ class TestRecordingTheBackendChoice(Base):
 
 
 class TestUnmappedSourceWalk(Base):
-    """CD-27 — the census walk, and the scope rule it has to honour.
+    """ADR-029 — the census walk, and the scope rule it has to honour.
 
     The scope rule is the whole difference between a signal and noise. Measured on this
     repository, a census that consults only gitignore-style patterns reports 96 unread files of
@@ -2126,7 +2126,7 @@ class TestScaleAndScopeDefects(Base):
         """OBLIGATION 6. The built-in name lists were applied only inside the floor's own
         `_should_exclude`, so a project running graphify graphed `vendor/`, `target/` and the
         toolkit's own `knowledge-base/` while the floor on the same repository did not. Two
-        backends disagreeing about scope is exactly what CD-11 exists to prevent."""
+        backends disagreeing about scope is exactly what ADR-018 exists to prevent."""
         proj = self.mk({"src/a.ts": "export const a = 1\n",
                         "vendor/v.ts": "export const v = 1\n",
                         "deep/nested/node_modules/pkg/m.ts": "export const m = 1\n",
@@ -2155,6 +2155,28 @@ class TestScaleAndScopeDefects(Base):
         excl = g.project_exclusions()
         for path, expected in (("packages/app/src/p.ts", False),
                                ("packages/app/node_modules/lodash/m.ts", True)):
+            self.assertEqual(g._should_exclude(path, gi, cl), expected, path)
+            self.assertEqual(excl.excludes(path), expected, path)
+
+    def test_the_two_layers_agree_for_an_ai_verdict_too(self):
+        """`project_exclusions` passes both `user` and `ai` verdicts as `overrides`, while the
+        floor distinguishes them — `ai` overrules conventions only, `user` overrules
+        everything. The tiers are therefore collapsed at the contract layer. It has no
+        observable effect because artifact trees travel as patterns and
+        `_excluded_under_override` re-matches patterns against the path below the override
+        root, but the two implementations agreeing is the property, not the mechanism."""
+        proj = self.mk({
+            "pkgs/app/src/p.ts": "export const p = 1\n",
+            "pkgs/app/node_modules/x/m.ts": "export const m = 1\n",
+            "knowledge-base/.graph/classifications.json":
+                '{"directories":{"pkgs":{"type":"source","source":"ai","confidence":0.9}}}',
+        })
+        g = CodeGraph(proj)
+        gi = g._parse_gitignore()
+        cl = g._load_classifications().get("directories") or {}
+        excl = g.project_exclusions()
+        for path, expected in (("pkgs/app/src/p.ts", False),
+                               ("pkgs/app/node_modules/x/m.ts", True)):
             self.assertEqual(g._should_exclude(path, gi, cl), expected, path)
             self.assertEqual(excl.excludes(path), expected, path)
 
@@ -2291,7 +2313,7 @@ class TestUnmappedSourceCLI(Base):
         self.assertEqual(block["directories"], {"src/main/java/com/acme": 12})
 
     def test_a_clean_repo_pays_nothing_at_all(self):
-        """THE CD-26 GUARANTEE. Asserted as an exact key set, not as an absence: a field that
+        """THE ADR-019 GUARANTEE. Asserted as an exact key set, not as an absence: a field that
         fires on every repository with a README is one an agent learns to skip, after which it
         costs tokens forever and changes no decision."""
         out = self.run_cli("--build", "--dir", self.clean(), "--non-interactive")
@@ -2328,7 +2350,7 @@ class TestUnmappedSourceCLI(Base):
         self.assertEqual(set(data["unmapped_source"]), {"files", "extensions", "directories"})
 
     def test_query_keeps_its_edge_objects(self):
-        """CD-20's edges-vs-paths distinction is untouched by the caveat."""
+        """ADR-021's edges-vs-paths distinction is untouched by the caveat."""
         proj = self.mixed()
         self.run_cli("--build", "--dir", proj, "--non-interactive")
         data = json.loads(self.run_cli("--query", "web/src/a.ts", "--dir", proj,

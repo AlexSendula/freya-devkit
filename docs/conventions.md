@@ -147,6 +147,24 @@ Skills that benefit from dependency awareness should:
 - Warn user: "code-graph not available - reduced coverage"
 ```
 
+**And check whether the answer is complete.** Availability is not the only way an answer can be
+narrower than the question. `build`, `update`, `query` and `impact` may carry an
+`unmapped_source` block naming the in-scope source files the backend could not parse, and the
+directories to search instead; `dependents`/`dependencies` say the same on stderr. It is absent
+whenever there is nothing to say, so its **presence** means the blast radius you just received
+was computed over an incomplete graph.
+
+```markdown
+**If the answer carries `unmapped_source`:**
+- Proceed — it is never a refusal, and the answer it qualifies is still correct as far as it goes
+- Search the named directories directly (grep/glob) before concluding a change is contained
+- Say so in whatever you report, rather than presenting the narrow answer as the whole one
+```
+
+This is the same rule as the fallback above, one level finer: a confidently empty answer is the
+dangerous failure, and "3 dependents" and "3 dependents, and a fifth of this repo is unread" are
+different claims. See ADR-029.
+
 ### Use Impact Analysis
 
 ```markdown

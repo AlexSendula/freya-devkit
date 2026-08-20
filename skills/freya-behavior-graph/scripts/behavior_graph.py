@@ -117,7 +117,7 @@ CACHE_GITIGNORE = (
     "# by running the test suite, so it cannot be rebuilt by re-reading source the\n"
     "# way these can — committing it is what gives a fresh clone a blast radius.\n"
     "#\n"
-    "# graph.*.json is the per-backend artifact (CD-17): each substrate writes its own,\n"
+    "# graph.*.json is the per-backend artifact (ADR-028): each substrate writes its own,\n"
     "# so a swap can be diffed instead of destroying the baseline it should be measured\n"
     "# against. graph.json stays the active graph that other skills read.\n"
     "#\n"
@@ -132,7 +132,7 @@ CACHE_GITIGNORE = (
 #
 # Without this history the upgrade only fired on the legacy `*`, so a project that had run a
 # single build kept its list forever — and every artifact added afterwards arrived un-ignored
-# and committable. CD-17's graph.<backend>.json did exactly that: `git add -A` staged it.
+# and committable. ADR-028's graph.<backend>.json did exactly that: `git add -A` staged it.
 _EVER_IGNORED = frozenset({"*", "graph.json", "graph.*.json",
                           "classifications.json", "docs.json"})
 

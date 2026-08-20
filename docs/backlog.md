@@ -15,103 +15,49 @@ an item nobody can act on is noise.
 
 ---
 
-## Next initiative — Track B: the polyglot substrate
+## Track B: the polyglot substrate — shipped 2026-08-21
 
-This is the reason the design tree was cleaned up, and the next real body of work. It is an
-initiative, not a ticket; it wants its own vision → brainstorm → spec before any code.
+`freya-code-graph` was a regex-driven import scraper covering TypeScript, JavaScript, Python
+and Go. Real work projects are Java, Kotlin, Swift, Rust, C#, plus config and deployment
+material — and the graph was blind to all of it. Worse, it did not *say* so: a Java repository
+produced zero files, zero edges, exit 0, and was then classified `greenfield` by the shape
+detector. That was the wall, hit on the first attempt to use the toolkit on a work laptop.
 
-### The wall
+It is done. The graph is now produced through a contract with interchangeable backends: a
+stdlib-only floor that always ships, and an opt-in backend reading 40 languages across 93
+extensions. Every answer carries what its backend could not read.
 
-`freya-code-graph` is a homegrown, regex-driven import scraper. `FILE_PATTERNS`
-(`skills/freya-code-graph/scripts/graph_ops.py:30`) covers TypeScript, JavaScript, Python and
-Go; `IMPORT_PATTERNS` (`:50`) matches import statements by regular expression. Real work
-projects are **Java + Docker images + Helm charts + Python config + YAML/TOML + `.crt`/`.key`
-+ `bin/`**. The graph is blind to all of it. This wall was hit immediately on the first
-attempt to use the toolkit on a work laptop.
+**The decisions are in [`decisions/`](decisions/), ADR-018 through ADR-029.** Start with
+ADR-018 (the contract), ADR-019 (the floor, and how a backend is chosen) and ADR-029 (an
+answer says what it could not read). The narrative is in
+[`explanations/how-it-works.html`](explanations/how-it-works.html); the reversals are in
+[`explanations/evolution.html`](explanations/evolution.html).
 
-It is foundational rather than cosmetic: behaviors, drift detection and blast radius all
-stand on the graph. **Portability without polyglot means installable but blind on Java.**
-0.2.0 made the toolkit run anywhere; it did not make it *see* anything outside the TS/JS
-world.
+### What was deliberately not built
 
-### Two distinct gaps
+- **A resource graph for config-as-code** — no Helm, no HCL resource index, no Kubernetes
+  edges. See ADR-027. The original justification for dropping it was *refuted* by the Phase 0
+  spike and the conclusion survives on separate reasoning, which ADR-027 records; do not
+  reuse the old argument.
+- **Schema migrations as graph material** — same record.
+- **A config identifier index.** Still unbuilt, and still wants a consumer before it is worth
+  building.
 
-1. **Real languages need a real parser.** Java (and anything else with a non-trivial module
-   system) cannot be served by regex import-scraping. This is a parser problem, not a
-   pattern-list problem.
-2. **Config-as-code needs a resource graph.** Helm → rendered manifests → images, Dockerfile
-   `COPY`, YAML/TOML wiring, certs, keys, `bin/` scripts — these are **reference and
-   deployment edges, not import edges**. They may well be a *second graph* alongside the code
-   graph rather than more languages inside the same one. Deciding which is part of the work.
+### Still open, and carried forward
 
-### The pivotal fork — decide this first, it gates everything else
-
-The plugin's north star has been **stdlib-only Python, zero-install**. Java parsing,
-tree-sitter and graphify all break that. So:
-
-- **Keep zero-install** — homegrown per-language resolvers. Limited and brittle, but no
-  dependency and no install story to maintain.
-- **Adopt a dependency** — graphify or tree-sitter. Real multi-language support, at the cost
-  of the zero-install property.
-
-Vision §10 held graphify in reserve as the heavier off-the-shelf substrate, with a stated
-trigger: adopt it if the homegrown resolver keeps accruing edge cases it cannot handle
-cleanly. **Java is exactly that named trigger.** The homegrown resolver's known gaps today
-are `extends` chains in tsconfig (deliberately not followed —
-`graph_ops.py:325-330`), no per-edge confidence, and no monorepo support.
-
-**Recorded lean (2026-07-12, from the user, not final): adopt a dependency — graphify as the
-*standard* substrate.** Not a tiered "homegrown by default, graphify opt-in" model; that was
-proposed and rejected. The rationale is that one real substrate would tighten the
-behavior↔code connection and open the door to **unifying the code graph and the behavior
-graph into a single graph**, rather than `behavior.json` sitting as a sibling of
-`graph.json`. This supersedes "zero-install is a hard line" — a dependency is acceptable if
-it makes the graph better.
-
-**The tension that lean has to resolve.** Vision §6 deliberately keeps `behavior.json` a
-*sibling* of `graph.json` precisely so the choice of code substrate stays decoupled from the
-behavior layer. Unifying the two graphs runs against that decision — schema, ownership and
-degradation behaviour all change. The research must resolve whether unification conflicts
-with §6 or subsumes it; do not treat the lean as settled until it has.
-
-### Scope is the whole toolkit, not just the graph
-
-Direction update #3 (2026-07-12) expands this one altitude up: make the **entire toolkit**
-framework- and stack-agnostic, so pointing it at a Java service, a Python API, a Go CLI or a
-config-as-code repo yields something useful from every skill. The Next/Prisma assumptions are
-still baked in, verifiably:
-
-- **docs-manager templates** — `skills/freya-docs-manager/references/templates.md` names
-  `NEXTAUTH_SECRET` (`:1131`, `:1157`, `:1166`) and "Next.js pages" (`:547`).
-- **stack detection** — `skills/freya-docs-manager/scripts/detect_project.py:128-130` checks
-  for `prisma/schema.prisma`.
-- **the greenfield/brownfield shape detector** — `project_shape.classify()`
-  (`skills/freya-spec-manager/scripts/project_shape.py:66`) calls a repo *greenfield*
-  whenever the graph has **0 internal edges**. A Java or Helm repo produces exactly zero
-  internal edges today, so a large existing codebase is confidently misread as greenfield.
-  The detector inherits the substrate's blindness and converts it into a wrong answer.
-- **security-scan heuristics** — Next-flavoured worked examples throughout
-  `skills/freya-codebase-security-scan/SKILL.md:638-668`.
-
-### Working record
-
-While Track B is in flight, decisions, reversals and measurements are logged in
-[`polyglot/`](polyglot/) — a temporary directory that is distilled into ADRs, these docs and
-the explainer site when the feature ships, then deleted.
-
-### How to pick it up
-
-Its own vision/brainstorm, **opening with the substrate decision** — that fork gates the
-design of everything after it. Then, in likely order: (a) a language-parser abstraction
-inside code-graph, (b) a resource graph for config and deployment edges, (c) the
-framework-agnosticism sweep over docs-manager templates, the shape detector and the security
-heuristics.
-
-Related and worth reading first: the vendor-substrate ownership-boundary item below. Work
-repos are usually *also* brownfield-over-a-platform, and config-as-code was flagged there as
-a stretch question before it became a Track B pillar.
-
----
+- **Per-edge provenance is recorded and enforced by nothing.** Every edge says whether it was
+  read from the source or worked out by resolution, and the design says only the first kind
+  may gate a commit. No code filters on it. Either write the filter or strike the promise —
+  see ADR-021, and item 13 under *Open defects*.
+- **The coverage block cannot say "I do not emit this field"** — item 14 below.
+- **An unmapped file cannot surface as a coverage gap** in the git-tracked `BACKLOG.md`:
+  `behavior_graph.gaps()` enumerates only files that are in the graph. The census is sitting
+  in `graph.json` for it to read whenever the churn is judged worth it (ADR-029).
+- **The framework-agnosticism sweep** over docs-manager templates, the shape detector and the
+  security heuristics was scoped into Track B and only partly done. The shape detector is
+  polyglot now; the doc templates and the security heuristics still assume a Node/Next shape.
+- **Brownfield over a vendor substrate** — the ownership-boundary question below is unchanged
+  and is the natural successor: work repos are usually *also* brownfield-over-a-platform.
 
 ## Deferred capabilities
 
@@ -412,8 +358,10 @@ re-create the leak this entry exists to track.
 ### ~~9. The code-graph resolver cannot graph this repo, and reports success doing it~~ — RESOLVED (2026-08-19)
 
 **Fixed.** Found by the Track B Phase 0 spike
-([findings](polyglot/phases/phase_0/findings.md)) and repaired before Phase 1 per
-[CD-14](polyglot/decisions.md). freya-devkit went from **10 of 50 files and 0 internal edges**
+(the Phase 0 spike, in git history at `2762d54:docs/polyglot/phases/phase_0/findings.md`)
+and repaired before the substrate was frozen behind the contract — see
+[ADR-005](decisions/ADR-005-repair-parsing-substrate-in-place.md) and
+[ADR-018](decisions/ADR-018-substrate-contract-for-the-code-graph.md). freya-devkit went from **10 of 50 files and 0 internal edges**
 — reported as success, exit 0 — to **50 files and 55 edges, 0 dangling**, and
 `project_shape.classify()` now reads it as *brownfield* instead of *greenfield*.
 
@@ -492,7 +440,7 @@ no stdin, `_ask_user_classification` swallows `EOFError` and persists
 which then survives every rules bump by design. Worth a look whenever (a) is done, since
 inverting the discard set makes `user` strictly more powerful.
 
-Re-checked against CD-21 (2026-08-20), which made a `user` verdict outrank every built-in
+Re-checked against ADR-022 (2026-08-20), which made a `user` verdict outrank every built-in
 exclusion: **this path did not get worse.** The EOF branch can only ever produce `exclude`, and
 an `exclude` verdict was already honoured unconditionally. It cannot fabricate the powerful
 direction. Still wrong to label a timeout as a person's decision.
@@ -505,11 +453,11 @@ not rediscovered.
 A `CodeGraph` is constructed with one `project_dir` and every path in the artifact is relative
 to it. A system split across several repositories — a mobile app, an API, and a shared contracts
 repo — therefore gets one graph per repo and no edge between them, which is exactly the
-relationship anyone asking for blast radius wants. It is the monorepo problem CD-18 solved
+relationship anyone asking for blast radius wants. It is the monorepo problem ADR-019 solved
 (`apps/mobile` → `packages/domain`) with the packages behind a repository boundary instead of a
 directory one.
 
-Not obviously the same fix. CD-18 could read the workspace manifests because they were in the
+Not obviously the same fix. ADR-019 could read the workspace manifests because they were in the
 tree; across repos there is no single tree, the sibling may not be checked out, and the two
 sides can be at different commits — so a naive resolution would emit edges into a version of a
 file nobody has. The honest floor is probably to resolve to `external:` as today but *say* it is
@@ -523,7 +471,7 @@ allowed to see outside its own root.
 
 Found 2026-08-20 by the closing review of Track B.
 
-Every edge carries `provenance: extracted | inferred`. Spec §4 and §11, CD-4 and the explainer
+Every edge carries `provenance: extracted | inferred`. Spec §4 and §11, ADR-021 and the explainer
 all state — in the present tense — that only `extracted` edges may gate `wrap-up` and that
 `inferred` ones are advisory. **No production code reads the field.** An inferred edge reaches
 blast radius indistinguishable from an extracted one.
@@ -536,7 +484,7 @@ had zero callers, `set_classification` was accepted and ignored, and now this.
 
 Two honest resolutions, and picking between them needs a measurement rather than an argument:
 implement the filter at the point blast radius is consumed, or strike the promise and let the
-field stay descriptive. Measure the mis-wiring rate on a real polyglot repository first; CD-4's
+field stay descriptive. Measure the mis-wiring rate on a real polyglot repository first; ADR-021's
 own revisit condition says exactly that.
 
 ### 14. The coverage block cannot say "I do not emit this field"

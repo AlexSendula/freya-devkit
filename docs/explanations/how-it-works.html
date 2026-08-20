@@ -201,13 +201,69 @@
           failed exits non-zero rather than reporting a clean codebase.</p>
         </div>
 
+        <h3 id="the-substrate-contract">Then the resolver stopped being the architecture</h3>
+
+        <p>Everything above describes a resolver that reads four languages. Point it at a Java
+        codebase and it found nothing, reported <em>"Built dependency graph: 0 files scanned"</em>, and
+        exited successfully — and the shape detector, which decides whether a project is new by
+        counting internal edges, then classified a decade-old codebase as an empty scaffold. The
+        obvious fix is to find a better parser and wire it in. That was rejected: <strong>picking a
+        tool means picking again in two years</strong>, by which point five skills depend on its
+        output shape.</p>
+
+        <p>So the parser is not the architecture. The socket it plugs into is. The graph is produced
+        by a <strong>backend</strong> behind a fixed contract, and everything downstream reads one
+        artifact shape whichever backend ran.</p>
+
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th scope="col"></th><th scope="col"><code>homegrown</code></th><th scope="col"><code>graphify</code></th></tr></thead>
+            <tbody>
+              <tr><td>How</td><td>regular expressions over source text</td><td>tree-sitter ASTs, via an external binary</td></tr>
+              <tr><td>Needs</td><td>nothing — Python standard library</td><td>the binary on <code>PATH</code></td></tr>
+              <tr><td>Reads</td><td>4 languages, 6 extensions</td><td><strong>40</strong> languages, 93 extensions</td></tr>
+              <tr><td>Relations</td><td><code>imports</code>, <code>re_exports</code></td><td>those plus <code>calls</code>, <code>inherits</code>, <code>references</code></td></tr>
+              <tr><td>Role</td><td>the floor — always there</td><td>opt-in, named by a person</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <p><strong>Two backends, not one, deliberately.</strong> An interface with a single
+        implementation is fiction: it encodes the assumptions of its only caller and nobody finds out
+        until the second arrives. Not a slogan here — the contract was written with one backend behind
+        it, and the review that built the second found the contract could not actually run anything
+        else. Saving the file, validating it and building the reverse index all lived <em>inside</em>
+        the original resolver, so a backend could satisfy every documented obligation and still write
+        nothing while reporting success.</p>
+
+        <p>The old resolver stays because <strong>the case that started all of this is a locked-down
+        work laptop</strong>. freya needs nothing but Python; the other backend needs a package
+        install and network access. If policy blocks that, it never runs in the one environment this
+        exists to serve — so keeping the built-in one is what guarantees freya degrades to
+        <em>something</em> everywhere rather than to nothing.</p>
+
+        <div class="callout callout--why">
+          <span class="callout-label">The same rule, one level finer</span>
+          <p>"A confidently empty answer is the dangerous failure" was implemented at the
+          <em>repository</em> level: a Java repo will not call itself greenfield. It was not
+          implemented at the <em>answer</em> level, and those are different claims — "3 dependents" and
+          "3 dependents, and I could not read a fifth of this repo" are not the same sentence. Every
+          answer now carries what its backend could not read, with the directories to search instead,
+          and carries nothing at all when there is nothing to say.</p>
+          <p class="small muted">The consumer is the agent, not a person: a build runs with no
+          keyboard attached almost every time, so a printed warning lands nowhere.</p>
+        </div>
+
         <div class="callout callout--info prose-center">
           <span class="callout-label">In the markdown</span>
           <p>The decision to repair the homegrown resolver in place rather than adopt an off-the-shelf
-          parser — with the alternative it beat and the conditions that would reopen it — is written up
-          as an ADR.</p>
+          parser, and then to make it a floor behind a contract rather than replace it — each with the
+          alternative it beat.</p>
           <ul class="md-links">
-            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-005-repair-parsing-substrate-in-place.md">docs/decisions/ADR-005-repair-parsing-substrate-in-place.md</a></li>
+            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-005-repair-parsing-substrate-in-place.md">ADR-005 — repair the substrate in place</a></li>
+            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-018-substrate-contract-for-the-code-graph.md">ADR-018 — a contract, not a tool</a></li>
+            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-019-the-floor-and-choosing-a-backend.md">ADR-019 — the floor, and choosing a backend</a></li>
+            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-029-an-answer-says-what-it-could-not-read.md">ADR-029 — an answer says what it could not read</a></li>
           </ul>
         </div>
       </section>
@@ -434,13 +490,16 @@ knowledge-base/security/…/YYYY-MM-DD.md</code></pre>
         learns about behaviors at all: <code>behavior-graph</code> queries it for impact and queries
         <code>behavior-runner</code> for coverage, and the dependency points one way only.</p>
 
-        <div class="callout callout--warn">
-          <span class="callout-label">A question this design has not closed</span>
-          <p>The next planned initiative — a polyglot substrate that can see Java, Helm and
-          config-as-code — leans toward <strong>unifying the code graph and the behavior graph into one
-          graph</strong>, which runs directly against the sibling decision above: schema, ownership and
-          degradation behaviour would all change. That tension is recorded rather than resolved.
-          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/backlog.md">docs/backlog.md</a></p>
+        <div class="callout callout--why">
+          <span class="callout-label">A question this design closed</span>
+          <p>The polyglot substrate initiative had leaned toward <strong>unifying the code graph and
+          the behavior graph</strong>, which ran directly against the sibling decision above. It was
+          resolved the other way: three artifacts, one owner each, joined on file path. The producers
+          have different dependencies and different failure modes — a parser may be absent, a test
+          suite may be red — and a single combined file could not say which half had survived. A
+          linking graph would have been an empty table, because every artifact already speaks file
+          paths.
+          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-025-three-artifacts-joined-on-file-path.md">ADR-025</a></p>
         </div>
 
         <div class="callout callout--info prose-center">

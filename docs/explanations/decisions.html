@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Decisions — freya-devkit</title>
-  <meta name="description" content="The seventeen architecture decision records behind freya-devkit: what was decided, what it costs you, what was rejected, and the one question still open.">
+  <meta name="description" content="The twenty-nine architecture decision records behind freya-devkit: what was decided, what it costs you, what was rejected, and the promise not yet implemented.">
   <link rel="stylesheet" href="assets/styles.css">
   <script src="assets/site.js"></script>
 </head>
@@ -16,12 +16,12 @@
 
     <div class="doc-body">
       <span class="eyebrow">Why it is built this way</span>
-      <h1>Seventeen decisions, and what each one refused.</h1>
+      <h1>Twenty-nine decisions, and what each one refused.</h1>
       <p class="lead">
         Every load-bearing choice in this toolkit is written down as an architecture decision
         record — with the alternative it beat. This page is a way <em>into</em> those records:
-        what you will feel as a user, how they group up, and the one question that is
-        genuinely still open. The record itself stays in the repo, where it can be diffed.
+        what you will feel as a user, how they group up, and the promise in them that is
+        recorded but not yet implemented. The record itself stays in the repo, where it can be diffed.
       </p>
 
       <!-- ==================== WHY THERE ARE RECORDS ==================== -->
@@ -243,6 +243,58 @@
           </div>
 
           <div class="card" data-facet="substrate">
+            <div class="tag-row"><span class="pill">ADR-018</span><span class="pill">Substrate</span></div>
+            <h3>The code graph is produced through a contract, not by one resolver</h3>
+            <p>Any backend satisfying a fixed contract can produce the graph, and everything
+            downstream reads one artifact shape whichever one ran. Two ship: a stdlib-only floor
+            reading four languages, and an opt-in backend reading forty.</p>
+            <p class="muted small"><strong>Rejected —</strong> adopt the best parser and wire it in.
+            Fastest to ship, and it reopens the whole question the first time that parser stalls, by
+            which point five skills depend on its output shape.</p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-018-substrate-contract-for-the-code-graph.md">docs/decisions/ADR-018-substrate-contract-for-the-code-graph.md</a></p>
+          </div>
+
+          <div class="card" data-facet="substrate">
+            <div class="tag-row"><span class="pill">ADR-019</span><span class="pill">Substrate</span></div>
+            <h3>The floor always ships, and any other backend runs because a person named it</h3>
+            <p>The built-in resolver stays installed and stays the default, because the case that
+            started this is a locked-down laptop where a package install is blocked. A better backend
+            is chosen once — when you install freya — and recorded in the project's committed
+            settings, so a clone and CI resolve the same one.</p>
+            <p class="muted small"><strong>Rejected —</strong> score the backends and pick whichever
+            reads most. Measured: the new one scored 63 to 58 here and would have taken over on the
+            next build, changing every blast radius on the machine with no diff.</p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-019-the-floor-and-choosing-a-backend.md">docs/decisions/ADR-019-the-floor-and-choosing-a-backend.md</a></p>
+          </div>
+
+          <div class="card" data-facet="substrate">
+            <div class="tag-row"><span class="pill">ADR-021</span><span class="pill">Substrate</span></div>
+            <h3>An edge is an object carrying kind and provenance, behind a versioned schema</h3>
+            <p>An edge was a string — the path it pointed at — so "A imports B" and "A re-exports B"
+            were the same value, and "this function calls that function" could not be written down at
+            all. Measured: the old shape could express 2,102 of the second backend's 5,027 real
+            connections.</p>
+            <p class="muted small"><strong>Rejected —</strong> stay file-level and honest. Cheapest,
+            and it gives up 58% of what the second backend knows to avoid a migration that only gets
+            more expensive. <strong>Recorded as unimplemented:</strong> the provenance tier is written
+            on every edge and read by no code.</p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-021-an-edge-is-an-object-with-kind-and-provenance.md">docs/decisions/ADR-021-an-edge-is-an-object-with-kind-and-provenance.md</a></p>
+          </div>
+
+          <div class="card" data-facet="substrate">
+            <div class="tag-row"><span class="pill">ADR-029</span><span class="pill">Substrate</span></div>
+            <h3>Every answer says what the backend could not read, and it is never a refusal</h3>
+            <p>A build on a repo of twelve Java files and three TypeScript files printed "Found 3
+            source files" and exited 0 — the Java files were never enumerated, so there was nothing to
+            skip. Now every answer carries what was unread, and the directories to search instead. It
+            is absent entirely when there is nothing to say.</p>
+            <p class="muted small"><strong>Rejected —</strong> print it for the human. A build almost
+            never has one attached, so the warning lands nowhere. The consumer is the agent, and the
+            signal has to ride in the machine-readable answer.</p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-029-an-answer-says-what-it-could-not-read.md">docs/decisions/ADR-029-an-answer-says-what-it-could-not-read.md</a></p>
+          </div>
+
+          <div class="card" data-facet="substrate">
             <div class="tag-row"><span class="pill">ADR-006</span><span class="pill">Substrate</span></div>
             <h3>Behavior tests drive the app over its real interface, and coverage follows</h3>
             <p>An integration behavior drives the booted application over HTTP and never imports its
@@ -403,29 +455,61 @@
         </div>
       </section>
 
-      <!-- ==================== STILL OPEN ==================== -->
+      <!-- ==================== THE FORK, RESOLVED ==================== -->
       <section>
-        <h2 id="one-decision-still-open">One decision that is still open</h2>
+        <h2 id="one-decision-still-open">The fork that was open, and how it went</h2>
 
         <p class="lead">
-          Ending honestly, and without resolving it here.
+          Ending with the one this page used to end on unresolved.
         </p>
 
         <p>
-          <code>freya-code-graph</code> is a homegrown, regex-driven import scraper covering
-          TypeScript, JavaScript, Python and Go. Real work projects are Java plus Docker images plus
-          Helm charts plus YAML and TOML wiring plus certificates and shell scripts, and the graph is
-          blind to every one of them — a wall hit immediately on the first attempt to use the toolkit
-          on a work laptop. Because behaviors, drift detection and blast radius all stand on that
-          graph, the fork is foundational: <strong>adopt an external graph substrate</strong>, which
-          buys a real multi-language parser at the cost of the zero-install property, or
-          <strong>keep zero-install</strong> with homegrown per-language resolvers that are limited and
-          brittle. A lean toward adopting one is recorded, along with the note that it supersedes the
-          earlier "zero-install is a hard line" position and a tension it has not yet resolved — and it
-          is marked <em>not final</em>. It will be decided in
-          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/backlog.md">docs/backlog.md</a>,
-          not on this page.
+          <code>freya-code-graph</code> was a homegrown, regex-driven import scraper covering
+          TypeScript, JavaScript, Python and Go. Real work projects are Java plus Kotlin plus Swift
+          plus config and deployment material, and the graph was blind to every one of them — a wall
+          hit immediately on the first attempt to use the toolkit on a work laptop. Because
+          behaviours, drift detection and blast radius all stand on that graph, the fork was
+          foundational: <strong>adopt an external graph substrate</strong>, buying a real
+          multi-language parser at the cost of the zero-install property, or <strong>keep
+          zero-install</strong> with homegrown per-language resolvers that are limited and brittle.
         </p>
+
+        <p>
+          <strong>Neither.</strong> Picking a tool means picking again in two years, by which point
+          five skills depend on its output shape — so the parser is not the architecture, the socket
+          it plugs into is. The graph is produced through a <em>contract</em>. The homegrown resolver
+          stays as the always-installed floor, because the case that started all of this is a
+          locked-down work laptop where a package install is blocked; an opt-in backend reads 40
+          languages across 93 extensions. Two implementations rather than one deliberately: an
+          interface with a single implementation encodes the assumptions of its only caller, and this
+          one did — the contract was written with one backend behind it, and building the second
+          found it could not actually run anything else.
+        </p>
+
+        <p>
+          The zero-install position is therefore neither superseded nor kept as a hard line. It became
+          a <em>floor</em>: freya still degrades to something everywhere rather than to nothing, and
+          the thing it degrades to now says what it could not read instead of reporting an empty
+          graph as an empty project.
+        </p>
+
+        <ul class="md-links">
+          <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-018-substrate-contract-for-the-code-graph.md">ADR-018 — a contract, not a tool</a></li>
+          <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-019-the-floor-and-choosing-a-backend.md">ADR-019 — the floor, and choosing a backend</a></li>
+          <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-029-an-answer-says-what-it-could-not-read.md">ADR-029 — an answer says what it could not read</a></li>
+        </ul>
+
+        <div class="callout callout--warn">
+          <span class="callout-label">What is genuinely still open</span>
+          <p>Every edge records whether it was read straight out of the source or worked out by
+          resolution, and the design says only the first kind may gate a commit. <strong>No code
+          filters on it.</strong> The field is written faithfully and read by nobody, and it had been
+          stated as present fact in the spec, in the decision record and on these pages before anyone
+          went looking for the filter. Over-approximating a blast radius is the safe direction, so the
+          exposure is small — but a guarantee nobody implemented is exactly the kind of claim this
+          project is supposed to be able to check.
+          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-021-an-edge-is-an-object-with-kind-and-provenance.md">ADR-021</a></p>
+        </div>
       </section>
 
     </div>

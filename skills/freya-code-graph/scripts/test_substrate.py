@@ -163,7 +163,7 @@ class TestExclusionOverrides(unittest.TestCase):
 
         This returned False for every path under an override, so
         `{"directories": {"packages": "source"}}` on a workspaces tree pulled every
-        `packages/*/node_modules/**` into the graph — the 50,000-file blast radius CD-21's
+        `packages/*/node_modules/**` into the graph — the 50,000-file blast radius ADR-022's
         two-tier design exists to prevent, reached through an ordinary ancestor verdict.
         Nothing could switch it back off either: the classifier does not descend into a
         directory whose ancestor carries a stated verdict, so no nested `exclude` is ever
@@ -224,7 +224,7 @@ class TestConformance(unittest.TestCase):
             _Backend.update = lambda self, exclusions=None, non_interactive=False: {}
 
     def test_a_name_that_is_not_filename_safe_is_rejected(self):
-        """The name becomes graph.<name>.json (CD-17)."""
+        """The name becomes graph.<name>.json (ADR-028)."""
         b = _Backend()
         b.name = 'my backend/v2'
         self.assertTrue(any('filename-safe' in e for e in conformance_errors(b)))
@@ -437,7 +437,7 @@ class TestMetadata(unittest.TestCase):
 
 
 class TestUnmappedCensus(unittest.TestCase):
-    """CD-27 — what an answer says about its own completeness.
+    """ADR-029 — what an answer says about its own completeness.
 
     The materiality rule is the whole design. A caveat that fires on every repository with a
     README is one an agent learns to skip inside a single context window, after which it costs
@@ -520,7 +520,7 @@ class TestUnmappedCensus(unittest.TestCase):
                          {'files': None, 'backend': 'homegrown', 'error': 'PermissionError'})
 
     def test_the_digest_is_none_when_there_is_nothing_to_say(self):
-        """The CD-26 discharge. This `None` is what keeps a clean repo's answers
+        """The ADR-019 discharge. This `None` is what keeps a clean repo's answers
         byte-identical to what they were before the census existed."""
         self.assertIsNone(unmapped_digest({'files': 0, 'backend': 'homegrown'}))
         self.assertIsNone(unmapped_digest(None))
@@ -628,7 +628,7 @@ class TestSettings(MachineHome):
         self.assertEqual(settings_mod.load(d).backend, 'homegrown')
 
     def test_settings_live_beside_specs_not_inside_the_gitignored_cache(self):
-        """CD-15: committed and travelling with the repo, not in .graph/."""
+        """ADR-019: committed and travelling with the repo, not in .graph/."""
         path = settings_mod.settings_path('/proj')
         self.assertEqual(Path(path).parent.name, 'knowledge-base')
         self.assertNotIn('.graph', path)
@@ -1032,7 +1032,7 @@ class TestTheRunnerSurvivesAHostileBackend(unittest.TestCase):
 
 
 class TestPerBackendArtifacts(unittest.TestCase):
-    """CD-17. A substrate swap has to be diffable, so the previous graph must survive it."""
+    """ADR-028. A substrate swap has to be diffable, so the previous graph must survive it."""
 
     def mk(self, files):
         d = tempfile.mkdtemp()
@@ -1177,7 +1177,7 @@ class _FakeBackend:
 
 
 class TestBackendSelection(MachineHome):
-    """CD-15, and spec §2.2's rule that selection is never silent."""
+    """ADR-019, and spec §2.2's rule that selection is never silent."""
 
     def mk(self, settings_json=None):
         d = tempfile.mkdtemp()
@@ -1240,7 +1240,7 @@ class TestBackendSelection(MachineHome):
         This used to score the installed backends and pick the widest, which would have meant
         that putting a binary anywhere on PATH silently changed the substrate — and therefore
         every blast radius — for every project on the machine at once, with no diff. Spec §11
-        mitigates the zero-install risk with *graphify is opt-in*, and CD-13 requires a
+        mitigates the zero-install risk with *graphify is opt-in*, and ADR-028 requires a
         substrate change to be a measured migration.
 
         Not hypothetical: measured on this repository, graphify scored 63 to homegrown's 58
@@ -1324,7 +1324,7 @@ class TestUpgradePathForAlreadyOnboardedProjects(unittest.TestCase):
     """A new artifact has to become ignored on projects that already have a .gitignore.
 
     `_write_cache_gitignore` only rewrote the legacy blanket `*`, so every project that had
-    ever run a build kept its old list — and CD-17's `graph.<backend>.json`, added on top, was
+    ever run a build kept its old list — and ADR-028's `graph.<backend>.json`, added on top, was
     left committable. Measured before the fix: `git add -A` staged graph.homegrown.json.
     """
 
@@ -1467,7 +1467,7 @@ class TestDegradationReachesTheArtifact(unittest.TestCase):
 
 
 class TestClearRemovesEveryArtifact(unittest.TestCase):
-    """CD-17 added a second file; --clear was not told about it.
+    """ADR-028 added a second file; --clear was not told about it.
 
     A leftover graph.<backend>.json is worse than a stale graph.json, because nothing reports
     it and it looks current.

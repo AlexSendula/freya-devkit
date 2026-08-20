@@ -78,6 +78,18 @@
                 <td>It was the right call, and it expired on schedule</td>
               </tr>
               <tr>
+                <td><a href="#freya-could-not-graph-freya">The spike would tell us about the other parser</a></td>
+                <td>It found that freya could not graph freya, and reported success doing it</td>
+              </tr>
+              <tr>
+                <td><a href="#correcting-something-that-was-right">A probe found no evidence, so there was none</a></td>
+                <td>All four relations were real; the correction was the error</td>
+              </tr>
+              <tr>
+                <td><a href="#the-honesty-mechanism-lied">A silence from the honesty check meant all was well</a></td>
+                <td>It meant the scope rule had excluded the whole codebase</td>
+              </tr>
+              <tr>
                 <td><a href="#dry-run-deleted">A safety flag previews the plan</a></td>
                 <td><code>--dry-run</code> deleted every symlink, with a green suite behind it</td>
               </tr>
@@ -713,6 +725,76 @@
           <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/backlog.md">docs/backlog.md</a>
           rather than restated here.
         </p>
+              <h3 id="freya-could-not-graph-freya">14 · The spike meant to evaluate a parser found the bug in ours</h3>
+        <p>
+          A spike was set up to measure whether an external multi-language parser was worth adopting.
+          Its most consequential finding was not about that parser. Building the graph on freya-devkit
+          itself indexed <strong>10 of 50 Python files</strong>, produced <strong>zero
+          connections</strong>, printed <em>"Built dependency graph: 10 files scanned"</em>, and exited
+          0. <strong>freya classified freya as a brand-new empty project.</strong>
+        </p>
+        <div class="callout callout--danger">
+          <span class="callout-label">Two independent causes, either sufficient alone</span>
+          <p>An exclusion rule matched a directory name at <em>every</em> depth instead of at the top
+          level, so every skill's <code>scripts/</code> vanished — forty files. And Python sibling
+          imports were filed as third-party packages, which kept the internal edge count at zero even
+          once the first was fixed. Four more defects sat behind those.</p>
+          <p>The resolver was then repaired <em>before</em> being frozen behind the new contract.
+          Freezing it first would have made every one of those defects a permanent property of the
+          floor that every project falls back to.</p>
+        </div>
+
+        <h3 id="correcting-something-that-was-right">15 · We corrected something that was right, and logged the correction</h3>
+        <p>
+          An automated probe reported four relation names in the second backend's vocabulary. They were
+          grepped for, not found, deleted from the mapping table — and the log recorded that the agent
+          had invented them.
+        </p>
+        <div class="callout callout--danger">
+          <span class="callout-label">All four were real</span>
+          <p>They lived in a tuple constant, exactly the shape those regular expressions could not see.
+          The same scan had also missed a relation this repository's own graph demonstrably contains,
+          and <em>that discrepancy was noticed and ignored</em>. A later review restored all four.</p>
+          <p><strong>Verification that only looks one way is not verification.</strong> The probe found
+          nothing and the absence of evidence was taken as evidence of absence — with a written record
+          blaming the tool that had been right.</p>
+        </div>
+        <div class="callout callout--success">
+          <span class="callout-label">The same mistake, from the other side</span>
+          <p>Months later a design agent reported a filter measured "silent on 3 of 7 real
+          repositories". Checked before being believed: <strong>one was an empty directory</strong>,
+          and a second's silence turned out to be a defect rather than the filter working. Both figures
+          had already reached a commit message and a decision record. A probe returning a result is not
+          the same as the result meaning something.</p>
+        </div>
+
+        <h3 id="the-honesty-mechanism-lied">16 · The mechanism built to stop confidently-empty answers gave one</h3>
+        <p>
+          The polyglot substrate's last piece makes every answer say what its backend could not read.
+          The census applies the build's own scope rule, which is what keeps it from crying wolf —
+          measured, a census that consults only <code>.gitignore</code>-style patterns reports 96
+          unread files on this repository, <strong>68 of them deliberately out of scope</strong>.
+        </p>
+        <div class="callout callout--danger">
+          <span class="callout-label">Then the shape detector trusted its silence</span>
+          <p>A real 40-file deployment repository has its entire codebase in shell scripts under
+          <code>scripts/</code> — a built-in top-level exclusion. The census therefore, and correctly,
+          reports nothing <em>unread</em>: those files are out of scope, not unreadable. The shape
+          detector read that silence as authoritative and returned <strong>greenfield</strong>. Before
+          the feature it had returned <code>unknown</code>.</p>
+          <p>So the confidently-empty answer arrived <em>through the mechanism built to remove it</em> —
+          via the same <code>scripts/</code> rule that had once stopped freya graphing itself. Two
+          questions were being answered by one value: "what can this backend not read?" and "is there
+          anything here the graph does not represent?" The second is broader, and the census's silence
+          does not answer it.</p>
+        </div>
+        <div class="callout callout--why">
+          <span class="callout-label">Why it was not caught by the tests that existed</span>
+          <p>Because the silence was <em>evidence</em>. It had been cited as proof the filter was quiet
+          enough to be believed. The claim and the defect were the same observation, read the wrong way
+          round — which is only visible if you go and check what a silence is made of.
+          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-029-an-answer-says-what-it-could-not-read.md">ADR-029</a></p>
+        </div>
       </section>
 
       <!-- ==================== META ==================== -->

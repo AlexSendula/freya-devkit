@@ -3,7 +3,7 @@
 
 `substrate.py` is the contract and knows nothing about implementations. This module is the
 other half: the registry that knows what is installed and picks one, following the project's
-`knowledge-base/settings.json` (CD-15).
+`knowledge-base/settings.json` (ADR-019).
 
 Selection is **never silent** (spec §2.2). Every decision here produces a `Selection` carrying
 the backend, whether this was a fallback, and a human-readable reason, and the caller writes
@@ -21,7 +21,7 @@ import settings as settings_mod  # noqa: E402
 import substrate  # noqa: E402
 
 # The backend used when nothing else is available. It is stdlib-only and therefore always
-# installable, which is the whole reason it stays (CD-2): the driving case for the polyglot
+# installable, which is the whole reason it stays (ADR-019): the driving case for the polyglot
 # work is a locked-down machine, and that is exactly where a dependency cannot be added.
 FLOOR = 'homegrown'
 
@@ -104,7 +104,7 @@ def available_backends(project_dir: str,
 
 
 # `_score` lived here until 2026-08-20. It ranked backends by how many of a repository's
-# files each could read, and `auto` picked the winner — behaviour CD-23 removed, because it
+# files each could read, and `auto` picked the winner — behaviour ADR-019 removed, because it
 # meant installing a binary silently changed the substrate for every project on the machine.
 # Deleted rather than left unused: its docstring explained at length why `auto` should "see
 # the most of this repo", which is now the opposite of what happens forty lines below.
@@ -153,7 +153,7 @@ def select(project_dir: str,
     #
     # It used to pick whichever installed backend scored highest against the repo, which reads
     # like the helpful thing and is not. Spec §11 mitigates "the dependency breaks zero-install"
-    # with *graphify is opt-in*, and CD-13 requires a substrate change to be a measured
+    # with *graphify is opt-in*, and ADR-028 requires a substrate change to be a measured
     # migration — diffed before it is trusted. Scoring silently would have done the opposite:
     # installing a tool, anywhere on PATH, would have swapped the substrate under every project
     # on the machine at once, changing every blast radius with no diff and no decision.

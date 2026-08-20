@@ -13,10 +13,25 @@ tags:
 
 ## Decision
 
-`knowledge-base/.graph/.gitignore` names the two regenerable files —
-`graph.json` and `classifications.json` — instead of using a blanket `*`.
-`behavior.json` is tracked. Its `exercises` lists are sorted by path at write
+`knowledge-base/.graph/.gitignore` names the regenerable files individually
+instead of using a blanket `*`. `behavior.json` is tracked. Its `exercises` lists are sorted by path at write
 time so the committed file is byte-stable across rebuilds.
+
+> **Correction, 2026-08-21.** This originally named the list — "the two regenerable files,
+> `graph.json` and `classifications.json`" — and the list grew: it is now `graph.json`,
+> `graph.*.json`, `classifications.json` and `docs.json` (ADR-025, ADR-028). Naming a mutable
+> list inside a decision is what made this record wrong within a fortnight; the decision was
+> always *name them individually rather than use `*`*, and that is what it says now.
+>
+> The first revisit condition below — "Track B introduces a substrate that owns and clears
+> `.graph/` wholesale" — was checked on 2026-08-21 and is **not met**. `CodeGraph.clear()`
+> unlinks `graph*.json` and calls `rmdir()`, which fails harmlessly while `behavior.json` is
+> present. `behavior.json` stays where it is.
+>
+> One caveat this record did not anticipate: in *freya-devkit's own repository* a root
+> `.gitignore` rule (`**/.graph/`) shadows the directory, so git refuses to add
+> `behavior.json` here even though an adopting project commits it. The decision is about
+> adopting projects and holds there; this repo is the exception, not the rule.
 
 ## Rationale
 
