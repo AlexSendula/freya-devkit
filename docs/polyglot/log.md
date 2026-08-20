@@ -878,3 +878,46 @@ needed here at all. `freya install` is run by a person at a keyboard. Ask there.
 - `docs/polyglot/decisions.md` — CD-26
 - `docs/polyglot/explainer/how-it-works.html` — a new "who decides" section with the four
   places the question could be asked and why three are wrong
+
+### The review of it, and the three the critic found
+
+Fifty-one agents over the change: six reviewers, two verification lenses per finding, a
+completeness critic. 18 confirmed, 4 refuted. The headline was that the feature would have
+shipped with its own suite red:
+
+**Five of the thirteen install-question tests only passed on a machine with graphify
+installed.** They read the real registry, so on a CI runner — which installs nothing but
+pytest — there was one backend to choose between and the question correctly declined to ask.
+Measured with graphify off PATH: five failures. A test that asserts a menu appears must not
+depend on what happens to be on the machine running it.
+
+The critic then found three the six reviewers had not, and two were in code written that hour:
+
+- **`--use auto --global` was accepted and did the opposite of what it said.** At machine
+  level `auto` means *no* default, so `seed_project_backend` skipped it — while
+  `already_answered()` counted the string as an answer and permanently suppressed the install
+  question. No default in effect, no future prompt, and a success message claiming otherwise.
+  It clears the setting now, which is also the only way to un-answer that question.
+- **The `symbols` carry could fire exactly once, ever.** Seeding returned early on
+  `decided`, and the seeding write itself made the project decided — so the window closed on
+  its own first use. A machine turning `symbols` on afterwards would never reach any project
+  again, leaving the divergence in the one setting that changes what is *in* the graph rather
+  than which parser produced it. The two keys are considered separately now.
+- **A degraded graph was narrowing a committed artifact.** When the project's backend is
+  unavailable the floor's closure is thinner than the project declared — and
+  `static_fingerprint` wrote that thinner closure into `behavior.json`, which is committed and
+  whose `exercises[].path` decide which behaviours a change is deemed to affect. Every later
+  blast radius was narrowed by whichever laptop ran last, with nothing recording why. It now
+  declines with `graph-degraded: <backend> unavailable, built with <floor>`, which is the
+  signal `merge_fingerprint` already honours by preserving the prior fingerprint. Refusing to
+  answer is honest; a narrower answer that looks authoritative is not.
+
+Also fixed: setting the machine default rebuilt the file from `load_global()`'s *filtered*
+view, deleting every key outside `GLOBAL_KEYS` — five reviewers found that independently, and
+the guarding test only asserted that an allowed key survived. The install upsell printed on
+every scripted install and every `freya update` because the single-option branch ran before
+the interactive check. `"²".isdigit()` is True and `int("²")` raises. `--use ""` exited 1
+with nothing printed. `--use --dir <typo>` created the directory and reported success.
+
+**1,315 → 1,367 tests.** Verified three ways: from the repository root, from inside `skills/`
+with a real machine default planted, and with graphify off PATH.

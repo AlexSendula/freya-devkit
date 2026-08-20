@@ -450,6 +450,15 @@ def set_backend(name: str, project_dir: Optional[str] = None,
     Merges rather than replaces, so setting a backend never discards the directory verdicts
     or anything a newer version wrote alongside them.
     """
+    if scope == SOURCE_GLOBAL and name == BACKEND_AUTO:
+        # At machine level `auto` means "no machine default", so recording it as an answer is
+        # a contradiction — and a damaging one: `already_answered()` counted the string as an
+        # answer while `seed_project_backend` correctly skipped it, so `--use auto --global`
+        # left no default in effect *and* permanently suppressed the install-time question,
+        # under a success message claiming the opposite. It clears the setting instead, which
+        # is also the only way to un-answer that question.
+        return clear_global_backend()
+
     path = global_settings_path() if scope == SOURCE_GLOBAL else settings_path(str(project_dir))
     # The file as written, not as *interpreted*. `load_global()` filters to `GLOBAL_KEYS`, so
     # merging into its result and writing that back deleted every other key in the machine
@@ -460,6 +469,18 @@ def set_backend(name: str, project_dir: Optional[str] = None,
     data['substrate'] = substrate if isinstance(substrate, dict) else {}
     data['substrate']['backend'] = name
     return write_global(data) if scope == SOURCE_GLOBAL else write(str(project_dir), data)
+
+
+def clear_global_backend() -> str:
+    """Remove the machine-level backend, leaving everything else in the file. Returns the path."""
+    path = global_settings_path()
+    data = _read_object(path)
+    substrate = data.get('substrate')
+    if isinstance(substrate, dict):
+        substrate.pop('backend', None)
+        if not substrate:
+            data.pop('substrate', None)
+    return write_global(data)
 
 
 def _read_object(path: str) -> Dict[str, Any]:
@@ -510,22 +531,33 @@ def seed_project_backend(project_dir: str,
     the machine").
     """
     conf = load(project_dir)
-    if conf.decided:
-        return None
-    name = _clean_backend(_dig(conf.global_data, ('substrate', 'backend')))
-    if not name or name == BACKEND_AUTO:
-        return None
-    if is_known is not None and not is_known(name):
+
+    # The two keys are considered separately. Returning early on `conf.decided` meant the
+    # `symbols` carry could only ever fire on a project that had never chosen a backend — and
+    # the seeding write itself made the project decided, so that window closed permanently on
+    # its own first use. A machine that turns `symbols` on afterwards would never reach any
+    # project again, leaving the divergence in the one setting that changes what is *in* the
+    # graph rather than which parser produced it.
+    pending = {}  # type: Dict[str, Any]
+
+    if not conf.decided:
+        name = _clean_backend(_dig(conf.global_data, ('substrate', 'backend')))
+        if name and name != BACKEND_AUTO and (is_known is None or is_known(name)):
+            pending['backend'] = name
+
+    if conf.file_symbols is None:
+        symbols = _dig(conf.global_data, ('substrate', 'symbols'))
+        if isinstance(symbols, bool):
+            pending['symbols'] = symbols
+
+    if not pending:
         return None
 
     path = settings_path(project_dir)
     data = _read_object(path)
     substrate = data.get('substrate')
     data['substrate'] = substrate if isinstance(substrate, dict) else {}
-    data['substrate']['backend'] = name
-    symbols = _dig(conf.global_data, ('substrate', 'symbols'))
-    if isinstance(symbols, bool) and conf.file_symbols is None:
-        data['substrate']['symbols'] = symbols
+    data['substrate'].update(pending)
     return write(project_dir, data)
 
 

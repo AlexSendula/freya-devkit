@@ -2642,7 +2642,11 @@ def record_backend(name: str, project_dir: str, global_scope: bool) -> int:
         print('code-graph: could not record the backend (%s)' % exc, file=sys.stderr)
         return 1
 
-    if global_scope:
+    if global_scope and name == settings.BACKEND_AUTO:
+        print('Machine default cleared (%s).\nProjects that have not decided for themselves '
+              'will use the built-in backend, and freya will ask again next time it is '
+              'installed or updated.' % path)
+    elif global_scope:
         # Careful about what this promises. A project that has already been built has the
         # previous answer *recorded in its own settings.json*, and the project file wins —
         # so this changes what happens in projects that have not decided yet, not everywhere.

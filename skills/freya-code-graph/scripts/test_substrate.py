@@ -695,6 +695,38 @@ class TestTheMachineLevelDefault(MachineHome):
         settings_mod.seed_project_backend(d)
         self.assertEqual(settings_mod.load(d).directories, {'docs': 'source'})
 
+    def test_symbols_still_reach_a_project_that_already_chose_a_backend(self):
+        """The two keys are considered separately.
+
+        Returning early on `decided` meant the symbols carry could only fire on a project
+        that had never chosen a backend — and the seeding write itself made the project
+        decided, so the window closed permanently on its own first use. A machine turning
+        `symbols` on afterwards would never reach any project again, leaving the divergence
+        in the one setting that changes what is *in* the graph.
+        """
+        d = self.project('{"substrate": {"backend": "graphify"}}')
+        self.set_global('{"substrate": {"backend": "graphify", "symbols": true}}')
+        self.assertIsNotNone(settings_mod.seed_project_backend(d))
+        raw = json.loads(Path(settings_mod.settings_path(d)).read_text())
+        self.assertEqual(raw['substrate'], {'backend': 'graphify', 'symbols': True})
+
+    def test_a_project_that_set_symbols_itself_is_left_alone(self):
+        d = self.project('{"substrate": {"backend": "graphify", "symbols": false}}')
+        self.set_global('{"substrate": {"backend": "graphify", "symbols": true}}')
+        self.assertIsNone(settings_mod.seed_project_backend(d))
+
+    def test_auto_at_machine_level_clears_rather_than_records(self):
+        """`auto` means "no machine default", so recording it as an answer is a
+        contradiction — and it left no default in effect while permanently suppressing the
+        install question, which counted the string as an answer."""
+        self.set_global('{"substrate": {"backend": "graphify"}, "future": {"x": 1}}')
+        settings_mod.set_backend(settings_mod.BACKEND_AUTO, scope=settings_mod.SOURCE_GLOBAL)
+        raw = json.loads(Path(settings_mod.global_settings_path()).read_text())
+        self.assertNotIn('backend', raw.get('substrate', {}))
+        self.assertEqual(raw['future'], {'x': 1}, 'clearing must not take the rest with it')
+        self.assertEqual(settings_mod.load(self.project()).backend_source,
+                         settings_mod.SOURCE_DEFAULT)
+
     def test_seeding_refuses_a_name_the_caller_does_not_recognise(self):
         """One typo in a hand-edited machine file would otherwise become a permanent,
         per-repository, committed mistake."""

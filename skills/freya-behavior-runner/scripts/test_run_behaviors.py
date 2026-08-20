@@ -192,6 +192,50 @@ title: Unterminated fence
         self.assertEqual([b["behavior_id"] for b in got], ["BEH-GOOD"])
 
 
+class DegradedGraphDoesNotNarrowACommittedFingerprintTest(unittest.TestCase):
+    """A graph built by the floor after the project's backend was unavailable is thinner than
+    the project declared. Answering from it writes that thinner closure into behavior.json,
+    which is committed — and `exercises[].path` decides which behaviours a change is deemed to
+    affect, so every later blast radius is narrowed by whichever laptop ran last.
+
+    `unknown` with a reason is the signal `merge_fingerprint` already honours by preserving
+    the prior. Refusing to answer is honest; a narrower answer that looks authoritative is not.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.proj = self.tmp.name
+        self.addCleanup(self.tmp.cleanup)
+        graph_dir = os.path.join(self.proj, "knowledge-base", ".graph")
+        os.makedirs(graph_dir)
+        self.graph = os.path.join(graph_dir, "graph.json")
+
+    def write_graph(self, substrate):
+        with open(self.graph, "w", encoding="utf-8") as fh:
+            json.dump({"version": 2, "substrate": substrate, "files": {}}, fh)
+
+    def test_a_degraded_graph_is_declined_with_a_reason(self):
+        self.write_graph({"backend": "homegrown", "degraded_from": "graphify",
+                          "coverage": {}})
+        deps, reason = run_behaviors._code_graph_deps("app/x.ts", self.proj)
+        self.assertIsNone(deps)
+        self.assertTrue(reason.startswith("graph-degraded"), reason)
+        self.assertIn("graphify", reason)
+
+    def test_an_undegraded_graph_is_answered_normally(self):
+        self.write_graph({"backend": "homegrown", "coverage": {}})
+        deps, reason = run_behaviors._code_graph_deps("app/x.ts", self.proj)
+        # Reaches the real query rather than being declined up front; whatever it answers,
+        # it must not be the degraded refusal.
+        self.assertFalse((reason or "").startswith("graph-degraded"))
+
+    def test_a_graph_with_no_substrate_block_is_not_treated_as_degraded(self):
+        with open(self.graph, "w", encoding="utf-8") as fh:
+            json.dump({"version": 1, "files": {}}, fh)
+        _, reason = run_behaviors._code_graph_deps("app/x.ts", self.proj)
+        self.assertFalse((reason or "").startswith("graph-degraded"))
+
+
 class ReasonStringsAreCommittableTest(unittest.TestCase):
     """`reason` is written into behavior.json, which is tracked (ADR-017).
 

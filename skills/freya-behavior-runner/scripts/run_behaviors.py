@@ -241,6 +241,27 @@ def run_unit_behavior(behavior, project_dir):
         symbols=coverage_symbols(coverage_final, project_dir, exclude={test_file}))
 
 
+def _graph_degraded_from(graph_path):
+    """The backend a graph *should* have been built with, if it fell back. None otherwise.
+
+    Read from the artifact rather than from settings, because the artifact is the thing that
+    records what actually happened — `degraded_from` is written by the run that degraded, and
+    a graph carried between machines still carries it.
+    """
+    try:
+        with open(graph_path, encoding="utf-8") as fh:
+            substrate = (json.load(fh) or {}).get("substrate")
+    except (OSError, ValueError):
+        return None
+    if not isinstance(substrate, dict):
+        return None
+    wanted = substrate.get("degraded_from")
+    if not isinstance(wanted, str) or not wanted:
+        return None
+    got = substrate.get("backend")
+    return "%s unavailable, built with %s" % (wanted, got if isinstance(got, str) else "?")
+
+
 def _portable(detail, project_dir):
     """One line of another tool's stderr, made safe to commit.
 
@@ -280,6 +301,19 @@ def _code_graph_deps(entry, project_dir):
     graph_path = os.path.join(project_dir, "knowledge-base", ".graph", "graph.json")
     if not os.path.exists(graph_path):
         return None, "no-graph"
+
+    degraded = _graph_degraded_from(graph_path)
+    if degraded:
+        # The project asked for a backend and did not get one, so this graph is thinner than
+        # the project declared. Answering anyway would write that thinner closure into
+        # behavior.json — which is committed, and whose `exercises[].path` values decide
+        # which behaviours a change is deemed to affect. Every later blast radius would then
+        # be computed against a closure narrowed by whichever laptop happened to run last.
+        #
+        # `unknown` with a reason is exactly the "no news" signal `merge_fingerprint` already
+        # honours: the prior fingerprint is preserved rather than replaced. Refusing to
+        # answer is the honest move; a narrower answer that looks authoritative is not.
+        return None, "graph-degraded: %s" % degraded
     try:
         out = subprocess.run(
             [sys.executable, str(_CODE_GRAPH), "--dependencies", entry,
