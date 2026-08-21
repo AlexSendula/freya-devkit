@@ -213,7 +213,7 @@ noted here because this projection is where the inferred edges come from.
 
 - **The contract gains a node type below the file.** Then the intra-file call graph stops being
   unrepresentable, the self-edge rule stops being the end of the story, and this projection
-  should record what it currently discards. That capability is not in `docs/backlog.md`; it
+  should record what it currently discards. That capability is not in `knowledge-base/roadmap.md`; it
   lives only in this record, which is the reason it is stated here.
 
 - **graphify stops canonicalising module and namespace nodes.** If a future version emits one

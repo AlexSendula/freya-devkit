@@ -379,6 +379,8 @@ class TestSourceBearingDirsAreNotExcludedByName(Base):
 
         Measured: indexing this repo's own `docs/` pulled in the published site's
         bundled JS and a spike's planted fixtures — noise in every blast radius.
+        That tree is now `knowledge-base/`, excluded by a different rule; the fixture
+        below is synthetic and tests the root-convention rule on its own terms.
         """
         proj = self.mk({
             "src/a.ts": "export const a = 1\n",

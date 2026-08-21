@@ -88,7 +88,7 @@ There is no alias and no deprecation period: the old names are directory names t
 longer exist. Anything that referenced one — a saved prompt, a team runbook, a project's
 `AGENTS.md`, a `CLAUDE.md` — needs the new name. Full migration notes, including the
 non-Claude install paths:
-[`docs/migrations/skill-rename.md`](docs/migrations/skill-rename.md).
+[`knowledge-base/migrations/skill-rename.md`](knowledge-base/migrations/skill-rename.md).
 
 ### Added
 

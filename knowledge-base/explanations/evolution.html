@@ -178,7 +178,7 @@
           looking at it. Those ten sibling paths are a consequence of an earlier decision rather than an
           accident: skills resolve one another through the store instead of being separately
           installable, and every skill file invokes the one launcher
-          (<a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-013-single-freya-launcher.md">docs/decisions/ADR-013-single-freya-launcher.md</a>).
+          (<a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-013-single-freya-launcher.md">knowledge-base/decisions/ADR-013-single-freya-launcher.md</a>).
         </p>
 
         <div class="callout callout--warn">
@@ -192,7 +192,7 @@
         <p>
           The whole contract — store, symlink, prefix-in-repo, and the ownership gates on every
           destructive path — is stated in
-          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-014-canonical-store-install-contract.md">docs/decisions/ADR-014-canonical-store-install-contract.md</a>.
+          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-014-canonical-store-install-contract.md">knowledge-base/decisions/ADR-014-canonical-store-install-contract.md</a>.
         </p>
 
         <h3 id="non-standard-field">2 · A "non-standard" field that was in the standard</h3>
@@ -229,7 +229,7 @@
           hundreds of untrusted candidates up front; validation is spent lazily, on the two or three
           behaviors a change actually touches, in the flow of work. That is what turns a few hundred
           inferred candidates into a backlog rather than a flood —
-          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-007-bootstrap-proposed-drain-lazily.md">docs/decisions/ADR-007-bootstrap-proposed-drain-lazily.md</a>.
+          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-007-bootstrap-proposed-drain-lazily.md">knowledge-base/decisions/ADR-007-bootstrap-proposed-drain-lazily.md</a>.
         </p>
         <div class="callout callout--info">
           <span class="callout-label">The second sequencing reversal, taken deliberately</span>
@@ -261,7 +261,7 @@
           the unrecoverable failure is the relevant record that never reached the judgment. The
           premise dissolved exactly the way the socket was built to expect. The reasoning, including
           why the sibling drift check takes the <em>opposite</em> scoping, is in
-          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-011-governance-check-scoping.md">docs/decisions/ADR-011-governance-check-scoping.md</a>.</p>
+          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-011-governance-check-scoping.md">knowledge-base/decisions/ADR-011-governance-check-scoping.md</a>.</p>
         </div>
       </section>
 
@@ -394,7 +394,7 @@
           guards existed. The same spike priced a single finder worker at <strong>$0.396</strong> on a
           trivial fixture, which is why the driver ships with a call ceiling and a confirmation prompt
           rather than an advisory note. Both live in
-          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-015-driver-owned-fan-out.md">docs/decisions/ADR-015-driver-owned-fan-out.md</a>.
+          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-015-driver-owned-fan-out.md">knowledge-base/decisions/ADR-015-driver-owned-fan-out.md</a>.
         </p>
 
         <h3 id="hollow-tests">8 · Three tests that proved nothing</h3>
@@ -564,7 +564,7 @@
           <strong>209.3 s single-threaded against 91.4 s at six workers</strong> — a 2.29× win rather
           than a 6× one, because the host throttles under load, and the honest number is the one that
           got written down. The design and its rejected alternatives are in
-          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-015-driver-owned-fan-out.md">docs/decisions/ADR-015-driver-owned-fan-out.md</a>.
+          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-015-driver-owned-fan-out.md">knowledge-base/decisions/ADR-015-driver-owned-fan-out.md</a>.
         </p>
 
         <div class="callout callout--info">
@@ -604,7 +604,7 @@
           artefact, never what a host does with it.</strong> Everything on the repository side was
           right. The evidence discipline that came out of it — real dependencies, live dogfooding,
           committed evidence, corrections appended rather than rewritten — is
-          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-016-prove-it-against-the-real-thing.md">docs/decisions/ADR-016-prove-it-against-the-real-thing.md</a>.
+          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-016-prove-it-against-the-real-thing.md">knowledge-base/decisions/ADR-016-prove-it-against-the-real-thing.md</a>.
         </p>
 
         <div class="callout callout--warn">
@@ -634,7 +634,7 @@
           internals and <strong>zero application code</strong>, so observed integration coverage was
           deferred and the static import closure became the honest baseline — over-approximating, in
           the safe direction, and saying which it is. Both halves are in
-          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-006-real-interface-execution-and-coverage.md">docs/decisions/ADR-006-real-interface-execution-and-coverage.md</a>.
+          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-006-real-interface-execution-and-coverage.md">knowledge-base/decisions/ADR-006-real-interface-execution-and-coverage.md</a>.
         </p>
 
         <div class="callout callout--success">
@@ -722,7 +722,7 @@
           It does not prove that a live scan works there: no agent CLI is installed on the runner, so
           nothing that spends money has ever executed on the platform. That gap is owned, with its
           remedy, in
-          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/backlog.md">docs/backlog.md</a>
+          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/roadmap.md">knowledge-base/roadmap.md</a>
           rather than restated here.
         </p>
               <h3 id="freya-could-not-graph-freya">14 · The spike meant to evaluate a parser found the bug in ours</h3>
@@ -793,7 +793,7 @@
           <p>Because the silence was <em>evidence</em>. It had been cited as proof the filter was quiet
           enough to be believed. The claim and the defect were the same observation, read the wrong way
           round — which is only visible if you go and check what a silence is made of.
-          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-029-an-answer-says-what-it-could-not-read.md">ADR-029</a></p>
+          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-029-an-answer-says-what-it-could-not-read.md">ADR-029</a></p>
         </div>
       </section>
 

@@ -463,8 +463,8 @@ freya docs-graph --impact skills/x/scripts/thing.py         # which sections cit
 ```
 
 ```
-docs/architecture.md#output-artifacts
-docs/backlog.md#the-wall (cites line 30)
+knowledge-base/reference/ARCHITECTURE.md#output-artifacts
+knowledge-base/roadmap.md#the-wall (cites line 30)
 ```
 
 **Why it exists.** Staleness used to be decided by the agent judging which docs corresponded

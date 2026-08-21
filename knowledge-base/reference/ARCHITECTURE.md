@@ -92,7 +92,7 @@ scan. It also spends real money, which is why it refuses to run unconfirmed and 
 
 The other two fan-outs (`docs-manager`, `spec-manager scan`) stay prose deliberately —
 their workers *write files*, which inverts the read-only property the driver's guarantee
-rests on. See [patterns.md](patterns.md#pattern-coordinator--independent-tasks).
+rests on. See [patterns.md](../patterns.md#pattern-coordinator--independent-tasks).
 
 ### Tier 4: Orchestration
 
@@ -187,9 +187,9 @@ survive a clone and reach CI. See ADR-019 and ADR-022.
 re-reading source — only by re-running a green suite. Ignoring it would leave a fresh clone with
 no observed coverage, silently degrading to `static`/`unknown`. Its `exercises` are sorted by
 path at write time so the committed file is byte-stable. See
-[ADR-017](decisions/ADR-017-behavior-json-is-committed.md).
+[ADR-017](../decisions/ADR-017-behavior-json-is-committed.md).
 
-The governance resolution logs (`principle-`, `contradiction-`, `drift-resolutions.jsonl`) also live under `knowledge-base/`, and are **tracked**; see [patterns.md](patterns.md).
+The governance resolution logs (`principle-`, `contradiction-`, `drift-resolutions.jsonl`) also live under `knowledge-base/`, and are **tracked**; see [patterns.md](../patterns.md).
 
 ### Integration Data Flow
 

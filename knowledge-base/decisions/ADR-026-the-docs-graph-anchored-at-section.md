@@ -16,7 +16,7 @@ tags:
 
 A third artifact, `knowledge-base/.graph/docs.json`, records which documentation
 **section** cites which code **file**. The source anchor is a heading slug —
-`docs/architecture.md#output-artifacts` (`docs_graph.py:411`) — not a line. The
+`knowledge-base/reference/ARCHITECTURE.md#output-artifacts` (`docs_graph.py:411`) — not a line. The
 target is a plain repository-relative file path. The cited line rides *inside*
 the edge as evidence and comes back out as `lines_cited` on a query
 (`docs_graph.py:414`), but it is never the anchor.
@@ -74,11 +74,11 @@ runs and unverifiable after them.
 
 The reverse question had no answer at all, and that is not hypothetical. Changing
 how `knowledge-base/.graph/.gitignore` is written falsified prose in both
-`docs/architecture.md` and `docs/skill-reference.md`; both cited one exact line
+`knowledge-base/reference/ARCHITECTURE.md` and `knowledge-base/reference/SKILL_REFERENCE.md`; both cited one exact line
 of `skills/freya-code-graph/scripts/graph_ops.py` — a line number that has since
 moved — in prose no tool read, and both were found by grep. Today the same
 question is a lookup: `freya docs-graph --impact` on that file returns
-`docs/architecture.md#output-artifacts` — the exact section that change
+`knowledge-base/reference/ARCHITECTURE.md#output-artifacts` — the exact section that change
 invalidated — alongside every other section that cites it.
 
 Anchoring at the section rather than the line follows from what breaks and what
@@ -102,7 +102,7 @@ is worse than no edge.
 
 The chunking rule exists because splitting inside a fenced block produces
 content that is not merely truncated but actively wrong: half a mermaid diagram,
-half an ASCII tree. `docs/architecture.md` carries directory trees inside fences
+half an ASCII tree. `knowledge-base/reference/ARCHITECTURE.md` carries directory trees inside fences
 and the explainer site carries mermaid, so any size-based splitter would have
 been hit on the first run. A `# comment` inside a ` ```bash ` block is
 indistinguishable from an H1 by pattern alone. The precedent is exact rather
@@ -151,7 +151,7 @@ result is the durable part, never the total.
 - **Anchor at the document instead of the section.** Cheaper than either, and
   immune to heading renames, which section anchors are not. Rejected on
   granularity: on this repository 306 edges spread across 469 sections, and
-  `docs/architecture.md` alone carries 27 of them. A document-level answer says
+  `knowledge-base/reference/ARCHITECTURE.md` alone carries 27 of them. A document-level answer says
   "something in architecture.md may be wrong", which is what grep already said,
   and grep is what this artifact exists to replace.
 
@@ -200,7 +200,7 @@ result is the durable part, never the total.
   deterministic readers yield nothing and `docs.json` is a list of documents with
   zero edges, at which point the unbuilt semantic pass is the only way to have a
   docs graph — its design, and why it is not a record, is in
-  [`../backlog.md`](../backlog.md) under *Deferred capabilities*. This repository is unusually citation-heavy because its own
+  [`../backlog.md`](../roadmap.md) under *Deferred capabilities*. This repository is unusually citation-heavy because its own
   conventions demand `path:line` provenance; that is not evidence about anyone
   else. Check it on the first adopter whose docs were not written under that
   habit.

@@ -35,25 +35,32 @@ tags: [...]
 ## Decision   ## Rationale   ## Rejected Alternatives   ## Revisit Conditions
 ```
 
-**The tooling does not see this directory.** `adr.py` reads `knowledge-base/decisions/`
-(`DECISIONS_RELDIR`, `adr.py:29`) — the layout it writes into an *adopting* project. This repo
-deliberately keeps its root free of `knowledge-base/`, so `freya adr verify --project .` here
-checks zero files and exits 0, and `freya adr list` prints an empty table. All twenty-nine
-records do satisfy `ADR_SCHEMA` — verified by running `frontmatter.validate_adr` over the
-directory — but nothing checks it automatically. The format is shared, the
-tooling is not — write new records by hand.
+**The tooling sees this directory.** `adr.py` reads `knowledge-base/decisions/`
+(`DECISIONS_RELDIR`, `adr.py:29`), which is where these records now live, so
+`freya adr verify --project .` checks all twenty-nine and `freya adr list` prints them.
+Until 2026-08-21 they sat in a hand-written `docs/decisions/` the tooling could not reach,
+and schema conformance was something you had to remember to check by hand. New records are
+still written by hand — `adr.py` verifies and lists, it does not author.
 
 **Authority order: shipped code beats an ADR beats a spec.** An ADR records the decision, not
 the implementation. Where they disagree, the code is right and the ADR needs a correction —
 add one rather than rewriting history.
 
 > **On the citations.** Records here cite their sources by `path:line`. Citations into
-> `skills/`, `bin/` and the rest of `docs/` resolve against the working tree. Citations into
-> `docs/design/…`, `docs/superpowers/…` or `docs/polyglot/…` do **not** — those are the documents these ADRs were
-> distilled from — the first two deleted on 2026-08-19, `docs/polyglot/` on 2026-08-21. They
-> resolve against git history: `git log --all -- <path>`, or `git show 04a9b8b:<path>` for the
-> first two and `git show 2762d54:<path>` for `docs/polyglot/`. The line numbers are exact as of that commit and are
-> kept deliberately, because a citation without a line is not provenance.
+> `skills/`, `bin/` and the rest of `knowledge-base/` resolve against the working tree.
+> Citations into `docs/design/…`, `docs/superpowers/…` or `docs/polyglot/…` do **not** — those
+> are the documents these ADRs were distilled from — the first two deleted on 2026-08-19,
+> `docs/polyglot/` on 2026-08-21. They resolve against git history: `git log --all -- <path>`,
+> or `git show 04a9b8b:<path>` for the first two and `git show 2762d54:<path>` for
+> `docs/polyglot/`. The line numbers are exact as of that commit and are kept deliberately,
+> because a citation without a line is not provenance.
+>
+> A working-tree citation written before 2026-08-21 may name `docs/…`: on that date this
+> repo's whole documentation tree moved to `knowledge-base/` and `architecture.md`,
+> `conventions.md` and `skill-reference.md` were renamed to
+> `reference/ARCHITECTURE.md`, `reference/DEVELOPER.md` and `reference/SKILL_REFERENCE.md`,
+> with `backlog.md` becoming `roadmap.md`. The line numbers survived the move; the paths
+> did not.
 
 ## The records
 
@@ -123,5 +130,5 @@ Write it when you make a decision a future maintainer could reasonably reverse w
 why it was made. Take the next free id, fill all four sections, and never write "none" under
 Rejected Alternatives — if nothing was considered, the obvious default was rejected, so name it.
 
-Outstanding work belongs in [`../backlog.md`](../backlog.md), not here. An ADR is a decision,
+Outstanding work belongs in [`../backlog.md`](../roadmap.md), not here. An ADR is a decision,
 not a task.

@@ -33,7 +33,7 @@
           question comes back around every few months and gets re-litigated from scratch — usually by
           someone about to make the same choice for the same reasons and hit the same wall. The rule
           that follows, and the record format that enforces it, are stated once in
-          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/README.md">docs/decisions/README.md</a>.
+          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/README.md">knowledge-base/decisions/README.md</a>.
         </p>
 
         <p>
@@ -50,7 +50,7 @@
           <strong>These were distilled, not accumulated.</strong> Before them, finding a
           decision meant reading a project history. What they were distilled from, and where those
           originals now live, is recorded in
-          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/README.md">docs/decisions/README.md</a>.
+          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/README.md">knowledge-base/decisions/README.md</a>.
           Distilling them is the same move as deleting the thirty-three research briefs that used to
           sit beside this site: a document that mixes a durable decision with a stale status line rots
           at the speed of its fastest-moving sentence.
@@ -63,7 +63,7 @@
           records cite their sources by <code>path:line</code>, including into documents that now
           resolve only against git history.</p>
           <ul class="md-links">
-            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/README.md">docs/decisions/README.md</a></li>
+            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/README.md">knowledge-base/decisions/README.md</a></li>
           </ul>
         </div>
       </section>
@@ -87,7 +87,7 @@
             could not be applied at install time — it had to live in the repository, on all ten
             directories and in their frontmatter. What you get back for that rename is that
             <code>freya update</code> is close to just pulling: fetch, fast-forward, re-link.</p>
-            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-014-canonical-store-install-contract.md">docs/decisions/ADR-014-canonical-store-install-contract.md</a></p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-014-canonical-store-install-contract.md">knowledge-base/decisions/ADR-014-canonical-store-install-contract.md</a></p>
           </div>
 
           <div class="card">
@@ -98,7 +98,7 @@
             and free, because a test hands it a stub that returns canned answers. And the scan behaves
             the same on every agent, because the only host-specific part left is a small adapter that
             builds an argv and parses stdout.</p>
-            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-015-driver-owned-fan-out.md">docs/decisions/ADR-015-driver-owned-fan-out.md</a></p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-015-driver-owned-fan-out.md">knowledge-base/decisions/ADR-015-driver-owned-fan-out.md</a></p>
           </div>
 
           <div class="card">
@@ -110,7 +110,7 @@
             explicit read allowlist held under the same test. So every worker is launched from an
             allowlist with the shell left off it, and the argv builder raises on sight if a blanket
             permission flag is smuggled in through the prompt.</p>
-            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-015-driver-owned-fan-out.md">docs/decisions/ADR-015-driver-owned-fan-out.md</a></p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-015-driver-owned-fan-out.md">knowledge-base/decisions/ADR-015-driver-owned-fan-out.md</a></p>
           </div>
 
           <div class="card">
@@ -123,7 +123,7 @@
             duplicate and a silent deletion, a security tool takes the duplicate</strong> — so the
             engine states the ambiguity and the write-up step, which has the titles in front of it,
             decides.</p>
-            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-015-driver-owned-fan-out.md">docs/decisions/ADR-015-driver-owned-fan-out.md</a></p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-015-driver-owned-fan-out.md">knowledge-base/decisions/ADR-015-driver-owned-fan-out.md</a></p>
           </div>
 
           <div class="card">
@@ -135,7 +135,7 @@
             and they should, or a file in any repository could override what a vendor built. So the
             fan-out moved into our own process pool. Nothing is delegated, so nothing can be quietly
             declined. <a href="how-it-works.html#who-schedules-the-fan-out">The instrumented evidence →</a></p>
-            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-015-driver-owned-fan-out.md">docs/decisions/ADR-015-driver-owned-fan-out.md</a></p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-015-driver-owned-fan-out.md">knowledge-base/decisions/ADR-015-driver-owned-fan-out.md</a></p>
           </div>
 
           <div class="card">
@@ -147,7 +147,7 @@
             is a forward <em>build</em> engine, and taking it would have discarded freya's reverse-sync
             and its intentional-decision differentiator, while coupling the roadmap to an external
             template engine.</p>
-            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-001-behavior-as-executable-artifact.md">docs/decisions/ADR-001-behavior-as-executable-artifact.md</a></p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-001-behavior-as-executable-artifact.md">knowledge-base/decisions/ADR-001-behavior-as-executable-artifact.md</a></p>
           </div>
 
         </div>
@@ -187,7 +187,7 @@
             <p class="muted small"><strong>Rejected —</strong> inert Given/When/Then checkboxes, as
             spec-kit ships them: nothing executes them, so drift stays silent, which is the gap being
             closed rather than a fix for it.</p>
-            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-001-behavior-as-executable-artifact.md">docs/decisions/ADR-001-behavior-as-executable-artifact.md</a></p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-001-behavior-as-executable-artifact.md">knowledge-base/decisions/ADR-001-behavior-as-executable-artifact.md</a></p>
           </div>
 
           <div class="card" data-facet="behavior">
@@ -200,7 +200,7 @@
             <code>proposed</code>&nbsp;→&nbsp;<code>accepted</code> lifecycle: accepting would keep
             meaning "write the test now", so intent capture stalls mid-feature and the queue never
             drains.</p>
-            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-003-lifecycle-state-is-trust-signal.md">docs/decisions/ADR-003-lifecycle-state-is-trust-signal.md</a></p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-003-lifecycle-state-is-trust-signal.md">knowledge-base/decisions/ADR-003-lifecycle-state-is-trust-signal.md</a></p>
           </div>
 
           <div class="card" data-facet="behavior">
@@ -213,7 +213,7 @@
             <code>behavior.json</code>, or merging it into <code>graph.json</code>: the first draft
             specified exactly that and it was explicitly reversed, because it welds the behavior
             projection to whatever code substrate is eventually chosen.</p>
-            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-004-behavior-adapters-and-execution-split.md">docs/decisions/ADR-004-behavior-adapters-and-execution-split.md</a></p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-004-behavior-adapters-and-execution-split.md">knowledge-base/decisions/ADR-004-behavior-adapters-and-execution-split.md</a></p>
           </div>
 
           <div class="card" data-facet="behavior">
@@ -225,7 +225,7 @@
             <p class="muted small"><strong>Rejected —</strong> reviewing the corpus eagerly at
             adoption: inference produced ~383 candidates on a 224-file repo, nobody reviews that, and
             the mechanism dies at onboarding.</p>
-            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-007-bootstrap-proposed-drain-lazily.md">docs/decisions/ADR-007-bootstrap-proposed-drain-lazily.md</a></p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-007-bootstrap-proposed-drain-lazily.md">knowledge-base/decisions/ADR-007-bootstrap-proposed-drain-lazily.md</a></p>
           </div>
 
           <!-- ---------------- Substrate ---------------- -->
@@ -239,7 +239,7 @@
             <p class="muted small"><strong>Rejected —</strong> PyYAML or any real YAML engine: correct
             in isolation, but it breaks the zero-install property, so the spec's wording was changed to
             match the constraint rather than the constraint bent to match the spec.</p>
-            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-005-repair-parsing-substrate-in-place.md">docs/decisions/ADR-005-repair-parsing-substrate-in-place.md</a></p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-005-repair-parsing-substrate-in-place.md">knowledge-base/decisions/ADR-005-repair-parsing-substrate-in-place.md</a></p>
           </div>
 
           <div class="card" data-facet="substrate">
@@ -251,7 +251,7 @@
             <p class="muted small"><strong>Rejected —</strong> adopt the best parser and wire it in.
             Fastest to ship, and it reopens the whole question the first time that parser stalls, by
             which point five skills depend on its output shape.</p>
-            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-018-substrate-contract-for-the-code-graph.md">docs/decisions/ADR-018-substrate-contract-for-the-code-graph.md</a></p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-018-substrate-contract-for-the-code-graph.md">knowledge-base/decisions/ADR-018-substrate-contract-for-the-code-graph.md</a></p>
           </div>
 
           <div class="card" data-facet="substrate">
@@ -264,7 +264,7 @@
             <p class="muted small"><strong>Rejected —</strong> score the backends and pick whichever
             reads most. Measured: the new one scored 63 to 58 here and would have taken over on the
             next build, changing every blast radius on the machine with no diff.</p>
-            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-019-the-floor-and-choosing-a-backend.md">docs/decisions/ADR-019-the-floor-and-choosing-a-backend.md</a></p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-019-the-floor-and-choosing-a-backend.md">knowledge-base/decisions/ADR-019-the-floor-and-choosing-a-backend.md</a></p>
           </div>
 
           <div class="card" data-facet="substrate">
@@ -278,7 +278,7 @@
             and it gives up 58% of what the second backend knows to avoid a migration that only gets
             more expensive. <strong>Recorded as unimplemented:</strong> the provenance tier is written
             on every edge and read by no code.</p>
-            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-021-an-edge-is-an-object-with-kind-and-provenance.md">docs/decisions/ADR-021-an-edge-is-an-object-with-kind-and-provenance.md</a></p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-021-an-edge-is-an-object-with-kind-and-provenance.md">knowledge-base/decisions/ADR-021-an-edge-is-an-object-with-kind-and-provenance.md</a></p>
           </div>
 
           <div class="card" data-facet="substrate">
@@ -291,7 +291,7 @@
             <p class="muted small"><strong>Rejected —</strong> print it for the human. A build almost
             never has one attached, so the warning lands nowhere. The consumer is the agent, and the
             signal has to ride in the machine-readable answer.</p>
-            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-029-an-answer-says-what-it-could-not-read.md">docs/decisions/ADR-029-an-answer-says-what-it-could-not-read.md</a></p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-029-an-answer-says-what-it-could-not-read.md">knowledge-base/decisions/ADR-029-an-answer-says-what-it-could-not-read.md</a></p>
           </div>
 
           <div class="card" data-facet="substrate">
@@ -304,7 +304,7 @@
             <p class="muted small"><strong>Rejected —</strong> <code>NODE_V8_COVERAGE</code> capture
             over the app process: spiked and measured at <em>zero app code recovered</em>, because the
             render worker does not inherit the env-var capture.</p>
-            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-006-real-interface-execution-and-coverage.md">docs/decisions/ADR-006-real-interface-execution-and-coverage.md</a></p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-006-real-interface-execution-and-coverage.md">knowledge-base/decisions/ADR-006-real-interface-execution-and-coverage.md</a></p>
           </div>
 
           <!-- ---------------- Governance ---------------- -->
@@ -317,7 +317,7 @@
             <p class="muted small"><strong>Rejected —</strong> duplicating behavior text into
             <code>specs/</code> for discoverability: discovery is solvable with a link, but a second
             editable copy always drifts, and then nothing says which copy is the intent.</p>
-            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-002-authority-order-single-ownership.md">docs/decisions/ADR-002-authority-order-single-ownership.md</a></p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-002-authority-order-single-ownership.md">knowledge-base/decisions/ADR-002-authority-order-single-ownership.md</a></p>
           </div>
 
           <div class="card" data-facet="governance">
@@ -328,7 +328,7 @@
             <code>INTENT-NNN</code> artifact, or a test-infrastructure failure resolved by quarantine.</p>
             <p class="muted small"><strong>Rejected —</strong> the "just update the test" reflex: it
             converts a broken guarantee into a green suite with no record that anything changed.</p>
-            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-008-declared-intent-record-required.md">docs/decisions/ADR-008-declared-intent-record-required.md</a></p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-008-declared-intent-record-required.md">knowledge-base/decisions/ADR-008-declared-intent-record-required.md</a></p>
           </div>
 
           <div class="card" data-facet="governance">
@@ -341,7 +341,7 @@
             <p class="muted small"><strong>Rejected —</strong> hard-blocking on a model's self-reported
             confidence: uncalibrated confidence produces random failures and trains reflexive
             overrides.</p>
-            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-009-two-enforcement-tiers.md">docs/decisions/ADR-009-two-enforcement-tiers.md</a></p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-009-two-enforcement-tiers.md">knowledge-base/decisions/ADR-009-two-enforcement-tiers.md</a></p>
           </div>
 
           <div class="card" data-facet="governance">
@@ -354,7 +354,7 @@
             <p class="muted small"><strong>Rejected —</strong> mutating a status field or deleting a
             record to retire a resolution: a rewrite forfeits tamper-evidence, and a later
             <code>superseded</code> record gives identical semantics without one.</p>
-            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-010-append-only-resolution-logs.md">docs/decisions/ADR-010-append-only-resolution-logs.md</a></p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-010-append-only-resolution-logs.md">knowledge-base/decisions/ADR-010-append-only-resolution-logs.md</a></p>
           </div>
 
           <div class="card" data-facet="governance">
@@ -369,7 +369,7 @@
             <em>looking</em> like it covered architecture decisions. A fake coverage is worse than an
             honest gap. Also rejected: any opt-in narrowing lever, because opt-in turns the failure
             mode from noise into silence.</p>
-            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-011-governance-check-scoping.md">docs/decisions/ADR-011-governance-check-scoping.md</a></p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-011-governance-check-scoping.md">knowledge-base/decisions/ADR-011-governance-check-scoping.md</a></p>
           </div>
 
           <div class="card" data-facet="governance">
@@ -381,7 +381,7 @@
             <p class="muted small"><strong>Rejected —</strong> letting <code>proposed</code> or
             <code>confirmed</code> behaviors explain findings: intent without a test is an unverified
             claim, so a bootstrap guess could clear a real vulnerability.</p>
-            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-012-accepted-behavior-downgrades-findings.md">docs/decisions/ADR-012-accepted-behavior-downgrades-findings.md</a></p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-012-accepted-behavior-downgrades-findings.md">knowledge-base/decisions/ADR-012-accepted-behavior-downgrades-findings.md</a></p>
           </div>
 
           <!-- ---------------- Portability ---------------- -->
@@ -394,7 +394,7 @@
             <p class="muted small"><strong>Rejected —</strong> exposing the suite over MCP: a server to
             build, run and maintain in exchange for capability the agent already has, because the tools
             are local Python CLIs it runs through bash. Worth revisiting only for a shell-less agent.</p>
-            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-013-single-freya-launcher.md">docs/decisions/ADR-013-single-freya-launcher.md</a></p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-013-single-freya-launcher.md">knowledge-base/decisions/ADR-013-single-freya-launcher.md</a></p>
           </div>
 
           <div class="card" data-facet="portability">
@@ -407,7 +407,7 @@
             <p class="muted small"><strong>Rejected —</strong> letting <code>--force</code> replace a
             real file or directory: force is for links we could have made ourselves, not for other
             people's data.</p>
-            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-014-canonical-store-install-contract.md">docs/decisions/ADR-014-canonical-store-install-contract.md</a></p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-014-canonical-store-install-contract.md">knowledge-base/decisions/ADR-014-canonical-store-install-contract.md</a></p>
           </div>
 
           <div class="card" data-facet="portability">
@@ -421,7 +421,7 @@
             <code>--allow-all-tools --deny-tool=write</code>: the intuitive reading of
             deny-beats-allow, and empirically bypassable through the shell — which is why the allowlist,
             not the deny flags, is the load-bearing control.</p>
-            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-015-driver-owned-fan-out.md">docs/decisions/ADR-015-driver-owned-fan-out.md</a></p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-015-driver-owned-fan-out.md">knowledge-base/decisions/ADR-015-driver-owned-fan-out.md</a></p>
           </div>
 
           <!-- ---------------- Method ---------------- -->
@@ -435,7 +435,7 @@
             <p class="muted small"><strong>Rejected —</strong> editing a design record in place and
             deleting the superseded text: it makes the reasoning unrecoverable and invites re-walking
             the same wrong path, so a correction is a dated block appended underneath the original.</p>
-            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-016-prove-it-against-the-real-thing.md">docs/decisions/ADR-016-prove-it-against-the-real-thing.md</a></p>
+            <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-016-prove-it-against-the-real-thing.md">knowledge-base/decisions/ADR-016-prove-it-against-the-real-thing.md</a></p>
           </div>
 
         </div>
@@ -458,20 +458,20 @@
       <section>
         <p class="small muted prose-center">
           Twenty of the twenty-nine are on this page. The nine not shown —
-          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-017-behavior-json-is-committed.md">ADR-017</a>,
-          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-020-the-contract-persists-the-graph.md">ADR-020</a>,
-          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-022-every-exclusion-default-is-arguable.md">ADR-022</a>,
-          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-023-symbol-graph-projected-onto-file-pairs.md">ADR-023</a>,
-          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-024-symbols-refine-an-anchor-never-replace-it.md">ADR-024</a>,
-          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-025-three-artifacts-joined-on-file-path.md">ADR-025</a>,
-          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-026-the-docs-graph-anchored-at-section.md">ADR-026</a>,
-          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-027-what-is-not-graph-material.md">ADR-027</a> and
-          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-028-graphs-are-stored-per-backend.md">ADR-028</a>
+          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-017-behavior-json-is-committed.md">ADR-017</a>,
+          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-020-the-contract-persists-the-graph.md">ADR-020</a>,
+          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-022-every-exclusion-default-is-arguable.md">ADR-022</a>,
+          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-023-symbol-graph-projected-onto-file-pairs.md">ADR-023</a>,
+          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-024-symbols-refine-an-anchor-never-replace-it.md">ADR-024</a>,
+          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-025-three-artifacts-joined-on-file-path.md">ADR-025</a>,
+          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-026-the-docs-graph-anchored-at-section.md">ADR-026</a>,
+          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-027-what-is-not-graph-material.md">ADR-027</a> and
+          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-028-graphs-are-stored-per-backend.md">ADR-028</a>
           — are narrower calls about artifacts, symbols and scope. They are linked here rather than
           summarised because this page is a way <em>into</em> the records, not a replacement for
           them, and a card that flattens a decision to two sentences is worse than a link.
           The full index is in
-          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/README.md">docs/decisions/README.md</a>.
+          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/README.md">knowledge-base/decisions/README.md</a>.
         </p>
       </section>
 
@@ -514,9 +514,9 @@
         </p>
 
         <ul class="md-links">
-          <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-018-substrate-contract-for-the-code-graph.md">ADR-018 — a contract, not a tool</a></li>
-          <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-019-the-floor-and-choosing-a-backend.md">ADR-019 — the floor, and choosing a backend</a></li>
-          <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-029-an-answer-says-what-it-could-not-read.md">ADR-029 — an answer says what it could not read</a></li>
+          <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-018-substrate-contract-for-the-code-graph.md">ADR-018 — a contract, not a tool</a></li>
+          <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-019-the-floor-and-choosing-a-backend.md">ADR-019 — the floor, and choosing a backend</a></li>
+          <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-029-an-answer-says-what-it-could-not-read.md">ADR-029 — an answer says what it could not read</a></li>
         </ul>
 
         <div class="callout callout--warn">
@@ -528,7 +528,7 @@
           went looking for the filter. Over-approximating a blast radius is the safe direction, so the
           exposure is small — but a guarantee nobody implemented is exactly the kind of claim this
           project is supposed to be able to check.
-          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-021-an-edge-is-an-object-with-kind-and-provenance.md">ADR-021</a></p>
+          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-021-an-edge-is-an-object-with-kind-and-provenance.md">ADR-021</a></p>
         </div>
       </section>
 

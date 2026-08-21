@@ -26,7 +26,7 @@ The `INTEGRATION` and `Used by` lines help AI agents understand relationships.
 Note the cross-reference form: `freya-<skill>`, no leading slash and no
 `/freya-devkit:` namespace. A slash form is a Claude Code invocation and does not
 resolve on a portable install; the namespaced form is Claude's alone. See
-[CONTRIBUTING.md](../CONTRIBUTING.md) — "Cross-references use the prefixed skill
+[CONTRIBUTING.md](../../CONTRIBUTING.md) — "Cross-references use the prefixed skill
 name". `name:` must also equal the skill's directory name, so a skill in
 `skills/freya-my-skill/` declares `name: freya-my-skill`
 (`bin/check_skill_conformance.py` rule R8).
@@ -325,7 +325,7 @@ Requires code-graph to work.
 
 A skill **writes** its artifacts and stops. Staging and committing them is
 `freya-wrap-up`'s job and nobody else's — that separation is what makes the
-[two-commit pattern](patterns.md#pattern-two-commit-separation) hold.
+[two-commit pattern](../patterns.md#pattern-two-commit-separation) hold.
 
 Say so explicitly in the skill body. Four of the six artifact-writing skills already carry a
 short "Artifacts, not commits" paragraph — `freya-codebase-security-scan` and `freya-status`
@@ -360,5 +360,5 @@ Before considering a skill complete for this ecosystem:
 - [ ] Tracking file convention followed (if incremental)
 - [ ] Help command included
 - [ ] Cross-references to related skills where appropriate, as `freya-<skill>`
-- [ ] Any fan-out carries the scheduling clause (see [CONTRIBUTING.md](../CONTRIBUTING.md))
+- [ ] Any fan-out carries the scheduling clause (see [CONTRIBUTING.md](../../CONTRIBUTING.md))
 - [ ] `python3 bin/check_skill_conformance.py` exits 0

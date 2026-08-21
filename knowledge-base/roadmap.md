@@ -313,9 +313,9 @@ Reference. The Commands section (`:86` onward) defines only the default interact
 `fix --dry-run` (`:634`). Neither advertised command has a phase, an example, or any statement
 of where it reads prior-session state from — git log, a diff between dated reports, something
 else — so an agent invoked with `review` has to improvise. The consolidated explainer does not
-preserve the gap either — `docs/explanations/using.html` (the `codebase-security-resolver`
-entry) and `docs/explanations/reference.html` describe the skill without listing its command
-surface at all, and the `docs/skill-reference.md#codebase-security-resolver` they link out to
+preserve the gap either — `knowledge-base/explanations/using.html` (the `codebase-security-resolver`
+entry) and `knowledge-base/explanations/reference.html` describe the skill without listing its command
+surface at all, and the `knowledge-base/reference/SKILL_REFERENCE.md#codebase-security-resolver` they link out to
 has no command table either, so neither the four defined commands nor the two undefined ones
 are visible anywhere. Pick one: specify both
 with a phase and an example, or remove them from the table.
@@ -542,7 +542,7 @@ Two conventions are owed rather than deferred.
 **Evidence.** Every number in the phase 6 and phase 7 validation logs is prose transcription;
 no raw artifact is committed. That includes the 800 KB debug log behind the delegation finding,
 which lived under `/tmp` and is gone. There is nowhere for it to land: the next run that
-produces load-bearing numbers should create `docs/evidence/` and commit, at minimum, the
+produces load-bearing numbers should create `knowledge-base/evidence/` and commit, at minimum, the
 tool-invocation counts, the quoted host prompt block, and one full driver stderr transcript
 per adapter — and cite them by path from the prose. Otherwise "did Copilot's delegation policy change in 1.1.x?" has to be re-derived
 from scratch, re-purchasing quota to do it.

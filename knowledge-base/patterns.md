@@ -118,7 +118,7 @@ Commit 2 (artifacts):
 
 **The rule that makes it hold: only `freya-wrap-up` stages or commits.** Every other
 skill writes its artifacts and stops. This belongs in the body of every artifact-writing
-skill — see [conventions.md](conventions.md#artifacts-not-commits) for which skills
+skill — see [conventions.md](reference/DEVELOPER.md#artifacts-not-commits) for which skills
 carry the paragraph today — because phase-6 validation watched an agent with
 broad tool permissions infer a `git commit` no skill had asked for, and prose is the only
 lever a skill has against that. A new artifact-writing skill needs its own

@@ -12,7 +12,7 @@ An integrated, AI-assisted development toolkit for <strong>any coding agent</str
 
 > ⚠️ **Upgrading from 0.1.0?** Every skill was renamed: `/freya-devkit:wrap-up` is now
 > `/freya-devkit:freya-wrap-up`, and so on for all ten. See
-> [`docs/migrations/skill-rename.md`](docs/migrations/skill-rename.md) and the
+> [`knowledge-base/migrations/skill-rename.md`](knowledge-base/migrations/skill-rename.md) and the
 > [CHANGELOG](CHANGELOG.md).
 
 ## Installation
@@ -117,7 +117,7 @@ the store ships `bin/freya` without an extension, and only the installer writes 
 `freya.cmd` shim that Windows needs to run it by name.
 
 **Upgrading from 0.1.0 on this path,** `/plugin marketplace update freya-devkit`
-renames all ten skills — see [`docs/migrations/skill-rename.md`](docs/migrations/skill-rename.md).
+renames all ten skills — see [`knowledge-base/migrations/skill-rename.md`](knowledge-base/migrations/skill-rename.md).
 Reload the session afterwards, or the old names keep being offered and then fail.
 
 > Use one path or the other. With both, Claude registers every skill twice —
@@ -197,7 +197,7 @@ the plan first (the skill runs `freya security audit --dry-run`, which spends no
 ## Documentation
 
 **[The explainer site](https://alexsendula.github.io/freya-devkit/)** — a no-install webapp on
-GitHub Pages (source in [`docs/explanations/`](docs/explanations/)). Organised by what you want,
+GitHub Pages (source in [`knowledge-base/explanations/`](knowledge-base/explanations/)). Organised by what you want,
 not by feature:
 
 | Page | For |
@@ -210,17 +210,22 @@ not by feature:
 | **[Decisions](https://alexsendula.github.io/freya-devkit/decisions.html)** | The twenty-nine ADRs, and what each one rejected |
 | **[How it evolved](https://alexsendula.github.io/freya-devkit/evolution.html)** | The plans that turned out wrong, and what replaced them |
 
-The site is the human-facing narrative. The markdown in [`docs/`](docs/) is the agent-facing
-source of truth for lookup material, and the site links to it rather than restating it:
+The site is the human-facing narrative. The markdown in
+[`knowledge-base/`](knowledge-base/) is the agent-facing source of truth for lookup material,
+and the site links to it rather than restating it:
 
-- [`philosophy.md`](docs/philosophy.md) — why these skills exist
-- [`architecture.md`](docs/architecture.md) — how they connect, data flow
-- [`patterns.md`](docs/patterns.md) — reusable patterns across skills
-- [`conventions.md`](docs/conventions.md) — integration guidelines
-- [`skill-reference.md`](docs/skill-reference.md) — quick command reference
-- [`decisions/`](docs/decisions/) — twenty-nine ADRs: what was decided, why, and what was rejected
-- [`backlog.md`](docs/backlog.md) — the single live backlog, Track B first
-- [`migrations/`](docs/migrations/) — one-time moves between versions
+- [`philosophy.md`](knowledge-base/philosophy.md) — why these skills exist
+- [`patterns.md`](knowledge-base/patterns.md) — reusable patterns across skills
+- [`reference/ARCHITECTURE.md`](knowledge-base/reference/ARCHITECTURE.md) — how they connect, data flow
+- [`reference/DEVELOPER.md`](knowledge-base/reference/DEVELOPER.md) — integration guidelines
+- [`reference/SKILL_REFERENCE.md`](knowledge-base/reference/SKILL_REFERENCE.md) — quick command reference
+- [`decisions/`](knowledge-base/decisions/) — twenty-nine ADRs: what was decided, why, and what was rejected
+- [`roadmap.md`](knowledge-base/roadmap.md) — the single live backlog, Track B first
+- [`migrations/`](knowledge-base/migrations/) — one-time moves between versions
+
+`knowledge-base/` is the layout freya-devkit creates in any project it runs against, and this
+repo now uses it on itself: `reference/` and `README.md` are written by `docs-manager`, the
+rest is hand-authored.
 
 Release history: [CHANGELOG.md](CHANGELOG.md).
 

@@ -29,7 +29,7 @@
         <p>
           This site is narrative and human-facing: it exists to explain <em>why</em> the toolkit
           behaves the way it does.
-          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/README.md">docs/README.md</a>
+          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/README.md">knowledge-base/README.md</a>
           and its siblings are lookup-shaped and agent-facing, and they are the
           <strong>single source of truth</strong> for reference material. This page does not restate
           them; it says what is there and links to it. Two copies of one table drift — and drift is
@@ -61,62 +61,62 @@
             </thead>
             <tbody>
               <tr>
-                <td><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/README.md">docs/README.md</a></td>
+                <td><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/README.md">knowledge-base/README.md</a></td>
                 <td>The index, with a "where to start" table and the shape of the ten skills.</td>
                 <td>You know you need the markdown but not which file.</td>
               </tr>
               <tr>
-                <td><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/philosophy.md">docs/philosophy.md</a></td>
+                <td><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/philosophy.md">knowledge-base/philosophy.md</a></td>
                 <td>Why any of this exists: the mental model and the
-                <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/philosophy.md#core-concepts">seven core concepts</a>.</td>
+                <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/philosophy.md#core-concepts">seven core concepts</a>.</td>
                 <td>Before you decide whether to adopt it, or when a skill's behaviour looks arbitrary
                 and you want the reasoning. This site deliberately does not restate the seven — its
                 old five-item version was already a stale subset of them.</td>
               </tr>
               <tr>
-                <td><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/architecture.md">docs/architecture.md</a></td>
+                <td><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/reference/ARCHITECTURE.md">knowledge-base/reference/ARCHITECTURE.md</a></td>
                 <td>How the skills connect: <code>bin/</code> and <code>skills/</code>, the data flow
                 through wrap-up, the tracking files, the output-artifact tree.</td>
                 <td>You are tracing where a value came from, or which skill wrote a file you did not
                 expect.</td>
               </tr>
               <tr>
-                <td><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/patterns.md">docs/patterns.md</a></td>
+                <td><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/patterns.md">knowledge-base/patterns.md</a></td>
                 <td>Coordinator + workers, two-commit separation, incremental updates, certainty-score
                 bands, resolution logs.</td>
                 <td>You are writing a skill and want the shape before the rules.</td>
               </tr>
               <tr>
-                <td><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/conventions.md">docs/conventions.md</a></td>
+                <td><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/reference/DEVELOPER.md">knowledge-base/reference/DEVELOPER.md</a></td>
                 <td>What makes a skill fit: frontmatter declarations, cross-references by installed
                 name, artifact locations, dated-report idempotency, tracking-file naming.</td>
                 <td>Your skill works and you want it to stop looking foreign next to the other ten.</td>
               </tr>
               <tr>
-                <td><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/skill-reference.md">docs/skill-reference.md</a></td>
+                <td><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/reference/SKILL_REFERENCE.md">knowledge-base/reference/SKILL_REFERENCE.md</a></td>
                 <td>Every skill, every command, what it reads and what it writes.</td>
                 <td>You need the precise invocation rather than the idea behind it. spec-manager alone
                 carries a sixteen-row command table, which is why this site does not try to mirror it.</td>
               </tr>
               <tr>
-                <td><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/README.md">docs/decisions/README.md</a></td>
+                <td><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/README.md">knowledge-base/decisions/README.md</a></td>
                 <td>Twenty-nine ADRs — what was decided, why, and what was rejected.</td>
                 <td>A question is about to be re-litigated. The navigable version is on this site's
                 <a href="decisions.html">Decisions</a> page; the records themselves are the authority.</td>
               </tr>
               <tr>
-                <td><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/backlog.md">docs/backlog.md</a></td>
+                <td><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/roadmap.md">knowledge-base/roadmap.md</a></td>
                 <td><strong>The single live backlog</strong>: next initiative, deferred capabilities,
                 verified open defects, platform-blocked items.</td>
                 <td>Anything is outstanding. Every item was re-verified against shipped code, and
                 nothing outstanding lives anywhere else — including on this site.</td>
               </tr>
               <tr>
-                <td><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/migrations/README.md">docs/migrations/README.md</a></td>
+                <td><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/migrations/README.md">knowledge-base/migrations/README.md</a></td>
                 <td>Runnable, idempotent recipes for adopting projects —
-                <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/migrations/skill-rename.md">docs/migrations/skill-rename.md</a>
+                <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/migrations/skill-rename.md">knowledge-base/migrations/skill-rename.md</a>
                 and
-                <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/migrations/knowledge-base.md">docs/migrations/knowledge-base.md</a>.</td>
+                <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/migrations/knowledge-base.md">knowledge-base/migrations/knowledge-base.md</a>.</td>
                 <td>You are moving a project across a release. Run them; don't read them. Re-running a
                 recipe that is already applied is a no-op.</td>
               </tr>
@@ -314,7 +314,7 @@
           coverage comes from running the test suite and cannot be rebuilt by re-reading source.
           <code>knowledge-base/settings.json</code>, one level up, is committed too — it holds the
           backend choice and any exclusion overrides, both of which have to reach CI.
-          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-017-behavior-json-is-committed.md">ADR-017</a></p>
+          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-017-behavior-json-is-committed.md">ADR-017</a></p>
         </div>
 
         <div class="callout callout--info">
@@ -323,9 +323,9 @@
           ignored — an annotated tree in <code>architecture.md</code>, and a per-path table with an
           <code>In git?</code> column in <code>skill-reference.md</code>.</p>
           <ul class="md-links">
-            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/architecture.md#output-artifacts">docs/architecture.md#output-artifacts</a></li>
-            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/architecture.md#tracking-files">docs/architecture.md#tracking-files</a></li>
-            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/skill-reference.md#file-locations">docs/skill-reference.md#file-locations</a></li>
+            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/reference/ARCHITECTURE.md#output-artifacts">knowledge-base/reference/ARCHITECTURE.md#output-artifacts</a></li>
+            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/reference/ARCHITECTURE.md#tracking-files">knowledge-base/reference/ARCHITECTURE.md#tracking-files</a></li>
+            <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/reference/SKILL_REFERENCE.md#file-locations">knowledge-base/reference/SKILL_REFERENCE.md#file-locations</a></li>
           </ul>
         </div>
       </section>

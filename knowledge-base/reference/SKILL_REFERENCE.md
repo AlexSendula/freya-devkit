@@ -327,7 +327,7 @@ Everything under `knowledge-base/` is committed except the regenerable cache, wh
 
 `behavior.json` holds observed coverage captured by running the tests, so it cannot be rebuilt
 by re-reading source like its `.graph/` neighbours can — which is why it is committed while they
-are not. See [ADR-017](decisions/ADR-017-behavior-json-is-committed.md).
+are not. See [ADR-017](../decisions/ADR-017-behavior-json-is-committed.md).
 
 `knowledge-base/settings.json` is the only file here a person edits by hand, and the only one
 Track B added to the tracked set. It holds which substrate backend this project uses and which

@@ -44,7 +44,7 @@ Think of skills as **specialized team members** working on a codebase:
 
 Each skill has a role, knows its job, and can collaborate with others.
 
-> This is a representative sketch, not the full roster. The toolkit is **ten skills across five tiers** — the four "team members" above plus the **behavior layer** (`behavior-graph`, `behavior-runner`), `status`, the security skills, and `dependency-vulnerability-check`. See [architecture.md](architecture.md) for the complete tier map.
+> This is a representative sketch, not the full roster. The toolkit is **ten skills across five tiers** — the four "team members" above plus the **behavior layer** (`behavior-graph`, `behavior-runner`), `status`, the security skills, and `dependency-vulnerability-check`. See [architecture.md](reference/ARCHITECTURE.md) for the complete tier map.
 
 ## Core Concepts
 

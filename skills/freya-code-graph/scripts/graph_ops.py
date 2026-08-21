@@ -96,7 +96,7 @@ IMPORT_PATTERNS = {
         # produced 66 junk entries across the measured repos and not one real edge.
         # `from . import x` is still missed — the module name lives in the import
         # clause, which needs clause capture to read — but it is now missed silently
-        # rather than answered wrongly. Tracked in docs/backlog.md.
+        # rather than answered wrongly. Tracked in knowledge-base/roadmap.md.
     ],
     'go': [
         # import "module/path"
@@ -1164,11 +1164,14 @@ class CodeGraph:
             # to the Next.js route `app/api/media/generated/route.ts`.
             #
             # At the repo root these names do mean what the convention says, and
-            # indexing them is measurably noise: a top-level `docs/` here holds the
+            # indexing them is measurably noise: a top-level `docs/` here held the
             # published site's bundled JS and this spike's planted fixtures, none of
-            # which belong in a blast radius. Below the root, the name carries no such
-            # promise, so the judgement passes to classifications.json — per-project
-            # and overridable, which a hardcoded name list is not.
+            # which belong in a blast radius. (This repo's own tree moved to
+            # `knowledge-base/` on 2026-08-21, where `always_exclude_dirs` covers it at
+            # any depth; the measurement stands, the path is history.) Below the root,
+            # the name carries no such promise, so the judgement passes to
+            # classifications.json — per-project and overridable, which a hardcoded
+            # name list is not.
             #
             # 'scripts' is here rather than removed outright. Dropping it entirely was
             # the wider change: a root `scripts/` had been excluded in every project the

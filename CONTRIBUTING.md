@@ -1,6 +1,6 @@
 # Contributing to freya-devkit
 
-This repo is an **agent-neutral skill suite** that also ships as a Claude Code **plugin** and its own **marketplace**. The skills live in `skills/`, the launcher and installer in `bin/`, and documentation in `docs/`. Two install paths are supported and both must keep working: `install.sh` / `install.ps1` for any agent, and the Claude marketplace plugin.
+This repo is an **agent-neutral skill suite** that also ships as a Claude Code **plugin** and its own **marketplace**. The skills live in `skills/`, the launcher and installer in `bin/`, and documentation in `knowledge-base/`. Two install paths are supported and both must keep working: `install.sh` / `install.ps1` for any agent, and the Claude marketplace plugin.
 
 ## Local development loop
 
@@ -22,7 +22,7 @@ Invoke skills with the plugin namespace, e.g. `/freya-devkit:freya-code-graph he
 The `freya` launcher those skills call resolves on this path because Claude Code puts each
 installed plugin's own `bin/` directory on the session `PATH` — no extra step. That is
 host behaviour we depend on and cannot test from here (see
-[`ADR-013`](docs/decisions/ADR-013-single-freya-launcher.md) § Rejected Alternatives and
+[`ADR-013`](knowledge-base/decisions/ADR-013-single-freya-launcher.md) § Rejected Alternatives and
 § Revisit Conditions); if you
 ever see `freya: command not found` inside a plugin install, that is the dependency
 breaking, and `./install.sh` from the checkout is the fallback. **Test the other path too**
@@ -45,7 +45,7 @@ If any count is higher than stated, a new home-derived path has landed and the i
 
 Know the two limits before you rely on it:
 
-- **It is isolation by convention, not an enforced boundary.** A program calling `getpwuid()` still finds the real home. Checksum the real paths before the run and diff them after — that is how you detect an escape instead of assuming it away, and it is four `ls -la` calls. Make it the closing step of the run; see the escape-audit item under "Platform-blocked" in [`docs/backlog.md`](docs/backlog.md).
+- **It is isolation by convention, not an enforced boundary.** A program calling `getpwuid()` still finds the real home. Checksum the real paths before the run and diff them after — that is how you detect an escape instead of assuming it away, and it is four `ls -la` calls. Make it the closing step of the run; see the escape-audit item under "Platform-blocked" in [`knowledge-base/roadmap.md`](knowledge-base/roadmap.md).
 - **On macOS, redirecting `HOME` breaks Keychain access.** Only the System keychain stays visible, so Claude Code's login fails with "keychain not found", and copying the old `.credentials.json` does not help (2.1.233 ignores it). The only route found was symlinking the real keychain into the sandbox, which widens the boundary the sandbox exists to hold — get explicit approval, keep it only for the Claude-side work, and remove it before running any agent with expanded tool permissions.
 
 ## Conventions to preserve
@@ -188,35 +188,35 @@ a half-finished change on their machine. Two consequences worth internalising:
 
 - Don't push work-in-progress to the branch users track. The design's own escape hatch,
   if this ever needs to change, is a `stable` tag that `freya update` follows instead of
-  `main` — recorded in [`ADR-014`](docs/decisions/ADR-014-canonical-store-install-contract.md)
+  `main` — recorded in [`ADR-014`](knowledge-base/decisions/ADR-014-canonical-store-install-contract.md)
   § Rejected Alternatives, deliberately not built.
 - A breaking change reaches them with **no signal at all** — no version, no changelog
   prompt, nothing. Anything breaking therefore needs a note in `CHANGELOG.md` *and* a
-  page under [`docs/migrations/`](docs/migrations/) that stands on its own, because the
+  page under [`knowledge-base/migrations/`](knowledge-base/migrations/) that stands on its own, because the
   migration doc is the only artifact both paths can be pointed at.
 
 ## Design docs
 
 Read these before making structural changes. They describe the system **as it is**:
 
-- [`docs/philosophy.md`](docs/philosophy.md) — why the skills exist, core concepts
-- [`docs/architecture.md`](docs/architecture.md) — how skills connect, data flow
-- [`docs/patterns.md`](docs/patterns.md) — reusable patterns
-- [`docs/conventions.md`](docs/conventions.md) — integration guidelines
-- [`docs/skill-reference.md`](docs/skill-reference.md) — every skill's commands, at a glance
+- [`knowledge-base/philosophy.md`](knowledge-base/philosophy.md) — why the skills exist, core concepts
+- [`knowledge-base/reference/ARCHITECTURE.md`](knowledge-base/reference/ARCHITECTURE.md) — how skills connect, data flow
+- [`knowledge-base/patterns.md`](knowledge-base/patterns.md) — reusable patterns
+- [`knowledge-base/reference/DEVELOPER.md`](knowledge-base/reference/DEVELOPER.md) — integration guidelines
+- [`knowledge-base/reference/SKILL_REFERENCE.md`](knowledge-base/reference/SKILL_REFERENCE.md) — every skill's commands, at a glance
 
-Separately, [`docs/decisions/`](docs/decisions/) holds the sixteen **Architecture Decision
+Separately, [`knowledge-base/decisions/`](knowledge-base/decisions/) holds the twenty-nine **Architecture Decision
 Records** — what was decided, why, and what was rejected. The rejected alternatives are the
 point: they say what the system could have been and why it isn't, so a settled question
 doesn't get re-litigated. An ADR records the decision, not the implementation.
 **Authority order: shipped code beats an ADR beats a spec.** If you find an ADR that says the
 opposite of what shipped, append a dated `> **Correction …**` block rather than rewriting it —
 the reasoning that turned out wrong is the valuable part (see
-[`ADR-016`](docs/decisions/ADR-016-prove-it-against-the-real-thing.md)). Write a new ADR when
+[`ADR-016`](knowledge-base/decisions/ADR-016-prove-it-against-the-real-thing.md)). Write a new ADR when
 you make a decision a future maintainer could reasonably reverse without knowing why it was
-made; [`docs/decisions/README.md`](docs/decisions/README.md) has the format and the next free id.
+made; [`knowledge-base/decisions/README.md`](knowledge-base/decisions/README.md) has the format and the next free id.
 
-Outstanding work goes in [`docs/backlog.md`](docs/backlog.md) — the single live backlog — not
+Outstanding work goes in [`knowledge-base/roadmap.md`](knowledge-base/roadmap.md) — the single live backlog — not
 into an ADR and not into a scratch file. The dated design records and executed plans these
 ADRs were distilled from (`docs/design/`, `docs/superpowers/`) were deleted on 2026-08-19 and
 live in git history: `git show 04a9b8b:<path>`.

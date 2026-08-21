@@ -13,8 +13,11 @@ They target **adopting projects**, not this repo.
 If you are coming from 0.1.0 and need both, run `skill-rename.md` first: the
 `knowledge-base.md` commands assume the `freya` launcher and the renamed skills.
 
-> **A note on this repo's own `docs/`.** freya-devkit has deliberately *not* run
-> `knowledge-base.md` on itself. This `docs/` tree is hand-authored — design records,
-> migration recipes, and the published explainer sites — while `knowledge-base/` is the root
-> the toolkit's own skills generate into. Keeping them separate means generated and
-> hand-written content never share a directory.
+> **A note on this repo.** freya-devkit ran the `knowledge-base.md` move on itself on
+> 2026-08-21 — this file is inside the result. The recipe's own table is written for a
+> project whose generated artifacts sat under `docs/specs/`, `docs/project/` and
+> `docs/security-reports/`; this repo had none of those, so what actually happened was the
+> other half of the same move: the whole hand-written `docs/` tree became `knowledge-base/`,
+> and `docs-manager` now owns `README.md` and `reference/` inside it. Generated and
+> hand-written content do share a directory here, and
+> [`../README.md`](../README.md) is the table that says which is which.
