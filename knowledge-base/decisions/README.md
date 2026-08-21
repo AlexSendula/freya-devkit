@@ -61,6 +61,11 @@ add one rather than rewriting history.
 > `reference/ARCHITECTURE.md`, `reference/DEVELOPER.md` and `reference/SKILL_REFERENCE.md`,
 > with `backlog.md` becoming `roadmap.md`. The line numbers survived the move; the paths
 > did not.
+>
+> **Do not cite `roadmap.md` by line.** It is edited continuously, and a line citation into it
+> drifts silently — ADR-021's two references to it were found pointing at the wrong defect
+> during the 2026-08-21 dogfood run. Cite it by defect number or section heading, which is the
+> same reasoning ADR-026 records for the docs graph anchoring at section rather than line.
 
 ## The records
 
@@ -130,5 +135,5 @@ Write it when you make a decision a future maintainer could reasonably reverse w
 why it was made. Take the next free id, fill all four sections, and never write "none" under
 Rejected Alternatives — if nothing was considered, the obvious default was rejected, so name it.
 
-Outstanding work belongs in [`../backlog.md`](../roadmap.md), not here. An ADR is a decision,
+Outstanding work belongs in [`../roadmap.md`](../roadmap.md), not here. An ADR is a decision,
 not a task.

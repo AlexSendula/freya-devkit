@@ -101,7 +101,7 @@ one full driver stderr transcript per adapter.
   tree, and the `docs/design/portability/evidence/` drop zone — which never held more than a
   README and a `.gitkeep` — went with the design tree on 2026-08-19. The next live validation run
   must create `knowledge-base/evidence/` and produce the first committed extract (see
-  [`../backlog.md`](../roadmap.md) § "Whatever runs live next"), or the clause should be withdrawn
+  [`../roadmap.md`](../roadmap.md) § "Whatever runs live next"), or the clause should be withdrawn
   rather than left aspirational.
 - If real-git tests become slow enough to hurt the suite, or CI environments without `git` stop
   being an edge case, the skip-when-absent posture is worth revisiting.

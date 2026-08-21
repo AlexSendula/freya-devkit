@@ -1,4 +1,4 @@
-# Backlog
+# Roadmap
 
 The single live backlog for freya-devkit. Everything genuinely outstanding lives here: the
 next initiative, deferred capabilities, verified open defects, and the items that need a
@@ -12,6 +12,13 @@ release: **0.2.0** (2026-08-18).
 
 Each item says *what*, *why it was deferred*, and *how to pick it up*. Keep it that way —
 an item nobody can act on is noise.
+
+> **Why `roadmap.md` and not `backlog.md`.** `freya status --write-backlog` writes
+> `knowledge-base/BACKLOG.md` by full overwrite (`collect_status.py:222`), and on a
+> case-insensitive filesystem that is the same path as `backlog.md`. This file is
+> hand-maintained and was renamed on 2026-08-21 to keep the toolkit from destroying it.
+> `BACKLOG.md` beside it is the generated census — behaviors to confirm, tests owed,
+> coverage gaps, open findings — and is regenerated, never edited.
 
 ---
 
@@ -529,6 +536,61 @@ discover either from the artifact — which is the same class of problem the cov
 added to solve for languages. Documented in `references/graph-schema.md` in the meantime.
 
 Becomes real the moment anything depends on `exports`. Nothing does today.
+
+### 15. `coverage gaps` counts files no behavior could ever cover
+
+Found 2026-08-21, running `freya status` on freya-devkit itself.
+
+`behavior_graph.gaps()` subtracts covered files from *every* file in the code graph
+(`skills/freya-behavior-graph/scripts/behavior_graph.py:402`), so the headline number in
+`freya status` and in the generated `BACKLOG.md` includes test files and shell scripts. A
+behavior's `exercises` names production code; a `test_*.py` will never appear there, so every
+one of them is a permanent, unactionable entry.
+
+Measured on this repo: **65 reported, 32 actually behavior-coverable** — 30 test files and 3
+shell scripts (`bin/freya`, `install.sh`, `install.ps1`) make up the other 51%. A number that
+is half noise trains people to ignore it, which is the same failure mode as a check that cries
+wolf.
+
+Not fixed here because the fix is a semantic choice, not a bug fix: excluding by filename
+convention is exactly the kind of built-in judgement ADR-022 says should be a project-overridable
+default rather than a hardcoded name list. The likely shape is a `coverable` predicate that
+consults the same classification machinery, with test-file conventions as its default.
+
+### 16. `graphify` on this repo: +6 real edges, -389 `external:` edges
+
+Found 2026-08-21, measuring the backend swap before committing
+`knowledge-base/settings.json`.
+
+Not a defect — a measurement worth keeping, because it is the first head-to-head on a repo
+anyone can re-run. Both graphs are in `knowledge-base/.graph/` as `graph.homegrown.json` and
+`graph.graphify.json` (ADR-028), so the diff below reproduces.
+
+| | homegrown | graphify |
+|---|---|---|
+| files | 62 | 65 |
+| raw edges | 465 | 120 |
+| internal edges | 76 | 78 |
+| edge kinds | `imports` | `imports`, `calls`, `references` |
+| provenance | all `extracted` | 108 `extracted`, 12 `inferred` |
+
+The raw-edge collapse is entirely `external:` nodes, which graphify does not emit — defect 14
+above. On internal edges graphify is strictly better here:
+
+- **+6 real cross-skill dependencies homegrown missed**, all of them `sys.path`-style imports
+  between skills (`behavior_graph.py` → `run_behaviors.py` and → `frontmatter.py`,
+  `run_behaviors.py` → `adapters.py` and → `frontmatter.py`, `audit_engine.py` → `substrate.py`,
+  `collect_status.py` → `frontmatter.py`), plus `bin/freya` → `bin/freya_cli.py`, which
+  homegrown cannot see at all because it does not read shell.
+- **-1 false positive**: homegrown reported `bin/installer.py` → `bin/freya_cli.py` from the
+  string literal `"from freya_cli import main\n"` at `bin/installer.py:566` — the content of a
+  shim it *writes*, not an import it makes. Defect 10 above, caught in the wild.
+- **-4 `unresolved:` placeholders** invented from fixture strings inside `graph_ops.py` and
+  `test_graph_ops.py`.
+
+Worth re-running on a polyglot repo. On this one the honest summary is that graphify's 40
+languages buy almost nothing — it is a Python repo — and what it actually bought was correct
+resolution of imports that cross a `sys.path` boundary.
 
 ## Platform-blocked
 

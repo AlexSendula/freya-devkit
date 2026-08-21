@@ -58,6 +58,42 @@ backend gets the floor, which is what it already had.
 
 **Decisions:** ADR-018 through ADR-029.
 
+### freya-devkit now runs on itself
+
+The toolkit had never been pointed at its own repository, because its documentation lived in a
+hand-maintained `docs/` and the skills read and write `knowledge-base/`. That tree has moved:
+
+| Was | Is |
+|---|---|
+| `docs/architecture.md` | `knowledge-base/reference/ARCHITECTURE.md` |
+| `docs/conventions.md` | `knowledge-base/reference/DEVELOPER.md` |
+| `docs/skill-reference.md` | `knowledge-base/reference/SKILL_REFERENCE.md` |
+| `docs/backlog.md` | `knowledge-base/roadmap.md` |
+| everything else under `docs/` | the same path under `knowledge-base/` |
+
+This affects anyone who linked to a file in this repo's `docs/` — including the explainer site,
+which now points at the new paths. `backlog.md` is `roadmap.md` because `freya status` writes
+`knowledge-base/BACKLOG.md` by full overwrite, and a hand-written backlog parked there would be
+destroyed on the first run.
+
+**Three defects surfaced the moment it ran on itself**, all of them in the shipped tool rather
+than in this repo:
+
+- `docs-manager` could not see its own output. Its stack detector looked only for `docs/`, so
+  on any project that had already adopted `knowledge-base/` it reported no documentation at all
+  and planned a from-scratch create instead of a reverse-sync.
+- `freya principles list` printed a blank line and exited 0 for a project with no
+  `principles.md` — indistinguishable from a file that exists and declares nothing.
+- `freya doctor` reported a `freya` on `PATH` as healthy without checking it was the same tree
+  it had just inspected, so running it from a checkout while a released copy was installed gave
+  a green row for a binary the shell would never run.
+
+Also: `**/.graph/` is gone from this repo's `.gitignore`. `code-graph` writes its own
+`.gitignore` inside `knowledge-base/.graph/` naming the regenerable files individually so
+`behavior.json` stays committable (ADR-017) — but git never descends into a directory an
+ancestor ignored, so the root rule silently won. Any adopting project that added `**/.graph/`
+by hand has the same problem.
+
 ## 0.2.0 — portability (2026-08-18)
 
 The toolkit stops being a Claude Code plugin that happens to be portable and becomes an

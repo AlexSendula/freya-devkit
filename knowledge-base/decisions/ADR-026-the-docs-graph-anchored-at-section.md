@@ -200,7 +200,7 @@ result is the durable part, never the total.
   deterministic readers yield nothing and `docs.json` is a list of documents with
   zero edges, at which point the unbuilt semantic pass is the only way to have a
   docs graph — its design, and why it is not a record, is in
-  [`../backlog.md`](../roadmap.md) under *Deferred capabilities*. This repository is unusually citation-heavy because its own
+  [`../roadmap.md`](../roadmap.md) under *Deferred capabilities*. This repository is unusually citation-heavy because its own
   conventions demand `path:line` provenance; that is not evidence about anyone
   else. Check it on the first adopter whose docs were not written under that
   habit.

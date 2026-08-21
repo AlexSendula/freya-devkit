@@ -52,7 +52,8 @@ may gate `wrap-up` and `inferred` ones are advisory. No code implements that fil
 inferred edge reaches blast radius indistinguishable from an extracted one. **The tier is
 designed and unenforced**, and the skill documentation says so out loud
 (`skills/freya-code-graph/SKILL.md:635`). Writing the filter, or striking the promise, is
-`knowledge-base/roadmap.md:522`.
+open defect 13 in `knowledge-base/roadmap.md` (§ *Per-edge provenance is recorded and
+enforced by nothing*).
 
 `unresolved` is not a provenance value and never was. "Could not be resolved" is a fact about
 where an edge points, not about how it was read, so it is a prefix on the target —
@@ -183,7 +184,8 @@ rather than load-bearing forever.
 ## Revisit Conditions
 
 - **The provenance filter gets written, or the promise gets struck.** This is the open item, not
-  a hypothetical: `knowledge-base/roadmap.md:522`. Deciding it needs a measured mis-wiring rate on a real
+  a hypothetical: open defect 13 in `knowledge-base/roadmap.md`. Deciding it needs a measured
+  mis-wiring rate on a real
   polyglot repository, not an argument. The concrete trigger is the first project where an
   inferred edge widens a blast radius enough that `wrap-up`'s affected-behaviour re-run
   (`skills/freya-wrap-up/SKILL.md:168`) blocks on a behaviour the change did not touch. If the
