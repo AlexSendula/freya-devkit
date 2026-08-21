@@ -740,11 +740,13 @@ class TestAnOverrideSurvivesAClone(Base):
         backslashes, and hand-edited files pick up `./`. Only one spelling used to match —
         the rest were dead keys with no error, no warning, and no effect."""
         for spelling in ("docs/", "./docs", "docs", "/docs/"):
-            proj = self.mk({"docs/literate/engine.ts": "export const e = 1\n"})
-            self.settings(proj, {spelling: "source"})
-            g = CodeGraph(proj)
-            graph_ops.run_build(g, non_interactive=True, exclusions=g.project_exclusions())
-            self.assertIn("docs/literate/engine.ts", g.graph["files"], spelling)
+            with self.subTest(spelling=spelling):
+                proj = self.mk({"docs/literate/engine.ts": "export const e = 1\n"})
+                self.settings(proj, {spelling: "source"})
+                g = CodeGraph(proj)
+                graph_ops.run_build(g, non_interactive=True,
+                                    exclusions=g.project_exclusions())
+                self.assertIn("docs/literate/engine.ts", g.graph["files"], spelling)
 
     def test_a_bad_verdict_warns_and_is_skipped_rather_than_crashing(self):
         proj = self.mk({"docs/literate/engine.ts": "export const e = 1\n"})
@@ -989,8 +991,10 @@ class TestDeadCategoryFieldIsGone(Base):
         })
         g = CodeGraph(proj)
         graph_ops.run_build(g, non_interactive=True)
+        self.assertTrue(g.graph["files"], "fixture graphed nothing; the loop below is vacuous")
         for path, info in g.graph["files"].items():
-            self.assertNotIn("category", info, path)
+            with self.subTest(path=path):
+                self.assertNotIn("category", info, path)
 
     def test_a_cache_written_with_category_still_loads(self):
         """Existing graphs carry it; reading one must not break."""
@@ -1130,6 +1134,47 @@ class TestWorkspaceResolution(Base):
         g = CodeGraph(proj)
         graph_ops.run_build(g, non_interactive=True)
         self.assertIn("external:react", ends(g.query("src/app.ts")["imports"]))
+
+    def test_no_name_in_the_never_a_workspace_list_can_yield_a_member(self):
+        """Driven off `_NEVER_A_WORKSPACE` itself, so a name added to it is covered here
+        the day it is added — the test above pins `node_modules` and nothing else did.
+
+        The list is the only gate in `_load_workspace_packages`: eight names, two of which
+        were ever named by a test. Each fixture plants a manifest one level under the
+        member name and a *real* sibling package beside it, then asserts the observable
+        consequence — the vendored name resolves `external:`, i.e. it was never adopted.
+
+        The sibling is the anti-vacuity half. Without it a glob that reached nothing at all
+        would produce the same `external:` answer and the table would pass with
+        `_load_workspace_packages` deleted outright.
+        """
+        names = sorted(graph_ops._NEVER_A_WORKSPACE)
+        # Non-emptiness only, not the membership: `assertEqual(names, [...])` would
+        # re-state the constant and pass with the gate that reads it deleted. An empty
+        # registry, though, makes the loop below pass by iterating nothing.
+        self.assertTrue(names, "_NEVER_A_WORKSPACE is empty; the table proves nothing")
+        for name in names:
+            with self.subTest(directory=name):
+                proj = self.mk({
+                    "package.json": '{"name":"root","private":true,'
+                                    '"workspaces":["packages/**"]}',
+                    "packages/real/package.json": '{"name":"@x/real","main":"i.ts"}',
+                    "packages/real/i.ts": "export const i = 1\n",
+                    "packages/real/%s/vendored/package.json" % name:
+                        '{"name":"@x/vendored","main":"v.js"}',
+                    "packages/real/%s/vendored/v.js" % name: "module.exports = 1\n",
+                    "src/app.ts": "import { i } from '@x/real'\n"
+                                  "import { v } from '@x/vendored'\n",
+                })
+                g = CodeGraph(proj)
+                graph_ops.run_build(g, non_interactive=True)
+                imports = ends(g.query("src/app.ts")["imports"])
+                self.assertIn("packages/real/i.ts", imports,
+                              "%s: the glob never reached the sibling, so the "
+                              "external: answer below proves nothing" % name)
+                self.assertIn("external:@x/vendored", imports,
+                              "%s adopted a package as a workspace member" % name)
+                self.assertNotIn("@x/vendored", g._load_workspace_packages())
 
     def test_an_absolute_workspace_pattern_does_not_break_the_build(self):
         """Path.glob rejects an absolute pattern on the 3.9 floor CI runs."""
@@ -2136,7 +2181,8 @@ class TestScaleAndScopeDefects(Base):
         excl = CodeGraph(proj).project_exclusions()
         self.assertFalse(excl.excludes("src/a.ts"))
         for out in ("vendor/v.ts", "deep/nested/node_modules/pkg/m.ts", "docs/site.ts"):
-            self.assertTrue(excl.excludes(out), out)
+            with self.subTest(path=out):
+                self.assertTrue(excl.excludes(out), out)
 
     def test_an_override_does_not_admit_the_vendored_tree_beneath_it(self):
         """`Exclusions._excluded_under_override` documents a measured 50,000-file blowup and
@@ -2157,8 +2203,9 @@ class TestScaleAndScopeDefects(Base):
         excl = g.project_exclusions()
         for path, expected in (("packages/app/src/p.ts", False),
                                ("packages/app/node_modules/lodash/m.ts", True)):
-            self.assertEqual(g._should_exclude(path, gi, cl), expected, path)
-            self.assertEqual(excl.excludes(path), expected, path)
+            with self.subTest(path=path, excluded=expected):
+                self.assertEqual(g._should_exclude(path, gi, cl), expected, path)
+                self.assertEqual(excl.excludes(path), expected, path)
 
     def test_the_two_layers_agree_for_an_ai_verdict_too(self):
         """`project_exclusions` passes both `user` and `ai` verdicts as `overrides`, while the
@@ -2179,8 +2226,9 @@ class TestScaleAndScopeDefects(Base):
         excl = g.project_exclusions()
         for path, expected in (("pkgs/app/src/p.ts", False),
                                ("pkgs/app/node_modules/x/m.ts", True)):
-            self.assertEqual(g._should_exclude(path, gi, cl), expected, path)
-            self.assertEqual(excl.excludes(path), expected, path)
+            with self.subTest(path=path, excluded=expected):
+                self.assertEqual(g._should_exclude(path, gi, cl), expected, path)
+                self.assertEqual(excl.excludes(path), expected, path)
 
 
 class TestSummaryFormatIsWhatIsDocumented(Base):
@@ -2210,7 +2258,8 @@ class TestSummaryFormatIsWhatIsDocumented(Base):
         self.cli(proj, "--build", "--non-interactive")
         for args in (("--impact", "src/a.ts"), ("--dependents", "src/a.ts"),
                      ("--dependencies", "src/c.ts")):
-            self.assertNotIn("(via", self.cli(proj, *args))
+            with self.subTest(surface=args[0]):
+                self.assertNotIn("(via", self.cli(proj, *args))
 
     def test_build_says_cached_to(self):
         out = self.cli(self.chain(), "--build", "--non-interactive")

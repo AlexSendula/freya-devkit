@@ -179,10 +179,10 @@ ways to fail quietly.
 
 Two files, both at the repo root under `.claude-plugin/`:
 
-- `plugin.json` — `name: freya-devkit`, `version: 0.2.0` (`:2-3`), description, author
+- `plugin.json` — `name: freya-devkit`, `version: 0.2.0` (`plugin.json:2-3`), description, author
   `github@alexsendula.com`, MIT, keywords. There is no `skills` key; the plugin relies on the
   host loading the repository's `skills/` directory by convention.
-- `marketplace.json` — one plugin entry whose `"source": "."` (`:11`) makes the repository
+- `marketplace.json` — one plugin entry whose `"source": "."` (`marketplace.json:11`) makes the repository
   root the plugin. Nothing narrows that: there is no manifest of shipped paths and no
   ignore file scoping it, so the plugin's unit is the whole repository.
 
@@ -318,11 +318,11 @@ to explain, so each degrades to a row rather than a traceback (`:310-315`, `:352
 ## Continuous integration
 
 **CI does not build, publish or deploy** — `.github/workflows/ci.yml` runs with
-`permissions: contents: read` (`:25-26`), and the only thing installed anywhere in it is pytest.
+`permissions: contents: read` (`ci.yml:25-26`), and the only thing installed anywhere in it is pytest.
 What it runs is [TESTING.md § CI](TESTING.md#ci); the matrix is
 [CONTRIBUTING.md § Tests and the CI gate](../../CONTRIBUTING.md#tests-and-the-ci-gate). One
 deployment-shaped detail is its own: the `install` job drives `install.sh` / `install.ps1` end
-to end into `$RUNNER_TEMP` and resolves the launcher **by name off `PATH`** (`:111-204`), which
+to end into `$RUNNER_TEMP` and resolves the launcher **by name off `PATH`** (`ci.yml:151-244`), which
 is the only automated proof that either install path still works.
 
 **These commits have not been through CI.** The last CI run was on `main` at `51bdadb`
@@ -337,13 +337,13 @@ or about Windows.
 `assets/site.js` and `assets/styles.css`, 432 KB total — as the site root.
 
 - Triggers: a push to `main` touching `knowledge-base/explanations/**` or the workflow file
-  itself, plus `workflow_dispatch` (`:8-13`).
-- Permissions: `contents: read`, `pages: write`, `id-token: write` (`:15-18`). It is the only
+  itself, plus `workflow_dispatch` (`pages.yml:8-13`).
+- Permissions: `contents: read`, `pages: write`, `id-token: write` (`pages.yml:15-18`). It is the only
   workflow here with write scopes.
-- Concurrency `group: pages`, `cancel-in-progress: false` (`:21-23`) — one deployment at a
+- Concurrency `group: pages`, `cancel-in-progress: false` (`pages.yml:21-23`) — one deployment at a
   time, and a run in flight is never cancelled.
 - Steps: checkout, `configure-pages@v5`, `upload-pages-artifact@v3` with
-  `path: knowledge-base/explanations`, `deploy-pages@v4` (`:32-42`). **Uploaded verbatim.
+  `path: knowledge-base/explanations`, `deploy-pages@v4` (`pages.yml:32-42`). **Uploaded verbatim.
   There is no build step**, so anything added to that directory is published, and the seven
   top-level page filenames — `index`, `using`, `how-it-works`, `extending`, `reference`,
   `decisions`, `evolution` — are pinned URLs.
@@ -353,7 +353,7 @@ GitHub Actions source, which `deploy-pages` requires), `html_url:
 https://alexsendula.github.io/freya-devkit/`, `cname: null` (no custom domain),
 `https_enforced: true`, `public: true`, `custom_404: false`.
 
-The job targets a `github-pages` environment (`:27-29`), and that environment carries one
+The job targets a `github-pages` environment (`pages.yml:27-29`), and that environment carries one
 protection rule — a branch policy admitting only `main`. So the restriction to `main` is
 enforced twice, independently: a `workflow_dispatch` run started from any other branch is
 rejected at the environment gate, not merely skipped by the push trigger.

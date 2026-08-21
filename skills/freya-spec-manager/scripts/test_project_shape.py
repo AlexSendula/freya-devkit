@@ -171,7 +171,8 @@ class ClassifyTest(unittest.TestCase):
         with mock.patch.object(project_shape, "run_detect_project", return_value={}):
             r = project_shape.classify(self.proj)
         for k in ("source_files", "internal_edges", "stack", "graph_present"):
-            self.assertIn(k, r["evidence"])
+            with self.subTest(key=k):
+                self.assertIn(k, r["evidence"])
 
 
 class CensusedGraphTest(unittest.TestCase):
@@ -308,6 +309,163 @@ class CensusedGraphTest(unittest.TestCase):
         self._graph({"a.ts": {"imports": []}, "b.ts": {"imports": []},
                      "c.ts": {"imports": []}}, {"files": 0})
         self.assertEqual(project_shape.classify(self.proj)["recommendation"], "greenfield")
+
+
+# Read off the constants themselves, so a member added tomorrow is exercised on the next
+# run without anyone remembering to name it. Bound here, at import, rather than inside each
+# test on purpose: it lets a mutation run empty `project_shape._NOT_SOURCE` (or drop a single
+# member from it) and watch the affected rows go red by name, instead of the table quietly
+# iterating an empty registry and reporting green — which is how a table over an exclusion
+# list becomes worse than the one test it replaced.
+_NOT_SOURCE_MEMBERS = tuple(sorted(project_shape._NOT_SOURCE))
+_CENSUS_SKIP_MEMBERS = tuple(sorted(project_shape._CENSUS_SKIP))
+
+# Not in `_NOT_SOURCE`, and a language the graph in these fixtures cannot read — so it is
+# what a blind spot looks like when nothing suppresses it.
+_SOURCE_EXT = ".java"
+
+
+class _ShapeFixture(unittest.TestCase):
+    """A project whose graph reads `.ts` and nothing else, so any other extension on
+    disk is unread — and the only question left is whether it *counts*."""
+
+    def setUp(self):
+        patcher = mock.patch.object(project_shape, "run_detect_project", return_value={})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self._fresh_project()
+
+    def _fresh_project(self):
+        """A brand-new empty project. Each table row gets one, so a row that fails
+        cannot leave its fixture behind and take the rows after it down with it."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.proj = tmp.name
+        return self.proj
+
+    def _write(self, rel):
+        p = os.path.join(self.proj, rel)
+        os.makedirs(os.path.dirname(p) or self.proj, exist_ok=True)
+        with open(p, "w", encoding="utf-8") as f:
+            f.write("x\n")
+
+    def _graph(self):
+        """A substrate-aware graph with no census block, so `_blind_spots` falls through
+        to the disk walk — the path `_NOT_SOURCE` and `_CENSUS_SKIP` actually gate."""
+        d = os.path.join(self.proj, "knowledge-base", ".graph")
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "graph.json"), "w", encoding="utf-8") as f:
+            json.dump({
+                "version": 1,
+                "substrate": {
+                    "backend": "homegrown",
+                    "coverage": {"languages": ["typescript"], "extensions": [".ts"],
+                                 "relations": ["imports"], "incremental": True},
+                },
+                "files": {},
+            }, f)
+
+    def _classify(self, *rels):
+        for rel in rels:
+            self._write(rel)
+        self._graph()
+        return project_shape.classify(self.proj)
+
+
+class NotSourceRegistryTest(_ShapeFixture):
+    """Table over `_NOT_SOURCE` — 35 declared, 1 of them ever named until now.
+
+    This list decides what does *not* count as source when the graph is empty, which is
+    the difference between `greenfield` (bootstrap treats the repo as new) and `unknown`
+    (bootstrap stops and asks). Every member is a claim that a repo carrying only that
+    file type has shown no evidence of being an existing codebase, and every member is one
+    edit away from being the thing that hides a real one — `.sh` already was, and ADR-029
+    records the correction.
+
+    Each row plants exactly one file of one extension and asserts the *verdict*, not the
+    membership: `assertIn(ext, _NOT_SOURCE)` would re-state the constant and would pass
+    with the filter deleted. `test_the_fixtures_really_reach_the_exclusion_list` below is
+    the standing proof that these fixtures are gated here and not thrown away earlier by
+    the dotfile or skip-directory rules, which would make every row green for free.
+    """
+
+    def test_the_registry_is_not_empty(self):
+        """Non-vacuity guard: an emptied `_NOT_SOURCE` must fail here rather than leave
+        the table below looping over nothing."""
+        self.assertTrue(project_shape._NOT_SOURCE,
+                        "_NOT_SOURCE is empty — the table below asserts nothing")
+
+    def test_no_member_of_not_source_makes_a_repo_look_like_an_existing_codebase(self):
+        for ext in _NOT_SOURCE_MEMBERS:
+            with self.subTest(extension=ext):
+                self._fresh_project()
+                r = self._classify(f"src/sample{ext}")
+                self.assertEqual(r["recommendation"], "greenfield")
+                self.assertNotIn("blind_spots", r["evidence"])
+
+    def test_an_extension_off_the_list_is_a_blind_spot(self):
+        """The control that keeps the rows above honest: same fixture, same single file,
+        an extension the list does not carry — and the verdict flips."""
+        self.assertNotIn(_SOURCE_EXT, project_shape._NOT_SOURCE)
+        r = self._classify(f"src/Sample{_SOURCE_EXT}")
+        self.assertEqual(r["recommendation"], "unknown")
+        self.assertEqual(r["evidence"]["blind_spots"], {_SOURCE_EXT: 1})
+
+    def test_the_fixtures_really_reach_the_exclusion_list(self):
+        """The vacuity canary. `unreadable_files` drops dotfiles and prunes directories
+        before `_NOT_SOURCE` is ever consulted, so a fixture planted under the wrong name
+        would be filtered upstream and pass for the wrong reason. Empty the list and the
+        same fixture must flip — which proves the rows above are gated *here*."""
+        self._write("src/sample.md")
+        self._graph()
+        with mock.patch.object(project_shape, "_NOT_SOURCE", set()):
+            r = project_shape.classify(self.proj)
+        self.assertEqual(r["recommendation"], "unknown")
+        self.assertEqual(r["evidence"]["blind_spots"], {".md": 1})
+
+
+class CensusSkipRegistryTest(_ShapeFixture):
+    """Table over `_CENSUS_SKIP` — 14 declared, 2 of them named until now.
+
+    These are the directories the disk walk refuses to descend into. A member that stopped
+    pruning would report a vendored dependency tree as this project's unread source, and
+    `graphify-out` is in the list precisely because a backend counting its own output as
+    files it failed to read gave every project a blind spot in its own graph directory.
+
+    Each row plants a real blind-spot extension *inside* the directory and asserts the
+    verdict stays clean. Note that `.git`, `.next` and `.venv` are also caught by the
+    walk's separate dot-directory rule, so those three rows are belt-and-braces: measured
+    by emptying `_CENSUS_SKIP`, eleven rows go red and those three stay green. They pin the
+    directory names, not the pruning — the pruning is proven by the other eleven.
+    """
+
+    def test_the_registry_is_not_empty(self):
+        self.assertTrue(project_shape._CENSUS_SKIP,
+                        "_CENSUS_SKIP is empty — the table below asserts nothing")
+
+    def test_no_skipped_directory_contributes_a_blind_spot(self):
+        for name in _CENSUS_SKIP_MEMBERS:
+            with self.subTest(directory=name):
+                self._fresh_project()
+                r = self._classify(f"{name}/pkg/Sample{_SOURCE_EXT}")
+                self.assertEqual(r["recommendation"], "greenfield")
+                self.assertNotIn("blind_spots", r["evidence"])
+
+    def test_the_same_file_outside_a_skipped_directory_is_a_blind_spot(self):
+        """The control: it is the directory doing the work, not the file being invisible."""
+        r = self._classify(f"src/pkg/Sample{_SOURCE_EXT}")
+        self.assertEqual(r["recommendation"], "unknown")
+        self.assertEqual(r["evidence"]["blind_spots"], {_SOURCE_EXT: 1})
+
+    def test_the_fixtures_really_reach_the_skip_list(self):
+        """The vacuity canary, for a member with no dot prefix to hide behind."""
+        self.assertIn("node_modules", project_shape._CENSUS_SKIP)
+        self._write(f"node_modules/pkg/Sample{_SOURCE_EXT}")
+        self._graph()
+        with mock.patch.object(project_shape, "_CENSUS_SKIP", set()):
+            r = project_shape.classify(self.proj)
+        self.assertEqual(r["recommendation"], "unknown")
+        self.assertEqual(r["evidence"]["blind_spots"], {_SOURCE_EXT: 1})
 
 
 class RunDetectProjectTest(unittest.TestCase):

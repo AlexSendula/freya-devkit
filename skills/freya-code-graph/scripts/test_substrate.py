@@ -20,7 +20,12 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import graph_ops  # noqa: E402
 import settings as settings_mod  # noqa: E402
 import substrate  # noqa: E402
+# The registry-driven tables below iterate these bindings, taken once at import, while the
+# code under test reads `substrate.<NAME>`. That separation is deliberate: it is what makes
+# "empty the registry and watch every row go red" a real check. Iterating the live attribute
+# would empty the table along with the constant and pass with nothing run.
 from substrate import (  # noqa: E402
+    CENSUS_PRUNE,
     Coverage,
     Exclusions,
     RELATION_KINDS,
@@ -72,7 +77,8 @@ class TestCoverage(unittest.TestCase):
 
     def test_from_dict_rejects_junk_rather_than_raising(self):
         for junk in (None, [], 'nope', {'relations': ['teleports']}):
-            self.assertIsNone(Coverage.from_dict(junk), junk)
+            with self.subTest(junk=junk):
+                self.assertIsNone(Coverage.from_dict(junk), junk)
 
 
 class TestExclusions(unittest.TestCase):
@@ -316,7 +322,8 @@ class TestGraphValidation(unittest.TestCase):
 
     def test_junk_shapes_are_reported_not_raised(self):
         for junk in ([], 'nope', {'files': 'nope'}, {'files': {'a.ts': 'nope'}}):
-            self.assertTrue(validate_graph(junk), junk)
+            with self.subTest(junk=junk):
+                self.assertTrue(validate_graph(junk), junk)
 
     def test_a_reverse_edge_that_lost_its_kind_is_reported(self):
         """The reverse-index check named this case and did not cover it.
@@ -546,10 +553,162 @@ class TestUnmappedCensus(unittest.TestCase):
         """`main()`'s set→list conversion is exactly one level deep, so a nested set would
         raise TypeError — and all three programmatic callers swallow the resulting non-zero
         exit as a *narrower correct answer*. A slip here is invisible by construction."""
-        for report in (unmapped_report([], 'homegrown', 0),
-                       unmapped_report(['a/B.java'], 'homegrown', 1, {'graphify': 1}),
-                       unmapped_report([], 'homegrown', error='OSError')):
-            self.assertEqual(json.loads(json.dumps(report)), report)
+        shapes = {
+            'clean': unmapped_report([], 'homegrown', 0),
+            'material': unmapped_report(['a/B.java'], 'homegrown', 1, {'graphify': 1}),
+            'error': unmapped_report([], 'homegrown', error='OSError'),
+        }
+        for shape, report in shapes.items():
+            with self.subTest(shape=shape):
+                self.assertEqual(json.loads(json.dumps(report)), report)
+
+
+class TestTheCensusPruneList(unittest.TestCase):
+    """Every directory the unmapped-source census walks past, one row per declared member.
+
+    Thirteen names are declared and a handful were exercised by hand, each written out as a
+    literal in a fixture. The table drives off `CENSUS_PRUNE` itself, so a fourteenth is
+    covered the moment it is added, and each row asserts what the member *does* rather than
+    that the set contains it — the constant is already the constant, and
+    `assertEqual(sorted(CENSUS_PRUNE), [...])` would pass with the prune line deleted.
+
+    The two things the list is answerable for get a test each:
+
+      1. the walk never descends into the directory. This is the only effect that is *its
+         own*: `_should_exclude` filters files after `os.walk` has already produced them and
+         cannot stop a descent, which is why the assertion is on the traversal and not on
+         the returned paths.
+      2. skipping it loses nothing. Every name it prunes must be one the build's own scope
+         rule would have rejected anyway — that is what keeps the list an optimisation
+         rather than a second, quieter scope rule. Add `src` to `CENSUS_PRUNE` and the
+         census reports a clean repository while walking straight past its source.
+
+    Mutation-checked 2026-08-21, and the result is worth recording because it is not clean.
+    With `substrate.CENSUS_PRUNE = frozenset()` ten of the thirteen rows go red on (1).
+    `.next`, `.output` and `.venv` stay green: the very same line also drops any name
+    beginning with `.`, so for those three the constant is redundant with its own sibling
+    guard rather than load-bearing. The remedy is not to weaken the row — the name is really
+    in the registry and (2) still binds it — but it is why nobody should read a green
+    `.venv` row as evidence that removing `.venv` from the list would be noticed.
+
+    Note also that all thirteen are in `_get_exclusion_rules()['always_exclude_dirs']`, so an
+    assertion that the file simply goes unreported cannot fail for any member and is left
+    out on purpose. That was measured: with the registry emptied, `_unmapped_source_paths`
+    still returned `[]` for all thirteen.
+    """
+
+    def _project_with_source_under(self, member):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        for rel in ('src/a.ts', '%s/pkg/Deep.java' % member):
+            p = Path(d) / rel
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text('// x\n', encoding='utf-8')
+        return graph_ops.CodeGraph(d)
+
+    @staticmethod
+    def _census_visiting(scope):
+        """Run the census, returning the directories the walk actually entered.
+
+        `os.walk` is swapped for a recording wrapper because descent is not observable from
+        the return value — the returned paths are filtered a second time by `_should_exclude`
+        and would be empty either way. Restored in a `finally`; the suite runs serially.
+        `scope.project_dir` is the base rather than the mkdtemp string because it is resolved,
+        and on macOS `/var` is a symlink to `/private/var`.
+        """
+        root = str(scope.project_dir)
+        visited = []
+        real_walk = os.walk
+
+        def recording_walk(top, *args, **kwargs):
+            for dirpath, dirnames, filenames in real_walk(top, *args, **kwargs):
+                visited.append(os.path.relpath(dirpath, root).replace(os.sep, '/'))
+                yield dirpath, dirnames, filenames
+
+        os.walk = recording_walk
+        try:
+            graph_ops._unmapped_source_paths(scope, ['.ts', '.tsx', '.js', '.jsx', '.py'])
+        finally:
+            os.walk = real_walk
+        return visited
+
+    def test_the_control_fixture_is_really_walked(self):
+        """The fixture is live: an ordinary directory of the same shape *is* descended into,
+        and the `.java` under it *is* censused. Without this every row below would stay green
+        if the walk stopped running at all."""
+        scope = self._project_with_source_under('services')
+        self.assertIn('services/pkg', self._census_visiting(scope))
+        paths, _ = graph_ops._unmapped_source_paths(
+            scope, ['.ts', '.tsx', '.js', '.jsx', '.py'])
+        self.assertEqual(paths, ['services/pkg/Deep.java'])
+
+    def test_the_census_never_descends_into_a_pruned_directory(self):
+        self.assertTrue(CENSUS_PRUNE, 'an empty registry would make this table vacuous')
+        for member in sorted(CENSUS_PRUNE):
+            with self.subTest(directory=member):
+                visited = self._census_visiting(self._project_with_source_under(member))
+                descended = [v for v in visited
+                             if v == member or v.startswith(member + '/')]
+                self.assertEqual(descended, [],
+                                 'the census walked into %s/' % member)
+
+    def test_pruning_a_directory_never_hides_a_file_the_build_would_have_kept(self):
+        """Soundness: the list may only skip what the scope rule already refuses.
+
+        This is the row that goes red if somebody adds `src`, `app` or `lib` to
+        `CENSUS_PRUNE` for speed — the census would go silently blind on exactly the tree the
+        census exists to report — and equally if a name is dropped from
+        `always_exclude_dirs` while staying in the prune list.
+        """
+        self.assertTrue(CENSUS_PRUNE, 'an empty registry would make this table vacuous')
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        scope = graph_ops.CodeGraph(d)
+        gitignore = scope._parse_gitignore()
+        classified = (scope._load_classifications().get('directories') or {})
+        for member in sorted(CENSUS_PRUNE):
+            with self.subTest(directory=member):
+                rel = '%s/pkg/Deep.java' % member
+                self.assertTrue(
+                    scope._should_exclude(rel, gitignore, classified),
+                    '%s is pruned from the census but is in scope for the build' % rel)
+
+
+class TestEveryRelationKindIsUsable(unittest.TestCase):
+    """One row per declared relation, driven off `RELATION_KINDS`.
+
+    The vocabulary was imported into this module and named nowhere in it: five kinds
+    declared, zero exercised, so `references` could have been deleted from the tuple with
+    this file entirely green. A sixth added tomorrow is now covered the moment it is added.
+
+    The row asserts what a kind *does* — an edge carrying it is built, mirrored into the
+    reverse index with its kind intact, and validated clean by a backend that declares it —
+    never that the tuple contains what the tuple contains.
+
+    Mutation-checked 2026-08-21, twice, because the first mutation alone would not have told
+    us much. With `substrate.RELATION_KINDS = ('imports',)` the other four rows error at the
+    `Coverage` vocabulary gate, each naming its own kind — but that only exercises the gate.
+    So the reverse index was broken too: with `link_dependents` collapsing every dependent's
+    `kind` to `'imports'`, four rows go red on `edge_kind(reverse)` and the `imports` row
+    stays green, which is right — for that kind the collapse is a no-op. The row is
+    asserting the mirroring, not the tuple.
+    """
+
+    def test_a_declared_kind_survives_the_whole_edge_lifecycle(self):
+        self.assertTrue(RELATION_KINDS, 'an empty registry would make this table vacuous')
+        for kind in RELATION_KINDS:
+            with self.subTest(kind=kind):
+                cov = Coverage(['typescript'], ['.ts'], [kind], True)
+                self.assertEqual(cov.relations, (kind,))
+                graph = {
+                    'substrate': graph_metadata('stub', cov),
+                    'files': {'a.ts': {'imports': [substrate.make_edge('b.ts', kind=kind)]},
+                              'b.ts': {'imports': []}},
+                }
+                substrate.link_dependents(graph)
+                reverse = graph['files']['b.ts']['dependents'][0]
+                self.assertEqual(substrate.edge_kind(reverse), kind)
+                self.assertEqual(validate_graph(graph), [])
 
 
 class TestIsInternal(unittest.TestCase):
@@ -1526,7 +1685,8 @@ class TestTheTwoCacheGitignoreWritersAgree(unittest.TestCase):
         """ADR-017, asserted against the actual string rather than the intent."""
         import graph_ops
         for name in graph_ops.CACHE_IGNORED:
-            self.assertNotEqual(name, 'behavior.json')
+            with self.subTest(ignored=name):
+                self.assertNotEqual(name, 'behavior.json')
         body = [ln for ln in graph_ops.CACHE_GITIGNORE.splitlines()
                 if ln.strip() and not ln.startswith('#')]
         self.assertNotIn('behavior.json', body)

@@ -112,6 +112,93 @@ class ExtractionTest(unittest.TestCase):
                          [(1, ".github/workflows/ci.yml", 82)])
 
 
+class ContinuationTest(unittest.TestCase):
+    """A bare `` `:NNN` `` after a full citation means the same file.
+
+    The dominant shape in the ADRs — ``(`substrate.py:721`, `:724`)`` — and the
+    gate did not see them at all: 293 in the tracked markdown, four of them
+    already landing on a blank line. A gate that skips a seventh of its input
+    while printing "954 citations resolve" is the declared-everywhere,
+    enforced-nowhere shape this repo keeps finding in itself.
+    """
+
+    def test_a_bare_line_number_inherits_the_preceding_path(self):
+        self.assertEqual(list(cdc.citations(["(`substrate.py:721`, `:724`)"])),
+                         [(1, "substrate.py", 721), (1, "substrate.py", 724)])
+
+    def test_several_continuations_all_inherit(self):
+        self.assertEqual(list(cdc.citations(["(`a.py:1`, `:2`, `:3`)"])),
+                         [(1, "a.py", 1), (1, "a.py", 2), (1, "a.py", 3)])
+
+    def test_a_continuation_inherits_across_a_line_break(self):
+        """ADR-021:23-24 establishes `substrate.py` on one line and continues on
+        the next. Prose wraps; the antecedent does not stop at the wrap."""
+        self.assertEqual(
+            list(cdc.citations(["the forward edge (`substrate.py:721`, `:724`) and its",
+                                "mirror in the reverse index (`:773`, `:776`) — same rules"])),
+            [(1, "substrate.py", 721), (1, "substrate.py", 724),
+             (2, "substrate.py", 773), (2, "substrate.py", 776)])
+
+    def test_a_new_full_citation_replaces_the_antecedent(self):
+        self.assertEqual(list(cdc.citations(["`a.py:1` then `b.py:2` then `:3`"])),
+                         [(1, "a.py", 1), (1, "b.py", 2), (1, "b.py", 3)])
+
+    def test_a_continuation_before_any_full_citation_is_not_a_citation(self):
+        """With no antecedent there is nothing to resolve against, and guessing
+        would invent a file. Report nothing rather than something wrong."""
+        self.assertEqual(list(cdc.citations(["see `:724` for the mirror"])), [])
+
+    def test_a_bare_number_outside_backticks_is_not_a_continuation(self):
+        """Backticks are the whole signal. Without them a ratio or a time in
+        prose would each become a citation."""
+        self.assertEqual(list(cdc.citations(["`a.py:1` and the ratio 3:4 holds"])),
+                         [(1, "a.py", 1)])
+
+    def test_a_continuation_is_reported_at_its_own_line_not_its_antecedents(self):
+        self.assertEqual(list(cdc.citations(["`a.py:1`", "", "and `:99`"])),
+                         [(1, "a.py", 1), (3, "a.py", 99)])
+
+    def test_the_antecedent_does_not_leak_between_files(self):
+        """`citations` is called per file; a path established in one document
+        must not resolve a bare number in the next."""
+        self.assertEqual(list(cdc.citations(["`a.py:1`"])), [(1, "a.py", 1)])
+        self.assertEqual(list(cdc.citations(["`:2`"])), [])
+
+
+class RangeTest(unittest.TestCase):
+    """`path.py:202-209` and its continuation `` `:202-209` `` cite a span.
+
+    80 of these in the tracked markdown, and the first two versions of this gate
+    saw none of them: the full form's `\\b` stopped at the hyphen and reported
+    only the start, and the continuation form required a closing backtick
+    immediately after the digits so a range never matched at all. A repair pass
+    hit one bound 105 lines past its file's EOF and invisible for exactly that
+    reason.
+
+    Only the START is resolved. The end is prose — a reader takes it as "and the
+    few lines after" — and demanding it be in range would fail citations that
+    are honest about where a construct begins and vague about where it stops.
+    """
+
+    def test_a_full_range_citation_resolves_its_start(self):
+        self.assertEqual(list(cdc.citations(["see `a.py:202-209` for the block"])),
+                         [(1, "a.py", 202)])
+
+    def test_a_continuation_range_inherits_the_path(self):
+        self.assertEqual(list(cdc.citations(["`a.py:12`, `:202-209`"])),
+                         [(1, "a.py", 12), (1, "a.py", 202)])
+
+    def test_a_range_is_not_read_as_two_citations(self):
+        """The end bound is not a citation in its own right; reporting `209` as
+        a second one would double-count and could fail on a file whose end bound
+        is deliberately approximate."""
+        self.assertEqual(list(cdc.citations(["`a.py:202-209`"])), [(1, "a.py", 202)])
+
+    def test_a_hyphenated_number_after_a_bare_path_is_still_the_start(self):
+        self.assertEqual(list(cdc.citations(["`collect_status.py:219-223`"])),
+                         [(1, "collect_status.py", 219)])
+
+
 class ResolutionTest(RepoFixture):
     def test_a_bare_filename_resolves_to_the_one_tracked_file_with_that_name(self):
         self.assertEqual(

@@ -43,26 +43,32 @@ used to.
 
 ## What the suite is, measured
 
-`python3 -m pytest -q` from the repo root at `f407251`:
+`python3 -m pytest -q` from the repo root at `d5f45e2`, plus the uncommitted test-layer work:
 
 ```
-1435 passed, 52 subtests passed in 24.74s
+1759 passed, 1012 subtests passed in 34.12s
 ```
+
+The subtest count is the number that moved: 52 -> 1012. Most of the registries in this repo
+were tested by naming three or four members by hand — `RELATIONS` had 32 declared and 12
+named, `CODE_EXTENSIONS` 20 and none — so they are now driven off the registry itself with
+`subTest`, and a member added tomorrow is covered the day it lands. Reported tests rose by
+324; executed cases rose by roughly a thousand.
 
 Broken down by area (`python3 -m pytest <dir> -q` in each):
 
 | Area | Tests | Wall clock |
 |---|---:|---:|
-| `bin/` | 456 (+52 subtests) | 11.2s |
-| `skills/freya-code-graph/` | 384 | 9.6s |
-| `skills/freya-spec-manager/` | 216 | 1.9s |
-| `skills/freya-codebase-security-scan/` | 207 | 1.3s |
-| `skills/freya-docs-manager/` | 68 | 0.05s |
-| `skills/freya-behavior-runner/` | 46 | 0.5s |
-| `skills/freya-behavior-graph/` | 43 | 0.05s |
-| `skills/freya-status/` | 15 | 0.02s |
+| `bin/` | 566 (+65 subtests) | 13.9s |
+| `skills/freya-code-graph/` | 396 (+488) | 15.7s |
+| `skills/freya-spec-manager/` | 294 (+97) | 2.0s |
+| `skills/freya-codebase-security-scan/` | 224 (+93) | 1.3s |
+| `skills/freya-docs-manager/` | 137 (+256) | 0.2s |
+| `skills/freya-behavior-runner/` | 75 | 0.5s |
+| `skills/freya-behavior-graph/` | 48 (+13) | 0.07s |
+| `skills/freya-status/` | 19 | 0.1s |
 
-`bin/` and `freya-code-graph/` are 21s of the 24.7s, and almost all of that is real
+`bin/` and `freya-code-graph/` are 30s of the 34s, and almost all of that is real
 subprocesses: `git` against real repositories, the launcher run end to end, and the `graphify`
 binary when it is installed. The other six areas together finish in under four seconds, so
 `python3 -m pytest skills/freya-spec-manager -q` while iterating costs nothing.
@@ -74,7 +80,7 @@ is why `unittest discover -s bin` says `Ran 456` where pytest says `456 passed, 
 passed`. Neither total double-counts.
 
 **How the number moves.** Remove `graphify` from `PATH` and the same command gives
-`1421 passed, 14 skipped` — the fourteen are guarded by `unittest.skipUnless(HAVE_GRAPHIFY, ...)`
+`1745 passed, 14 skipped, 1009 subtests passed` — the fourteen are guarded by `unittest.skipUnless(HAVE_GRAPHIFY, ...)`
 (`skills/freya-code-graph/scripts/test_backend_graphify.py:31`). That is the shape CI runs in,
 since the runner installs nothing but pytest. Measure against a clean export
 (`git archive HEAD | tar -x -C …`) if you want a number tied to a commit rather than to whatever
@@ -189,12 +195,12 @@ because the session-level sandbox has already set it.
 **A subprocess does not inherit an isolation you only applied in-process if you also pass a
 trimmed `env`.** Tests that shell out build it explicitly:
 `env=dict(os.environ, FREYA_HOME=self.home)`
-(`skills/freya-code-graph/scripts/test_graph_ops.py:1925`,
-`skills/freya-code-graph/scripts/test_graph_ops.py:2352`). The second of those carries the
+(`skills/freya-code-graph/scripts/test_graph_ops.py:1970`,
+`skills/freya-code-graph/scripts/test_graph_ops.py:2461`). The second of those carries the
 measurement that justifies it: on a machine that answered the install question with `graphify`,
 every fixture builds with a backend that reads `.java`, the census correctly reports nothing, and
 six assertions about twelve unmapped files fail — green here, red on a colleague's laptop
-(`skills/freya-code-graph/scripts/test_graph_ops.py:2339`).
+(`skills/freya-code-graph/scripts/test_graph_ops.py:2448`).
 
 Writing the isolation where the test is, rather than only in `conftest.py`, is also better
 documentation: a test asserting "with nothing configured" should say so at the point it asserts it.
@@ -278,19 +284,19 @@ prunes *before* it calls `_should_exclude`
 (`skills/freya-code-graph/scripts/graph_ops.py:2625`). An earlier version of
 `test_it_honours_the_build_s_own_exclusions` built its fixture under `node_modules/` and `dist/`.
 The assertion passed. It would also have passed with `_should_exclude` deleted, because no
-fixture file ever reached it (`skills/freya-code-graph/scripts/test_graph_ops.py:2011`). The fix
+fixture file ever reached it (`skills/freya-code-graph/scripts/test_graph_ops.py:2056`). The fix
 was to rebuild the fixture out of paths only `_should_exclude` rejects, and to add a separate
 test pinning that the prune list and the scope rule *both* apply
-(`skills/freya-code-graph/scripts/test_graph_ops.py:2027`).
+(`skills/freya-code-graph/scripts/test_graph_ops.py:2072`).
 
 Two older findings sit in the same three shapes:
 
 - The dotfile guard — shape 1. The fixture used `.env.local` and `.eslintrc.json`, whose
   extensions are in neither tier list, so every file was dropped by the extension check before
-  the guard ran (`skills/freya-code-graph/scripts/test_graph_ops.py:2050`).
+  the guard ran (`skills/freya-code-graph/scripts/test_graph_ops.py:2095`).
 - The graph contract's reverse-edge validator — shape 3, and the neighbour of the `mixes_in`
   case above: two `dependents` checks that could be deleted with the whole suite still green
-  (`skills/freya-code-graph/scripts/test_substrate.py:324`).
+  (`skills/freya-code-graph/scripts/test_substrate.py:331`).
 
 Worked, measured, on this checkout — this is the whole ritual:
 
@@ -310,7 +316,7 @@ Weak assertions fail this check even when the fixture is right. The graphify edg
 gate is the measured case: pinning `(from, to)` pairs alone, it caught **one of six** deliberate
 mapping mutations, because the fixture carried each pair on several relations and dropping one
 changed nothing the assertion could see. Pinning `(from, to, kind)` over a fixture that exercises
-each guard is what made it bite (`skills/freya-code-graph/scripts/test_backend_graphify.py:582`).
+each guard is what made it bite (`skills/freya-code-graph/scripts/test_backend_graphify.py:924`).
 
 ADR-016 states the underlying clause: guards that protect against a measured external finding are
 mutation-tested, not merely unit-tested.

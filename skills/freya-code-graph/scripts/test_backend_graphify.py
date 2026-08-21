@@ -74,6 +74,122 @@ def link(source, target, relation='calls', confidence='EXTRACTED', location='L10
             'confidence': confidence, 'source_location': location, '_origin': 'ast'}
 
 
+# ---------------------------------------------------------------------------
+# The registries, and what each member has to *do*
+# ---------------------------------------------------------------------------
+#
+# `backend_graphify.RELATIONS` had 32 keys and this file named 12 of them. Twenty — including
+# every one of `extends`, `implements`, `mixes_in`, `instantiates`, `re_exports` and
+# `dynamic_import` — appeared nowhere, so a wrong mapping on any of them was invisible and a
+# relation added tomorrow would arrive covered by nothing.
+#
+# The fix is a `subTest` table driven off the registry itself. What it must NOT be is
+# `assertEqual(RELATIONS[r], RELATIONS[r])`: reading the expectation back out of the constant
+# under test passes with the projection deleted entirely. So the expectations below are
+# **literals**, the convention this repository already states verbatim at
+# test_audit_engine.py:180 — "Literals, not the constants under test."
+#
+# The loops run over `set(registry) | set(this table)`, which is what makes both directions
+# fail loudly:
+#
+#   a relation added to the mapping    -> red here until somebody records what it must produce
+#   a relation deleted from the mapping -> red here, because the behaviour recorded stops
+#
+# `None` means "listed deliberately as not-a-dependency" — which is a behaviour of its own,
+# and a different one from being unknown: an unlisted relation is counted into
+# `unmapped_relations` and printed, a listed-None relation is silent.
+RELATION_BEHAVIOUR = {
+    # Module-level dependency.
+    'imports': 'imports',
+    'imports_from': 'imports',
+    'includes': 'imports',            # C/C++ `#include`
+    'requires': 'imports',            # CommonJS / Ruby
+    'dynamic_import': 'imports',      # `import()` — a real dependency, resolved late
+    'crate_depends_on': 'imports',    # Rust manifest edge
+    'depends_on': 'imports',          # package manifest edge
+    're_exports': 're_exports',       # barrels keep their own kind; they are not plain imports
+    # Invocation. Constructing a type is calling its constructor.
+    'calls': 'calls',
+    'indirect_call': 'calls',
+    'instantiates': 'calls',
+    # Type hierarchy. Four spellings of the same fact across four language families.
+    'inherits': 'inherits',
+    'extends': 'inherits',
+    'implements': 'inherits',
+    'mixes_in': 'inherits',
+    # Named without being invoked.
+    'references': 'references',
+    'references_constant': 'references',
+    'uses': 'references',
+    'uses_component': 'references',   # JSX/Vue component usage
+    'uses_static_prop': 'references',
+    'reads_from': 'references',
+    'embeds': 'references',
+    'bound_to': 'references',
+    # Listed as not-a-dependency. Being on the table is the whole point: it is what stops
+    # each of these appearing in the "dropped N links" report on every single build.
+    'contains': None,                  # file has symbol — the node hierarchy
+    'method': None,                    # class has method — the same, one level down
+    'binds_method': None,
+    'defines': None,
+    'rationale_for': None,             # graphify's docstring index; docs.json owns docs
+    'cites': None,                     # prose citation — ADR-026
+    'requires_env': None,              # an environment variable is not a file
+    'listened_by': None,               # event wiring, not a source dependency
+    'semantically_similar_to': None,   # clustering output, not a fact about the code
+}
+
+# graphify's confidence values against the contract's provenance axis. Literals, same rule.
+PROVENANCE_BEHAVIOUR = {
+    'EXTRACTED': 'extracted',
+    'INFERRED': 'inferred',
+}
+
+# The three small registries, as literals, for the same union trick. Measured: a loop written
+# only as `for x in registry` passes on an empty registry, so `ANCHOR_NODE_TYPES = ()` —
+# which is the change that re-introduces the fabricated `s1.swift -> s3.swift` edge — was
+# invisible to its own table until these existed.
+#
+# graphify emits one node per module and per namespace across the whole corpus, and gives it
+# whichever file was parsed first as its `source_file`. Both must stay signals, not files.
+AGGREGATE_ANCHOR_TYPES = ('module', 'namespace')
+
+# Dispatched to graphify's *document* extractor, so they produce `document` and `rationale`
+# nodes which this projection filters out. Declaring them as code would claim coverage of
+# files that can never reach the graph.
+DOCUMENT_ONLY_EXTENSIONS = ('.md', '.mdx', '.qmd', '.skill')
+
+# Declared, but selected by *name* rather than by suffix: `package.json` and `pom.xml` produce
+# nodes where an arbitrary `x.json` or `x.xml` produces nothing.
+NAME_BASED_EXTENSIONS = ('.json', '.xml')
+
+# The extensions whose language is not deducible from the extension by anyone reading it, and
+# where the *available wrong answer* is the one graphify's own dispatch would give. Everything
+# else is covered by the property table (non-null, in LANGUAGES, inside declared coverage);
+# these are pinned by name because a property check cannot tell `typescript` from `javascript`.
+NAMED_LANGUAGES = {
+    # One extractor (`extract_js`) reads all eight. Labelling a `.ts` file javascript is a
+    # worse answer than the question deserves — which is why this table exists at all.
+    '.ts': 'typescript', '.tsx': 'typescript', '.cts': 'typescript', '.mts': 'typescript',
+    '.js': 'javascript', '.jsx': 'javascript', '.mjs': 'javascript', '.cjs': 'javascript',
+    '.h': 'c',              # a bare header is C; `.hpp` is where cpp starts
+    '.hpp': 'cpp',
+    '.m': 'objectivec',     # not matlab, not ocaml — `.ml` is ocaml
+    '.ml': 'ocaml',
+    '.metal': 'cpp',
+    '.gradle': 'groovy',    # a build script, named for the tool and written in the language
+    '.toc': 'lua',
+    '.cls': 'apex',         # not commonlisp, whose files are `.cl` / `.lisp`
+    '.cl': 'commonlisp',
+    '.cshtml': 'razor',
+    '.csproj': 'msbuild', '.fsproj': 'msbuild', '.sln': 'msbuild',
+    '.inc': 'pascal',
+    '.dme': 'dm',
+    '.f90': 'fortran',
+    '.rs': 'rust', '.java': 'java', '.py': 'python', '.go': 'go',
+}
+
+
 class Base(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
@@ -105,11 +221,24 @@ class TestTheProjection(Base):
         self.assertIn('src/lonely.py', g['files'])
         self.assertEqual(self.edges(g, 'src/lonely.py'), [])
 
-    def test_confidence_becomes_provenance(self):
-        g = self.translate(
-            [node('a', 'src/a.py'), node('b', 'src/b.py')],
-            [link('a', 'b', 'calls', confidence='INFERRED')])
-        self.assertEqual(self.edges(g, 'src/a.py')[0]['provenance'], 'inferred')
+    def test_every_confidence_becomes_the_provenance_the_behaviour_table_records(self):
+        """One row per member of `backend_graphify.PROVENANCE`, so a third trust tier arriving
+        upstream is exercised the moment it is mapped rather than silently collapsing into
+        `inferred` via the fallback below."""
+        for confidence in sorted(set(backend_graphify.PROVENANCE)
+                                 | set(PROVENANCE_BEHAVIOUR)):
+            with self.subTest(confidence=confidence):
+                self.assertIn(confidence, PROVENANCE_BEHAVIOUR,
+                              'a confidence value was added to backend_graphify.PROVENANCE; '
+                              'record here what it must become, as a literal')
+                self.assertIn(confidence, backend_graphify.PROVENANCE,
+                              'this confidence value was removed, so links carrying it now '
+                              'fall through to `inferred`')
+                g = self.translate(
+                    [node('a', 'src/a.py'), node('b', 'src/b.py')],
+                    [link('a', 'b', 'calls', confidence=confidence)])
+                self.assertEqual(self.edges(g, 'src/a.py')[0]['provenance'],
+                                 PROVENANCE_BEHAVIOUR[confidence])
 
     def test_an_unrecognised_confidence_is_inferred_not_extracted(self):
         """The cautious direction. `extracted` means "stated in the source"; claiming it for a
@@ -119,49 +248,247 @@ class TestTheProjection(Base):
             [link('a', 'b', 'calls', confidence='SOMETHING_NEW')])
         self.assertEqual(self.edges(g, 'src/a.py')[0]['provenance'], 'inferred')
 
-    def test_language_comes_from_the_extension(self):
-        g = self.translate([node('a', 'Main.java'), node('b', 'lib.rs')], [])
-        self.assertEqual(g['files']['Main.java']['language'], 'java')
-        self.assertEqual(g['files']['lib.rs']['language'], 'rust')
-
     def test_an_unknown_extension_has_no_language_rather_than_a_guess(self):
         g = self.translate([node('a', 'thing.wat')], [])
         self.assertIsNone(g['files']['thing.wat']['language'])
 
 
+class TestTheExtensionTable(Base):
+    """Every one of the 93 declared extensions, through the projection.
+
+    Two were named by hand before this (`.java` and `.rs`), and the two registries that have
+    to agree — `EXTENSIONS`, the coverage declaration, and `_LANGUAGE_BY_EXT`, the per-file
+    label — were compared to *each other* by a pair of tests that never ran a file through
+    `translate` at all. Both would have passed with the language lookup removed.
+
+    So the loop runs over the union of the two registries and asserts what a real file with
+    that suffix comes out as: it gets a language, the language is one the backend declares,
+    and the graph it lands in still passes `validate_graph` against the coverage block. That
+    last one is the check with teeth — `validate_graph` flags any file outside the declared
+    coverage, which is precisely the defect the 93-extension declaration was written to fix,
+    seen from the other side.
+    """
+
+    def one_file(self, path):
+        return self.translate([node('a', path)], [])
+
+    def language_of(self, path):
+        return self.one_file(path)['files'][path]['language']
+
+    def test_every_declared_extension_gets_a_language_on_a_real_file(self):
+        """`language: null` on a file the backend claims it reads is the exact failure the
+        declaration exists to prevent: the artifact says "I read this" and "I do not know what
+        it is" about the same file."""
+        for ext in sorted(set(backend_graphify.EXTENSIONS)
+                          | set(backend_graphify._LANGUAGE_BY_EXT)):
+            with self.subTest(extension=ext):
+                language = self.language_of('src/thing' + ext)
+                self.assertIsNotNone(language, 'declared but produces no language')
+                self.assertIn(language, backend_graphify.LANGUAGES,
+                              'produces a language the coverage block does not declare')
+
+    def test_no_declared_extension_falls_outside_the_declared_coverage(self):
+        """The other direction: an entry in `_LANGUAGE_BY_EXT` that `EXTENSIONS` does not
+        claim gets a language *and* is reported by `validate_graph` as outside coverage — a
+        backend contradicting its own declaration on a file it successfully read."""
+        coverage = self.backend.coverage()
+        for ext in sorted(set(backend_graphify.EXTENSIONS)
+                          | set(backend_graphify._LANGUAGE_BY_EXT)):
+            with self.subTest(extension=ext):
+                self.assertEqual(
+                    substrate.validate_graph(self.one_file('src/thing' + ext), coverage), [])
+
+    def test_the_extension_lookup_is_case_insensitive(self):
+        """`Main.PY` and `main.py` are the same file type, and `Coverage.handles` lowercases —
+        so without the matching `.lower()` in the projection an upper-cased suffix is declared
+        covered and given `language: null`, which is the contradiction above reached by a
+        route no lowercase fixture can see."""
+        for ext in sorted(set(backend_graphify.EXTENSIONS)
+                          | set(backend_graphify._LANGUAGE_BY_EXT)):
+            with self.subTest(extension=ext):
+                shouted = self.language_of('src/thing' + ext.upper())
+                self.assertIsNotNone(shouted)
+                self.assertEqual(shouted, self.language_of('src/thing' + ext))
+
+    def test_the_extensions_whose_language_is_not_obvious_are_pinned_by_name(self):
+        """The property table above cannot tell `typescript` from `javascript` — both are
+        non-null and both are declared. These are the rows where the *available wrong answer*
+        is the one graphify's own dispatch would give, so they are pinned as literals."""
+        for ext, language in sorted(NAMED_LANGUAGES.items()):
+            with self.subTest(extension=ext):
+                self.assertIn(ext, backend_graphify.EXTENSIONS,
+                              'pinned here but no longer declared')
+                self.assertEqual(self.language_of('src/thing' + ext), language)
+
+    def test_no_document_extension_is_claimed_as_code(self):
+        """`.md` and friends dispatch to graphify's *document* extractor, and this projection
+        keeps `code` nodes only — so declaring them would claim coverage of files that can
+        never appear in the graph, making "no docs edges" indistinguishable from "we do not
+        read docs". docs.json (ADR-026) owns that question.
+
+        Asserted through the projection so it runs without the binary. The `_DISPATCH` pin
+        that proves the same thing against graphify itself carries `@needs_graphify` and is
+        one of the tests CI skips.
+        """
+        for ext in sorted(set(backend_graphify.DOCUMENT_EXTENSIONS)
+                          | set(DOCUMENT_ONLY_EXTENSIONS)):
+            with self.subTest(extension=ext):
+                self.assertIn(ext, backend_graphify.DOCUMENT_EXTENSIONS,
+                              'dropped from the excluded-deliberately list, which is what '
+                              'stops the next person "fixing" the gap by declaring it')
+                self.assertNotIn(ext, backend_graphify.EXTENSIONS)
+                g = self.translate(
+                    [node('d', 'docs/notes' + ext, file_type='document')], [])
+                self.assertEqual(g['files'], {})
+
+    def test_every_over_claimed_extension_is_declared_and_still_flagged(self):
+        """`.json` and `.xml` are selected by *name* — `package.json` produces nodes and an
+        arbitrary `x.json` produces nothing. Declaring them is still right, because
+        under-reporting what a backend saw is the failure the contract exists to prevent, but
+        they must stay named on `over_claimed`: that attribute is what keeps them out of the
+        evidence that a project would gain from switching backends, and almost every
+        repository contains one."""
+        for ext in sorted(set(backend_graphify.OVER_CLAIMED_EXTENSIONS)
+                          | set(NAME_BASED_EXTENSIONS)):
+            with self.subTest(extension=ext):
+                self.assertIn(ext, self.backend.coverage().extensions)
+                self.assertTrue(self.backend.coverage().handles('pkg/x' + ext))
+                # Read the way `backends.py` reads it, so deleting the attribute — or
+                # emptying the tuple — is red here rather than silently weakening the
+                # switch-to-graphify evidence in every project that has a package.json.
+                self.assertIn(ext, getattr(self.backend, 'over_claimed', ()))
+
+
+class TestAnchorNodeTypes(Base):
+    """Every member of `ANCHOR_NODE_TYPES`, which is the registry that fabricates edges when
+    it is wrong. Each of these node types is an *aggregate*: graphify emits one node per label
+    across the whole corpus and gives it whichever file was parsed first as its `source_file`.
+
+    Read as a file, three Swift files that each `import Foundation` produced `s1.swift ->
+    s3.swift` and `s2.swift -> s3.swift`, neither of which exists in the source. `namespace`
+    was the same defect one language over, and it was missed when `module` was fixed because
+    the fix enumerated the case it had seen rather than the class it belonged to. Driving the
+    table off the tuple is what stops the third one being missed the same way.
+    """
+
+    def test_every_anchor_type_becomes_an_external_signal_rather_than_a_file(self):
+        for anchor in sorted(set(backend_graphify.ANCHOR_NODE_TYPES)
+                             | set(AGGREGATE_ANCHOR_TYPES)):
+            with self.subTest(node_type=anchor):
+                self.assertIn(anchor, backend_graphify.ANCHOR_NODE_TYPES,
+                              'dropped from ANCHOR_NODE_TYPES, so its aggregate node is '
+                              'read as a file again')
+                nodes = [node('x', 'src/ParsedFirst.cs', label='Shared'),
+                         node('a', 'src/A.cs', label='A'),
+                         node('b', 'src/B.cs', label='B')]
+                nodes[0]['type'] = anchor
+                g = self.translate(nodes, [link('a', 'x', 'imports'),
+                                           link('b', 'x', 'imports')])
+                pairs = {(src, substrate.edge_other(e))
+                         for src, info in g['files'].items() for e in info['imports']}
+                self.assertEqual(pairs, {('src/A.cs', 'external:Shared'),
+                                         ('src/B.cs', 'external:Shared')})
+                self.assertNotIn('src/ParsedFirst.cs', g['files'])
+
+    def test_an_anchor_with_no_label_still_never_becomes_a_file(self):
+        """The label is what the signal is named after, and an unlabelled node falling back
+        to the file path would put the anchor's accidental `source_file` into the graph as a
+        dependency target — the fabricated edge again, wearing an `external:` prefix."""
+        for anchor in sorted(set(backend_graphify.ANCHOR_NODE_TYPES)
+                             | set(AGGREGATE_ANCHOR_TYPES)):
+            with self.subTest(node_type=anchor):
+                self.assertIn(anchor, backend_graphify.ANCHOR_NODE_TYPES,
+                              'dropped from ANCHOR_NODE_TYPES, so its aggregate node is '
+                              'read as a file again')
+                nodes = [node('x', 'src/ParsedFirst.cs', label=''),
+                         node('a', 'src/A.cs', label='A')]
+                nodes[0]['type'] = anchor
+                g = self.translate(nodes, [link('a', 'x', 'imports')])
+                self.assertNotIn('src/ParsedFirst.cs', g['files'])
+                self.assertEqual(substrate.edge_ends(self.edges(g, 'src/A.cs')),
+                                 ['external:x'])
+
+
 class TestRelationMapping(Base):
-    """graphify emits eleven relations; the contract's vocabulary has five."""
+    """Every one of the 32 rows of `RELATIONS`, driven off the registry itself.
+
+    Before this class the file named 12 of them across five hand-listed tests, four of which
+    were bare `for` loops: the first failing relation aborted the rest and the message did not
+    say which one broke. Twenty relations were mentioned nowhere at all.
+
+    The expectations come from `RELATION_BEHAVIOUR` — literals — for the reason given there.
+    """
 
     def two(self, relation):
+        """One cross-file link carrying `relation`, projected. The strongest fixture for the
+        dropped rows too: a *cross-file* `contains` still must not become an edge, even though
+        the real ones are always intra-file and would be dropped by the self-edge guard."""
         return self.translate(
             [node('a', 'src/a.py'), node('b', 'src/b.py')],
             [link('a', 'b', relation)])
 
-    def test_the_import_family_collapses_to_imports(self):
-        for relation in ('imports', 'imports_from'):
-            g = self.two(relation)
-            self.assertEqual(self.edges(g, 'src/a.py')[0]['kind'], 'imports', relation)
+    def test_every_relation_produces_the_edge_the_behaviour_table_records(self):
+        for relation in sorted(set(backend_graphify.RELATIONS) | set(RELATION_BEHAVIOUR)):
+            with self.subTest(relation=relation):
+                self.assertIn(
+                    relation, RELATION_BEHAVIOUR,
+                    'a relation was added to backend_graphify.RELATIONS; record here what a '
+                    'link carrying it must produce, as a literal')
+                self.assertIn(
+                    relation, backend_graphify.RELATIONS,
+                    'this relation was removed from backend_graphify.RELATIONS; links '
+                    'carrying it are now counted as unmapped and dropped')
+                expected = RELATION_BEHAVIOUR[relation]
+                edges = self.edges(self.two(relation), 'src/a.py')
+                if expected is None:
+                    self.assertEqual(edges, [],
+                                     'listed as not-a-dependency, but it produced an edge')
+                    continue
+                self.assertEqual(len(edges), 1, edges)
+                self.assertEqual(edges[0]['to'], 'src/b.py')
+                self.assertEqual(edges[0]['kind'], expected)
 
-    def test_the_call_family_collapses_to_calls(self):
-        for relation in ('calls', 'indirect_call'):
-            g = self.two(relation)
-            self.assertEqual(self.edges(g, 'src/a.py')[0]['kind'], 'calls', relation)
+    def test_no_relation_on_the_table_is_reported_as_unmapped(self):
+        """Being listed — with a kind *or* with an explicit None — is what keeps a relation
+        out of the "dropped N links" stderr report on every single build. A None row that
+        fell off the table would still produce no edge, so this is the only thing that can
+        tell the difference between "deliberately not a dependency" and "never heard of it".
 
-    def test_the_loose_family_collapses_to_references(self):
-        for relation in ('references', 'uses', 'reads_from'):
-            g = self.two(relation)
-            self.assertEqual(self.edges(g, 'src/a.py')[0]['kind'], 'references', relation)
+        Over the union, not over `RELATIONS`: looping the registry alone made the deletion of
+        a None row invisible, because the deleted row also left the loop. Measured — dropping
+        `cites` stayed green until this read the union.
+        """
+        for relation in sorted(set(backend_graphify.RELATIONS) | set(RELATION_BEHAVIOUR)):
+            with self.subTest(relation=relation):
+                self.assertNotIn('unmapped_relations', self.two(relation)['substrate'])
 
-    def test_inherits_survives_as_itself(self):
-        self.assertEqual(self.edges(self.two('inherits'), 'src/a.py')[0]['kind'], 'inherits')
+    def test_every_mapped_relation_produces_a_graph_that_still_conforms(self):
+        """The kind a row maps to has to be in the contract's vocabulary *and* inside this
+        backend's own coverage declaration. A row mapping to a kind the declaration does not
+        claim writes an edge `validate_graph` rejects — a backend contradicting its own
+        coverage block, which is the one thing that block cannot survive."""
+        coverage = self.backend.coverage()
+        for relation, kind in sorted(RELATION_BEHAVIOUR.items()):
+            if kind is None:
+                continue
+            with self.subTest(relation=relation):
+                g = self.two(relation)
+                substrate.link_dependents(g)
+                self.assertEqual(substrate.validate_graph(g, coverage), [])
+                emitted = self.edges(g, 'src/a.py')[0]['kind']
+                self.assertIn(emitted, substrate.RELATION_KINDS)
+                self.assertIn(emitted, coverage.relations)
 
-    def test_structural_relations_are_not_dependencies(self):
-        """`contains` (file has symbol) and `method` (class has method) are the node
-        hierarchy. Measured at 2,318 links on this repository — emitting them would put the
-        shape of the code into a query that means "what breaks if I change this file"."""
-        for relation in ('contains', 'method'):
-            g = self.two(relation)
-            self.assertEqual(self.edges(g, 'src/a.py'), [], relation)
+    def test_a_dropped_relation_still_leaves_both_files_in_the_graph(self):
+        """Dropping the *link* must not drop the *files*. graphify saw them, and a file it saw
+        with no dependency in it is still a file — omitting it reports a smaller repo than
+        exists, which is the failure mode the whole substrate contract is against."""
+        for relation, kind in sorted(RELATION_BEHAVIOUR.items()):
+            if kind is not None:
+                continue
+            with self.subTest(relation=relation):
+                self.assertEqual(sorted(self.two(relation)['files']),
+                                 ['src/a.py', 'src/b.py'])
 
     def test_graphifys_own_docs_graph_is_not_adopted(self):
         """`rationale_for` is 543 links between `rationale`/`document` nodes. We already have
@@ -353,11 +680,26 @@ class TestTheContractIsSatisfied(Base):
     def test_it_conforms(self):
         self.assertEqual(substrate.conformance_errors(self.backend), [])
 
-    def test_the_declaration_is_derived_from_the_mapping_table(self):
-        """Written down twice, the two drift. A row added to the table must not leave the
-        coverage declaration claiming less — or more — than the projection can emit."""
-        self.assertEqual(set(self.backend.coverage().relations),
-                         set(backend_graphify.RELATIONS.values()) - {None})
+    def test_the_declaration_claims_exactly_the_kinds_the_projection_emits(self):
+        """Written down twice, the two drift. A row added to the mapping must not leave the
+        coverage declaration claiming less — or more — than the projection can emit.
+
+        This compared `coverage().relations` to `set(RELATIONS.values())`: two constants held
+        against each other, which stays green with `translate` returning edgeless files. The
+        set is measured through the projection instead — one link per relation, collect the
+        kinds that actually came out the far side.
+        """
+        emitted = set()
+        for relation in backend_graphify.RELATIONS:
+            g = self.translate([node('a', 'src/a.py'), node('b', 'src/b.py')],
+                               [link('a', 'b', relation)])
+            emitted.update(e['kind'] for e in self.edges(g, 'src/a.py'))
+        self.assertEqual(set(self.backend.coverage().relations), emitted)
+        # A floor, because the equality above is *consistency* and an empty mapping is
+        # perfectly consistent — measured: with `RELATIONS = {}` it stayed green. This is the
+        # capability claim that separates graphify from the floor backend, which emits
+        # `imports` and nothing else, so it is worth stating as a literal.
+        self.assertEqual(emitted, set(substrate.RELATION_KINDS))
 
     def test_an_unmapped_relation_is_reported_rather_than_defaulted(self):
         """The vocabulary cannot be enumerated: grepping graphify's source finds 26 relation
@@ -789,7 +1131,8 @@ class TestAgainstTheRealBinary(Base):
             self.skipTest('graphify.affected could not be read from its own interpreter')
         self.assertIn('"method", "contains"', source)
         for structural in ('contains', 'method', 'rationale_for'):
-            self.assertIsNone(backend_graphify.RELATIONS[structural])
+            with self.subTest(relation=structural):
+                self.assertIsNone(backend_graphify.RELATIONS[structural])
 
     def test_a_deleted_file_leaves_the_graph(self):
         """This is what `coverage.incremental=True` claims, so it is measured, not assumed."""
@@ -947,15 +1290,25 @@ class TestTheDeclaredCoverageMatchesTheTool(unittest.TestCase):
         self.assertEqual(docs, set(backend_graphify.DOCUMENT_EXTENSIONS))
         self.assertEqual(docs & set(backend_graphify.EXTENSIONS), set())
 
-    def test_every_declared_extension_has_a_language(self):
-        """A declared extension with no language writes `language: null` onto real files."""
-        missing = [e for e in backend_graphify.EXTENSIONS
-                   if e not in backend_graphify._LANGUAGE_BY_EXT]
-        self.assertEqual(missing, [])
+    def test_the_declared_languages_are_exactly_what_the_projection_produces(self):
+        """`set(LANGUAGES) == set(_LANGUAGE_BY_EXT.values())` compares two constants and would
+        pass with `translate` never consulting either of them. Measured instead: one file per
+        declared extension, through the projection, collecting what came out.
 
-    def test_the_declared_languages_are_exactly_what_the_table_produces(self):
-        self.assertEqual(set(backend_graphify.LANGUAGES),
-                         set(backend_graphify._LANGUAGE_BY_EXT.values()))
+        The per-extension half of this — that each one gets a language at all, and that the
+        language is declared — is `TestTheExtensionTable`, which names the failing extension
+        in its subTest. This is the whole-set assertion: a language declared that nothing can
+        ever produce, which no per-extension row can see.
+        """
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        backend = GraphifyBackend(tmp)
+        produced = set()
+        for ext in backend_graphify.EXTENSIONS:
+            path = 'src/thing' + ext
+            graph = backend.translate({'nodes': [node('a', path)], 'links': []})
+            produced.add(graph['files'][path]['language'])
+        self.assertEqual(set(backend_graphify.LANGUAGES), produced)
 
 
 if __name__ == '__main__':

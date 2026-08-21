@@ -14,7 +14,11 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from verify_links import verify  # noqa: E402
+# `SKIP_DIRS` is bound here at import, deliberately: the table below drives off this
+# binding while the code under test reads `verify_links.SKIP_DIRS`. That is what makes
+# "empty the registry and watch every row go red" a check rather than a tautology — an
+# emptied registry would otherwise empty the table too and pass with nothing run.
+from verify_links import SKIP_DIRS, verify  # noqa: E402
 
 
 def _write(path: Path, content: str):
@@ -98,6 +102,19 @@ FEATURE_ORPHAN_TAG = FEATURE_CLEAN + (
     "    When nothing\n"
     "    Then nothing\n"
 )
+# Nothing in this file resolves: SPEC-404 is not a spec and BEH-999 is not a behavior. Put
+# anywhere the reverse scan reaches, it is worth exactly two findings.
+FEATURE_ALL_ORPHAN = (
+    "@SPEC-404\n"
+    "Feature: Ghost\n"
+    "\n"
+    "  @BEH-999\n"
+    "  Scenario: Ghost scenario\n"
+    "    Given nothing\n"
+    "    When nothing\n"
+    "    Then nothing\n"
+)
+ORPHAN_KINDS = {"orphan-spec-tag", "orphan-behavior-tag"}
 
 
 def _kinds(errors):
@@ -477,6 +494,57 @@ class LocatorEscapesProjectCase(_PyLocatorFixture):
         """
         errors = self._project("tests/nested/../test_login.py#LoginCase")
         self.assertIn("locator-escapes-project", _kinds(errors))
+
+
+class ReverseScanSkipDirsCase(unittest.TestCase):
+    """Every directory the reverse `.feature` scan walks past, one row per declared member.
+
+    The table drives off `SKIP_DIRS` itself, so a ninth name added to the constant is
+    exercised the moment it is added — eight were declared and one was named by hand when
+    this was written.
+
+    Each row asserts the *consequence*: an all-orphan feature file sitting in that directory
+    yields no orphan finding. It never asserts that the set contains what the set contains —
+    `assertEqual(sorted(SKIP_DIRS), [...])` would pass with `_iter_feature_files`' guard
+    deleted, which is the whole failure mode.
+
+    `test_the_control_fixture_really_does_fire` is the guard against the vacuous pass this
+    repo has now hit three times: the identical file under an ordinary `features/` must
+    report both orphan kinds. Without it, every row below would stay green if the fixture
+    quietly stopped parsing, and the table would prove nothing at all.
+
+    Mutation-checked 2026-08-21. With `verify_links.SKIP_DIRS = frozenset()` all eight rows
+    go red — `orphan-spec-tag` and `orphan-behavior-tag` for each — and the control stays
+    green. No second list eats these fixtures before the guard sees them.
+    """
+
+    def _root(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(lambda: shutil.rmtree(d, ignore_errors=True))
+        return Path(d)
+
+    def _orphan_feature_under(self, directory):
+        """A project whose only `.feature` file is an orphan, parked in `directory`."""
+        root = self._root()
+        _write(root / "knowledge-base/specs/auth/SPEC-001-login.md",
+               _spec("SPEC-001", "auth",
+                     _beh_block("BEH-001", "Admin reviews audit log", "proposed", "manual")))
+        _write(root / directory / "ghost.feature", FEATURE_ALL_ORPHAN)
+        return verify(str(root / "knowledge-base" / "specs"))
+
+    def test_the_control_fixture_really_does_fire(self):
+        """The fixture is live: parked anywhere ordinary, it is worth both findings."""
+        kinds = _kinds(self._orphan_feature_under("features/auth"))
+        self.assertEqual(kinds & ORPHAN_KINDS, ORPHAN_KINDS)
+
+    def test_no_feature_file_under_a_skipped_directory_is_scanned(self):
+        self.assertTrue(SKIP_DIRS, "an empty registry would make this table vacuous")
+        for directory in sorted(SKIP_DIRS):
+            with self.subTest(directory=directory):
+                errors = self._orphan_feature_under(directory)
+                self.assertEqual(
+                    _kinds(errors) & ORPHAN_KINDS, set(),
+                    "the reverse scan descended into %s/: %s" % (directory, errors))
 
 
 if __name__ == "__main__":

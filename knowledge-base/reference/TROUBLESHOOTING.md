@@ -182,7 +182,7 @@ host.
 
 **Confirm.** Run the conformance gate: `python3 bin/check_skill_conformance.py`. Rule **R10**
 reports any frontmatter value over its spec limit — `description` 1024, `compatibility` 500,
-`name` 64 (`bin/check_skill_conformance.py:57`, checked at `:328`–`:335`).
+`name` 64 (`bin/check_skill_conformance.py:57`, checked at `:328`–`:334`).
 
 **Fix.** Shorten the value. This is not a theoretical limit: phase 6 validation found GitHub
 Copilot silently omitting a skill whose `description` ran to 1251 characters while Claude Code
@@ -206,7 +206,7 @@ Prints `False` in this checkout.
 
 **Fix.** None available in a skill — this is a defect in the gate, not in your SKILL.md. The
 allowed set is the union of `bin/commands.json` and `BUILTIN_COMMANDS`
-(`bin/check_skill_conformance.py:366`–`:372`), and `BUILTIN_COMMANDS` at
+(`bin/check_skill_conformance.py:366`–`:371`), and `BUILTIN_COMMANDS` at
 `bin/check_skill_conformance.py:20` lists only `install`, `update`, `doctor`, `init`, `help`,
 while `bin/freya_cli.py:26`–`:27` also ships `uninstall`. Until the list is corrected, avoid
 writing `freya uninstall` inside a code span under `skills/`. Roadmap item 2.
@@ -264,7 +264,7 @@ conditions in ADR-029, not oversights.
 
 **A caveat is never a refusal.** Nothing declines to answer, changes an exit code or takes a gate
 red because of `unmapped_source`, and the rule is written into the code beside the one refusal it
-must not join (`skills/freya-behavior-runner/scripts/run_behaviors.py:316`–`:328`). If you find
+must not join (`skills/freya-behavior-runner/scripts/run_behaviors.py:558`–`:570`). If you find
 yourself "fixing" a run by making it refuse on blind spots, read that comment first: it would
 return `coverage: unknown` for every confirmed and integration behaviour on every polyglot repo,
 and wrap-up's gate would then run zero behaviours and exit 0.
@@ -310,7 +310,7 @@ coverage` — and `substrate.degraded_from` set in the artifact
 
 **Fix.** A degraded graph is not just thinner — it makes `behavior-runner` refuse to compute a
 static closure at all, returning `unknown` with the reason rather than committing a narrower
-closure into `behavior.json` (`run_behaviors.py:305`–`:316`). So this is worth resolving rather
+closure into `behavior.json` (`run_behaviors.py:547`–`:558`). So this is worth resolving rather
 than living with. Related: a wrong-*typed* value (`{"backend": 42}`) is not a degradation, it is
 ignored with a warning on stderr and `auto` is used instead
 (`skills/freya-code-graph/scripts/settings.py:271`–`:279`).

@@ -98,6 +98,30 @@ CITATION = re.compile(
     r":(\d+)\b"
 )
 
+#: A full citation OR a *continuation* — a backticked bare `` `:NNN` `` that
+#: means "the same file as the citation before me". The continuation is the
+#: dominant shape in the ADRs, which write the path once and then a run of line
+#: numbers: ``(`substrate.py:142`, `:154`, `:160`)``. There are 293 of them in
+#: the tracked markdown and the first version of this gate resolved none, so it
+#: printed a clean bill for a seventh of its input that it had never looked at.
+#:
+#: Backticks are required here and nowhere else in the grammar. A bare `:724`
+#: loose in prose is the tail of a ratio, a time, or a sentence; requiring the
+#: delimiters is what keeps this from being the kind of over-matching check
+#: people switch off.
+#: A range (`a.py:202-209`, `` `:202-209` ``) is cited by its START. The end
+#: bound is prose — "and the few lines after" — and requiring it to be in range
+#: would fail citations that are exact about where a construct begins and vague
+#: about where it stops. The continuation form has to spell the range out
+#: because it anchors on a closing backtick, and without it a range was not a
+#: near-miss but a total miss: one repair found a continuation range bound 105
+#: lines past its file's end, unseen because the regex never matched it.
+ANY_CITATION = re.compile(
+    r"(?<![\w/.-])"
+    r"(?P<path>(?:[\w.-]+/)*[\w-][\w.-]*\.[A-Za-z]{1,4}):(?P<line>\d+)\b"
+    r"|`:(?P<cont>\d+)(?:-\d+)?`"
+)
+
 #: What scan() reports: the violations, plus the census of what it did *not*
 #: check. The counts are the whole reason this is not a bare list — a gate that
 #: skips a fifth of its input and never says so is the failure mode this repo
@@ -168,10 +192,27 @@ def resolve(cited, tracked, index):
 
 
 def citations(lines):
-    """Yield (lineno, cited_path, cited_lineno) for each citation in a file."""
+    """Yield (lineno, cited_path, cited_lineno) for each citation in a file.
+
+    Handles both the full form and the continuation (see `ANY_CITATION`). The
+    antecedent carries across a line break, because prose wraps and the citation
+    does not stop at the wrap — ADR-021 establishes `substrate.py` at the end of
+    one line and continues with `` `:773` `` on the next.
+
+    Scoped to one document: `path` starts empty on every call and this is called
+    per file, so a bare number with nothing before it yields nothing rather than
+    resolving against whatever the previous document happened to cite. Inventing
+    a file there would be worse than missing one.
+    """
+    path = None
     for lineno, line in enumerate(lines, 1):
-        for match in CITATION.finditer(line):
-            yield lineno, match.group(1), int(match.group(2))
+        for match in ANY_CITATION.finditer(line):
+            cited, cont = match.group("path"), match.group("cont")
+            if cited:
+                path = cited
+                yield lineno, path, int(match.group("line"))
+            elif path is not None:
+                yield lineno, path, int(cont)
 
 
 def check_file(rel, lines, tracked, index, read_lines):

@@ -218,6 +218,117 @@ class BareFilenameTest(Base):
         self.assertIn("utils.py", json.dumps(graph["ambiguous_citations"]))
 
 
+class CodeExtensionTest(Base):
+    """`CODE_EXTENSIONS` (docs_graph.py:33), driven off the tuple itself.
+
+    The tuple decides what a citation *is*: a `.md` target is a doc-to-doc link and not this
+    artifact's job, a `.py` target is a code edge. Twenty extensions were declared and this file
+    named none of them, so the entire vocabulary rested on `_is_code_path` being called at all
+    and an extension added tomorrow was covered by nothing.
+
+    Each table iterates `docs_graph.CODE_EXTENSIONS`, so a new member is exercised the moment
+    it is added, and asserts the consequence — an edge appears — rather than re-stating the
+    tuple. `assertEqual(sorted(CODE_EXTENSIONS), [...])` would be the circular version: it
+    stays green with `_is_code_path` deleted outright.
+
+    Every fixture puts the *rejected* path in the code-file set too. That is the blind spot
+    `test_a_link_to_another_doc_is_not_a_code_edge` was repaired for: a target missing from the
+    set is excluded a second way, so a negative built on absence proves nothing about the
+    extension check.
+    """
+
+    # Not code by this repo's own vocabulary — `.md`/`.mdx` are documents to the backends
+    # (`backend_graphify.py:217`, `DOCUMENT_EXTENSIONS`), the rest are data. Held here so the
+    # negatives below are as registry-shaped as the positives.
+    NOT_CODE = ('.md', '.mdx', '.txt', '.json', '.csv')
+
+    def test_the_not_code_fixtures_are_outside_the_registry(self):
+        """Fixture precondition, not an assertion about the tuple's contents.
+
+        If one of these is ever promoted into CODE_EXTENSIONS the negatives below become wrong
+        expectations; this fails first and names which one, instead of them failing obscurely.
+        """
+        self.assertEqual([e for e in self.NOT_CODE if e in docs_graph.CODE_EXTENSIONS], [])
+
+    def test_every_code_extension_makes_a_prose_citation_an_edge(self):
+        for ext in docs_graph.CODE_EXTENSIONS:
+            with self.subTest(extension=ext):
+                code = "src/mod" + ext
+                # The same letters with the dot swallowed, and in the file set. Only the
+                # leading dot on the registry entry keeps it out, so this is what fails if a
+                # member is ever added as `py` rather than `.py` — an entry that would make
+                # `endswith` match `.xpy`, `.spy` and every other word ending in those
+                # letters while leaving the positive half of this subTest green.
+                lookalike = "src/mod.x" + ext[1:]
+                found = docs_graph.find_citations(
+                    "See `%s:12`, not `%s`." % (code, lookalike),
+                    "docs/a.md", {code, lookalike})
+                self.assertEqual([c.target for c in found], [code])
+                self.assertEqual(found[0].line, 12)
+
+    def test_every_code_extension_makes_a_markdown_link_an_edge(self):
+        """The second call site (`docs_graph.py:237`): a link href is gated by the same tuple.
+
+        `via` is pinned because the bare href also parses as a path-shaped token in prose, so
+        without it this would still pass with the link branch removed entirely.
+        """
+        for ext in docs_graph.CODE_EXTENSIONS:
+            with self.subTest(extension=ext):
+                code = "src/mod" + ext
+                found = docs_graph.find_citations(
+                    "See [impl](../src/mod%s) and [notes](./other.md)." % ext,
+                    "docs/a.md", {code, "docs/other.md"})
+                self.assertEqual([c.target for c in found], [code])
+                self.assertEqual(found[0].source, "link")
+
+    def test_a_non_code_extension_is_not_an_edge_even_when_the_file_is_known(self):
+        """The discriminating half. A table that only ever asserts True passes with
+        `_is_code_path` hardwired to True; these are the cases that do not.
+
+        The `.py` in each fixture is the control: it proves the parser ran over the string at
+        all, so the missing edge is the extension check and not a fixture with nothing findable
+        in it.
+        """
+        for ext in self.NOT_CODE:
+            with self.subTest(extension=ext):
+                other = "src/notes" + ext
+                known = {other, "src/mod.py"}
+                prose = docs_graph.find_citations(
+                    "See `%s:12` and `src/mod.py:3`." % other, "docs/a.md", known)
+                self.assertEqual([c.target for c in prose], ["src/mod.py"])
+
+                link = docs_graph.find_citations(
+                    "See [notes](../%s) and [impl](../src/mod.py)." % other,
+                    "docs/a.md", known)
+                self.assertEqual([c.target for c in link], ["src/mod.py"])
+
+    def test_the_extension_check_is_case_insensitive(self):
+        """The tuple is lowercase and `_is_code_path` lowercases the path before matching.
+
+        Drop that and every SHOUTED citation silently stops being an edge — silently, because a
+        dropped citation looks exactly like a document that cites nothing.
+        """
+        for ext in docs_graph.CODE_EXTENSIONS:
+            with self.subTest(extension=ext):
+                code = "src/MOD" + ext.upper()
+                found = docs_graph.find_citations("See `%s:7`." % code, "docs/a.md", {code})
+                self.assertEqual([c.target for c in found], [code])
+
+    def test_the_built_artifact_carries_an_edge_for_every_code_extension(self):
+        """End to end: the tuple has to survive `build`, not just `find_citations`."""
+        paths = ["src/mod" + ext for ext in docs_graph.CODE_EXTENSIONS]
+        body = "\n".join("- `%s:%d`" % (p, i + 1) for i, p in enumerate(paths))
+        d = self.mk({"docs/a.md": "# All\n" + body + "\n"})
+        graph = docs_graph.build(d, code_files=set(paths))
+        edges = {e["target"]: e["line"]
+                 for s in graph["docs"]["docs/a.md"]["sections"] for e in s["edges"]}
+        for i, path in enumerate(paths):
+            with self.subTest(extension=os.path.splitext(path)[1]):
+                # The cited line rides along, so an edge invented by some other route than
+                # this citation would not satisfy it.
+                self.assertEqual(edges.get(path), i + 1)
+
+
 class RelatedCodeTest(Base):
     def test_related_code_frontmatter_becomes_edges(self):
         text = (

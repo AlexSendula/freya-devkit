@@ -14,27 +14,27 @@ tags:
 ## Decision
 
 A backend's `build()` and `update()` return a `substrate.Result` — the graph it produced, and
-what it did to produce it (`skills/freya-code-graph/scripts/substrate.py:269`). Everything after
-that belongs to the contract. `run_build` and `run_update` (`graph_ops.py:2562`, `:2567`) pass
-the result to one shared funnel, `_finalise` (`graph_ops.py:2417`), which derives the
-`dependents` reverse index (`:2452`), refuses to overwrite a populated graph with an empty one
-(`:2454`), validates what the backend emitted and records any errors in the artifact
-(`:2460`–`:2477`), takes the census of in-scope files the backend cannot read (`:2485`), and
-writes both `graph.json` and `graph.<backend>.json` (`:2490`, and ADR-028 for why there are two).
+what it did to produce it (`skills/freya-code-graph/scripts/substrate.py:273`). Everything after
+that belongs to the contract. `run_build` and `run_update` (`graph_ops.py:2568`, `:2573`) pass
+the result to one shared funnel, `_finalise` (`graph_ops.py:2423`), which derives the
+`dependents` reverse index (`:2458`), refuses to overwrite a populated graph with an empty one
+(`:2460`), validates what the backend emitted and records any errors in the artifact
+(`:2466`–`:2483`), takes the census of in-scope files the backend cannot read (`:2491`), and
+writes both `graph.json` and `graph.<backend>.json` (`:2496`, and ADR-028 for why there are two).
 `persist_graph` has exactly one production caller, and it is that line.
 
 A backend that returns anything other than a `Result` is rejected by name rather than
-mishandled (`graph_ops.py:2420`). `project_dir` is a required backend attribute for this reason
-alone — the contract does the writing, so it has to be told where (`substrate.py:572`, `:625`).
+mishandled (`graph_ops.py:2426`). `project_dir` is a required backend attribute for this reason
+alone — the contract does the writing, so it has to be told where (`substrate.py:576`, `:629`).
 
 `Result` is a type rather than a bare dict because a dict cannot say "nothing changed", which
 `update` has to be able to say without a sentinel every caller then has to recognise
-(`substrate.py:270`–`280`, `:299`).
+(`substrate.py:274`–`284`, `:303`).
 
 What the backend keeps is the decision to *rebuild*. Only it knows which tool ran and what that
 tool can see, so when a backend reports its artifact current the contract writes nothing, even
 if that artifact is schema-old: it says on stderr that the backend should have rebuilt it and
-leaves it alone (`graph_ops.py:2425`–`:2443`).
+leaves it alone (`graph_ops.py:2431`–`:2449`).
 
 ## Rationale
 
@@ -54,7 +54,7 @@ Central derivation is not merely convenient here, it is more correct. `dependent
 function of `imports`, so computing it once in the contract is strictly better than asking every
 backend to emit it right; and it is rebuilt from scratch on every write rather than appended to,
 because an incremental pass that only adds entries leaves an edge behind when the import that
-justified it is deleted (`substrate.py:307`–`:313`). The reverse edge carries the forward edge's
+justified it is deleted (`substrate.py:311`–`:317`). The reverse edge carries the forward edge's
 kind and provenance (ADR-021) and its symbols (ADR-024), which is a second thing no backend now
 has to remember.
 
@@ -114,7 +114,7 @@ through.
   (`test_backend_graphify.py:817`–`:819`, `:842`). `substrate.py` was not an option either: it is
   the contract and deliberately knows nothing about implementations (`backends.py:4`), while
   finalisation must reach into the floor — `_finalise`'s census constructs a `CodeGraph` to
-  borrow its scope rule (`graph_ops.py:2651`).
+  borrow its scope rule (`graph_ops.py:2657`).
 
 - **Refuse to write a graph that fails validation.** The strict reading, and the one that makes
   the validator a guarantee rather than a note: no consumer could ever act on an edge the
