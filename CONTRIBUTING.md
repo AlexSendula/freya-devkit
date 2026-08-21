@@ -31,7 +31,17 @@ Claude-only loop never will.
 
 ## Running a live agent validation
 
-Live runs cost money and drive agents holding tool permissions, so run them under a redirected `HOME`. Every path the toolkit writes derives from `Path.home()` — six call sites across `bin/installer.py`, `bin/freya_cli.py` and `bin/updater.py`; confirm with `grep -rn 'Path.home()' bin/ | grep -v test_` and expect six — and `Path.home()` follows `$HOME`, as does Node's `os.homedir()`, which matters because both agent CLIs are Node programs. So `HOME=/tmp/freya-sandbox` relocates an entire install, agents included. Nothing reads `$HOME` by any other route: there is no `expanduser` and no `os.environ["HOME"]` in the shipped tree.
+Live runs cost money and drive agents holding tool permissions, so run them under a redirected `HOME`. Every path the toolkit writes derives from the user's home directory by one of two idioms, and **both follow `$HOME`** — as does Node's `os.homedir()`, which matters because both agent CLIs are Node programs. So `HOME=/tmp/freya-sandbox` relocates an entire install, agents included.
+
+Confirm before a live run, and expect exactly these:
+
+```bash
+grep -rn 'Path.home()' bin/ skills/ | grep -v test_          # 6: installer.py, freya_cli.py, updater.py
+grep -rn "expanduser" bin/ skills/ --include='*.py' | grep -v test_   # 1: settings.py, the machine default
+grep -rn 'environ\[.HOME.\]\|environ.get(.HOME' bin/ skills/ --include='*.py' | grep -v test_   # 0
+```
+
+If any count is higher than stated, a new home-derived path has landed and the invariant needs re-checking before you spend money on a run. The `expanduser` one arrived with the polyglot substrate (the machine-level backend default, `~/.freya/settings.json`) and is overridable by `FREYA_HOME` independently of `$HOME`, which is what keeps the test suite off your real machine — see ADR-019. This paragraph previously asserted there was no `expanduser` in the shipped tree at all; that stopped being true and the recipe above is the check that would have caught it.
 
 Know the two limits before you rely on it:
 

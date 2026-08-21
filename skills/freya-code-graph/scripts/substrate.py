@@ -9,7 +9,11 @@ working either way.
 This module is the socket. It holds no parsing logic and imports nothing outside the standard
 library, so a backend can depend on it without inheriting anything.
 
-Six obligations, from `docs/polyglot/spec.md` §2.1:
+Six obligations. The spec they came from was a working document, deleted with the rest of
+that record on 2026-08-21; the decisions it settled are ADR-018 (the contract), ADR-019 (the
+floor and the backend choice) and ADR-020 (who persists). Git history has the original:
+`git show 2762d54:docs/polyglot/spec.md`.
+
 
   1. **Resolve** the languages it claims, given a project root.
   2. **Report what it could not resolve.** An unresolvable import is recorded as

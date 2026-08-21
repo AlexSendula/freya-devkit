@@ -2181,6 +2181,65 @@ class TestScaleAndScopeDefects(Base):
             self.assertEqual(excl.excludes(path), expected, path)
 
 
+class TestSummaryFormatIsWhatIsDocumented(Base):
+    """`--format summary` is what SKILL.md shows an agent, and it had drifted badly.
+
+    The documented `update` block had three of four lines the code never emits; `dependents`
+    and `dependencies` were documented with a filename header and a direct/transitive split
+    that do not exist; every transitive entry carried a `(via …)` annotation nothing produces,
+    because nothing records the traversal path; `build` said "Stored to" where the code says
+    "Cached to". An agent pattern-matching on any of that finds nothing.
+    """
+
+    def cli(self, proj, *args):
+        return subprocess.run([sys.executable, graph_ops.__file__, *args, "--dir", proj,
+                               "--format", "summary"], capture_output=True, text=True).stdout
+
+    def chain(self):
+        return self.mk({
+            "src/a.ts": "export const a = 1\n",
+            "src/b.ts": 'import { a } from "./a"\nexport const b = a\n',
+            "src/c.ts": 'import { b } from "./b"\nexport const c = b\n',
+        })
+
+    def test_no_surface_invents_a_via_annotation(self):
+        """Nothing in the graph records how a transitive edge was reached."""
+        proj = self.chain()
+        self.cli(proj, "--build", "--non-interactive")
+        for args in (("--impact", "src/a.ts"), ("--dependents", "src/a.ts"),
+                     ("--dependencies", "src/c.ts")):
+            self.assertNotIn("(via", self.cli(proj, *args))
+
+    def test_build_says_cached_to(self):
+        out = self.cli(self.chain(), "--build", "--non-interactive")
+        self.assertIn("- Cached to ", out)
+        self.assertNotIn("Stored to", out)
+
+    def test_the_bare_list_surfaces_are_flat_and_unheaded(self):
+        proj = self.chain()
+        self.cli(proj, "--build", "--non-interactive")
+        out = self.cli(proj, "--dependents", "src/a.ts")
+        self.assertTrue(out.startswith("Dependents:"), out)
+        self.assertNotIn("Direct", out)
+        self.assertNotIn("Transitive", out)
+
+    def test_an_empty_answer_is_not_reported_as_a_missing_graph(self):
+        """The empty-vs-unknown conflation the API layer was fixed to remove, still live in
+        the one place a person reads it. A file that imports nothing is a real answer; a file
+        the graph has never seen exits non-zero instead."""
+        proj = self.chain()
+        self.cli(proj, "--build", "--non-interactive")
+        self.assertEqual(self.cli(proj, "--dependencies", "src/a.ts").strip(),
+                         "This file imports nothing in the project.")
+        self.assertEqual(self.cli(proj, "--dependents", "src/c.ts").strip(),
+                         "Nothing depends on this file.")
+        unknown = subprocess.run(
+            [sys.executable, graph_ops.__file__, "--dependents", "nope.ts", "--dir", proj,
+             "--format", "summary"], capture_output=True, text=True)
+        self.assertNotEqual(unknown.returncode, 0)
+        self.assertIn("File not found in graph", unknown.stderr)
+
+
 class TestIncrementalObligation(Base):
     """Obligation 5, which was declared everywhere and enforced nowhere.
 

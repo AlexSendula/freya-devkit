@@ -49,9 +49,10 @@ add one rather than rewriting history.
 
 > **On the citations.** Records here cite their sources by `path:line`. Citations into
 > `skills/`, `bin/` and the rest of `docs/` resolve against the working tree. Citations into
-> `docs/design/…` or `docs/superpowers/…` do **not** — those are the documents these ADRs were
-> distilled from, deleted on 2026-08-19. They resolve against git history: `git log --all --
-> <path>`, or `git show 04a9b8b:<path>`. The line numbers are exact as of that commit and are
+> `docs/design/…`, `docs/superpowers/…` or `docs/polyglot/…` do **not** — those are the documents these ADRs were
+> distilled from — the first two deleted on 2026-08-19, `docs/polyglot/` on 2026-08-21. They
+> resolve against git history: `git log --all -- <path>`, or `git show 04a9b8b:<path>` for the
+> first two and `git show 2762d54:<path>` for `docs/polyglot/`. The line numbers are exact as of that commit and are
 > kept deliberately, because a citation without a line is not provenance.
 
 ## The records

@@ -61,6 +61,29 @@ answer says what it could not read). The narrative is in
 
 ## Deferred capabilities
 
+### The semantic pass for the docs graph
+
+`docs-graph` finds doc → code edges by three deterministic readers: fenced code blocks,
+inline `path:line` citations, and link targets. A **semantic pass** — asking a model which code
+a paragraph is about, when no citation exists — was designed and never built.
+
+It matters for a specific adopter: one whose documentation cites no code at all. All three
+readers then yield nothing, `docs.json` is a list of documents with zero edges, and the reverse
+question ("I changed this file, which docs now lie?") has no answer for them. This repository is
+unusually citation-heavy because its own conventions demand `path:line` provenance, which is not
+evidence about anybody else. ADR-026's first revisit condition is the trigger: check it on the
+first adopter whose docs were not written under that habit.
+
+The design, if it is built: edges from the pass are `inferred`, never `extracted`, so they are
+distinguishable from a real citation and can be filtered out wherever that distinction ever
+starts being enforced (ADR-021). It runs on the engineer's own agent session rather than an API
+key the toolkit holds — ADR-015's rule, and the reason there is no model call anywhere in the
+shipped tree.
+
+Recorded here rather than as an ADR because there is nothing to decide yet: it is unbuilt, and
+a record describing behaviour that does not exist is the defect this project keeps catching.
+
+
 ### Per-framework observed-coverage adapter (V8 + CDP) — the big one
 
 **What.** Real *observed* `TEST → CODE` coverage at the integration/e2e level: launch the app
@@ -453,11 +476,11 @@ not rediscovered.
 A `CodeGraph` is constructed with one `project_dir` and every path in the artifact is relative
 to it. A system split across several repositories — a mobile app, an API, and a shared contracts
 repo — therefore gets one graph per repo and no edge between them, which is exactly the
-relationship anyone asking for blast radius wants. It is the monorepo problem ADR-019 solved
+relationship anyone asking for blast radius wants. It is the same shape as the monorepo problem the floor already solves for npm workspaces (`graph_ops.py`, `_workspace_globs`)
 (`apps/mobile` → `packages/domain`) with the packages behind a repository boundary instead of a
 directory one.
 
-Not obviously the same fix. ADR-019 could read the workspace manifests because they were in the
+Not obviously the same fix. The workspace resolver could read those manifests because they were in the
 tree; across repos there is no single tree, the sibling may not be checked out, and the two
 sides can be at different commits — so a naive resolution would emit edges into a version of a
 file nobody has. The honest floor is probably to resolve to `external:` as today but *say* it is

@@ -298,13 +298,17 @@ Tier 5  codebase-security-resolver
 
 ## File Locations
 
-Everything under `knowledge-base/` is committed except the two regenerable cache files, which
-`.graph/.gitignore` names.
+Everything under `knowledge-base/` is committed except the regenerable cache, which
+`.graph/.gitignore` names individually — individually rather than with a blanket `*`, because
+`behavior.json` sits in the same directory and has to be committed.
 
 | Type | Location | In git? |
 |------|----------|---------|
+| Project settings | `knowledge-base/settings.json` | **tracked** |
 | Dependency graph | `knowledge-base/.graph/graph.json` | ignored |
+| Per-backend graph | `knowledge-base/.graph/graph.<backend>.json` | ignored |
 | Graph classifications | `knowledge-base/.graph/classifications.json` | ignored |
+| Docs graph | `knowledge-base/.graph/docs.json` | ignored |
 | Behavior graph | `knowledge-base/.graph/behavior.json` | tracked |
 | Project docs | `knowledge-base/reference/*.md` | tracked |
 | Feature specs | `knowledge-base/specs/<category>/SPEC-*.md` | tracked |
@@ -318,8 +322,14 @@ Everything under `knowledge-base/` is committed except the two regenerable cache
 | Declared-intent tracking | `knowledge-base/intents/.intent-last-verified` | tracked |
 | Security tracking | `knowledge-base/security/.security-last-scan` | tracked |
 | Update-check throttle | `~/.freya/update-check.json` | outside the repo |
+| Machine backend default | `~/.freya/settings.json` (`FREYA_HOME` overrides) | outside the repo |
 | Project agent primer | `AGENTS.md` (managed block only) | tracked |
 
 `behavior.json` holds observed coverage captured by running the tests, so it cannot be rebuilt
 by re-reading source like its `.graph/` neighbours can — which is why it is committed while they
 are not. See [ADR-017](decisions/ADR-017-behavior-json-is-committed.md).
+
+`knowledge-base/settings.json` is the only file here a person edits by hand, and the only one
+Track B added to the tracked set. It holds which substrate backend this project uses and which
+built-in exclusions it overrules — both of which have to survive a clone and reach CI, which is
+why it sits outside `.graph/` where `--clear` cannot take a real decision with the cache.

@@ -6,6 +6,58 @@ at all** — that path fast-forwards the checkout to the tracked branch's head, 
 pushed commit is live for them the moment they run it. See
 [CONTRIBUTING.md § Releasing updates](CONTRIBUTING.md#releasing-updates).
 
+## Unreleased — the polyglot substrate (2026-08-21)
+
+The code graph everything else stands on was one hand-written resolver reading four languages.
+Point it at a Java project and it found nothing, printed *"Built dependency graph: 0 files
+scanned"*, and exited 0 — and the shape detector, which decides whether a project is new by
+counting internal edges, then classified a decade-old codebase as an empty scaffold. That was
+the wall, hit on the first attempt to use the toolkit on a work laptop.
+
+**The graph is now produced through a contract with interchangeable backends.**
+
+- `homegrown` ships with the toolkit, needs nothing but Python, reads 4 languages across 6
+  extensions, and is the floor — it always runs unless something else is named. The driving
+  case is a locked-down machine where a package install is blocked, and the floor is what
+  guarantees the toolkit degrades to *something* everywhere rather than to nothing.
+- `graphify` is opt-in, needs its binary on `PATH`, and reads **40 languages across 93
+  extensions** plus `calls`/`inherits`/`references` relations the floor has no notion of.
+
+**Choosing one is a person's decision.** `freya install` asks once and records the answer as
+your machine default; the first build in a project writes it into that project's committed
+`knowledge-base/settings.json`, so a clone and CI resolve the same backend you do. It is never
+scored automatically — installing a binary anywhere on `PATH` must not silently change every
+blast radius on the machine.
+
+```bash
+uv tool install "graphifyy[sql,terraform]"
+freya code-graph --use graphify --global
+```
+
+**Every answer now says what it could not read.** `build`, `update`, `query` and `impact` may
+carry an `unmapped_source` block naming the in-scope source the backend could not parse and the
+directories to grep instead; `dependents`/`dependencies` keep their bare arrays and say it on
+stderr. The key is absent when there is nothing to say, so its presence means the answer above
+it is computed over an incomplete graph.
+
+**Also in this change**
+
+- An edge is an object carrying `kind` and `provenance` behind a versioned schema, instead of a
+  bare path string. Measured: the old shape could express 2,102 of graphify's 5,027 connections.
+- Optional symbol refinement on edges — which symbol an edge leaves and arrives at — off by
+  default, and never replacing the file anchor.
+- Every built-in exclusion is now a default a project can overrule, in two tiers.
+- Each backend writes its own `graph.<backend>.json` beside the active graph, so a substrate
+  swap can be diffed rather than destroying the baseline it should be measured against.
+- Fixed: `--update` silently no-opped whenever the project sat below the git root, freezing the
+  graph while reporting success. Fixed: transitive traversal was recursive and raised
+  `RecursionError` on repositories past roughly 1,200 connected files.
+
+**Migration:** none. Existing graphs are read and brought forward; a project that names no
+backend gets the floor, which is what it already had.
+
+**Decisions:** ADR-018 through ADR-029.
+
 ## 0.2.0 — portability (2026-08-18)
 
 The toolkit stops being a Claude Code plugin that happens to be portable and becomes an

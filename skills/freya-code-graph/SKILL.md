@@ -391,14 +391,14 @@ already drifted apart. Every one of them is a default you can overrule: see
 **Output:**
 ```
 Scanning /path/to/project...
-Classifying directories...
+Classifying directories...            # these four lines go to stderr
 Classified: 5 source dirs, 3 excluded dirs
 Found 147 source files
-Built dependency graph:
+Built dependency graph:               # from here, stdout
   - 147 files scanned
   - 312 import relationships
   - 89 export declarations
-  - Stored to knowledge-base/.graph/graph.json
+  - Cached to /abs/path/to/project/knowledge-base/.graph/graph.json
 ```
 
 ### `freya-code-graph update`
@@ -416,10 +416,8 @@ Incrementally update the graph by only processing changed files.
 **Output:**
 ```
 Updated dependency graph:
-  - 5 files changed since commit abc123
-  - 3 new import relationships
-  - 1 removed import relationship
-  - Graph updated at 2024-01-15T11:00:00Z
+  - 5 files changed since last build
+  - Graph updated at commit 65634ac30739
 ```
 
 ### `freya-code-graph query <file>`
@@ -475,11 +473,11 @@ Direct impact (3 files):
   - src/lib/auth/index.ts
 
 Transitive impact (5 files):
-  - src/api/routes/admin.ts (via middleware)
-  - src/api/routes/dashboard.ts (via middleware)
-  - src/pages/api/user.ts (via routes/users)
-  - src/pages/api/settings.ts (via routes/users)
-  - src/lib/auth/session.ts (via auth/index)
+  - src/api/routes/admin.ts
+  - src/api/routes/dashboard.ts
+  - src/lib/auth/session.ts
+  - src/pages/api/settings.ts
+  - src/pages/api/user.ts
 
 Total blast radius: 8 files affected
 ```
@@ -499,38 +497,38 @@ Returns combined blast radius for all specified files.
 
 Show all files that depend on this file (direct and transitive).
 
-**Example:**
-```
-Dependents of src/lib/utils/format.ts:
+**Example:** one flat, sorted list — direct and transitive together, because the caller asked
+*which files*, not *how far away*. Use `impact` for the split.
 
-Direct (12 files):
-  - src/components/ui/Table.tsx
+```
+Dependents:
   - src/components/ui/Card.tsx
+  - src/components/ui/Table.tsx
   - src/lib/api/response.ts
-  ...
-
-Transitive (8 files):
-  - src/pages/index.tsx (via components)
-  ...
+  - src/pages/index.tsx
 ```
+
+When nothing depends on it, that is a real answer and says so: `Nothing depends on this file.`
+A file the graph has never seen is *not* that — it exits non-zero with
+`File not found in graph: <path>` on stderr.
 
 ### `freya-code-graph dependencies <file>`
 
 Show all files that this file depends on (direct and transitive).
 
-**Example:**
-```
-Dependencies of src/api/routes/users.ts:
+**Example:** one flat, sorted list, same shape as `dependents`.
 
-Direct:
+```
+Dependencies:
+  - src/lib/auth/config.ts
   - src/lib/auth/validateToken.ts
   - src/lib/db/connection.ts
+  - src/lib/db/schema.ts
   - src/lib/utils/format.ts
-
-Transitive:
-  - src/lib/auth/config.ts (via auth)
-  - src/lib/db/schema.ts (via db)
 ```
+
+A file that imports nothing answers `This file imports nothing in the project.` — again a real
+answer, distinct from a file the graph does not hold.
 
 ### `freya-code-graph clear`
 
@@ -544,7 +542,6 @@ Delete the cached graph for this project.
 **Output:**
 ```
 Cleared dependency graph cache for this project.
-Run freya-code-graph build to create a fresh graph.
 ```
 
 ### `freya-code-graph help`

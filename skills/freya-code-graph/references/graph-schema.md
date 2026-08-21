@@ -360,7 +360,9 @@ Nothing ever read it: the two live things in this toolkit also called "category"
 findings and spec contexts, and neither comes from here.
 
 Caches written before the removal still contain the key. Readers ignore it, and it disappears
-on the next build. See ADR-021 in the Track B decision register.
+on the next build. No ADR records it: there was no fork to record, and the alternative —
+keeping a field nobody reads — is not an alternative. Written down here so nobody reintroduces
+it, which is what a silent deletion invites.
 
 ## Path Resolution
 

@@ -233,6 +233,16 @@ the divergence the seeding was designed to remove.
 
 ## Revisit Conditions
 
+- **Supporting a second workspace format turns into per-tool special-casing.** The floor reads
+  `package.json#workspaces` and resolves cross-package imports itself, because in a monorepo the
+  cross-package edge is *the* architectural edge and a floor that collapses on the layout the
+  immediate real target uses is not a floor. pnpm and yarn declare membership differently
+  (`pnpm-workspace.yaml`, `package.json#workspaces.packages`). One more format is fine; a third
+  branch of tool-specific parsing is the signal to stop and let the substrate contract own
+  package resolution instead — at which point this belongs to whichever backend can actually
+  parse the manifest, not to the floor. (Carried forward from the working record, where it was
+  the revisit condition on a decision too small to become a record of its own.)
+
 - **graphify, or a successor, ships as a single self-contained binary with no install step.**
   Then the floor's load-bearing argument collapses to "one less thing to maintain" and replacing
   the homegrown resolver becomes arguable again. Check the install story specifically — the

@@ -41,7 +41,9 @@ FILE_PATTERNS = {
 # `CATEGORY_PATTERNS` and `_categorize_file` lived here until 2026-08-19. Every file entry
 # carried a path-guessed `category` that no caller ever read — three unrelated things in
 # this repo are called "category", and the live two are security findings and spec
-# contexts. Removed under ADR-021; existing caches keep the key harmlessly.
+# contexts. Removed 2026-08-20 (`git log -S _categorize_file`); it was computed on every
+# build and read by nothing. Existing caches keep the key harmlessly. Not an ADR: there was no
+# fork — the alternative was keeping a field nobody reads.
 
 # Import patterns by language, each tagged with the relation it expresses.
 #
@@ -2187,7 +2189,8 @@ Respond with ONLY a JSON object, no markdown formatting:
             print(f'File not found in graph: {file_path}', file=sys.stderr)
             return None
 
-        # No `category`. ADR-021 removed the field from the graph, and this kept reporting it
+        # No `category`. The field was removed from the graph in 2026-08-20, and this kept
+        # reporting it
         # anyway — always as the literal string 'unknown', for every file, because nothing
         # writes it any more. A field that can only ever hold a placeholder is not a field.
         answer = {
@@ -2860,7 +2863,12 @@ def format_summary(data: Any, operation: str) -> str:
 
     elif operation == 'dependents':
         if not data:
-            return "No cached graph found or file not in graph."
+            # `main()` exits before reaching here when the query could not be answered — a
+            # missing graph or an unknown file returns None and takes the `sys.exit(1)` path.
+            # So an empty collection at this point is a real answer, and saying "no cached
+            # graph found" for it was the same empty-vs-unknown conflation the API layer was
+            # fixed to remove, still live one layer up in the only place a person reads.
+            return "Nothing depends on this file."
 
         lines = ["Dependents:"]
         for dep in sorted(data):
@@ -2869,7 +2877,7 @@ def format_summary(data: Any, operation: str) -> str:
 
     elif operation == 'dependencies':
         if not data:
-            return "No cached graph found or file not in graph."
+            return "This file imports nothing in the project."
 
         lines = ["Dependencies:"]
         for dep in sorted(data):
