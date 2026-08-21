@@ -436,20 +436,44 @@ def detect_test_runners(project_dir: str) -> dict:
     return {"runners": sorted(runners), "evidence": sorted(set(evidence))}
 
 
-def detect_existing_docs(project_dir: str) -> dict:
-    """Detect existing documentation."""
-    results = {"docs_dir": None, "files": []}
+#: Where documentation may already live, most-specific first. `knowledge-base/reference/`
+#: is the layout docs-manager itself writes; `docs/` is the pre-adoption convention. Looking
+#: only at `docs/` meant that on any project that had already adopted the toolkit — including
+#: this repo, once it moved its own tree — the coordinator was told there was no docs
+#: directory and no existing files, so every run planned a from-scratch create and the
+#: reverse-sync it is supposed to do never had a starting point.
+DOC_DIR_CANDIDATES = (
+    ("knowledge-base", os.path.join("knowledge-base", "reference")),
+    ("knowledge-base", "knowledge-base"),
+    ("docs", "docs"),
+)
 
-    # Check for docs directory
-    docs_path = os.path.join(project_dir, "docs")
-    if os.path.isdir(docs_path):
+
+def detect_existing_docs(project_dir: str) -> dict:
+    """Detect existing documentation.
+
+    `docs_dir` is the first candidate that exists and holds markdown, `layout` names the
+    convention it belongs to, and `files` lists its markdown plus the root-level documents.
+    An empty directory is not a hit: `knowledge-base/` exists as soon as code-graph writes
+    `settings.json` into it, and treating that as "docs are present" would be worse than
+    the bug this replaced.
+    """
+    results = {"docs_dir": None, "layout": None, "files": []}
+
+    for layout, relative in DOC_DIR_CANDIDATES:
+        docs_path = os.path.join(project_dir, relative)
+        if not os.path.isdir(docs_path):
+            continue
+        markdown = sorted(f for f in os.listdir(docs_path) if f.endswith('.md'))
+        if not markdown:
+            continue
         results["docs_dir"] = docs_path
-        for f in os.listdir(docs_path):
-            if f.endswith('.md'):
-                results["files"].append(f)
+        results["layout"] = layout
+        results["files"].extend(markdown)
+        break
 
     # Check for root-level docs
-    root_docs = ["README.md", "CLAUDE.md", "CONTRIBUTING.md", "CHANGELOG.md"]
+    root_docs = ["README.md", "CLAUDE.md", "AGENTS.md", "CONTRIBUTING.md", "CHANGELOG.md"]
     for doc in root_docs:
         if os.path.exists(os.path.join(project_dir, doc)):
             results["files"].append(doc)

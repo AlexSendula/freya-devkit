@@ -80,13 +80,27 @@ def _principles_section(text):
 
 
 def cmd_list(project, fmt):
+    """Print the principles, or say why there are none.
+
+    Text mode used to return the empty string for a project with no principles.md,
+    which prints one blank line and exits 0 — indistinguishable from a principles.md
+    that exists and is empty, and from the command having silently failed. Found by
+    running this on freya-devkit itself, which has no principles file. Same reasoning
+    as ADR-005: an empty answer has to say that it is empty and why. JSON mode already
+    returned `[]`, which is unambiguous to a machine, so it is unchanged.
+    """
     path = _principles_path(project)
     if not path.exists():
-        return "" if fmt == "text" else "[]"
+        return "[]" if fmt == "json" else (
+            "No principles: %s does not exist.\n"
+            "Nothing to enforce — G2 passes vacuously until it does." % PRINCIPLES_RELPATH)
     text = path.read_text(encoding="utf-8", errors="replace")
     if fmt == "json":
         return json.dumps(parse_principles(text), indent=2)
-    return _principles_section(text)
+    section = _principles_section(text)
+    if not section:
+        return ("No principles: %s exists but declares none." % PRINCIPLES_RELPATH)
+    return section
 
 
 def append_resolution(project, record):

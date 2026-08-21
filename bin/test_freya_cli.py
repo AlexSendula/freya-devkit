@@ -225,6 +225,49 @@ class DoctorTest(unittest.TestCase):
                     if n == "freya on PATH"}
         self.assertTrue(statuses <= {"ok", "warn"}, f"PATH must never hard-fail, got {statuses}")
 
+    def _path_row(self, checks):
+        return next((s, d) for n, s, d in checks if n == "freya on PATH")
+
+    def test_a_freya_on_path_from_another_install_is_a_warning(self):
+        """Found by running `./bin/freya doctor` from a checkout.
+
+        A released copy was on PATH, doctor inspected the checkout, and the row
+        said `ok` — so every other row described a tree the shell would not run.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "checkout"
+            (root / "bin").mkdir(parents=True)
+            (root / "skills").mkdir(parents=True)
+            (root / "bin" / "commands.json").write_text("{}")
+            elsewhere = Path(tmp) / "elsewhere" / "bin"
+            elsewhere.mkdir(parents=True)
+            (elsewhere / "freya").write_text("#!/bin/sh\n")
+            (elsewhere / "freya").chmod(0o755)
+            with mock.patch.object(freya_cli.shutil, "which",
+                                   return_value=str(elsewhere / "freya")):
+                status, detail = self._path_row(
+                    freya_cli.doctor_checks(root=root, run=_offline_git))
+        self.assertEqual(status, "warn")
+        self.assertIn("a different copy", detail)
+
+    def test_a_symlink_into_the_store_is_still_ok(self):
+        """The healthy install is a symlink, so the check must follow it."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "store"
+            (root / "bin").mkdir(parents=True)
+            (root / "skills").mkdir(parents=True)
+            (root / "bin" / "commands.json").write_text("{}")
+            (root / "bin" / "freya").write_text("#!/bin/sh\n")
+            link_dir = Path(tmp) / "linkdir"
+            link_dir.mkdir()
+            link = link_dir / "freya"
+            link.symlink_to(root / "bin" / "freya")
+            with mock.patch.object(freya_cli.shutil, "which", return_value=str(link)):
+                status, detail = self._path_row(
+                    freya_cli.doctor_checks(root=root, run=_offline_git))
+        self.assertEqual(status, "ok")
+        self.assertNotIn("different copy", detail)
+
     def test_missing_script_is_reported_as_fail(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

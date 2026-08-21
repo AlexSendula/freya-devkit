@@ -212,5 +212,58 @@ class OrmDetectionTest(Base):
         self.assertIsNone(detect_project.detect_database(self.mk({}))["orm"])
 
 
+class ExistingDocsTest(Base):
+    """Found by running docs-manager on freya-devkit itself.
+
+    The detector looked only at `docs/`, so a project that had already adopted the
+    toolkit's own `knowledge-base/` layout reported no docs directory and no existing
+    files — and every run planned a from-scratch create instead of a reverse-sync.
+    """
+
+    def test_the_toolkits_own_layout_is_found(self):
+        d = self.mk({"knowledge-base/reference/ARCHITECTURE.md": "# A\n"})
+        found = detect_project.detect_existing_docs(d)
+        self.assertEqual(found["layout"], "knowledge-base")
+        self.assertTrue(found["docs_dir"].endswith(os.path.join("knowledge-base", "reference")))
+        self.assertIn("ARCHITECTURE.md", found["files"])
+
+    def test_reference_wins_over_the_knowledge_base_root(self):
+        d = self.mk({"knowledge-base/README.md": "# Index\n",
+                     "knowledge-base/reference/ARCHITECTURE.md": "# A\n"})
+        found = detect_project.detect_existing_docs(d)
+        self.assertTrue(found["docs_dir"].endswith(os.path.join("knowledge-base", "reference")))
+        self.assertEqual(found["files"], ["ARCHITECTURE.md"])
+
+    def test_a_knowledge_base_holding_only_settings_is_not_a_docs_dir(self):
+        """`knowledge-base/` exists the moment code-graph writes settings.json.
+
+        Reporting that as "documentation is present" would suppress the create the
+        project actually needs, which is worse than the bug this test came from.
+        """
+        d = self.mk({"knowledge-base/settings.json": "{}\n"})
+        found = detect_project.detect_existing_docs(d)
+        self.assertIsNone(found["docs_dir"])
+        self.assertIsNone(found["layout"])
+
+    def test_the_legacy_docs_layout_still_works(self):
+        d = self.mk({"docs/architecture.md": "# A\n"})
+        found = detect_project.detect_existing_docs(d)
+        self.assertEqual(found["layout"], "docs")
+        self.assertIn("architecture.md", found["files"])
+
+    def test_knowledge_base_wins_when_both_exist(self):
+        d = self.mk({"docs/architecture.md": "# old\n",
+                     "knowledge-base/reference/ARCHITECTURE.md": "# new\n"})
+        found = detect_project.detect_existing_docs(d)
+        self.assertEqual(found["layout"], "knowledge-base")
+        self.assertNotIn("architecture.md", found["files"])
+
+    def test_root_documents_are_reported_with_no_docs_dir_at_all(self):
+        d = self.mk({"README.md": "# r\n", "AGENTS.md": "# a\n"})
+        found = detect_project.detect_existing_docs(d)
+        self.assertIsNone(found["docs_dir"])
+        self.assertEqual(found["files"], ["README.md", "AGENTS.md"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
