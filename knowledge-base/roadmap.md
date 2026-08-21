@@ -599,6 +599,32 @@ Worth re-running on a polyglot repo. On this one the honest summary is that grap
 languages buy almost nothing — it is a Python repo — and what it actually bought was correct
 resolution of imports that cross a `sys.path` boundary.
 
+### 17. `freya security scan` persists nothing
+
+Found 2026-08-21, running the scan on this repository.
+
+The driver has **no write path**. `grep -n "open(" skills/freya-codebase-security-scan/scripts/*.py`
+returns exactly one hit, and it is a read. 73 agent calls produced 22 verified findings, and the
+only durable record was the shell redirect the caller happened to add. Without `> file` the
+whole run is lost when the terminal scrolls.
+
+This is not a bug in the sense of a wrong answer — SKILL.md is explicit that the *skill* writes
+`knowledge-base/security/codebase-security/YYYY-MM-DD.md` and `findings.json`, and the driver
+only discovers and verifies. But the split means the expensive half is the durable-less half,
+and `--format summary` — the obvious thing to run — discards the evidence and remediation that
+the report needs, keeping only a one-line title per finding. Reconstructing them cost a second
+pass over the code.
+
+Two candidate fixes, and they are not exclusive:
+- Have the driver write its own raw JSONL beside the report directory before returning, purely
+  as a crash log. Cheap, and it makes the split survivable.
+- Make `--format summary` a view over a structure that is always emitted, rather than the only
+  thing produced.
+
+Related: the cost line printed at the end (`$72.60` on this run) is the agent CLI's own
+Anthropic-priced estimate. With `ANTHROPIC_BASE_URL` pointing elsewhere it does not describe
+what the operator was actually charged, and nothing says so.
+
 ## Platform-blocked
 
 Items that need a platform we do not have, or a live agent run we have not paid for. None is

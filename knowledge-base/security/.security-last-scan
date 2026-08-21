@@ -1,0 +1,12 @@
+# Security Scan Last Update
+commit: 11cad1362dd62ee65ce156a9bf268533401e7269
+timestamp: 2026-08-21T00:00:00Z
+files_scanned: 192
+findings: 21
+scan_type: scan
+# Note: `freya security scan` persists nothing (knowledge-base/roadmap.md item 17), so this
+# marker — like the report and findings.json beside it — was written by the re-grounding pass
+# that reconstructed the run, not by the driver. `files_scanned` is the repository's tracked
+# file count at this commit (a full-codebase scan); the driver's own coverage count was lost.
+# `findings: 21` is the report's entry count — 22 survived driver verification and two were
+# merged into SEC-004 per skills/freya-codebase-security-scan/SKILL.md:592-601.
