@@ -42,7 +42,7 @@ strings, projected off the edge objects by `edge_ends` (`graph_ops.py:2242`, `:2
 
 **Provenance is recorded and read by nothing.** Every edge carries `extracted` or `inferred`
 faithfully: the homegrown resolver stamps `extracted` throughout, because it reads import
-statements out of source text and does nothing else (`graph_ops.py:1963`, `:1976`), and the
+statements out of source text and does nothing else (`graph_ops.py:1968`, `:1981`), and the
 graphify backend maps that backend's own `EXTRACTED`/`INFERRED` tag, defaulting an unrecognised
 confidence to `inferred` (`backend_graphify.py:143`, `:628`, `:657`). Past that, no production
 code consults the field. `edge_provenance` has exactly one caller, and it is the reverse-index
@@ -57,7 +57,7 @@ enforced by nothing*).
 
 `unresolved` is not a provenance value and never was. "Could not be resolved" is a fact about
 where an edge points, not about how it was read, so it is a prefix on the target —
-`unresolved:<raw specifier>`, alongside `external:` (`substrate.py:65`). The edge is kept and
+`unresolved:<raw specifier>`, alongside `external:` (`substrate.py:69`). The edge is kept and
 visible rather than dropped, which is ADR-005's rule applied at edge granularity.
 
 ## Rationale

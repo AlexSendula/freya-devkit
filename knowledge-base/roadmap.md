@@ -14,7 +14,7 @@ Each item says *what*, *why it was deferred*, and *how to pick it up*. Keep it t
 an item nobody can act on is noise.
 
 > **Why `roadmap.md` and not `backlog.md`.** `freya status --write-backlog` writes
-> `knowledge-base/BACKLOG.md` by full overwrite (`collect_status.py:222`), and on a
+> `knowledge-base/BACKLOG.md` by full overwrite (`collect_status.py:226`), and on a
 > case-insensitive filesystem that is the same path as `backlog.md`. This file is
 > hand-maintained and was renamed on 2026-08-21 to keep the toolkit from destroying it.
 > `BACKLOG.md` beside it is the generated census — behaviors to confirm, tests owed,
@@ -58,8 +58,9 @@ answer says what it could not read). The narrative is in
   see ADR-021, and item 13 under *Open defects*.
 - **The coverage block cannot say "I do not emit this field"** — item 14 below.
 - **An unmapped file cannot surface as a coverage gap** in the git-tracked `BACKLOG.md`:
-  `behavior_graph.gaps()` enumerates only files that are in the graph. The census is sitting
-  in `graph.json` for it to read whenever the churn is judged worth it (ADR-029).
+  `behavior_graph.gaps()` enumerates only files that are in the graph — and, since item 18,
+  only the ones a behavior could name. The census is sitting in `graph.json` for it to read
+  whenever the churn is judged worth it (ADR-029).
 - **The framework-agnosticism sweep** over docs-manager templates, the shape detector and the
   security heuristics was scoped into Track B and only partly done. The shape detector is
   polyglot now; the doc templates and the security heuristics still assume a Node/Next shape.
@@ -105,8 +106,8 @@ is Next-only and **Next 16 + Turbopack support is unverified**), a meaningful ch
 engineering, and a Node dependency. Too big to bolt on mid-implementation.
 
 **What ships instead today.** Static coverage via code-graph: `fingerprint_behavior()`
-(`skills/freya-behavior-runner/scripts/run_behaviors.py:212-229`) runs observed coverage only
-for `level: unit` + `adapter: vitest`, and returns a static fingerprint for integration. Static
+(`skills/freya-behavior-runner/scripts/run_behaviors.py`) runs observed coverage only at
+`level: unit`, and returns a static fingerprint for integration. Static
 is conservatively broad, which is the safe direction for blast radius. The observed adapter
 *upgrades* integration behaviors from `static` to `observed` where a project opts in.
 
@@ -135,15 +136,23 @@ worker wall, so only the "consume existing traces" form is worth building.
 
 ### P4c — the remaining runner adapters
 
-**What.** Only the **vitest** unit runner is actually implemented (V8 →
+> **Partly picked up, 2026-08-21.** The `pytest` half — which is the half that adds Python as a
+> second language — lands in the same batch as this edit: `fingerprint_behavior` now routes
+> `level: unit` with `adapter: pytest` or `unittest` to a real execution path
+> (`skills/freya-behavior-runner/scripts/run_behaviors.py`, `PYTEST_ADAPTERS`). It was pulled
+> forward because the brownfield scan wrote 149 `unittest` behaviors for this repository and
+> there was nothing that could run one. The rest of the item stands as written: `jest` is still
+> unbuilt, and the if-ladder is still an if-ladder.
+
+**What.** Only the **vitest** unit runner was implemented (V8 →
 `coverage-final.json` → observed fingerprint). `KNOWN_ADAPTERS`
 (`skills/freya-spec-manager/scripts/frontmatter.py:94-100`) allow-lists eleven runner
 adapters — cucumber, behave, pytest-bdd, jest, vitest, mocha, jasmine, playwright, cypress,
 pytest, unittest — plus `manual` (human-verified, no runner), but everything except
-vitest-unit falls through to `level-deferred` in `fingerprint_behavior()`
-(`run_behaviors.py:229`): unknown coverage, never run. Integration is
-static via code-graph and therefore adapter-agnostic; authoring already handles all of them
-(Gherkin scaffold plus native link).
+vitest-unit fell through to `level-deferred` in `fingerprint_behavior()`
+(`skills/freya-behavior-runner/scripts/run_behaviors.py`): unknown coverage, never run.
+Integration is static via code-graph and therefore adapter-agnostic; authoring already handles
+all of them (Gherkin scaffold plus native link).
 
 **Why deferred.** Deprioritized deliberately: the development testbed uses vitest and TS, so
 building jest or pytest support served nothing that existed. Phase 4 is "done enough" for the
@@ -154,9 +163,12 @@ TS case.
 `pytest` is the interesting one: it adds **Python as a second language** (coverage.py
 `--cov-report=json` → a small new parser). Both are unit-level and stdlib-parseable.
 **Observed e2e (playwright/cypress) is not P4c** — it needs the V8+CDP coverage adapter above.
-When picked up, replace the hardcoded `(state, level, adapter)` if-ladder at
-`run_behaviors.py:220-229` with a small **runner-adapter registry** (per adapter: argv builder,
-coverage parser, observed-confidence), porting vitest onto it behavior-preservingly.
+When picked up, replace the hardcoded `(state, level, adapter)` if-ladder in
+`fingerprint_behavior` (`skills/freya-behavior-runner/scripts/run_behaviors.py`) with a small
+**runner-adapter registry** (per adapter: argv builder, coverage parser,
+observed-confidence), porting vitest onto it behavior-preservingly. The pytest adapter added a
+third branch to that ladder rather than starting the registry, which is the cost the note above
+bought its schedule with.
 
 **Note the altitude.** The runner side is *not* the polyglot blocker — code-graph is. Doing
 P4c does not unblock Track B, and Track B may change what an adapter should look like.
@@ -279,9 +291,11 @@ brainstorm, 2026-08-19.
 
 ## Open defects
 
-Items 1–8 were re-verified against shipped code on 2026-08-19, and 7 and 9 have since been
-fixed. Items 9–11 were found the same day: 9 and 10 by the Track B Phase 0 spike, 11 by the
-review of the repair it prompted.
+Items 1–8 were re-verified against shipped code on 2026-08-19. Items 9–11 were found the same
+day: 9 and 10 by the Track B Phase 0 spike, 11 by the review of the repair it prompted. Items
+15–18 came out of running the toolkit on itself on 2026-08-21.
+
+**Fixed, and struck rather than deleted so the reasoning survives:** 7, 9, and 15 (by 18).
 
 ### 1. A `--copy` install is re-copied on every `update`, even when nothing changed
 
@@ -544,13 +558,17 @@ added to solve for languages. Documented in `references/graph-schema.md` in the 
 
 Becomes real the moment anything depends on `exports`. Nothing does today.
 
-### 15. `coverage gaps` counts files no behavior could ever cover
+### ~~15. `coverage gaps` counts files no behavior could ever cover~~ — RESOLVED (2026-08-21)
+
+**Fixed by 18 below**, which re-measured the same census after the spec corpus landed and
+implemented the `coverable` predicate this entry asked for. The original text is kept because
+the two measurements reconcile exactly and 18 shows the arithmetic.
 
 Found 2026-08-21, running `freya status` on freya-devkit itself.
 
-`behavior_graph.gaps()` subtracts covered files from *every* file in the code graph
-(`skills/freya-behavior-graph/scripts/behavior_graph.py:402`), so the headline number in
-`freya status` and in the generated `BACKLOG.md` includes test files and shell scripts. A
+`behavior_graph.gaps()` subtracted covered files from *every* file in the code graph
+(`skills/freya-behavior-graph/scripts/behavior_graph.py`, `gaps`), so the headline number in
+`freya status` and in the generated `BACKLOG.md` included test files and shell scripts. A
 behavior's `exercises` names production code; a `test_*.py` will never appear there, so every
 one of them is a permanent, unactionable entry.
 
@@ -559,10 +577,11 @@ shell scripts (`bin/freya`, `install.sh`, `install.ps1`) make up the other 51%. 
 is half noise trains people to ignore it, which is the same failure mode as a check that cries
 wolf.
 
-Not fixed here because the fix is a semantic choice, not a bug fix: excluding by filename
-convention is exactly the kind of built-in judgement ADR-022 says should be a project-overridable
-default rather than a hardcoded name list. The likely shape is a `coverable` predicate that
-consults the same classification machinery, with test-file conventions as its default.
+Deferred at the time because the fix looked like a semantic choice rather than a bug fix:
+excluding by filename convention is the kind of built-in judgement ADR-022 says should be a
+project-overridable default rather than a hardcoded name list. 18 settles that by keeping the
+predicate off directory names entirely — every rule it applies is a claim about a *file*, which
+is the half ADR-022 never contested.
 
 ### 16. `graphify` on this repo: +6 real edges, -389 `external:` edges
 
@@ -624,6 +643,58 @@ Two candidate fixes, and they are not exclusive:
 Related: the cost line printed at the end (`$72.60` on this run) is the agent CLI's own
 Anthropic-priced estimate. With `ANTHROPIC_BASE_URL` pointing elsewhere it does not describe
 what the operator was actually charged, and nothing says so.
+
+### ~~18. The coverage-gap census was inflated 2.4×, and `BACKLOG.md` handed the user the wrong number~~ — RESOLVED (2026-08-21)
+
+**Fixed.** Found by re-running `freya status` on this repository after the brownfield scan wrote
+149 behaviors, and closed in the same batch. This is item 15 above, measured a second time and
+acted on.
+
+`behavior_graph.gaps()` subtracted covered files from every file in the code graph, so the
+headline counted files that no `exercises` list can ever name. Measured here:
+
+| | files |
+|---|---:|
+| reported by `behavior-graph --gaps`, before the fix | 57 |
+| `test_*.py` | 29 |
+| `conftest.py` | 1 |
+| addressable by no import statement: `install.sh`, `install.ps1`, and the extensionless `bin/freya` | 3 |
+| **real, actionable gaps** | **24** |
+
+Reproduce from the committed artifacts alone:
+
+```bash
+python3 -c "import json,glob,re,os; g=json.load(open('knowledge-base/.graph/graph.json'))['files']; e={m.group(1) for p in glob.glob('knowledge-base/specs/**/*.md',recursive=True) for m in re.finditer(r'^\s*entry:\s*(\S+)\s*$',open(p).read(),re.M)}; u=[f for f in g if f not in e]; print(len(u), len([f for f in u if os.path.basename(f).startswith('test_')]), len([f for f in u if not f.endswith('.py')]))"
+# → 57 29 3
+```
+
+**The number reached the user.** `knowledge-base/BACKLOG.md` is git-tracked and regenerated by
+`freya status --write-backlog`, so 57 was printed twice in the report the toolkit hands its
+operator — once in the census line (`collect_status.py:188`) and again as the coverage-gap
+section header (`collect_status.py:208`) — with 33 of the 57 permanently unactionable. That is
+exactly the cry-wolf failure item 15 named, now with the arithmetic. The committed
+`BACKLOG.md` still carries 57 until the next regeneration, which is wrap-up Phase 5's job
+(`skills/freya-wrap-up/SKILL.md:467`).
+
+**The fix** is a `_is_coverable` predicate applied by `gaps` in
+`skills/freya-behavior-graph/scripts/behavior_graph.py`. Three rules, each a claim about what a
+*file* is and never about which directory it sits in: anchored test-name conventions
+(`test_x.py`, `x_test.go`, `x.spec.tsx`, plus the `conftest.py` basename), no extension at all,
+and a recorded language that is invoked rather than imported (`shell`, `powershell`, `batch`).
+Deliberately **not** "a `.py` file that is not a test" — the graph is polyglot (ADR-018,
+ADR-019), so an extension allow-list would report a confident zero on any TS, Go or C# project,
+which ADR-005 rules out. Where a rule is uncertain it under-excludes: a missing exclusion costs
+one noisy line, a wrong one hides real uncovered code.
+
+**The two measurements agree, which is why this is one defect and not two.** Item 15 counted 65
+files with 33 non-coverable, so 32 coverable; between the two runs the scan declared `entry:` on
+28 behaviors naming 8 distinct source files, and those 8 are discharged from the census as
+covered. 65 − 8 = 57 reported, 32 − 8 = 24 real. The same 33 files are the noise in both.
+
+**Carried forward, and not fixed here.** `surface`'s `recall_gaps` asks the same question over a
+single change and still counts the same file kinds. Its answer is advisory and per-change rather
+than a tracked census, so it is noise with a much shorter half-life — but it is the same
+predicate's absence, and it is where this will resurface.
 
 ## Platform-blocked
 

@@ -70,7 +70,7 @@ it should be read that way rather than as a guarantee that a graph on disk is so
 Exactly one check does block, and it is the one validation cannot make: an empty `files` dict is
 *valid* — there is no edge to be wrong about — so a backend that silently stops working would
 overwrite a good graph and report `status: built`. `_refuse_to_erase` raises instead
-(`graph_ops.py:2508`), which lets the caller degrade to the floor and keeps the previous artifact
+(`graph_ops.py:2514`), which lets the caller degrade to the floor and keeps the previous artifact
 until something can replace it honestly (ADR-019).
 
 The split holds up now that a second backend is real: `GraphifyBackend.build()` extracts,
@@ -141,7 +141,7 @@ through.
   delete it rather than keep it as evidence of a promise.
 
 - **`_refuse_to_erase` starts firing on legitimate builds.** It compares against the active
-  artifact whoever wrote it (`graph_ops.py:2527`), so switching a repository from a polyglot
+  artifact whoever wrote it (`graph_ops.py:2533`), so switching a repository from a polyglot
   backend to the floor — a Java project going from a full graph to zero readable files — trips
   the refusal, and when the floor *is* the running backend the CLI exits 1 and tells the user to
   `--clear` first. That is right for a backend that broke and wrong for a backend swap that

@@ -21,6 +21,8 @@ from frontmatter import (  # noqa: E402
     validate_behaviors,
     validate_adr,
     ADR_STATES,
+    BEHAVIOR_STATES,
+    KNOWN_ADAPTERS,
     FrontmatterError,
     SCHEMA_VERSION,
 )
@@ -329,8 +331,45 @@ class TestBehaviorValidation(unittest.TestCase):
         self.assertTrue(any("locator" in e for e in validate_behaviors([rec])))
 
     def test_accepted_still_requires_adapter(self):
-        rec = {"behavior_id": "BEH-012", "title": "x", "state": "accepted"}
-        self.assertTrue(any("adapter" in e for e in validate_behaviors([rec])))
+        """Pins the adapter rule ALONE. This record used to carry no locator
+        either, so two errors came back and BOTH contained the substring
+        'adapter' — the locator message quotes it ("required for accepted
+        adapter 'None'"). Measured 2026-08-21: deleting the adapter check from
+        validate_behaviors outright left the old assertion green. With a valid
+        locator supplied, the adapter rule is the only one that can fire.
+        """
+        rec = {"behavior_id": "BEH-012", "title": "x", "state": "accepted",
+               "locator": "test_login.py::LoginCase::test_accepts_a_valid_passkey"}
+        errors = validate_behaviors([rec])
+        self.assertEqual(len(errors), 1, errors)
+        self.assertIn("adapter 'None' must be one of", errors[0])
+
+    def test_every_known_adapter_is_accepted_on_an_accepted_behavior(self):
+        """Table driven off frontmatter.KNOWN_ADAPTERS, so an adapter added by
+        a later phase is covered the moment it is declared. Until 2026-08-21
+        this file named two of the twelve — `cucumber` (via _beh) and `manual`
+        — leaving ten entries of the allow-list asserted by nothing. What is
+        asserted is ACCEPTANCE of each member, not the tuple's contents:
+        comparing the set against the constant would restate the module rather
+        than test it (test_audit_engine.py:181).
+        """
+        self.assertTrue(KNOWN_ADAPTERS, "an empty allow-list would make this loop vacuous")
+        for adapter in KNOWN_ADAPTERS:
+            with self.subTest(adapter=adapter):
+                self.assertEqual(validate_behaviors([_beh(adapter=adapter)]), [])
+
+    def test_every_behavior_state_is_accepted_on_a_complete_record(self):
+        """Same table treatment for the lifecycle. Three of the five states
+        were named anywhere in this file (proposed, confirmed, accepted);
+        `quarantined` and `deprecated` were declared and never exercised, so a
+        rule that rejected them would not have shown up here. A record with
+        adapter+locator is valid in every state — only `accepted` *requires*
+        them.
+        """
+        self.assertTrue(BEHAVIOR_STATES, "an empty lifecycle would make this loop vacuous")
+        for state in BEHAVIOR_STATES:
+            with self.subTest(state=state):
+                self.assertEqual(validate_behaviors([_beh(state=state)]), [])
 
     def test_parsed_spec_round_trips_through_validate(self):
         # End-to-end: a hand-written spec parses into structured records that validate.
@@ -374,9 +413,17 @@ class ADRSchemaCase(unittest.TestCase):
         self.assertTrue(any("tags" in e for e in errs))
 
     def test_all_states_valid(self):
-        for s in ADR_STATES:
-            self.assertEqual(
-                validate_adr({"id": "ADR-001", "title": "X", "status": s}), [])
+        """One subTest per member of frontmatter.ADR_STATES: the bare loop
+        aborted on the first rejected status, so a rule that only honoured
+        `accepted` and `proposed` reported one failure and left the other two
+        members unmeasured. Acceptance is the assertion — the tuple's contents
+        are the module's own claim, not evidence for it.
+        """
+        self.assertTrue(ADR_STATES, "an empty status set would make this loop vacuous")
+        for status in ADR_STATES:
+            with self.subTest(status=status):
+                self.assertEqual(
+                    validate_adr({"id": "ADR-001", "title": "X", "status": status}), [])
 
 
 if __name__ == "__main__":

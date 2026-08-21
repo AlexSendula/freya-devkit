@@ -227,13 +227,15 @@ class VerifyLinksCase(unittest.TestCase):
         errors = verify(self._specs_dir(root))
         self.assertIn("duplicate-id", _kinds(errors))
 
-    def test_native_adapter_resolves_existing_test(self):
-        root = self._root()
-        self._login_spec(root, adapter="jest",
-                         locator="tests/auth/login.test.ts#successful login")
-        _write(root / "tests/auth/login.test.ts", "test('successful login', () => {});\n")
-        errors = verify(self._specs_dir(root))
-        self.assertEqual(errors, [], f"expected clean native link, got {errors}")
+    # `test_native_adapter_resolves_existing_test` was deleted here 2026-08-21.
+    # It cited `login.test.ts#successful login` against a body spelled
+    # `test('successful login', ...)`, which reads as a fragment check and was
+    # never one — nothing resolves a non-Python fragment. Measured: teaching
+    # verify_links to match those fragments by substring left it green while
+    # `PythonLocatorSymbolCase.test_a_non_python_locator_keeps_its_fragment_
+    # unchecked` went red. The rest of it — an accepted native adapter whose
+    # locator resolves — is `test_clean_set_passes` and the mixed-file case,
+    # both of which go red when the `missing-locator` guard is mis-scoped.
 
     def test_manual_adapter_needs_no_locator(self):
         root = self._root()

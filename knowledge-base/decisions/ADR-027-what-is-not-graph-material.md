@@ -49,7 +49,7 @@ One clause of the working record is not implemented and must not be read as if i
 that where a project has only migrations and no schema file, the current schema is emitted as
 `unresolved`. No code does this, and nothing in today's model could: `unresolved:` is a prefix on
 an import *target*, meaning the source named something project-local that resolves to no file
-(`substrate.py:65`, `:743`), and a "current schema" is not a file and has no node to hang the
+(`substrate.py:69`, `:747`), and a "current schema" is not a file and has no node to hang the
 signal on. What actually happens to a migration-only project is the census — its `.sql` files
 are graphed as isolated nodes when graphify runs with the extra, and named as unread by the
 floor once they dominate. That is the honest answer the clause was reaching for, arrived at by a

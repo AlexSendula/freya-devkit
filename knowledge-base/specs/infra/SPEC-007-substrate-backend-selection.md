@@ -141,7 +141,7 @@ not a bug. Do not "fix" `auto` to choose the widest backend.
 **Decision**: Every path where the requested backend cannot be used — not on PATH, not a
 registered name at all, raises on construction, fails `conformance_errors`, or throws
 mid-build — falls back to the floor, finishes the build, and exits 0
-(`backends.py:138`–`:150`, `graph_ops.py:3019`–`:3038`, `graph_ops.py:2540`). The only
+(`backends.py:138`–`:150`, `graph_ops.py:3020`–`:3038`, `graph_ops.py:2540`). The only
 non-recoverable case is the floor itself failing, which is re-raised.
 
 **Rationale**: ADR-019. The floor is what the run would have used had nobody configured

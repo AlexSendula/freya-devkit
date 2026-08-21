@@ -93,7 +93,7 @@ reading a real report and both still reproducing today against the testbed's
 functions across its 123 entries; 405 of them are `(anonymous_N)`, where N is a
 positional counter per file — `(anonymous_1)` occurs in 44 of them — so inserting one
 function renumbers every later one and would churn a committed file's diff on an edit
-that changed nothing about what ran (`run_behaviors.py:134`). The execution filter is
+that changed nothing about what ran (`run_behaviors.py:171`). The execution filter is
 the sharper of the two on that report: exactly one of the 775, `verifyChallenge` in
 `lib/webauthn.ts`, has a non-zero count, because a coverage report instruments what
 the test loaded and not what it entered.

@@ -2293,6 +2293,66 @@ class TestIncrementalObligation(Base):
         self.assertIn('status', out)
 
 
+class TestUpdateWithoutACache(Base):
+    """BEH-022 — the everyday first run: `--update` on a project that has never been built.
+
+    `CodeGraph.update` returns `self.build(...)` outright on five conditions, and four of them
+    are pinned by name (no commit, an unresolvable commit, a foreign backend, a stale schema).
+    This one — no artifact at all — was reached only incidentally, by fixtures that happen to
+    start with no cache and assert something else entirely.
+
+    It is the one that runs most often. `--update` is the steady-state command wrap-up issues,
+    so the first invocation on every new checkout takes this branch, and the fallback is
+    invisible unless it is declared: `format_summary`'s update branch decides which block to
+    print from `status`, so a fallback that reported `updated` would print "0 files changed"
+    over a graph it had just built from nothing.
+    """
+
+    def setUp(self):
+        # Sandboxed for the reason TestUnmappedSourceCLI spells out: `choose_backend` reads the
+        # real ~/.freya/settings.json, and on a machine that answered the install question with
+        # `graphify` this shells into a different backend's `update()` — whose no-cache branch
+        # says something else, or nothing. Green here, red on any colleague's laptop.
+        self.home = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.home, ignore_errors=True)
+
+    def run_cli(self, *args):
+        return subprocess.run([sys.executable, graph_ops.__file__, *args],
+                              capture_output=True, text=True,
+                              env=dict(os.environ, FREYA_HOME=self.home))
+
+    def pair(self):
+        return self.mk({"src/a.ts": "export const a = 1\n",
+                        "src/b.ts": 'import { a } from "./a";\nexport const b = a;\n'})
+
+    def test_a_first_update_falls_back_to_a_full_build(self):
+        proj = self.pair()
+        out = self.run_cli("--update", "--dir", proj, "--non-interactive", "--format", "json")
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertIn("No cached graph found. Running full build...", out.stderr)
+
+        # The answer is a build summary, not an update one — no `files_changed` to read as
+        # "nothing happened", and a `status` downstream can tell the two apart by.
+        data = json.loads(out.stdout)
+        self.assertEqual(data["status"], "built")
+        self.assertEqual(data["files_scanned"], 2)
+        self.assertNotIn("files_changed", data)
+
+        # And a real build happened, rather than a message about one: both files are in the
+        # artifact with the edge between them resolved.
+        with open(os.path.join(proj, "knowledge-base", ".graph", "graph.json")) as f:
+            graph = json.load(f)
+        self.assertEqual(sorted(graph["files"]), ["src/a.ts", "src/b.ts"])
+        self.assertEqual(ends(graph["files"]["src/b.ts"]["imports"]), ["src/a.ts"])
+
+        # A second, fresh project for the human-readable half: after the run above this one
+        # has a cache, and the branch under test only exists when there is none.
+        summary = self.run_cli("--update", "--dir", self.pair(), "--non-interactive",
+                               "--format", "summary").stdout
+        self.assertTrue(summary.startswith("Built dependency graph:"), summary)
+        self.assertNotIn("Updated dependency graph", summary)
+
+
 class TestReadableBy(Base):
     """The remedy has to be nameable on a machine that has never installed the remedy.
 
@@ -2527,6 +2587,58 @@ class TestUnmappedSourceCLI(Base):
         out = self.run_cli("--impact", "web/src/a.ts", "--dir", proj, "--format", "json")
         self.assertIn("unmapped_source", json.loads(out.stdout))
         self.assertNotIn("--dependents/--dependencies", out.stderr)
+
+    class _Explodes:
+        """A backend that passes selection and then throws at build time.
+
+        The scenario `_run_or_degrade` exists for — the wrapped tool was upgraded, timed out,
+        or exited 0 having written nothing — and the only way to reach the degraded census
+        without installing a backend and then breaking it.
+        """
+
+        name = 'graphify'
+
+        def __init__(self, project_dir):
+            self.project_dir = project_dir
+
+        def build(self, **kwargs):
+            raise RuntimeError('binary vanished mid-build')
+
+        def update(self, **kwargs):
+            raise RuntimeError('binary vanished mid-build')
+
+    def test_a_degraded_build_does_not_recommend_the_backend_it_lost(self):
+        """BEH-045. `backends.readable_by` is deliberately availability-blind — it answers "is
+        there a remedy at all?", which is exactly right on a machine that never installed one —
+        so nothing in it notices that this run has just *proved* graphify unusable. The
+        suppression lives in `_census` alone, and no test constructed a degraded build. A
+        regression prints "--use graphify" directly beneath "'graphify' failed during the
+        build", at exit 0, on the surface an agent acts from.
+
+        Both directions, because the fixture is what makes the assertion mean anything: on the
+        same twelve unread .java files an ordinary floor build *does* name the remedy.
+        """
+        control = graph_ops.run_build(CodeGraph(self.mixed()), non_interactive=True)
+        self.assertEqual(control["unmapped_source"]["readable_by"], {"graphify": 12})
+        self.assertIn("--use graphify", control["unmapped_source"]["advice"])
+
+        proj = self.mixed()
+        degraded = graph_ops._run_or_degrade(
+            graph_ops.run_build, self._Explodes(proj), CodeGraph(proj),
+            True, None, None)
+
+        # The census still reports the gap — the caveat is not what gets suppressed.
+        block = degraded["unmapped_source"]
+        self.assertEqual(block["files"], 12)
+        self.assertEqual(block["directories"], {"src/main/java/com/acme": 12})
+        # Only the remedy is, in both the structured field and the prose that quotes it.
+        self.assertNotIn("readable_by", block)
+        self.assertNotIn("graphify", block["advice"])
+
+        # And this really was the degraded path, not a build that quietly succeeded on the
+        # floor: without this the suppression could be asserted over a run that never fell back.
+        with open(os.path.join(proj, "knowledge-base", ".graph", "graph.json")) as f:
+            self.assertEqual(json.load(f)["substrate"]["degraded_from"], "graphify")
 
     def test_the_summary_format_gains_a_line_only_when_there_is_one(self):
         """FIRST TEST OF format_summary. Both directions: the new line appears, and a clean

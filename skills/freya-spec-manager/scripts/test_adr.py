@@ -144,6 +144,41 @@ class IntegrityCase(unittest.TestCase):
         errs = verify_adrs(str(root))
         self.assertTrue(any("status" in e for e in errs))
 
+    def test_flags_unparseable_frontmatter(self):
+        """BEH-079 — the one integrity branch nothing reached. The four tests
+        above all feed `verify_adrs` well-formed YAML carrying a bad *value*,
+        so the `except FrontmatterError` arm was never entered and the module
+        could have raised out of a Tier-1 gate instead of reporting. SPEC-016
+        named the hole and docked its certainty for it; the sibling gate has
+        had the equivalent test since
+        `test_verify_intent.py#VerifyIntentCase.test_unparseable_record_is_error_not_traceback`.
+        Three malformations, because one arm of the parser is not the parser.
+        """
+        root = self._root()
+        _write_adr(root, "ADR-001")          # a healthy neighbour, must stay clean
+        d = root / "knowledge-base/decisions"
+        broken = {
+            "ADR-002-no-fence.md":
+                "---\nid: ADR-002\ntitle: T\nstatus: accepted\n",
+            "ADR-003-open-array.md":
+                "---\nid: ADR-003\ntitle: T\nstatus: accepted\n"
+                "tags: [governance, adr\n---\n# x\n",
+            "ADR-004-tab-indent.md":
+                "---\nid: ADR-004\ntitle: T\nstatus: accepted\n"
+                "related_code:\n\t- adr.py\n---\n# x\n",
+        }
+        for name, text in broken.items():
+            (d / name).write_text(text, encoding="utf-8")
+
+        errs = verify_adrs(str(root))        # must RETURN — a raise fails here
+        for name in broken:
+            with self.subTest(record=name):
+                self.assertTrue(
+                    any(name in e and "unparseable" in e for e in errs), errs)
+        # And the walk is not abandoned at the first bad file: the valid
+        # neighbour is still reached, and still reported clean.
+        self.assertFalse(any("ADR-001" in e for e in errs), errs)
+
     def test_list_renders_table(self):
         root = self._root()
         _write_adr(root, "ADR-001", title="Use Postgres")

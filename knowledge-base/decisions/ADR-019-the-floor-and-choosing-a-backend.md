@@ -42,7 +42,7 @@ all of them. The machine file may carry only `substrate.backend` and `substrate.
 (`settings.py:69`); anything else in it is dropped *and reported* (`settings.py:189`).
 `freya code-graph --use <name> [--global]` is the same decision made later,
 and it validates the name against the registry at the moment somebody is present to be told they
-typed it wrong (`graph_ops.py:2924`). At machine scope, `--use auto` is not an answer — it
+typed it wrong (`graph_ops.py:2935`). At machine scope, `--use auto` is not an answer — it
 clears the default, which is the only way to un-answer the install question
 (`settings.py:453`).
 
@@ -187,7 +187,7 @@ the divergence the seeding was designed to remove.
   terminal prompt does not: the script emits "I need a decision", the agent asks in chat, the
   answer comes back on the next call. The machinery is even half-built —
   `needs_classification()`, `get_classification_prompt()` and `classify_with_ai_response()` exist
-  (`graph_ops.py:1789`) and, verified at `2762d54`, have no caller and no CLI flag anywhere in
+  (`graph_ops.py:1794`) and, verified at `2762d54`, have no caller and no CLI flag anywhere in
   the repository. Rejected on standing cost: the instruction telling the agent what to do would
   live in the skill layer, which is read on *every* invocation to say nothing on almost all of
   them, and this question is asked once per machine. The instruction rides in the output of the

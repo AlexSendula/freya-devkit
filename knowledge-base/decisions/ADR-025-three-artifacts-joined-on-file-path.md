@@ -86,7 +86,7 @@ could not tell which half was current.
 Separate files are also what lets the git decision be made per artifact.
 `knowledge-base/.graph/.gitignore` names `graph.json`, `graph.*.json`, `classifications.json`
 and `docs.json` individually and deliberately omits `behavior.json` (`graph_ops.py:243`, with a
-byte-identical copy in `behavior_graph.py:113` that `test_substrate.py:1508` pins). ADR-017
+byte-identical copy in `behavior_graph.py:113` that `test_substrate.py:1519` pins). ADR-017
 argued that split; it is only expressible because the artifacts are three files.
 
 In this repository that nested file decides nothing, and the reason is worth stating precisely

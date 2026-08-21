@@ -404,7 +404,15 @@ class TestTheReverseIndexIsDerived(unittest.TestCase):
 
     def test_an_out_of_vocabulary_kind_is_validated_rather_than_raised(self):
         """Linking runs one line before validation, so raising here made the validator's
-        own message — which names the file and the offending kind — unreachable."""
+        own message — which names the file and the offending kind — unreachable.
+
+        The assertion names the *forward* edge deliberately. `link_dependents` mirrors the
+        offending kind into `b.ts`'s dependents, so a bare `any('mixes_in' in e ...)` is
+        satisfied by the copy: measured 2026-08-21, with the forward-edge vocabulary check
+        replaced by `if False:` this test and the other 139 in the file stayed green. No
+        other test in the repository asserts on a forward edge's kind — the one other
+        `has kind` assertion is `test_a_reverse_edge_that_lost_its_kind_is_reported`.
+        """
         graph = {
             'substrate': graph_metadata('x', Coverage(['typescript'], ['.ts'],
                                                       ['imports'], True)),
@@ -413,7 +421,10 @@ class TestTheReverseIndexIsDerived(unittest.TestCase):
                       'b.ts': {'imports': []}},
         }
         substrate.link_dependents(graph)  # must not raise
-        self.assertTrue(any('mixes_in' in e for e in validate_graph(graph)))
+        errors = validate_graph(graph)
+        self.assertTrue(
+            any("files['a.ts']: edge to 'b.ts' has kind 'mixes_in'" in e for e in errors),
+            errors)
 
 
 class TestMetadata(unittest.TestCase):

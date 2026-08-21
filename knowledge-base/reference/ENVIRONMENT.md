@@ -232,7 +232,7 @@ written by the run and is not committed on any branch here:
 | `git` | for update, and for accuracy elsewhere | `shutil.which`, `bin/updater.py:158` | nine sites, e.g. `bin/updater.py:60` | `freya update` refuses with a distinct message; graph/status/spec commands degrade |
 | `graphify` | **no** — opt-in | `shutil.which`, `skills/freya-code-graph/scripts/backend_graphify.py:309` | `skills/freya-code-graph/scripts/backend_graphify.py:419` | build degrades to the floor and records that it did |
 | `claude` / `copilot` | **no** — only `freya security` | `shutil.which`, `skills/freya-codebase-security-scan/scripts/audit_adapter.py:114` | `skills/freya-codebase-security-scan/scripts/audit.py:233` | driver exits 1 and names the fallback (`audit.py:371`) |
-| `pnpm` + `vitest` | **no** — only in a target project | not probed | `skills/freya-behavior-runner/scripts/run_behaviors.py:184`, `run_behaviors.py:210` | **the runner raises `FileNotFoundError`** — see below |
+| `pnpm` + `vitest` | **no** — only in a target project | not probed | `skills/freya-behavior-runner/scripts/run_behaviors.py:221`, `run_behaviors.py:452` | **the runner raises `FileNotFoundError`** — see below |
 | `npm` / `yarn` / `pnpm audit` | **no** — agent-run, no script | not probed | `skills/freya-dependency-vulnerability-check/SKILL.md:57`, `skills/freya-dependency-vulnerability-check/SKILL.md:62`, `skills/freya-dependency-vulnerability-check/SKILL.md:67` | the skill has nothing to read |
 
 Python 3.9+ is the floor, not "any Python 3"
@@ -245,22 +245,22 @@ dying in a file the user never named (`bin/freya:12`).
 argv of nine `subprocess` calls across `bin/updater.py:60`,
 `skills/freya-code-graph/scripts/graph_ops.py:524` and `graph_ops.py:562`,
 `skills/freya-code-graph/scripts/backend_graphify.py:680`,
-`skills/freya-behavior-graph/scripts/behavior_graph.py:432`,
-`skills/freya-behavior-runner/scripts/run_behaviors.py:194`,
+`skills/freya-behavior-graph/scripts/behavior_graph.py:518`,
+`skills/freya-behavior-runner/scripts/run_behaviors.py:436`,
 `skills/freya-spec-manager/scripts/drift.py:69`,
 `skills/freya-spec-manager/scripts/verify_intent.py:47` and
 `skills/freya-status/scripts/collect_status.py:33`. Every one treats a missing git as an answer
-rather than a crash — `run_behaviors.py:198` catches `FileNotFoundError` and returns
-`"unknown"`, `behavior_graph.py:436` returns an empty change list — so the toolkit degrades
+rather than a crash — `run_behaviors.py:440` catches `FileNotFoundError` and returns
+`"unknown"`, `behavior_graph.py:522` returns an empty change list — so the toolkit degrades
 rather than failing when git is absent.
 
 **The unit-behavior runner is the one place where a missing binary is not handled.** It
 hardcodes `["pnpm", "vitest", "run", ...]`
-(`skills/freya-behavior-runner/scripts/run_behaviors.py:184`) and calls it with no exception
-handler (`run_behaviors.py:210`). A failing *test* is handled properly — the fingerprint comes
-back with `reason="test-failed"` and coverage is never faked (`run_behaviors.py:211`–`214`).
+(`skills/freya-behavior-runner/scripts/run_behaviors.py:221`) and calls it with no exception
+handler (`run_behaviors.py:452`). A failing *test* is handled properly — the fingerprint comes
+back with `reason="test-failed"` and coverage is never faked (`run_behaviors.py:453`–`456`).
 A missing *`pnpm`* is not: `FileNotFoundError` propagates through `fingerprint_behavior`
-(`run_behaviors.py:393`) and `main` (`run_behaviors.py:437`) and ends the run in a traceback,
+(`run_behaviors.py:635`) and `main` (`run_behaviors.py:684`) and ends the run in a traceback,
 and because `behavior-graph` invokes the runner with `check=True`
 (`skills/freya-behavior-graph/scripts/behavior_graph.py:211`) the whole `behavior.json` build
 fails with it. There is also no setting for another package manager or another runner; that

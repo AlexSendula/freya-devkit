@@ -221,9 +221,34 @@ class DoctorTest(unittest.TestCase):
         self.assertEqual(self._status(checks, "python"), "ok")
 
     def test_path_check_is_warn_not_fail_when_absent(self):
-        statuses = {s for n, s, _ in freya_cli.doctor_checks(run=_offline_git)
-                    if n == "freya on PATH"}
-        self.assertTrue(statuses <= {"ok", "warn"}, f"PATH must never hard-fail, got {statuses}")
+        """No `freya` on PATH is the shape a half-finished install leaves, and
+        it is the shape doctor is most often run from — so the row warns. A
+        FAIL there would make `freya doctor` exit 1 while diagnosing exactly
+        the state it was invoked to explain, which is the same discipline
+        `_under` follows for an unreadable path.
+
+        This test was green and vacuous until 2026-08-21, both halves
+        measured. It never mocked `which` — unlike the two tests below it —
+        so it ran against the ambient PATH, where `which("freya")` finds the
+        installed copy and the absent branch is simply never entered: turning
+        that branch into a hard "fail" left this green. And its
+        `statuses <= {"ok", "warn"}` could not have caught it even then —
+        turning the branch into "ok", a PATH row that silently approves of a
+        missing launcher, left it green too.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "checkout"
+            (root / "bin").mkdir(parents=True)
+            (root / "skills").mkdir(parents=True)
+            (root / "bin" / "commands.json").write_text("{}")
+            # targets={} for the same reason the neighbours below pass a tmp
+            # root: only the PATH row is under test, and the agent checks
+            # would otherwise answer against the real ~/.claude.
+            with mock.patch.object(freya_cli.shutil, "which", return_value=None):
+                status, detail = self._path_row(
+                    freya_cli.doctor_checks(root=root, targets={}, run=_offline_git))
+        self.assertEqual(status, "warn")
+        self.assertIn("not found", detail)
 
     def _path_row(self, checks):
         return next((s, d) for n, s, d in checks if n == "freya on PATH")
@@ -472,6 +497,59 @@ class PythonFloorTest(unittest.TestCase):
                     self._floor_in(path, r"sys\.version_info [<>]=? \((\d+), (\d+)\)"),
                     {freya_cli.MIN_PYTHON},
                 )
+
+    #: A stand-in for a CPython older than the floor, dropped on one
+    #: subprocess's PYTHONPATH so `site` imports it before the shim runs.
+    #: Faking `sys.version_info` alone would only prove the comparison works;
+    #: the import hook is what makes the simulation honest, because on a real
+    #: 3.8 the suite modules are not merely wrong-versioned, they cannot be
+    #: parsed — and that SyntaxError, raised from a file the user never named,
+    #: is precisely the traceback the guard exists to pre-empt.
+    _OLD_INTERPRETER = (
+        "import collections, sys\n"
+        "sys.version_info = collections.namedtuple(\n"
+        "    'version_info', 'major minor micro releaselevel serial')(3, 8, 0, 'final', 0)\n"
+        "\n"
+        "class _Unparsable:\n"
+        "    def find_spec(self, fullname, path=None, target=None):\n"
+        "        if fullname in ('freya_cli', 'installer', 'updater', 'agents_md'):\n"
+        "            raise SyntaxError('invalid syntax')\n"
+        "        return None\n"
+        "\n"
+        "sys.meta_path.insert(0, _Unparsable())\n"
+    )
+
+    def test_an_old_interpreter_is_refused_by_message_not_syntaxerror(self):
+        """BEH-005: the too-old interpreter is *named*, not tracebacked.
+
+        The tests above only prove the four declarations agree on a number.
+        None of them runs the guard, so none would notice it being moved below
+        `from freya_cli import main` — where it would still read (3, 9) and
+        still be, for a 3.8 user, unreachable: the import dies first and the
+        error names installer.py, a file they never typed. `freya doctor` is
+        covered here alongside `help` because it is the one command whose job
+        is to say the Python is too old, and it is also the command that pulls
+        in the most unparsable modules on the way to saying it.
+        """
+        shim = freya_cli.suite_root() / "bin" / "freya"
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "sitecustomize.py").write_text(
+                self._OLD_INTERPRETER, encoding="utf-8")
+            # OPT_OUT so that a guard which fails to fire cannot reach the
+            # real network on its way to failing this test.
+            env = {**os.environ, "PYTHONPATH": tmp, "FREYA_NO_UPDATE_CHECK": "1"}
+            for command in ("help", "doctor"):
+                with self.subTest(command=command):
+                    r = subprocess.run([sys.executable, str(shim), command],
+                                       capture_output=True, text=True, env=env)
+                    self.assertNotIn("Traceback", r.stderr)
+                    self.assertNotIn("SyntaxError", r.stderr)
+                    self.assertIn("Python 3.9 or newer", r.stderr)
+                    # "found 3.8", not "3.8": sys.executable is in the same
+                    # sentence, and a version number can hide in its path.
+                    self.assertIn("found 3.8", r.stderr)
+                    self.assertEqual(r.returncode, 2, r.stderr)
+                    self.assertEqual(r.stdout, "")
 
     def test_the_bootstrap_probe_actually_accepts_this_interpreter(self):
         """The gate is a one-liner run by a shell; a typo in it rejects every

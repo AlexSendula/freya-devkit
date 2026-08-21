@@ -117,7 +117,8 @@ import path in the shipped layout, so a skill that needs another skill's Python 
 to it or puts that skill's `scripts/` on `sys.path` by relative path first. ADR-004 states the
 first half as the rule — "cross-skill access is a subprocess call against the suite root, not a
 Python import" — but the shipped tree contains four such imports, all intra-store and all
-resolved the same way: `skills/freya-behavior-runner/scripts/run_behaviors.py:20`,
+resolved the same way, by a `_SPEC_SCRIPTS` (or `_RUNNER_SCRIPTS`) constant and a
+`sys.path.insert` beside it: `skills/freya-behavior-runner/scripts/run_behaviors.py`,
 `skills/freya-behavior-graph/scripts/behavior_graph.py:20` and `:28`, and
 `skills/freya-status/scripts/collect_status.py:20`. Three reuse `freya-spec-manager`'s
 frontmatter parser rather than duplicate it; the fourth reuses the runner's `load_behaviors`.
@@ -172,15 +173,16 @@ def setUp(self):
 
 Three placements are in the tree:
 
-- A shared base class, where several test classes need it:
-  `MachineHome` in `skills/freya-code-graph/scripts/test_substrate.py:552`, inherited by
+- A shared base class, where several test classes need it: `MachineHome` in
+  `skills/freya-code-graph/scripts/test_substrate.py`, inherited by
   `TestSettings`, `TestTheMachineLevelDefault` and `TestBackendSelection`. Its docstring is the
   canonical statement of the rule.
 - A per-file `Base.setUp`: `bin/test_backend_setup.py:26`.
-- A single class that needs it: `skills/freya-code-graph/scripts/test_graph_ops.py:1914`,
-  `skills/freya-behavior-runner/scripts/test_run_behaviors.py:413`.
+- A single class that needs it: `TestRecordingTheBackendChoice` in
+  `skills/freya-code-graph/scripts/test_graph_ops.py`, and the `FREYA_HOME` case in
+  `skills/freya-behavior-runner/scripts/test_run_behaviors.py`.
 
-Restoration is `addCleanup` everywhere except `test_run_behaviors.py:416`, which restores in
+Restoration is `addCleanup` everywhere except `test_run_behaviors.py`, which restores in
 `tearDown`; either way it restores the *previous* value rather than deleting the variable,
 because the session-level sandbox has already set it.
 
@@ -199,10 +201,77 @@ documentation: a test asserting "with nothing configured" should say so at the p
 
 ## Vacuous tests, and the mutation check
 
-The second convention this repo learned the hard way.
+The second convention this repo learned the hard way, and the single most valuable one on this
+page.
 
-**A test whose fixture is discarded before the line it names is reached passes for the wrong
-reason.** The worked example is the unmapped-source census.
+**Break the code a new test claims to cover and confirm the test goes red.** Write it, run it
+green, edit the source to break the behaviour, run it again and watch it fail, restore the
+source, then `git diff` to prove the restore was exact. Two lines of work, and it is the only
+evidence that the test does anything at all.
+
+It is not a formality. **Six tests in this suite were found green-and-vacuous in the week to
+2026-08-21**, every one of them by that check, and each repair records the mutation it failed in
+the test's own docstring. Three shapes account for five, and all three are recognisable on
+sight.
+
+**1. The fixture never reaches the line.** Something upstream — an exclusion list, an extension
+filter, a regex that does not match, an unmocked environment — discards the fixture before
+execution arrives at the guard.
+
+- **The path-traversal check in the security scan**, and the worst of the six because it was the
+  only test on it. `resolve_spec_reference` refuses a cited document that resolves outside the
+  project (`skills/freya-codebase-security-scan/scripts/audit_engine.py:160`); the test fed it
+  `../../../../../../etc/passwd`, which carries neither a prose suffix nor a `SPEC-NNN`-shaped
+  token, so `_CITED_PATH` (`skills/freya-codebase-security-scan/scripts/audit_engine.py:125`)
+  matched nothing and the containment check was never consulted. Measured: with the guard
+  replaced by `if False:`, all nine tests in the class still passed. That guard is the only thing
+  between a skeptic and downgrading a real finding by citing a spec in somebody else's
+  repository.
+- **The docs-graph link filter.** The fixture linked to `./other.md` with only
+  `src/graph_ops.py` in the code-file set, so the link was excluded twice over — by
+  `_is_code_path` (`skills/freya-docs-manager/scripts/docs_graph.py:237`) and then again by set
+  membership. Deleting the guard the test names left all 36 tests in the file green. The repair
+  puts the link target *in* the set, leaving `_is_code_path` the only thing that can keep it out.
+- **The `freya doctor` PATH row.** `test_path_check_is_warn_not_fail_when_absent` never mocked
+  `shutil.which`, so it ran against the ambient PATH, found the installed launcher and never
+  entered the absent branch (`bin/freya_cli.py:335`). Turning that branch into a hard `fail` left
+  it green — and so did turning it into `ok`, because `statuses <= {"ok", "warn"}` cannot tell a
+  warning from silent approval.
+
+**2. The assertion matches something else.** A substring that occurs in two different messages
+proves nothing about which one fired.
+
+- `test_accepted_still_requires_adapter` asserted that some error contained `adapter`. The
+  fixture record carried no locator either, so two errors came back and both contained it: the
+  locator message quotes it verbatim as `required for accepted adapter 'None'`
+  (`skills/freya-spec-manager/scripts/frontmatter.py:372`). Deleting the adapter rule outright
+  (`skills/freya-spec-manager/scripts/frontmatter.py:360`) left the assertion green. The repair
+  supplies a valid locator, so the adapter rule is the only one that can fire, and pins the
+  message rather than a word from it.
+
+**3. The assertion is satisfied by a copy.** The structure under test mirrors the value
+somewhere else, so removing the original leaves a second one for the assertion to find.
+
+- `test_an_out_of_vocabulary_kind_is_validated_rather_than_raised` asserted
+  `any('mixes_in' in e ...)` over the validator's errors. `link_dependents` mirrors the offending
+  kind into the target's `dependents`, where the reverse-edge half of the validator reports it a
+  second time (`skills/freya-code-graph/scripts/substrate.py:778`) — so replacing the
+  forward-edge vocabulary check (`skills/freya-code-graph/scripts/substrate.py:726`) with
+  `if False:` left this test and the other 139 in the file green. The repair asserts the whole
+  forward-edge message, which the mirrored copy does not produce.
+
+**The sixth is a cheaper failure, and a fourth shape: the table-driven test that stops early.**
+A bare `for` loop over an allow-list aborts on the first member that fails, so the members after
+it are never measured at all. `test_all_states_valid` iterated the four members of `ADR_STATES`
+(`skills/freya-spec-manager/scripts/frontmatter.py:62`) that way; a rule honouring only the
+first two reported one failure and left the fourth unmeasured. `self.subTest` per member fixes
+it, plus one assertion that the table is not empty — an allow-list that became empty would
+otherwise make the loop pass by iterating nothing.
+
+**A test the exclusion lists prune is the commonest of these by a distance**, which is why
+fixtures must not be planted under `docs/`, `scripts/`, `node_modules`, `dist`, `build`,
+`vendor` or `knowledge-base` unless pruning is itself the subject. The worked example is the
+unmapped-source census.
 `substrate.CENSUS_PRUNE` (`skills/freya-code-graph/scripts/substrate.py:865`) is a set of
 directory names — `node_modules`, `dist`, `build`, `vendor`, `target` and others — that the walk
 prunes *before* it calls `_should_exclude`
@@ -214,26 +283,28 @@ was to rebuild the fixture out of paths only `_should_exclude` rejects, and to a
 test pinning that the prune list and the scope rule *both* apply
 (`skills/freya-code-graph/scripts/test_graph_ops.py:2027`).
 
-The same shape has been found twice more:
+Two older findings sit in the same three shapes:
 
-- The dotfile guard. The fixture used `.env.local` and `.eslintrc.json`, whose extensions are in
-  neither tier list, so every file was dropped by the extension check before the guard ran
-  (`skills/freya-code-graph/scripts/test_graph_ops.py:2050`).
-- The graph contract's reverse-edge validator: two `dependents` checks that could be deleted with
-  the whole suite still green (`skills/freya-code-graph/scripts/test_substrate.py:324`).
+- The dotfile guard — shape 1. The fixture used `.env.local` and `.eslintrc.json`, whose
+  extensions are in neither tier list, so every file was dropped by the extension check before
+  the guard ran (`skills/freya-code-graph/scripts/test_graph_ops.py:2050`).
+- The graph contract's reverse-edge validator — shape 3, and the neighbour of the `mixes_in`
+  case above: two `dependents` checks that could be deleted with the whole suite still green
+  (`skills/freya-code-graph/scripts/test_substrate.py:324`).
 
-**So: mutation-check a new test. Break the code it claims to cover and confirm the test goes
-red.** Two lines, and it is the only evidence that the test does anything.
-
-Worked, measured, on this checkout:
+Worked, measured, on this checkout — this is the whole ritual:
 
 ```bash
 # delete the two-line dotfile guard at graph_ops.py:2627-2628, then:
 python3 -m pytest skills/freya-code-graph/scripts/test_graph_ops.py -q
-# → 1 failed, 163 passed
+# → 1 failed, 163 passed      (at f407251 — the total moves as the file grows; the 1 does not)
 #   FAILED ...::TestUnmappedSourceWalk::test_dotfiles_and_extensionless_files_are_skipped
 # restore, re-run → 164 passed
+git diff --stat skills/freya-code-graph/scripts/graph_ops.py   # must print nothing
 ```
+
+That last line is not optional either. A mutation restored by hand rather than by `git`
+is how a deliberate break reaches a commit.
 
 Weak assertions fail this check even when the fixture is right. The graphify edge-translation
 gate is the measured case: pinning `(from, to)` pairs alone, it caught **one of six** deliberate
@@ -358,7 +429,7 @@ code that cannot go red on a POSIX run — two are the suite's own:
 - **No `graphify` on the runner**, so the 14 backend tests skip there. Backend-translation
   regressions are caught only on a machine that has the binary.
 
-## The behavior layer, and why this repo has none
+## The behavior layer, and what this repo has of it
 
 The behavior layer is the project's other notion of "test", and it is not a second suite. A
 behavior record is bound to a test that already exists, through an **adapter plus a locator**
@@ -374,40 +445,94 @@ emits coverage fingerprints on stdout; `freya-behavior-graph` owns `behavior.jso
 provenance follows ADR-006 — `observed` at unit level from the runner's native coverage output,
 `static` import closure at integration level, merged in trust order `observed` > `static`
 (`skills/freya-behavior-graph/scripts/behavior_graph.py:37`), with `OBSERVED_CONFIDENCE = 0.8`
-against `STATIC_CONFIDENCE = 0.5` (`skills/freya-behavior-runner/scripts/run_behaviors.py:26`).
+against `STATIC_CONFIDENCE = 0.5` (`skills/freya-behavior-runner/scripts/run_behaviors.py`,
+the constants at the top of the module).
 ADR-006 names a third and higher tier, `explicit`, but marks it "reserved, unimplemented"
 (`knowledge-base/decisions/ADR-006-real-interface-execution-and-coverage.md:24`) and no shipped
 script mentions it. A behavior with no usable coverage is emitted `coverage: unknown` with a
 reason, never as a silently empty result.
 
-**This repo currently has zero behaviors defined for itself.** There is no
-`knowledge-base/specs/` directory, `behavior.json` holds an empty `behaviors` map, and
-`freya status --project .` reports `behaviors: 0 proposed, 0 confirmed, 0 accepted, 0
-quarantined, 0 deprecated` and a `test-owed worklist` of `0`, alongside **65 coverage gaps** —
-which is every source file in the code graph, because nothing exercises anything in the behavior
-layer's sense. So none of the 1435 tests above is traceable to a behavior record, and the
-behavior-link half of `wrap-up`'s Phase 3.5 has nothing to verify here (its ADR-integrity step
-still does).
+**This repo now defines 149 behaviors for itself, and every one of them is `proposed`.**
+`spec-manager`'s brownfield scan was run on the toolkit on 2026-08-21 and wrote 30 spec files
+under `knowledge-base/specs/`. Twenty-nine of them carry behaviors; the thirtieth declares
+`behaviors: []` deliberately, because `wrap-up` is prose with no engine and there is nothing for
+a locator to bind to (`knowledge-base/specs/features/SPEC-030-wrap-up-orchestration.md:22`).
 
-**And the runner could not execute one today even if it existed.** `KNOWN_ADAPTERS` allow-lists
-`pytest` and `unittest` (`skills/freya-spec-manager/scripts/frontmatter.py:94`), so such a
-behavior would validate and could be authored. But the only implemented execution path is
-unit level with `adapter: vitest`
-(`skills/freya-behavior-runner/scripts/run_behaviors.py:392`). Nothing else is ever run: a
-`confirmed` behavior and an `integration`-level one get a static fingerprint from their `entry`
-(`skills/freya-behavior-runner/scripts/run_behaviors.py:391`,
-`skills/freya-behavior-runner/scripts/run_behaviors.py:397`), and every remaining shape falls
-through to `reason="level-deferred"`
-(`skills/freya-behavior-runner/scripts/run_behaviors.py:399`) — unknown coverage. A Python
-behavior here would get a static fingerprint from its `entry` at best. This is deliberate and
-recorded: [`roadmap.md`](../roadmap.md) § P4c says a
-`pytest` adapter is the interesting missing one because it adds Python as a second language
-(`coverage.py --cov-report=json` and a small parser), and says the if-ladder should become a
-runner-adapter registry when it is picked up.
+> **Corrected 2026-08-21.** This section previously opened *"This repo currently has zero
+> behaviors defined for itself. There is no `knowledge-base/specs/` directory"*, and reported 65
+> coverage gaps. Both were true when written and false the moment the scan committed. Two
+> analyses had already quoted the sentence as evidence by then. A reference page that states a
+> census is a page that goes stale on somebody else's commit; re-measure it before quoting it.
 
-[TODO: now that the toolkit runs on itself, should this repo author behaviors for its own
-user-visible commands — accepting that they stay `coverage: unknown` until P4c lands — or wait
-for the pytest adapter first?]
+Measured over `knowledge-base/specs/` on 2026-08-21 — reproduce the first four rows with
+`grep -rh '    <field>: ' knowledge-base/specs | sort | uniq -c`, substituting `state`,
+`adapter`, `level` and `entry`:
+
+| | |
+|---|---|
+| state | 149 `proposed`, 0 confirmed, 0 accepted |
+| adapter | 132 `unittest`, 17 `manual` |
+| level | 94 `unit`, 28 `integration`, 25 `component`, 2 `e2e` |
+| `entry:` | declared by 28 behaviors, naming 8 distinct source files |
+| locator | 149 of 149 resolve to a test that exists, across 23 test files |
+
+The two middle rows cross as **83 unit + `unittest`**, 26 integration + `unittest`, 23 component
++ `unittest`, with the 17 `manual` ones spread over the rest. That first figure is the one that
+matters below.
+
+So the suite *is* traceable now — every `unittest` behavior names a real `path#Class.test_method`
+— but nothing is executed through the layer, and two separate mechanisms are why:
+
+- `project_behaviors` projects only `accepted` and `confirmed` behaviors into the graph
+  (`skills/freya-behavior-graph/scripts/behavior_graph.py`, `project_behaviors`), so
+  `behavior.json` still holds an empty `behaviors` map. That is the artifact being correct, not
+  a build that needs re-running.
+- the runner loads `states=("accepted",)` by default
+  (`skills/freya-behavior-runner/scripts/run_behaviors.py`, `load_behaviors`), so it selects
+  nothing here whatever adapters exist.
+
+`freya status --project . --write-backlog` therefore records `149 proposed · 0 confirmed ·
+0 accepted · 0 tests owed` (`knowledge-base/BACKLOG.md:5`) — the test-owed worklist is empty
+because only `confirmed` reaches it (`skills/freya-status/scripts/collect_status.py:80`) and
+nothing is confirmed; all 149 sit in the intent worklist instead.
+
+The same line records **57 coverage gaps**, and that number is inflated 2.4×: it counted the 29
+`test_*.py`, `conftest.py`, `install.sh`, `install.ps1` and the extensionless `bin/freya` as
+files a behavior ought to cover. Twenty-four are real. Fixed in the same batch as this page —
+[`roadmap.md`](../roadmap.md) § Open defects, item 18.
+
+`wrap-up`'s Phase 3.5 has changed shape as a result. Its **accepted-behavior run** still has
+nothing to run and still cannot block. Its **integrity half** now has 149 locators to check
+where it previously had none, and every one of them resolves —
+`python3 skills/freya-spec-manager/scripts/verify_links.py` exits 0 with *"OK — all behavior
+links pass Tier-1 integrity checks"*. That is the first time that gate has had anything to say
+on this repository.
+
+**What the runner does with a Python behavior.** Until this batch the only implemented execution
+path was `level: unit` with `adapter: vitest`. Of the 149 above, that would have left the 26 at
+integration level with a static fingerprint from their `entry` and everything else — the 83 unit
+and 23 component `unittest` behaviors included — falling through to `reason="level-deferred"`:
+unknown coverage, never run. P4c's `pytest` adapter lands in this same batch and routes `pytest`
+and `unittest` at unit level to a real execution path
+(`skills/freya-behavior-runner/scripts/run_behaviors.py`, `PYTEST_ADAPTERS` in
+`fingerprint_behavior`), which is the shape those 83 were written against. It changes nothing
+about today's output, because the state gate above runs first: the blocker on this repo is
+confirmation, not the adapter. Both halves are recorded in [`roadmap.md`](../roadmap.md) § P4c,
+including the note that the if-ladder should become a runner-adapter registry when a second
+adapter arrives.
+
+**The open question, and the TODO that used to stand here.** That TODO asked whether this repo
+should author behaviors for its own user-visible commands or wait for the pytest adapter first.
+**Closed 2026-08-21**: events overtook both branches in the same week — the scan authored 149,
+and the adapter is landing — so neither is a decision anyone still has to make.
+
+What is live is about *new* code rather than the corpus: **does a command written from here on
+get a hand-authored behavior as it is built?** Today the answer is "on contact, by prompt" —
+`wrap-up`'s validate-on-hit step reports the changed files no behavior covers and offers to
+author one, skippable (`skills/freya-wrap-up/SKILL.md:209`) — rather than by rule. Making it a
+rule is the thing to argue about, and the counter-pressure is the table above: 149 unconfirmed
+behaviors is already more recorded intent than anyone has reviewed, and adding to the pile before
+confirming any of it is how a worklist turns into wallpaper.
 
 ## Related documentation
 

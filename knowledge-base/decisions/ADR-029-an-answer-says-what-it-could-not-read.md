@@ -60,7 +60,7 @@ dangerous is that it is not visible from the outside. `CodeGraph._scan_files`
 (`graph_ops.py:1859`) globs by `FILE_PATTERNS`, so a file whose extension the
 backend does not handle is never enumerated at Python level at all — it is not
 "skipped", it is invisible. `files_scanned` is then `len(graph['files'])`
-(`substrate.py:371`): it reads like a denominator and is a numerator. A
+(`substrate.py:375`): it reads like a denominator and is a numerator. A
 repository of twelve `.java` files with three `.ts` files in it reported
 `files_scanned: 3` and mentioned Java nowhere — not on stdout, not on stderr,
 not in the artifact.
@@ -73,7 +73,7 @@ this repo is unread" are not the same sentence. The argument for fixing it in
 the payload was already written down in this codebase: `get_impact` returns
 `not_in_graph` in the JSON, with the comment that "the caller is usually
 another skill reading `--format json`, and stderr is not part of what it
-parses" (`graph_ops.py:2332-2333`). It had been applied to "the file you asked
+parses" (`graph_ops.py:2338-2339`). It had been applied to "the file you asked
 about is unmapped" and never generalised to "this answer is incomplete".
 
 The consumer is not a human. `non_interactive` auto-enables whenever stdin is
@@ -82,7 +82,7 @@ wrap-up run, so a printed warning lands nowhere. Verified: the three
 programmatic callers — `behavior_graph.py:249`,
 `skills/freya-spec-manager/scripts/drift.py:89` and `run_behaviors.py:330` —
 all use `capture_output=True` and read only stdout on success. Stderr is dead
-skill-to-skill. It is alive agent-to-CLI, because `bin/freya_cli.py:146` is a
+skill-to-skill. It is alive agent-to-CLI, because `bin/freya_cli.py:162` is a
 plain `subprocess.call` with inherited streams. That asymmetry is what makes
 the split between payload and stderr a design and not a compromise: the
 surfaces whose shape cannot change get the channel an agent at a terminal
@@ -103,7 +103,7 @@ Two tiers draw the noise line (`substrate.material_extensions`,
 unreadable `.java` in a 500-file TypeScript repo is precisely the case worth
 knowing about. Scripting and data-definition extensions — `.sh`, `.sql`,
 `.ps1` — are reported only when their count beats both the graphed file count
-and a floor of 2 (`substrate.py:856`), so one build script never fires the
+and a floor of 2 (`substrate.py:860`), so one build script never fires the
 caveat but a repository that genuinely is a PowerShell codebase still does.
 Re-measured 2026-08-21 with the shipped code: freya-devkit is silent (two
 candidate files, both tier 2, published as `files: 0`); acme-site-testbed
@@ -206,7 +206,7 @@ confident "nothing" is least earned.
   carrying a `files: 0` sentinel.** It would remove the need for a field that
   exists only to say "nothing to report" and make old artifacts
   self-identifying. Rejected on the second-order cost: `is_stale`
-  (`substrate.py:239`) then forces a full rebuild on every machine
+  (`substrate.py:243`) then forces a full rebuild on every machine
   (`graph_ops.py:2100-2113`), and that rebuild changes the graph the
   `--dependencies` closures are computed against — closures that are written
   into the **committed** `behavior.json`. Thirty bytes in an untracked file

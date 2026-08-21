@@ -156,9 +156,24 @@ class CitationTest(Base):
         self.assertEqual(found[0].target, "src/graph_ops.py")
 
     def test_a_link_to_another_doc_is_not_a_code_edge(self):
-        self.assertEqual(
-            docs_graph.find_citations("See [other](./other.md).", "docs/a.md",
-                                      {"src/graph_ops.py"}), [])
+        """Repaired after this test was measured vacuous.
+
+        The old fixture linked to `./other.md` with only `src/graph_ops.py` in the file set,
+        so the link was excluded twice over — by `_is_code_path` and then by set membership.
+        Deleting the guard it names (`docs_graph.py:237`) left every one of this file's then
+        36 tests green. The link target is now *in* the set, leaving `_is_code_path` the only
+        thing that can keep it out: `find_citations` takes whatever set the caller hands it
+        (`build(..., code_files=...)`) and cannot lean on the shipped backends excluding
+        markdown, which they do deliberately and separately
+        (`backend_graphify.py:217`, `DOCUMENT_EXTENSIONS`).
+
+        The code link in the same sentence is the control: it proves the link parser ran at
+        all, so the `.md` was excluded rather than nothing being parsed.
+        """
+        found = docs_graph.find_citations(
+            "See [other](./other.md) and [the resolver](../src/graph_ops.py).",
+            "docs/a.md", {"docs/other.md", "src/graph_ops.py"})
+        self.assertEqual([c.target for c in found], ["src/graph_ops.py"])
 
     def test_duplicate_citations_collapse_but_keep_every_line(self):
         found = self.cites("`src/graph_ops.py:212` and again `src/graph_ops.py:212` "
@@ -290,6 +305,40 @@ class BuildTest(Base):
         d2, g2 = self.build(files, ["src/g.py", "src/h.py"])
         self.assertEqual(json.dumps(g1["docs"], sort_keys=True),
                          json.dumps(g2["docs"], sort_keys=True))
+
+
+class CodeGraphAbsentTest(Base):
+    """BEH-075. With no code graph there is nothing to check a cited path against.
+
+    Every edge is set-membership gated: a path becomes a citation only if it names a file the
+    code graph already knows about. So a project with no `knowledge-base/.graph/graph.json`
+    gets an empty set out of `load_code_files` and drops every citation — correct, because the
+    alternative is resolving paths nobody verified. Silence, though, reads exactly like "these
+    documents cite no code", so the artifact carries `code_graph_present`, and the CLI keys its
+    stderr warning off that same field (`docs_graph.py:454`).
+    """
+
+    def test_no_code_graph_discards_every_citation_and_says_so(self):
+        """A run with no graph must not be mistakable for a run over docs that cite nothing.
+
+        Both halves are pinned, because either alone is satisfiable by an implementation that
+        is wrong in the way this guards against: zero edges with the flag still true is a
+        silent discard, and the flag alone says nothing about what happened to the citations.
+        """
+        doc = {"docs/a.md": "# A\nSee `src/graph_ops.py:212`, and "
+                            "[the resolver](../src/graph_ops.py).\n"}
+
+        absent = docs_graph.build(self.mk(doc))  # no knowledge-base/.graph/graph.json in it
+        self.assertEqual(absent["edges"], 0)
+        self.assertFalse(absent["code_graph_present"])
+        self.assertEqual(absent["docs_scanned"], 1)
+        self.assertEqual([s["edges"] for s in absent["docs"]["docs/a.md"]["sections"]], [[]])
+
+        # Control: the same prose against a real file set does produce edges, so the zero
+        # above is the missing graph and not a fixture with nothing in it to find.
+        present = docs_graph.build(self.mk(doc), code_files={"src/graph_ops.py"})
+        self.assertEqual(present["edges"], 2)
+        self.assertTrue(present["code_graph_present"])
 
 
 if __name__ == "__main__":

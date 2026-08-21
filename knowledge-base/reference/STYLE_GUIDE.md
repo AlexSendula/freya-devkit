@@ -37,14 +37,14 @@ the tree-sitter option ships as an opt-in second backend instead of a dependency
 ([ADR-019](../decisions/ADR-019-the-floor-and-choosing-a-backend.md)).
 
 So: a new dependency is an ADR. An import that is not stdlib and not a sibling is a defect.
-**Nothing checks it** — the census above was run by hand for this document, and no test
-asserts the invariant. That is the shape [philosophy.md](../philosophy.md) warns about: a
-guarantee that lives in a sentence is a suggestion.
-
-[TODO: Should the stdlib-only rule be a test rather than a convention? An AST walk over
-`bin/*.py` and `skills/*/scripts/*.py` asserting every top-level import is in
-`sys.stdlib_module_names` or a sibling module is about fifteen lines, and its violation is
-invisible on the machine that commits it.]
+**`bin/check_invariants.py` is what says so.** It walks the AST of every module under `bin/`
+and `skills/*/scripts/` — including the ones imported inside a function, which this tree
+really does have — and reports any top-level name that is neither standard library nor
+another module of this checkout. CI runs it, and `ShippedTreeTest` in
+`bin/test_check_invariants.py` asserts the same thing where pytest can see it, so the census
+above no longer depends on someone re-running it by hand. There is deliberately no exemption
+for the `try: import X / except ImportError:` shape: the tree contains no such import, and a
+genuine optional dependency here is an ADR rather than a bare `except`.
 
 ## Target CPython 3.9
 

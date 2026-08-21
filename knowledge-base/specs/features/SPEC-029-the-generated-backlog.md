@@ -111,7 +111,7 @@ what makes the file trustworthy in a diff.
 The cost is real and was paid here: on a case-insensitive filesystem `BACKLOG.md` and
 `backlog.md` are one path, so this project's hand-maintained backlog was renamed to
 `roadmap.md` on 2026-08-21 specifically to keep the toolkit from destroying it
-(`knowledge-base/roadmap.md:15`). Adopting projects need the same warning, which is why the
+(`knowledge-base/roadmap.md:16`). Adopting projects need the same warning, which is why the
 skill states it with a line reference rather than in passing.
 
 **Security Scan Note**: "Writes a user file with mode `w` without checking whether it exists"

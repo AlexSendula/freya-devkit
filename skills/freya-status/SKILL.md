@@ -83,7 +83,7 @@ Phase 6 validation observed an agent with broad tool permissions infer a `git co
 that no skill had asked for, in a repository it had only been asked to read.
 
 `BACKLOG.md` is the one artifact in this toolkit that is rewritten by full overwrite in
-code (`collect_status.py:222` opens it with mode `w`), so anything hand-authored at that
+code (`collect_status.py:226` opens it with mode `w`), so anything hand-authored at that
 path is destroyed without warning. Keep a hand-maintained backlog under a different name.
 
 ## When to use

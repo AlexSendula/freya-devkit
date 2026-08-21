@@ -106,7 +106,7 @@ half an ASCII tree. `knowledge-base/reference/ARCHITECTURE.md` carries directory
 and the explainer site carries mermaid, so any size-based splitter would have
 been hit on the first run. A `# comment` inside a ` ```bash ` block is
 indistinguishable from an H1 by pattern alone. The precedent is exact rather
-than analogous: `_strip_jsonc` (`graph_ops.py:590`) had to be made string-aware
+than analogous: `_strip_jsonc` (`graph_ops.py:592`) had to be made string-aware
 because a naive regex read the `/*` inside the alias string `"@/*"` as a comment
 opener and broke tsconfig alias resolution (`test_graph_ops.py:73`).
 Structure-unaware text processing is one bug class, and it was caught by a
