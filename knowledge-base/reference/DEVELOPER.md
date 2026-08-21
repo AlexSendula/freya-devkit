@@ -1,6 +1,119 @@
-# Conventions
+# Developer Guide
 
-Integration conventions for creating skills that work well with this ecosystem. These are guidelines, not requirements - adapt as needed.
+Two things in one file: the local loop for working on freya-devkit itself — run the suite,
+run the conformance gate, isolate a test that reads machine state — and the integration
+conventions a new skill has to follow to fit the rest of the suite.
+
+[CONTRIBUTING.md](../../CONTRIBUTING.md) is the companion and is not duplicated here. It
+covers the plugin development loop, live agent validation under a redirected `HOME`, the CI
+matrix and what a green tick does *not* prove, and the two release paths. This file covers
+what you run on your own machine and what a skill must look like.
+
+Most of what follows is prose you are asked to follow. Some of it a script enforces; those
+carry a rule id (`R3`, `R8`, `R9`, …) and cannot be got wrong quietly, because
+`bin/check_skill_conformance.py` exits non-zero and CI runs it. Where a convention is
+unenforceable — the "Artifacts, not commits" paragraph is the clearest case — it says so.
+
+## Working on the toolkit
+
+**Prerequisites: CPython 3.9 or newer, and nothing else.** The runtime is pure standard
+library — every import across `bin/` and `skills/*/scripts/` is either stdlib or a sibling
+module in this repo. The floor is a hard one and what you may write against it is
+[STYLE_GUIDE.md § Target CPython 3.9](STYLE_GUIDE.md#target-cpython-39).
+
+```bash
+git clone <fork> && cd freya-devkit
+./install.sh --agent claude      # or --agent copilot; --dry-run prints the plan
+bin/freya doctor
+```
+
+`freya doctor` is the first thing to run when an install looks wrong: it reports the suite
+root, the manifest size, missing scripts, the interpreter version, whether `freya` resolves on
+`PATH`, which agents the suite is installed for and in which mode (link or copy), orphaned
+entries, whether `freya update` can run, and whether
+a Claude marketplace install and a personal install are both present and shadowing each other
+(`bin/freya_cli.py:267`).
+
+### Running the tests
+
+The suite is stdlib `unittest`, living beside the code it covers (`bin/test_*.py`,
+`skills/*/scripts/test_*.py`):
+
+```bash
+python3 -m pytest bin/ skills/ -q
+```
+
+Run it **from the repository root**, and sandbox `FREYA_HOME` in any test class that reads
+machine state — see
+[TESTING.md § FREYA_HOME sandboxing in `setUp`](TESTING.md#freya_home-sandboxing-in-setup) for
+the rule and
+[TESTING.md § What the suite is, measured](TESTING.md#what-the-suite-is-measured) for the
+current count and the per-area breakdown.
+
+pytest is the only thing ever installed; everything under test is stdlib-only and stays that
+way. `python3 -m unittest discover -s bin -p 'test_*.py'` works per directory if you would
+rather not install a runner — but `unittest` does not read `conftest.py` at all, so on that
+path the per-test sandbox is the only protection there is.
+
+### The conformance gate
+
+```bash
+python3 bin/check_skill_conformance.py     # must exit 0
+```
+
+Not redundant with pytest, but not independent of it either: `ShippedTreeTest`
+(`bin/test_check_skill_conformance.py:928`) runs this same scan over this checkout and asserts
+zero violations, so a violation injected into a shipped `SKILL.md` fails the suite too —
+measured, with an `${CLAUDE_PLUGIN_ROOT}` line appended to `skills/freya-status/SKILL.md`: R1
+and R4 both surfaced through pytest. What the script adds is the readable report and the two
+flags below, and CI runs it as its own step so neither signal hides the other. Run both before
+you commit.
+
+It walks every `*.md` and `*.py` under `skills/` and nothing else — `bin/`, `knowledge-base/`
+and the repo root are out of scope (`bin/check_skill_conformance.py:374`). Output is one
+`path:line: RULE: excerpt` per violation on stdout, a per-rule count on stderr, exit 1; a
+`bin/commands.json` it cannot read is exit 2 (`bin/check_skill_conformance.py:387`).
+
+Thirteen rules, each with its one-line rationale at `bin/check_skill_conformance.py:29`. The
+ones most often tripped:
+
+| Rule | What it rejects |
+|---|---|
+| R1 | `${CLAUDE_PLUGIN_ROOT}` and the bare `$CLAUDE_PLUGIN_ROOT` — use a `freya <command>` invocation |
+| R2 | `/freya-devkit:` — use the prefixed skill name `freya-<skill>` |
+| R3 | a `freya <command>` with no entry in `bin/commands.json` |
+| R4 | agent-specific tool names, including backticked and `Workflow-powered` forms |
+| R5, R10, R11, R12 | frontmatter outside the Agent Skills spec: unknown keys; values over the length limits (`description` 1024, `compatibility` 500, `name` 64 — `bin/check_skill_conformance.py:57`); a missing `description`; a `name` outside the grammar |
+| R8 | a `name:` that does not equal the parent directory name |
+| R9 | a fan-out with no portability clause |
+| R13 | `~/.claude`, `.claude/`, `.claude-plugin`, `CLAUDE_*` env vars |
+
+Two flags help while iterating: `--rule R9` (repeatable) narrows the report to one rule, and
+`--root PATH` points the scan at another checkout.
+
+### There is no linter
+
+Checked, because the `# noqa: E402` markers scattered through `bin/` imply one: the tree
+contains no `pyproject.toml`, `setup.cfg`, `.flake8`, `ruff.toml`, `tox.ini`, `pytest.ini` or
+`.editorconfig`. The `test` job in [`.github/workflows/ci.yml`](../../.github/workflows/ci.yml)
+installs pytest and then runs two checks — the suite and the conformance gate — and there is
+no lint or format step anywhere in the workflow. Match the surrounding file's style by eye;
+nothing will tell you if you don't.
+
+[TODO: Are the `# noqa` markers vestigial, or is flake8 expected to be run by hand? If a
+formatter is wanted, that is a decision worth an ADR before someone reformats the tree.]
+
+### Citations in this tree are parsed, not decorative
+
+`freya docs-graph` reads the markdown under `docs/` and `knowledge-base/` — this tree — and
+turns every `path:line` token and relative markdown link into a doc-section → code edge
+(`skills/freya-docs-manager/scripts/docs_graph.py:199`,
+`skills/freya-docs-manager/scripts/docs_graph.py:337`). Only paths naming a file that is
+actually in the code graph become edges, and a bare filename is resolved only when exactly one
+file carries it (`skills/freya-docs-manager/scripts/docs_graph.py:214`). So a citation you
+invent resolves to nothing and is silently dropped, and a citation you get right is what makes
+a later code change point back at the paragraph that needs rewriting. Cite the file you
+actually opened.
 
 ## SKILL.md Structure
 
@@ -21,31 +134,17 @@ description: |
 ---
 ```
 
-The `INTEGRATION` and `Used by` lines help AI agents understand relationships.
+The `INTEGRATION` and `Used by` lines help an agent understand relationships. They are a
+convention rather than a requirement, and an uneven one: measured on the shipped tree, three of
+the ten skills carry `INTEGRATION:` and one carries `Used by:`.
 
-Note the cross-reference form: `freya-<skill>`, no leading slash and no
+The cross-reference form is not optional: `freya-<skill>`, no leading slash and no
 `/freya-devkit:` namespace. A slash form is a Claude Code invocation and does not
 resolve on a portable install; the namespaced form is Claude's alone. See
 [CONTRIBUTING.md](../../CONTRIBUTING.md) — "Cross-references use the prefixed skill
 name". `name:` must also equal the skill's directory name, so a skill in
 `skills/freya-my-skill/` declares `name: freya-my-skill`
 (`bin/check_skill_conformance.py` rule R8).
-
-### Integration Section in Body
-
-```markdown
-## Integration with Other Skills
-
-### Dependencies
-- **Required**: None (or list required skills)
-- **Optional**: freya-code-graph for impact analysis
-
-### Used By
-- freya-wrap-up includes this skill in its workflow
-
-### Fallback Behavior
-If freya-code-graph is not available, falls back to git diff analysis.
-```
 
 ## Invoking Bundled Scripts
 
@@ -67,87 +166,62 @@ unreachable through `freya` (rule R3 flags a `freya <command>` with no manifest 
 Mind the one-character distinction: `freya <command>` (space) is the CLI;
 `freya-<skill>` (hyphen) is a skill name. They are never interchangeable.
 
-## Command Patterns
+### How the launcher resolves a command
 
-### Update vs Scan
+Worth knowing in full, because every portability property the skill layer has rests on it.
+All of it is in `bin/freya` and `bin/freya_cli.py`:
 
-| Command | Scope | When to Use |
-|---------|-------|-------------|
-| `scan` | Full codebase | Initial setup, complete refresh |
-| `update` | Changed files only | Day-to-day after code changes |
-| `update <target>` | Specific item | Focused update |
+1. **`bin/freya` is the only file from this tree that lands on `PATH`** — on Windows the
+   installer writes a generated `freya.cmd` beside it, because an extensionless file is not
+   runnable there (`bin/installer.py:747`). It is deliberately thin — it checks
+   the Python floor, then puts its own directory on `sys.path` using `os.path.realpath`, not
+   `abspath` (`bin/freya:25`). Under `-P` / `PYTHONSAFEPATH` CPython does not auto-insert a
+   resolved `sys.path[0]`, so `abspath` would point at the symlink's own directory and the
+   import would fail.
+2. **The store is found from `__file__`, not from an environment variable.**
+   `suite_root()` is `Path(__file__).resolve().parents[1]` (`bin/freya_cli.py:30`). `.resolve()`
+   follows symlinks, so a skill directory linked into an agent's skills folder still resolves
+   back to the checkout where its sibling scripts live. This is why no agent-specific path
+   variable appears anywhere.
+3. **Built-ins are dispatched before the manifest is consulted** — `help`, `doctor`, `init`,
+   `update`, `install`, `uninstall` (`bin/freya_cli.py:26`). A manifest entry colliding with one
+   of those names would be unreachable while `freya help` still advertised it under Commands,
+   so a test asserts the two sets stay disjoint (`bin/test_freya_cli.py:552`).
+4. **Everything else is looked up in `bin/commands.json`** and joined onto `<root>/skills/`
+   (`bin/freya_cli.py:107`) — 17 commands as of commit `6252d3e`. The manifest is validated on
+   load rather than at the point of use: it must be a JSON object of string values, and each
+   value must name a path *under* `skills/`. A POSIX-absolute path, a Windows drive or root,
+   and a `..` in either spelling are all rejected, judged with both path flavours on every host
+   (`bin/freya_cli.py:55`, `bin/freya_cli.py:77`). It is repo-owned data, so this is a guard
+   rather than a fix, but the entry is joined onto the store and then executed.
+5. **The target runs under `sys.executable`**, never a bare `python` — which frequently is not
+   on modern systems (`bin/freya_cli.py:118`) — with the script's own directory prepended to the
+   child's `PYTHONPATH`, restoring the `sys.path` entry that `-P` / isolated mode removes
+   (`bin/freya_cli.py:127`).
 
-Example:
-```markdown
-## Commands
+Exit codes: the child's own code is propagated unchanged, except that a signal-terminated
+child (`-N` from `subprocess.call`) is reported as `128+N` rather than masked to `256-N`. An
+unknown command is 2. A registered-but-missing script is also 2, but with a message naming
+`freya doctor` instead of CPython's "can't open file" (`bin/freya_cli.py:147`).
 
-| Command | Description |
-|---------|-------------|
-| `scan` | Full codebase scan |
-| `update` | Git-aware incremental sync (recommended) |
-| `update <name>` | Update specific item |
-```
+Three tests hold the manifest to its seams, and between them they are why a stale instruction
+in a SKILL.md fails in CI rather than in front of a user: every entry must point at a file
+that exists; every `skills/*/scripts/*.py` carrying a `__main__` block must have an entry
+(`bin/test_freya_cli.py:39`, `bin/test_freya_cli.py:49`); and every `freya <command>` that any
+`SKILL.md` or the root `README.md` prescribes must resolve to a real command
+(`bin/test_freya_cli.py:559`).
 
-### Help Command
+## The shapes a new skill follows
 
-Always include a help command:
+The general forms — incremental updates keyed on a tracking dotfile, graceful fallback when
+`freya-code-graph` is absent, cross-referencing specs before reporting a finding, the
+coordinator + independent-tasks fan-out — are in [patterns.md](../patterns.md) and are not
+restated here. The one repo-specific convention worth naming: a skill's tracking dotfile lives
+under its own output directory, as `knowledge-base/<skill-output-dir>/.<skill>-last-<action>`.
 
-```markdown
-### `freya-my-skill help`
+What *is* specific to this repo is the obligation that comes with a code-graph answer.
 
-Display usage information including:
-- What the skill does
-- Available commands
-- Usage examples
-```
-
-## Incremental Update Convention
-
-Skills that support incremental updates should:
-
-1. **Track state** in a dotfile under the skill's `knowledge-base/` output directory:
-   ```
-   knowledge-base/<skill-output-dir>/.my-skill-last-update
-   ```
-
-2. **Read state** at start:
-   ```markdown
-   ### Phase 1: Change Detection
-   1. Read `.my-skill-last-update` for last commit hash
-   2. If missing, fall back to full scan
-   3. Run `git diff <last-commit>..HEAD --name-only`
-   ```
-
-3. **Write state** at end:
-   ```yaml
-   # .my-skill-last-update
-   commit: <current-hash>
-   timestamp: <ISO-8601>
-   items_processed: <count>
-   ```
-
-4. **Document fallback**:
-   ```markdown
-   If no tracking file exists, performs full scan like `scan` command.
-   ```
-
-## Code-Graph Integration
-
-Skills that benefit from dependency awareness should:
-
-### Check Availability
-
-```markdown
-**If `freya-code-graph` skill is available:**
-- Call `freya-code-graph impact <changed-files>` for blast radius
-- Include dependent files in processing
-
-**If code-graph is not available (fallback):**
-- Use only directly changed files from git diff
-- Warn user: "code-graph not available - reduced coverage"
-```
-
-**And check whether the answer is complete.** Availability is not the only way an answer can be
+**Check whether the answer is complete.** Availability is not the only way an answer can be
 narrower than the question. `build`, `update`, `query` and `impact` may carry an
 `unmapped_source` block naming the in-scope source files the backend could not parse, and the
 directories to search instead; `dependents`/`dependencies` say the same on stderr. It is absent
@@ -161,165 +235,22 @@ was computed over an incomplete graph.
 - Say so in whatever you report, rather than presenting the narrow answer as the whole one
 ```
 
-This is the same rule as the fallback above, one level finer: a confidently empty answer is the
+It is patterns.md's graceful-fallback rule one level finer: a confidently empty answer is the
 dangerous failure, and "3 dependents" and "3 dependents, and a fifth of this repo is unread" are
 different claims. See ADR-029.
 
-### Use Impact Analysis
+## Where a new skill's output goes
 
-```markdown
-### Phase 2: Impact Analysis
+Under `knowledge-base/`, in the subdirectory the skill owns.
+[ARCHITECTURE.md § Output Artifacts](ARCHITECTURE.md#output-artifacts) is the per-path
+breakdown, with the reasoning and which lines are tracked. Dated reports go to
+`knowledge-base/<type>/<YYYY-MM-DD>.md` and overwrite within the day; git is the history.
 
-1. Get changed files from git diff
-2. **If `freya-code-graph` available:**
-   - `freya-code-graph impact <changed-files>` → blast radius
-   - Process all files in blast radius
-3. **Fallback:**
-   - Process only directly changed files
-```
-
-### Document the Integration
-
-```markdown
-## Code-Graph Integration
-
-When available, this skill uses freya-code-graph for:
-- Impact analysis in update mode
-- Understanding dependency chains
-
-Fallback: Simple git diff if code-graph unavailable.
-```
-
-## Spec-Manager Integration
-
-Skills that might flag intentional design should:
-
-### Cross-Reference Before Reporting
-
-```markdown
-### Validation Phase
-
-For each finding:
-1. Identify affected feature/component
-2. Check `/knowledge-base/specs/` for matching spec
-3. Look for `intentional_decisions` or `security_implications`
-4. If match found → mark as INTENTIONAL DESIGN
-```
-
-### Include Spec References
-
-```markdown
-| Field | Value |
-|-------|-------|
-| **Status** | Intentional Design |
-| **Spec Reference** | `knowledge-base/specs/features/post-management.md` |
-```
-
-## Artifact Location Convention
-
-Generated artifacts follow this structure:
-
-```
-knowledge-base/
-├── README.md          ← Documentation index (docs-manager)
-├── principles.md      ← Project constitution (spec-manager)
-├── BACKLOG.md         ← Outstanding-work backlog, generated (status)
-├── reference/         ← Project documentation (docs-manager)
-├── specs/             ← Feature specifications (spec-manager)
-├── decisions/         ← Cross-cutting ADRs (spec-manager)
-├── intents/           ← Declared-intent records INTENT-NNN (spec-manager)
-├── security/          ← Security findings (security-scan)
-│   └── <scanner-name>/
-│       └── YYYY-MM-DD.md
-└── .graph/            ← Dependency data (code-graph) + behavior.json (behavior-graph)
-```
-
-New skills should place output in appropriate subdirectories.
-
-## Report File Convention
-
-Dated reports:
-
-```markdown
-- Location: knowledge-base/<type>/<YYYY-MM-DD>.md
-- Overwrites existing: Yes (same date = same file)
-- History: Use git to see previous versions
-```
-
-Example:
-```
-knowledge-base/security/codebase-security/2024-03-27.md
-```
-
-## Tracking File Convention
-
-```yaml
-# .<skill>-last-update (or .<skill>-last-<action>)
-commit: abc123def456
-timestamp: 2024-03-27T10:30:00Z
-<relevant_metrics>: <values>
-```
-
-Location: In the directory containing the skill's primary output.
-
-## Evals Structure
-
-Skills can include evaluation tests:
-
-```
-skill-name/
-├── SKILL.md
-└── evals/
-    └── evals.json
-```
-
-The evals.json structure:
-```json
-{
-  "evals": [
-    {
-      "name": "eval-name",
-      "prompt": "User prompt to test",
-      "expected_behavior": "What should happen"
-    }
-  ]
-}
-```
-
-## Writing Style for This Ecosystem
-
-Beyond the official skill-development guidelines:
-
-### Reference Other Skills Naturally
-
-```markdown
-# Good
-This skill uses freya-code-graph for impact analysis when available.
-
-# Avoid
-This skill requires the code-graph skill (install from...).
-```
-
-### Acknowledge Uncertainty
-
-```markdown
-# Good
-Certainty: 75% (code lacks comments, inferred from patterns)
-
-# Avoid
-This is definitely how it works.
-```
-
-### Document Fallbacks
-
-```markdown
-# Good
-If freya-code-graph unavailable, falls back to git diff.
-This provides reduced coverage but remains functional.
-
-# Avoid
-Requires code-graph to work.
-```
+Two skills ship an `evals/evals.json` — `freya-docs-manager` and `freya-spec-manager` — and
+**nothing in this repository executes them**, verified by grep across `bin/`, `.github/`,
+`.claude-plugin/` and the skill bodies. Both also predate the `docs/` → `knowledge-base/` move
+and assert outcomes like "Creates docs/ directory", so they cannot be run as written. Adding one
+buys no automated coverage; the gates that run are pytest and `check_skill_conformance.py`.
 
 ## Artifacts, Not Commits
 
@@ -327,13 +258,16 @@ A skill **writes** its artifacts and stops. Staging and committing them is
 `freya-wrap-up`'s job and nobody else's — that separation is what makes the
 [two-commit pattern](../patterns.md#pattern-two-commit-separation) hold.
 
-Say so explicitly in the skill body. Four of the six artifact-writing skills already carry a
-short "Artifacts, not commits" paragraph — `freya-codebase-security-scan` and `freya-status`
-still need one — and the reason is empirical: phase-6 validation
-watched an agent with broad tool permissions infer a `git commit` that no skill had
-asked for. An agent will fill in the step you left implicit, so leave none. No
-conformance rule can check this — prose is the only lever a skill has — which is why
-it is a checklist item below rather than something the gate catches for you.
+Say so explicitly in the skill body. Four of the six artifact-writing skills carry a short
+"Artifacts, not commits" paragraph under that heading; `freya-codebase-security-scan` says the
+same thing inline at its report step ("Write the report. Do not commit it."), and
+`freya-status` only declares itself read-only — it still needs the paragraph. The reason is
+empirical: phase-6 validation watched an agent with broad tool permissions infer a `git commit`
+that no skill had asked for **and push a malformed message into the history of a repository it
+had only been asked to scan** (`skills/freya-codebase-security-scan/SKILL.md:807`). An agent
+will fill in the step you left implicit, so leave none. No conformance rule can check this — prose is the only lever a
+skill has — which is why it is a checklist item below rather than something the gate catches
+for you.
 
 ## Creating New Skills
 
@@ -346,6 +280,9 @@ When creating a skill for this ecosystem:
 5. **Provide fallbacks** - What happens if dependencies are missing?
 6. **Place artifacts correctly** - Follow the knowledge-base/ structure
 7. **Stay agent-neutral** - `python3 bin/check_skill_conformance.py` must exit 0
+8. **Register and test any script** - a `__main__`-bearing script under
+   `skills/<skill>/scripts/` needs a `bin/commands.json` entry and a `test_*.py` beside it;
+   if it reads settings or builds a graph, its test class sandboxes `FREYA_HOME`
 
 ## Integration Checklist
 
@@ -361,4 +298,19 @@ Before considering a skill complete for this ecosystem:
 - [ ] Help command included
 - [ ] Cross-references to related skills where appropriate, as `freya-<skill>`
 - [ ] Any fan-out carries the scheduling clause (see [CONTRIBUTING.md](../../CONTRIBUTING.md))
+- [ ] Every bundled script has a `bin/commands.json` entry and a `test_*.py` beside it
+- [ ] Any test class that reads settings or builds a graph sandboxes `FREYA_HOME` in `setUp`
+- [ ] `python3 -m pytest bin/ skills/ -q` is green, run from the repository root
 - [ ] `python3 bin/check_skill_conformance.py` exits 0
+
+## Related Documentation
+
+- [CONTRIBUTING.md](../../CONTRIBUTING.md) — the plugin development loop, live agent
+  validation, the CI matrix and what it does not cover, and the two release paths
+- [ARCHITECTURE.md](ARCHITECTURE.md) — how the ten skills connect, the `bin/` and `skills/`
+  layout, and which artifacts are tracked
+- [SKILL_REFERENCE.md](SKILL_REFERENCE.md) — every skill's commands, at a glance
+- [patterns.md](../patterns.md) — the reusable patterns these conventions are drawn from
+- [philosophy.md](../philosophy.md) — why the skills exist at all
+- [decisions/](../decisions/) — the ADRs. The authority for *why*, and the place to look
+  before re-litigating a settled question

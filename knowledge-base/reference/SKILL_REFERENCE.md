@@ -1,12 +1,12 @@
 # Skill Reference
 
-Quick reference for all ten skills, in tier order — see [Skill Relationships](#skill-relationships) for the five tiers.
+Quick reference for all ten skills, in tier order — see [ARCHITECTURE.md § Skill Tiers](ARCHITECTURE.md#skill-tiers) for the five tiers and what each owns.
 
-> **Invocation & namespacing.** Skill names are `freya-<skill>` (e.g. `freya-code-graph`). Installed portably via `install.sh` (any agent), a skill is named `freya-<skill>` and how you invoke it is the host's business — name it in the request ("run the freya-code-graph skill and build the graph"), or use whatever invocation syntax your agent offers. There is no cross-agent slash form. Installed via the Claude marketplace plugin, Claude namespaces it: `/freya-devkit:freya-<skill> [args]` (e.g. `/freya-devkit:freya-code-graph build`). See the [README](../README.md#installation) for both install paths.
+> **Invocation & namespacing.** Skill names are `freya-<skill>` (e.g. `freya-code-graph`). Installed portably via `install.sh` (any agent), a skill is named `freya-<skill>` and how you invoke it is the host's business — name it in the request ("run the freya-code-graph skill and build the graph"), or use whatever invocation syntax your agent offers. There is no cross-agent slash form. Installed via the Claude marketplace plugin, Claude namespaces it: `/freya-devkit:freya-<skill> [args]` (e.g. `/freya-devkit:freya-code-graph build`). See the [root README](../../README.md#installation) for both install paths.
 
 ## Core Skills
 
-### code-graph
+### freya-code-graph
 
 **Purpose**: Build and query code dependency graphs for impact analysis.
 
@@ -25,29 +25,23 @@ Quick reference for all ten skills, in tier order — see [Skill Relationships](
 | `--use <backend> [--global]` | Record which substrate backend this project — or this machine — uses |
 
 **Output**: `knowledge-base/.graph/graph.json` (active), `graph.<backend>.json` (per-backend
-copy), `classifications.json` — all gitignored. `knowledge-base/settings.json` is **committed**:
-it is where the backend choice and any exclusion overrides live, so a clone and CI resolve the
-same scope you do.
+copy), `classifications.json` — all gitignored. `knowledge-base/settings.json` is meant to be
+committed: it is where the backend choice and any exclusion overrides live, so a clone and CI
+resolve the same scope you do.
 
-**Backends.** The graph is produced through a contract (ADR-018). `homegrown` ships with the
-toolkit, needs nothing but Python, and reads 4 languages across 6 extensions — it is the floor,
-and it always runs unless something else is named. `graphify` needs its binary on `PATH` and
-reads 40 languages across 93 extensions, plus `calls`/`inherits`/`references` relations the floor
-has no notion of. Choosing one is a person's decision, asked once by `freya install` and recorded
-per project (ADR-019); it is never scored automatically, because installing a binary anywhere on
-`PATH` must not silently change every blast radius on the machine.
+**Backends.** Two — `homegrown`, the zero-install floor, and `graphify`, opt-in and wider. Which
+one runs is a person's answer, never a score; see
+[ARCHITECTURE.md § The graph substrate](ARCHITECTURE.md#the-graph-substrate).
 
 **Every answer says what it could not read.** `build`, `update`, `query` and `impact` may carry
-an `unmapped_source` block naming the in-scope source files the backend could not parse and the
-directories to search instead; `dependents`/`dependencies` keep their bare arrays and say the
-same on stderr. The key is absent when there is nothing to say, so its presence means the answer
-above it is computed over an incomplete graph (ADR-029).
+an `unmapped_source` block; its presence means the answer above it was computed over an
+incomplete graph, and its absence means there was nothing to say (ADR-029).
 
 **Used by**: docs-manager, spec-manager, behavior-graph, behavior-runner, codebase-security-scan
 
 ---
 
-### docs-manager
+### freya-docs-manager
 
 **Purpose**: Create and maintain standardized project documentation.
 
@@ -70,7 +64,7 @@ above it is computed over an incomplete graph (ADR-029).
 
 ---
 
-### spec-manager
+### freya-spec-manager
 
 **Purpose**: Create and manage feature specifications with certainty scoring.
 
@@ -102,7 +96,7 @@ above it is computed over an incomplete graph (ADR-029).
 
 ---
 
-### behavior-graph
+### freya-behavior-graph
 
 **Purpose**: Own the behavior graph (`behavior.json`, sibling of `graph.json`) — intended behavior as first-class BEHAVIOR → TEST → CODE records — and answer blast radius in both directions.
 
@@ -125,7 +119,7 @@ above it is computed over an incomplete graph (ADR-029).
 
 ---
 
-### behavior-runner
+### freya-behavior-runner
 
 **Purpose**: Run a project's accepted behaviors via their test adapter and capture observed TEST → CODE coverage fingerprints. A producer — it prints fingerprints, never writes `behavior.json`.
 
@@ -143,9 +137,9 @@ above it is computed over an incomplete graph (ADR-029).
 
 ---
 
-### codebase-security-scan
+### freya-codebase-security-scan
 
-**Purpose**: Comprehensive security audit, scanning each category as an independent task (run in parallel where the agent supports it).
+**Purpose**: Comprehensive security audit. The `freya security` driver fans out over the six categories on its own worker pool and verifies every finding with three adversarial lenses — the parallelism does not depend on the agent choosing to delegate. Only the no-agent-CLI fallback (exit `1`) is an agent-scheduled fan-out. See [ADR-015](../decisions/ADR-015-driver-owned-fan-out.md) and [patterns.md](../patterns.md#pattern-coordinator--independent-tasks).
 
 **Triggers**: "scan codebase for security", "security audit", "code security check"
 
@@ -196,7 +190,7 @@ severities across adapters or across runs that used different `--agent`/`--model
 
 ---
 
-### dependency-vulnerability-check
+### freya-dependency-vulnerability-check
 
 **Purpose**: Check for known vulnerabilities in project dependencies.
 
@@ -206,7 +200,7 @@ severities across adapters or across runs that used different `--agent`/`--model
 
 ---
 
-### wrap-up
+### freya-wrap-up
 
 **Purpose**: Complete post-implementation workflow in sequence.
 
@@ -225,7 +219,7 @@ severities across adapters or across runs that used different `--agent`/`--model
 
 ---
 
-### status
+### freya-status
 
 **Purpose**: Read-only counterpart of wrap-up — a census of outstanding intent, tests owed, coverage gaps, and open findings. Mutates nothing except (on request) the generated `BACKLOG.md`.
 
@@ -245,7 +239,7 @@ severities across adapters or across runs that used different `--agent`/`--model
 
 ---
 
-### codebase-security-resolver
+### freya-codebase-security-resolver
 
 **Purpose**: Fix security issues found by codebase-security-scan.
 
@@ -256,23 +250,6 @@ severities across adapters or across runs that used different `--agent`/`--model
 **Uses**: codebase-security-scan (reads reports)
 
 ---
-
-## Skill Relationships
-
-```
-Tier 1  code-graph  (foundation: graph.json, blast radius)
-             │
-Tier 2  docs-manager · spec-manager · behavior-graph → behavior-runner
-             │   (behavior-graph owns behavior.json, a sibling of graph.json)
-             ▼
-Tier 3  codebase-security-scan · dependency-vulnerability-check
-             │
-             ▼
-Tier 4  wrap-up  (orchestrates T1 → T2 → behavior integrity 3.5 → T3, two commits)  ·  status (read-only)
-             │
-             ▼
-Tier 5  codebase-security-resolver
-```
 
 ## Quick Decision Guide
 
@@ -298,38 +275,8 @@ Tier 5  codebase-security-resolver
 
 ## File Locations
 
-Everything under `knowledge-base/` is committed except the regenerable cache, which
-`.graph/.gitignore` names individually — individually rather than with a blanket `*`, because
-`behavior.json` sits in the same directory and has to be committed.
-
-| Type | Location | In git? |
-|------|----------|---------|
-| Project settings | `knowledge-base/settings.json` | **tracked** |
-| Dependency graph | `knowledge-base/.graph/graph.json` | ignored |
-| Per-backend graph | `knowledge-base/.graph/graph.<backend>.json` | ignored |
-| Graph classifications | `knowledge-base/.graph/classifications.json` | ignored |
-| Docs graph | `knowledge-base/.graph/docs.json` | ignored |
-| Behavior graph | `knowledge-base/.graph/behavior.json` | tracked |
-| Project docs | `knowledge-base/reference/*.md` | tracked |
-| Feature specs | `knowledge-base/specs/<category>/SPEC-*.md` | tracked |
-| ADRs (decisions) | `knowledge-base/decisions/ADR-*.md` | tracked |
-| Declared intents | `knowledge-base/intents/INTENT-*.md` | tracked |
-| Principles (constitution) | `knowledge-base/principles.md` | tracked |
-| Backlog (generated) | `knowledge-base/BACKLOG.md` | tracked |
-| Security reports | `knowledge-base/security/codebase-security/YYYY-MM-DD.md` | tracked |
-| Resolution logs | `knowledge-base/*-resolutions.jsonl` | tracked |
-| Spec tracking | `knowledge-base/specs/.spec-last-update` | tracked |
-| Declared-intent tracking | `knowledge-base/intents/.intent-last-verified` | tracked |
-| Security tracking | `knowledge-base/security/.security-last-scan` | tracked |
-| Update-check throttle | `~/.freya/update-check.json` | outside the repo |
-| Machine backend default | `~/.freya/settings.json` (`FREYA_HOME` overrides) | outside the repo |
-| Project agent primer | `AGENTS.md` (managed block only) | tracked |
-
-`behavior.json` holds observed coverage captured by running the tests, so it cannot be rebuilt
-by re-reading source like its `.graph/` neighbours can — which is why it is committed while they
-are not. See [ADR-017](../decisions/ADR-017-behavior-json-is-committed.md).
-
-`knowledge-base/settings.json` is the only file here a person edits by hand, and the only one
-Track B added to the tracked set. It holds which substrate backend this project uses and which
-built-in exclusions it overrules — both of which have to survive a clone and reach CI, which is
-why it sits outside `.graph/` where `--clear` cannot take a real decision with the cache.
+Where every artifact lands and what is tracked:
+[ARCHITECTURE.md § Output Artifacts](ARCHITECTURE.md#output-artifacts). The three paths outside
+the repository — `~/.freya/settings.json`, `~/.freya/update-check.json`, and the `AGENTS.md`
+managed block `freya init` writes into a project — are
+[ENVIRONMENT.md § Configuration files](ENVIRONMENT.md#configuration-files).
