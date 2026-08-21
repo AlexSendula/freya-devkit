@@ -56,16 +56,20 @@ of scope, but it is not required to accept the exclusions natively either: graph
 obligation 6 as a post-filter on its own output, because `graphify update` has no exclusion flag
 (`backend_graphify.py:573`).
 
-**Two of the six obligations are declared and unenforced, and this record says so rather than
-repeating the design's present tense.** `Coverage.incremental` is written into every graph's
-coverage block (`substrate.py:409`) and read by nothing: the only read in the repository is
-`Coverage.from_dict` reconstituting the value it just wrote. Nothing forces a full rebuild for a
-backend that declines incremental update — the clause exists, the branch does not, and both
-shipping backends declare `incremental=True`, so it has never had to. `coverage.relations` is in
-the same position: written on every build, consumed by no caller, so the "degrade one query
-rather than distrust the whole graph" it was declared for is available and unused. The
-vocabulary half of the same decision *is* load-bearing, because it is what makes an edge's
-`kind` checkable at all.
+**Obligation 5 was declared and unenforced for the whole of this feature, and was implemented on
+the day this record was written.** `Coverage.incremental` is written into every graph's coverage
+block (`substrate.py:409`), and until 2026-08-21 the only read in the repository was
+`Coverage.from_dict` reconstituting the value it had just written. The clause existed, the branch
+did not, and both shipping backends declare `True` — so nothing had ever been in a position to
+notice. `run_update` now calls the backend's build path when `coverage().incremental` is false,
+and takes the same safe route when a backend cannot describe its coverage at all
+(`graph_ops.py:2579`). It is pinned by a test that fails under mutation of that branch.
+
+**`coverage.relations` is still declared and unenforced**, and this record says so rather than
+repeating the design's present tense: written on every build, consumed by no caller, so the
+"degrade one query rather than distrust the whole graph" it was declared for is available and
+unused. The vocabulary half of the same decision *is* load-bearing, because it is what makes an
+edge's `kind` checkable at all — see ADR-021.
 
 The store behind the project's exclusions is **not** `classifications.json`, which was the
 original plan. `classifications.json` stayed a gitignored derived cache (`graph_ops.py:243`);
@@ -187,12 +191,18 @@ against during the exact change that introduced kinds.
 
 ## Revisit Conditions
 
-- **The first backend that declares `incremental=False`.** Obligation 5 is written down and
-  nothing implements it: no production code reads `Coverage.incremental`, and both shipping
-  backends declare `True`. The moment a backend honestly declines incremental update, the
-  contract will trust a stale incremental it promised to reject. Write the forced rebuild then —
-  or, if no such backend ever appears, strike the obligation rather than leaving a promise
-  standing on an unexercised branch.
+- **The first backend that declares `incremental=False`.** The forced rebuild now exists, and
+  no shipping backend exercises it — both declare `True`, so the branch is proven only by a
+  fixture. When a real backend declines, check that a full rebuild is actually what it wants:
+  a backend that can drop *some* deleted nodes but not all is a third case the current boolean
+  cannot express, and the honest answer might be a finer declaration rather than an all-or-
+  nothing one.
+
+- **`coverage.relations` acquires a reader, or does not.** It is declared on every build and
+  consumed by nothing. If a query ever degrades on it, this is load-bearing and should be
+  tested as such; if nothing has read it a year from now, strike it rather than leave a
+  promise standing on an unexercised field. The same reasoning that closed obligation 5
+  applies — a declaration nobody reads is indistinguishable from a false one.
 
 - **A query surface that needs symbol-level relations.** `coverage.relations` is recorded on
   every graph and consumed by nothing. If a caller ships that needs `calls` or `inherits` and

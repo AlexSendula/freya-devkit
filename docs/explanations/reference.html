@@ -129,7 +129,7 @@
               </tr>
               <tr>
                 <td><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/bin/commands.json">bin/commands.json</a></td>
-                <td>The sixteen registered <code>freya</code> commands, machine-readable.</td>
+                <td>The seventeen registered <code>freya</code> commands, machine-readable.</td>
                 <td>You need to know whether a command exists, or you are adding one. A test fails if
                 an entry points at a missing script, and another fails if a script with a
                 <code>__main__</code> block is not registered.</td>
@@ -304,13 +304,17 @@
 
         <div class="callout callout--warn">
           <span class="callout-label">The line that surprises people</span>
-          <p>The graph is <em>not</em> version-controlled. Both graph tools write a
-          <code>.gitignore</code> containing <code>*</code> into <code>.graph/</code> the first time
-          they create it, so an adopting project never has to touch its root <code>.gitignore</code> —
-          and so the graph and the behavior graph are ignored unless you deliberately un-ignore them.
-          Prose that calls the whole knowledge base version-controlled, including the summary on this
-          site's own home page, is loose about that one directory. Everything else in the tree is
-          committed.</p>
+          <p>The parse cache is <em>not</em> version-controlled, and <code>behavior.json</code>
+          <em>is</em>. <code>.graph/</code> writes its own <code>.gitignore</code> the first time it
+          is created, naming the regenerable files individually — <code>graph.json</code>,
+          <code>graph.*.json</code>, <code>classifications.json</code>, <code>docs.json</code> —
+          rather than a blanket <code>*</code>, so an adopting project never has to touch its root
+          <code>.gitignore</code>. It names them individually precisely because
+          <code>behavior.json</code> lives in the same directory and must be committed: its observed
+          coverage comes from running the test suite and cannot be rebuilt by re-reading source.
+          <code>knowledge-base/settings.json</code>, one level up, is committed too — it holds the
+          backend choice and any exclusion overrides, both of which have to reach CI.
+          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/docs/decisions/ADR-017-behavior-json-is-committed.md">ADR-017</a></p>
         </div>
 
         <div class="callout callout--info">

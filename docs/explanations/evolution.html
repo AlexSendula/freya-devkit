@@ -19,7 +19,7 @@
       <p class="lead">
         The design documents were written before the code, and most of what they said held. This page
         is the part that did not: a belief this project held confidently, the evidence that refuted it,
-        and what replaced it — thirteen times, in that order.
+        and what replaced it — sixteen times, in that order.
       </p>
 
       <!-- ==================== OPENER ==================== -->
@@ -78,18 +78,6 @@
                 <td>It was the right call, and it expired on schedule</td>
               </tr>
               <tr>
-                <td><a href="#freya-could-not-graph-freya">The spike would tell us about the other parser</a></td>
-                <td>It found that freya could not graph freya, and reported success doing it</td>
-              </tr>
-              <tr>
-                <td><a href="#correcting-something-that-was-right">A probe found no evidence, so there was none</a></td>
-                <td>All four relations were real; the correction was the error</td>
-              </tr>
-              <tr>
-                <td><a href="#the-honesty-mechanism-lied">A silence from the honesty check meant all was well</a></td>
-                <td>It meant the scope rule had excluded the whole codebase</td>
-              </tr>
-              <tr>
                 <td><a href="#dry-run-deleted">A safety flag previews the plan</a></td>
                 <td><code>--dry-run</code> deleted every symlink, with a green suite behind it</td>
               </tr>
@@ -124,6 +112,18 @@
               <tr>
                 <td><a href="#windows-waiting-on-code">Windows needs a machine, not code</a></td>
                 <td>29 failures the first time anything ran there, two of them product bugs</td>
+              </tr>
+              <tr>
+                <td><a href="#freya-could-not-graph-freya">The spike would tell us about the other parser</a></td>
+                <td>It found that freya could not graph freya, and reported success doing it</td>
+              </tr>
+              <tr>
+                <td><a href="#correcting-something-that-was-right">A probe found no evidence, so there was none</a></td>
+                <td>All four relations were real; the correction was the error</td>
+              </tr>
+              <tr>
+                <td><a href="#the-honesty-mechanism-lied">A silence from the honesty check meant all was well</a></td>
+                <td>It meant the scope rule had excluded the whole codebase</td>
               </tr>
             </tbody>
           </table>
@@ -499,10 +499,10 @@
       <section>
         <h2 id="act-three-running-it">Act III — Things only running it could find</h2>
         <p>
-          Everything above was found by building, reviewing or reading a specification. These four were
-          reachable only by running the thing against a real agent, a real host, or a real platform —
-          and three of the four had survived multiple careful reviews that read the code correctly
-          every time.
+          Everything above was found by building, reviewing or reading a specification. These seven
+          were reachable only by running the thing — against a real agent, a real host, a real
+          platform, or a real repository — and most of them had survived multiple careful reviews
+          that read the code correctly every time.
         </p>
 
         <h3 id="cannot-be-told-to-parallelise">10 · Copilot cannot be told to parallelise</h3>

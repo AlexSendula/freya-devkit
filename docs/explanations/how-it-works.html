@@ -145,10 +145,12 @@
         <h2 id="the-graph-substrate">The graph substrate</h2>
         <p>This is the keystone, and the place a mistake propagates furthest.
         <code>freya-code-graph</code> builds a <strong>reverse-dependency graph</strong> — for every
-        file, who depends on it — by scraping import statements with regular expressions across
-        TypeScript/JavaScript, Python and Go. Regular expressions, not a real parser: that is a stated
-        limit, not an oversight, and it is what keeps the whole toolkit stdlib-only with no install
-        step.</p>
+        file, who depends on it. The backend that ships with the toolkit does it by scraping import
+        statements with regular expressions across TypeScript/JavaScript, Python and Go. Regular
+        expressions, not a real parser: that is a stated limit, not an oversight, and it is what keeps
+        the whole toolkit stdlib-only with no install step. <a href="#the-substrate-contract">A second
+        backend</a>, opt-in, reads forty languages with real ASTs — the rest of this section is about
+        the one that always ships, because it is the floor everything falls back to.</p>
 
         <div class="callout callout--info">
           <span class="callout-label">Blast radius</span>
@@ -485,7 +487,8 @@ knowledge-base/security/…/YYYY-MM-DD.md</code></pre>
         </div>
 
         <p>The projection lands in <code>behavior.json</code>, a <strong>sibling</strong> of
-        <code>graph.json</code> under the git-ignored <code>knowledge-base/.graph/</code> — kept
+        <code>graph.json</code> in <code>knowledge-base/.graph/</code> — and, unlike the parse
+        cache beside it, <strong>committed</strong> — kept
         deliberately separate so the code substrate stays swappable. <code>code-graph</code> never
         learns about behaviors at all: <code>behavior-graph</code> queries it for impact and queries
         <code>behavior-runner</code> for coverage, and the dependency points one way only.</p>
@@ -1334,9 +1337,9 @@ freya behavior-graph --check --base "$BASE" --project .</code></pre>
       var DATA = {
         "code-graph": {
           tier: "1 · Foundation",
-          reads: "Your source (TS/JS, Python, Go) + git",
-          writes: "graph.json, classifications.json",
-          degrades: "It is the foundation — nothing below it to lose.",
+          reads: "Your source + git. 4 languages on the built-in backend, 40 on the opt-in one",
+          writes: "graph.json, graph.&lt;backend&gt;.json, classifications.json",
+          degrades: "It is the foundation — nothing below it to lose. When its backend cannot read part of your repo, it says so in the answer.",
           note: "The keystone. impact(file) = file + direct + transitive dependents."
         },
         "docs-manager": {

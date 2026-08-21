@@ -318,13 +318,35 @@ freya doctor          <span class="tok-c"># verify what landed where</span></cod
             <span class="s-purpose">The dependency graph and blast radius every other skill queries.</span>
           </summary>
           <div class="s-body">
-            <p>Builds a reverse-dependency graph by scraping import and export relationships for
-            TypeScript/JavaScript, Python and Go, so consumers can process a change's whole blast radius
-            rather than only the file that changed.</p>
+            <p>Builds a reverse-dependency graph so consumers can process a change's whole blast
+            radius rather than only the file that changed. The graph is produced by a
+            <strong>backend</strong> behind a fixed contract. <code>homegrown</code> ships with the
+            toolkit, needs nothing but Python, and scrapes imports for TypeScript/JavaScript, Python
+            and Go — 4 languages, 6 extensions. <code>graphify</code> is opt-in and needs its binary
+            on <code>PATH</code>: tree-sitter ASTs across <strong>40 languages and 93
+            extensions</strong>, plus <code>calls</code>/<code>inherits</code>/<code>references</code>
+            relations the built-in one has no notion of.</p>
+            <div class="code-block">
+              <div class="code-head"><span class="dot"></span><span class="dot"></span><span class="dot"></span>&nbsp; choosing a backend</div>
+              <pre class="code"><code>uv tool install <span class="tok-s">"graphifyy[sql,terraform]"</span>   <span class="tok-c"># or pip install</span>
+
+freya code-graph --use graphify            <span class="tok-c"># this project</span>
+freya code-graph --use graphify --global   <span class="tok-c"># and every future one</span></code></pre>
+            </div>
+            <p><code>freya install</code> asks this once and records the answer as your machine
+            default; the first build in a project writes it into that project's committed
+            <code>knowledge-base/settings.json</code>, so a clone and CI resolve the same backend you
+            do. It is never chosen automatically — installing a binary on <code>PATH</code> must not
+            silently change every blast radius on the machine.</p>
             <h4>Limits</h4>
             <ul>
-              <li>It is <strong>regex, not an AST</strong>. A dynamic <code>import(variable)</code> is
-              missed; imports inside comments or strings can mismatch.</li>
+              <li><strong>The built-in backend is regex, not an AST.</strong> A dynamic
+              <code>import(variable)</code> is missed; imports inside comments or strings can
+              mismatch. <code>graphify</code> does not have this limit.</li>
+              <li><strong>Every answer says what it could not read.</strong> A build, query or impact
+              answer may carry an <code>unmapped_source</code> block naming the in-scope source the
+              backend could not parse, and the directories to grep instead. It is absent when there
+              is nothing to say — so its presence means the answer above it is incomplete.</li>
               <li>External packages are recorded as <code>external:</code> leaves and never traversed.</li>
               <li>Bare Go imports and absolute-Python module specifiers often fall through to
               <code>external:</code>. Internal-edge resolution is strongest for TS/JS relative and aliased
@@ -602,12 +624,15 @@ freya doctor          <span class="tok-c"># verify what landed where</span></cod
 
         <div class="callout callout--warn">
           <span class="callout-label">Committed versus regenerable — and one thing the prose gets wrong</span>
-          <p>The prose and the machine indexes are meant to be <strong>committed</strong>. The
-          <code>.graph/</code> directory is not. Both graph tools auto-write a <code>.gitignore</code>
-          containing <code>*</code> into it the first time they run, so <strong>the entire graph directory is
-          git-ignored by default</strong> — even though some prose still describes the graph as
-          version-controlled. Treat <code>.graph/</code> as a local cache. Rebuilding it is cheap, and an
-          adopting project never has to touch its own root <code>.gitignore</code>.</p>
+          <p>The prose and the machine indexes are <strong>committed</strong>. Inside
+          <code>.graph/</code> it is split: the parse cache is ignored, and
+          <code>behavior.json</code> is not. The directory auto-writes a <code>.gitignore</code>
+          naming the regenerable files individually — <code>graph.json</code>,
+          <code>graph.*.json</code>, <code>classifications.json</code>, <code>docs.json</code> —
+          rather than a blanket <code>*</code>, because <code>behavior.json</code> sits beside them
+          and has to survive a clone: its observed coverage comes from running your test suite and
+          cannot be recovered by re-reading source. Treat the cache as a cache; rebuilding it is
+          cheap. An adopting project never has to touch its own root <code>.gitignore</code>.</p>
         </div>
 
         <div class="callout callout--info prose-center">
