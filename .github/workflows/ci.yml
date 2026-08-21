@@ -81,8 +81,14 @@ jobs:
       - name: Test suite
         run: python -m pytest bin/ skills/ -q
 
-      # Independent of the suite above, which passes with an R1 violation live
-      # in a shipped SKILL.md. Exit 1 here is the entire gate.
+      # Not redundant with the suite above, though it overlaps it: ShippedTreeTest
+      # (bin/test_check_skill_conformance.py:928) runs the same scan over the same
+      # tree, so a shipped violation already fails pytest — verified by mutation on
+      # 2026-08-21, planting an R1 violation in a SKILL.md and watching that test
+      # fail. This step is kept because it names the violating file and rule on its
+      # own line, and because it is the command CONTRIBUTING tells contributors to
+      # run. This comment previously claimed the suite passes with a shipped R1
+      # violation live; it does not, and has not since ShippedTreeTest landed.
       - name: Skill conformance gate
         run: python bin/check_skill_conformance.py
 

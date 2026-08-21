@@ -507,8 +507,15 @@ all state — in the present tense — that only `extracted` edges may gate `wra
 blast radius indistinguishable from an extracted one.
 
 The exposure today is small: over-approximating a blast radius is the safe direction, and
-exactly two file pairs on this repository rest solely on an inferred link (both duck-typed calls
-through an interface). The discrepancy is not small. This is the third time a guard in this
+**one** file pair on this repository rests solely on an inferred link —
+`audit_engine.py` → `substrate.py`. Of 120 edges, 12 are inferred; the other 11 pairs carrying
+an inferred edge also carry an extracted one, so dropping the inferred half would not
+disconnect them. The discrepancy is not small.
+
+> Re-measured 2026-08-21 on `test/dogfood-polyglot` with the graphify backend. This entry
+> previously said *two* pairs, "both duck-typed calls through an interface", which disagreed
+> with ADR-021's *one* in both directions. ADR-021 was right. Reproduce with:
+> `python3 -c "import json,collections; g=json.load(open('knowledge-base/.graph/graph.json')); p=collections.defaultdict(set); [p[(f,e['to'])].add(e.get('provenance')) for f,i in g['files'].items() for e in (i.get('imports') or []) if isinstance(e,dict) and e.get('to')]; print([k for k,v in p.items() if v=={'inferred'}])"` This is the third time a guard in this
 toolkit has been written, documented as having an effect, and left unwired — `validate_graph`
 had zero callers, `set_classification` was accepted and ignored, and now this.
 

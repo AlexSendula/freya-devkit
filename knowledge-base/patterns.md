@@ -116,8 +116,10 @@ Commit 2 (artifacts):
 
 **Used by**: wrap-up
 
-**The rule that makes it hold: only `freya-wrap-up` stages or commits.** Every other
-skill writes its artifacts and stops. This belongs in the body of every artifact-writing
+**The rule that makes it hold: only `freya-wrap-up` stages or commits an artifact.** Every
+other skill writes its artifacts and stops. The exception is deliberate and narrow:
+`freya-codebase-security-resolver` commits the *code fix* first, so the scan that follows has
+a hash to diff against — which is commit 1 of this very pattern, not a violation of it. This belongs in the body of every artifact-writing
 skill — see [conventions.md](reference/DEVELOPER.md#artifacts-not-commits) for which skills
 carry the paragraph today — because phase-6 validation watched an agent with
 broad tool permissions infer a `git commit` no skill had asked for, and prose is the only

@@ -33,6 +33,16 @@ time so the committed file is byte-stable across rebuilds.
 > `behavior.json` here even though an adopting project commits it. The decision is about
 > adopting projects and holds there; this repo is the exception, not the rule.
 
+> **Correction, 2026-08-21 (second).** The caveat above is no longer true, and the exception it
+> describes is gone. `**/.graph/` was removed from this repo's root `.gitignore` when
+> freya-devkit adopted `knowledge-base/` and began running the toolkit on itself;
+> `git check-ignore knowledge-base/.graph/behavior.json` now exits 1. The rule was the reason
+> this repository could not honour its own decision, which is exactly the kind of thing
+> dogfooding surfaces and nothing else does — note that the mechanism was never specific to
+> this repo either: *any* adopting project that adds `**/.graph/` by hand hits it, because git
+> does not descend into an ignored directory to read the `.gitignore` the toolkit writes
+> inside it.
+
 ## Rationale
 
 The three files in `.graph/` are not the same kind of artifact.

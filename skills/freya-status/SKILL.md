@@ -74,6 +74,18 @@ a coverage report is to test coverage: it diffs in PRs so the team sees the
 backlog without running anything. `wrap-up` also regenerates it in its artifacts
 commit, so it stays current.
 
+## Artifacts, not commits
+
+Write the artifacts this skill owns. **Do not stage or commit them** — that is
+`freya-wrap-up`'s job. The two-commit pattern keeps code changes in one commit and
+generated artifacts in another, and the user decides when the second happens.
+Phase 6 validation observed an agent with broad tool permissions infer a `git commit`
+that no skill had asked for, in a repository it had only been asked to read.
+
+`BACKLOG.md` is the one artifact in this toolkit that is rewritten by full overwrite in
+code (`collect_status.py:222` opens it with mode `w`), so anything hand-authored at that
+path is destroyed without warning. Keep a hand-maintained backlog under a different name.
+
 ## When to use
 
 - After pulling changes, or before planning, to see what intent/tests/findings are outstanding.

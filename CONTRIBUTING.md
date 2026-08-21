@@ -108,8 +108,10 @@ Know the two limits before you rely on it:
   reference. R9 is also **file-scoped**: if a file already has the clause and you
   add a *second*, unrelated fan-out elsewhere in that same file, R9 won't catch it;
   check by hand.
-- **Skills write artifacts; only `freya-wrap-up` commits them.** Every
-  artifact-writing skill states this in its own body, and it is a convention with a
+- **Skills write artifacts; only `freya-wrap-up` commits them.** Five artifact-writing
+  skills carry an "Artifacts, not commits" heading and `freya-codebase-security-scan`
+  says it inline; `freya-status` was missing it entirely until 2026-08-21, which is what
+  a convention with no check looks like when it slips. It is a convention with a
   cause: phase-6 validation watched an agent with broad tool permissions infer a
   `git commit` no skill had asked for. Prose is the only lever a skill has here, so
   a new artifact-writing skill needs its own "Artifacts, not commits" paragraph —
@@ -136,8 +138,12 @@ The conformance gate is **separate and not redundant**:
 python3 bin/check_skill_conformance.py     # must exit 0
 ```
 
-A shipped `SKILL.md` can violate most of R1–R13 with the whole pytest suite green,
-because only this script scans the tree that actually ships. Run both before you commit.
+A shipped `SKILL.md` violation fails **both**: `ShippedTreeTest`
+([`bin/test_check_skill_conformance.py:928`](bin/test_check_skill_conformance.py)) runs the
+same scan over the same tree from inside pytest. Run this script anyway — it names the file,
+line and rule, where the test gives you an assertion. *(This paragraph used to say the suite
+stays green with a shipped violation. It was written in the same commit that added
+`ShippedTreeTest` and was never true; re-checked by mutation on 2026-08-21.)*
 
 [`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs both on every push and pull
 request, across Linux and Windows on Python 3.9 and 3.13, plus a second job that drives
