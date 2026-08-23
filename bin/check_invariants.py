@@ -18,16 +18,22 @@ INV-2 — a spawned program is named by a path, never by a bare name.
     `subprocess.run(["git", ...], cwd=<a repository we were pointed at>)` asks
     the operating system to search for `git`. On Windows `CreateProcess`
     searches the working directory first, so the scanned repository chooses the
-    binary. Two HIGH findings on this repository are that defect: SEC-002
+    binary. Two HIGH findings on this repository were that defect — SEC-002
     (`backend_graphify.py`, where the scanned project's own settings.json arms
-    the backend whose bare name is then resolved from its directory) and SEC-003
-    (`audit_adapter.py` / `audit.py`, the agent-CLI workers).
+    the backend whose bare name was then resolved from its directory) and
+    SEC-003 (`audit_adapter.py` / `audit.py`, the agent-CLI workers). Both are
+    fixed; they are named here because they are why the rule exists.
 
-    Known blind spot: this rule reads argv[0] at the call site. An argv built by
-    a helper — `subprocess.run(adapter.build_argv(contract), ...)` in
-    `audit.py` — is not statically decidable here, so SEC-003's bare `"claude"`
-    (`audit_adapter.py:_claude_argv`) is invisible to it. The rule catches the
-    shape at the boundary it can see and does not pretend to more.
+    Known blind spot, and it is now wider by design. This rule reads argv[0] at
+    the call site, so an argv built by a helper —
+    `subprocess.run(adapter.build_argv(contract), ...)` in `audit.py` — is not
+    statically decidable, and neither is
+    `subprocess.run([exec_path.resolve(...).path, ...])`, which is what a fixed
+    site looks like. So the sites that adopt the resolver leave this census
+    permanently, and the runtime substitute is
+    `audit_adapter._guard`, which refuses a non-absolute argv[0] on the way
+    past. See ADR-030: a fixed site's allowlist entry is deleted, never left in
+    place as cover.
 
 Usage:
     python bin/check_invariants.py [--root DIR] [--rule INV1] [--rule INV2]
@@ -73,20 +79,31 @@ PLATFORM_ONLY_STDLIB = frozenset({
 #: **This is a debt marker, not an approval.** Every entry below is a real
 #: instance of the defect INV-2 describes; none of them is safe because it is
 #: listed here. The list exists so the rule is green on today's tree and goes
-#: red the moment an eleventh site appears — which is the only way a gate can be
+#: red the moment a ninth site appears — which is the only way a gate can be
 #: added to a tree that already violates it without either disabling the gate or
-#: rewriting ten files belonging to other people.
+#: rewriting eight files belonging to other people.
 #:
-#: Of these ten, exactly one is a filed finding: `backend_graphify.py`'s
-#: `graphify` is SEC-002 (High, CONFIRMED). SEC-003 — the other filed instance —
-#: is *not* here, because its bare `"claude"` is assembled inside
+#: Re-measured 2026-08-23, after the G2 fix: **eight sites, all `git`, in seven
+#: files, and not one of them a filed finding.** SEC-002 and SEC-003 are closed
+#: — `backend_graphify.py` and `bin/updater.py` now resolve through
+#: `skills/freya-code-graph/scripts/exec_path.py`, so their entries are gone
+#: rather than shrunk, and `graphify` has left the census entirely. SEC-003 was
+#: never here to begin with: its bare `"claude"` is assembled inside
 #: `audit_adapter._claude_argv` and never appears at a call site.
 #:
-#: The nine `git` sites are unfiled. `git` is a weaker target than `claude` or
-#: `graphify` (an attacker planting `git.exe` in a repository is attacking every
-#: tool that runs there, not this one), but it is the same defect: seven of the
-#: nine run with `cwd=` or `-C` pointing at a repository the operator merely
-#: named.
+#: Deleted, not kept as cover, and the cost of that is real: a site routed
+#: through `exec_path.resolve` presents a call expression as argv[0], which
+#: `resolve_binary` cannot read, so this rule is now structurally blind to those
+#: three sites *forever*. `audit_adapter._guard` is the runtime enforcement that
+#: replaces it. Leaving a paid-off entry here would be worse than the defect it
+#: recorded — a licence for the next bare name in that file, wearing the costume
+#: of a debt (ADR-030).
+#:
+#: The eight remaining `git` sites are unfiled. `git` is a weaker target than
+#: `claude` or `graphify` (an attacker planting `git.exe` in a repository is
+#: attacking every tool that runs there, not this one), but it is the same
+#: defect: most of them run with `cwd=` or `-C` pointing at a repository the
+#: operator merely named. Each is a one-line fix now that the resolver exists.
 #:
 #: Counts rather than line numbers on purpose: these files are under active
 #: edit, and a line number churns for reasons that have nothing to do with this
@@ -94,17 +111,15 @@ PLATFORM_ONLY_STDLIB = frozenset({
 #: was being written. A file's budget is exact in both directions; see
 #: `apply_allowlist`.
 #:
-#: `bin/check_doc_citations.py` is the eleventh, and it is not legacy: it was
-#: written the same day as this file and reproduced the defect from scratch.
-#: That is the argument for the gate in one line — the shape is copied forward
-#: because nothing has ever said no to it. Drop the entry the moment it is
-#: fixed; the stale-entry check will insist.
+#: `bin/check_doc_citations.py` is not legacy: it was written the same day as
+#: this file and reproduced the defect from scratch. That is the argument for
+#: the gate in one line — the shape is copied forward because nothing has ever
+#: said no to it. Drop the entry the moment it is fixed; the stale-entry check
+#: will insist.
 KNOWN_BARE_BINARIES = {
     "bin/check_doc_citations.py": {"git": 1},
-    "bin/updater.py": {"git": 1},
     "skills/freya-behavior-graph/scripts/behavior_graph.py": {"git": 1},
     "skills/freya-behavior-runner/scripts/run_behaviors.py": {"git": 1},
-    "skills/freya-code-graph/scripts/backend_graphify.py": {"git": 1, "graphify": 1},
     "skills/freya-code-graph/scripts/graph_ops.py": {"git": 2},
     "skills/freya-spec-manager/scripts/drift.py": {"git": 1},
     "skills/freya-spec-manager/scripts/verify_intent.py": {"git": 1},
@@ -233,12 +248,22 @@ def check_imports(rel, tree, stdlib, first_party):
     """INV-1 violations in one module.
 
     There is deliberately no carve-out for the optional-dependency shape
-    (`try: import X / except ImportError:`). Measured on 2026-08-21: the tree
-    contains no such import — the single `except ImportError` in the suite,
-    `bin/freya_cli.py:184`, guards `import installer`, a module of this
-    checkout. Exempting a shape nothing uses would only create the hole a future
-    `try: import yaml` walks through, and this repository's answer to a genuine
-    optional dependency is an ADR, not a bare `except`.
+    (`try: import X / except Exception:` around an import). Re-measured
+    2026-08-23: the tree still contains no *optional dependency*, but it is no
+    longer true that it contains no guarded import — the count moved and the
+    argument did not. Every guarded import here wraps a module of this
+    checkout: `bin/freya_cli.py:195` (`import installer`),
+    `bin/updater.py:77` and
+    `skills/freya-codebase-security-scan/scripts/audit_adapter.py:55` (both
+    `import exec_path`, the bootstrap guard ADR-030 argues), and
+    `skills/freya-behavior-runner/scripts/run_behaviors.py:271`. None of them
+    is third-party, so none of them is what a carve-out would be *for*.
+
+    That is the whole point of refusing the exemption: the shape is not
+    evidence. A rule that skipped a name because it was guarded would exempt a
+    future `try: import yaml` on the strength of a syntax these four already
+    use for something else, and this repository's answer to a genuine optional
+    dependency is an ADR, not a bare `except`.
     """
     return [(rel, lineno, "INV1", excerpt)
             for lineno, name, excerpt in imported_names(tree)

@@ -34,6 +34,27 @@ HAVE_GRAPHIFY = shutil.which(backend_graphify.BINARY) is not None
 needs_graphify = unittest.skipUnless(
     HAVE_GRAPHIFY, 'the graphify binary is not installed on this machine')
 
+#: Somewhere no test's temporary project can contain, which is the whole point:
+#: a graphify the operator installed, not one the scanned repository shipped.
+RESOLVED_BINARY = os.path.join(os.path.abspath(os.sep), 'opt', 'tools',
+                               backend_graphify.BINARY)
+
+
+def stub_resolution(case, path=RESOLVED_BINARY, reason=None):
+    """Answer `exec_path.resolve` with a fixed verdict for the length of `case`.
+
+    This replaces the older `self.backend.available = lambda: True`, and the
+    replacement is not cosmetic. `_extract` used to ask `available()` and then
+    spawn the bare name; it now resolves once and spawns what it resolved, so
+    the resolver is the seam. A test still stubbing the predicate leaves the run
+    site searching PATH for a graphify the CI machine does not have, and fails
+    with 'not on PATH' from a line it was not testing.
+    """
+    original = backend_graphify.exec_path.resolve
+    case.addCleanup(setattr, backend_graphify.exec_path, 'resolve', original)
+    backend_graphify.exec_path.resolve = (
+        lambda name, project_dir=None: backend_graphify.exec_path.Resolution(path, reason))
+
 
 def graphify_module_source(dotted):
     """Read a module out of graphify's own interpreter, or None if it cannot be reached.
@@ -757,17 +778,116 @@ class TestTheContractIsSatisfied(Base):
                          second['files']['src/a.py']['imports'])
 
 
+class TestTheScannedProjectDoesNotChooseTheBinary(Base):
+    """SEC-002. Every subprocess this backend spawns runs with `cwd=self.project_dir`, a
+    repository the operator merely pointed at. A bare `graphify` or `git` in that position asks
+    the operating system to search, and on Windows `CreateProcess` searches the working
+    directory before PATH — so the repository being analysed picks the program.
+
+    The two halves are tested separately on purpose. Hardening `available()` while the run site
+    still spawns a bare name reads as a complete fix and mitigates nothing, because the check
+    and the spawn resolve independently.
+    """
+
+    def _plant(self, name):
+        """An executable `name` at the project root, plus the `.exe` Windows would find."""
+        written = [os.path.join(self.tmp, name)]
+        if os.name == 'nt':
+            written.append(os.path.join(self.tmp, name + '.exe'))
+        for path in written:
+            with open(path, 'w', encoding='utf-8') as handle:
+                handle.write('#!/bin/sh\nexit 0\n')
+            os.chmod(path, 0o755)
+        return written[0]
+
+    @contextlib.contextmanager
+    def _only_the_project_on_path(self):
+        original = os.environ.get('PATH')
+        os.environ['PATH'] = self.tmp
+        try:
+            yield
+        finally:
+            if original is None:
+                os.environ.pop('PATH', None)
+            else:
+                os.environ['PATH'] = original
+
+    def _spy_on_subprocess(self):
+        """Record every argv spawned and answer with a trivially successful run."""
+        seen = []
+        original = subprocess.run
+
+        def fake(argv, *a, **kw):
+            seen.append(list(argv))
+            return original([sys.executable, '-c', ''], capture_output=True, text=True)
+
+        backend_graphify.subprocess.run = fake
+        self.addCleanup(setattr, backend_graphify.subprocess, 'run', original)
+        return seen
+
+    def test_the_binary_is_run_by_the_resolved_path_not_by_name(self):
+        """The run site, which is the half that matters.
+
+        `available()` returning True is not what makes the spawn safe — the string in argv[0]
+        is. This asserts the resolved path reaches the call, so reverting the run site to
+        `[BINARY, ...]` fails here even with the availability check left strict.
+        """
+        os.makedirs(os.path.join(self.tmp, backend_graphify.OUTPUT_DIR))
+        with open(self.backend.output_path(), 'w', encoding='utf-8') as handle:
+            json.dump({'nodes': [node('a', 'src/a.py')], 'links': []}, handle)
+        stub_resolution(self)
+        seen = self._spy_on_subprocess()
+        self.backend.build()
+        self.assertEqual(seen[0][0], RESOLVED_BINARY)
+        self.assertEqual(seen[0][1:], ['update', self.tmp])
+
+    def test_a_graphify_inside_the_scanned_project_is_neither_available_nor_run(self):
+        """The defect end to end, through the real `shutil.which`.
+
+        A repository that commits `graphify` and puts its own root on PATH — direnv, a
+        `node_modules/.bin`, or simply Windows searching the working directory — is refused at
+        both seams. Failing here means `project_dir` is not reaching the resolver, which is the
+        likeliest way this fix gets half-applied.
+        """
+        self._plant(backend_graphify.BINARY)
+        seen = self._spy_on_subprocess()
+        with self._only_the_project_on_path():
+            if shutil.which(backend_graphify.BINARY) is None:
+                self.skipTest("this host's shutil.which will not find the planted file")
+            self.assertFalse(self.backend.available())
+            with self.assertRaises(GraphifyUnavailable) as ctx:
+                self.backend.build()
+        self.assertIn('inside the project being scanned', str(ctx.exception))
+        self.assertEqual(seen, [])
+
+    def test_the_graph_commit_stamp_does_not_run_a_project_supplied_git(self):
+        """The fourth instance of the same defect, unfiled and in the same file as SEC-002.
+
+        `_git_commit` stamps a graph with the repository's HEAD; it gates nothing. So no git,
+        or a git the project could have chosen, is simply no stamp — and the important half is
+        that nothing is spawned, because a planted `git` here runs with the scanned repository
+        as its working directory on POSIX too, not only on Windows.
+        """
+        self._plant('git')
+        seen = self._spy_on_subprocess()
+        with self._only_the_project_on_path():
+            if shutil.which('git') is None:
+                self.skipTest("this host's shutil.which will not find the planted file")
+            self.assertIsNone(self.backend._git_commit())
+        self.assertEqual(seen, [])
+
+
 class TestFailureIsReportedNotSwallowed(Base):
     """A backend that cannot produce a graph must say so. Returning an empty one is the
     confident-empty failure the whole contract exists to remove."""
 
     def test_a_missing_binary_raises_rather_than_returning_nothing(self):
-        self.backend.available = lambda: False
+        stub_resolution(self, path=None, reason='graphify is not on PATH')
         with self.assertRaises(GraphifyUnavailable):
             self.backend.build()
 
     def test_success_with_no_output_file_is_a_failure(self):
-        self.backend.available = lambda: True
+        stub_resolution(self)
         self.backend._run = lambda: None
         original = subprocess.run
 
@@ -810,7 +930,7 @@ class TestFailureIsReportedNotSwallowed(Base):
         os.makedirs(os.path.join(self.tmp, backend_graphify.OUTPUT_DIR))
         with open(self.backend.output_path(), 'w', encoding='utf-8') as handle:
             json.dump({'nodes': [node('a', 'src/a.py')], 'edges': []}, handle)
-        self.backend.available = lambda: True
+        stub_resolution(self)
         original = subprocess.run
 
         def fake(*a, **kw):
@@ -828,7 +948,7 @@ class TestFailureIsReportedNotSwallowed(Base):
         os.makedirs(os.path.join(self.tmp, backend_graphify.OUTPUT_DIR))
         with open(self.backend.output_path(), 'w', encoding='utf-8') as handle:
             json.dump({'nodes': [node('a', 'src/a.py')], 'links': []}, handle)
-        self.backend.available = lambda: True
+        stub_resolution(self)
         original = subprocess.run
 
         def fake(*a, **kw):

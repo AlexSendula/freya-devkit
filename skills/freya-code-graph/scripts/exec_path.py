@@ -108,11 +108,17 @@ def resolve(name, project_dir=None):
     # Exactly one argument, on purpose. An explicit `path=` does not suppress
     # the Windows curdir insert (see the module docstring), so it would buy no
     # security — and two of `DetectTest`'s three cases patch `shutil.which`
-    # with a one-parameter lambda (`test_audit_adapter.py:114` and `:118`), so
-    # a second argument turns them into TypeErrors to pay for nothing. The
-    # third patches with `return_value=None`, a MagicMock that takes any
-    # arity, and would not notice. Forward-looking: `audit_adapter.detect` does
-    # not call this resolver yet, so those two would break on the day it does.
+    # with a one-parameter lambda (`test_audit_adapter.py:307` and `:311`, in
+    # `DetectTest`), so a second argument turns them into TypeErrors to pay for
+    # nothing. The third patches with `return_value=None` (`:316`), a MagicMock
+    # that takes any arity, and would not notice. That was written here as a
+    # prediction, while `audit_adapter.detect` still called `shutil.which`
+    # itself; detect now routes through this function
+    # (`audit_adapter.py:program_for`) and the two lambdas were untouched by the
+    # migration, which is what confirms it. The class is named as well as cited
+    # because that file has grown twice under this comment and a bare number
+    # went stale silently both times: `bin/check_doc_citations.py` reads
+    # markdown, so nothing in the tree checks a citation written in Python.
     found = shutil.which(name)
     if found is None:
         return Resolution(None, "%s is not on PATH" % name)

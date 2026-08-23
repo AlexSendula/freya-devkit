@@ -83,12 +83,16 @@ class RefusalTest(unittest.TestCase):
 
         It does not suppress the Windows curdir insert — the insert happens
         after the default is applied, to whatever list is in hand — and
-        `test_audit_adapter.py:114` and `:118` patch `shutil.which` with a
-        one-parameter lambda, so a second argument turns those two into
-        TypeErrors. (`:123` uses `return_value=None`, a MagicMock that accepts
-        any arity, and would stay green.) Those two are hypothetical until
-        `audit_adapter.detect` actually calls this resolver; this test is not,
-        and it is the one that fails first if someone adds the argument back.
+        `DetectTest` in `test_audit_adapter.py` patches `shutil.which` with a
+        one-parameter lambda twice (`:307` and `:311`), so a second argument
+        turns those two into TypeErrors. (`:316` uses `return_value=None`, a
+        MagicMock that accepts any arity, and would stay green.)
+
+        Those two stopped being hypothetical: `audit_adapter.detect` routes
+        through `program_for` into this resolver now, so they are real callers
+        and the coupling is live rather than predicted. This test still runs
+        first and is still the one that names the reason, which is why it is
+        kept rather than folded into theirs.
         """
         with mock.patch("shutil.which", side_effect=lambda b: "/usr/bin/%s" % b) as which:
             got = exec_path.resolve("git")

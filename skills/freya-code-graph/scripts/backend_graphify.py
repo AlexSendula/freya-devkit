@@ -33,7 +33,6 @@ item 10); graphify parses. The miss is ours.
 
 import json
 import os
-import shutil
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -41,6 +40,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import containment  # noqa: E402  — the one body of the path-containment rules (ADR-030)
+import exec_path  # noqa: E402  — the one body of the program-resolution rule (ADR-030)
 import settings as settings_mod  # noqa: E402
 import substrate  # noqa: E402
 
@@ -301,13 +301,21 @@ class GraphifyBackend:
     # -- contract ----------------------------------------------------------
 
     def available(self) -> bool:
-        """Is the binary on PATH?
+        """Is the binary on PATH, at a path this project did not get to choose?
 
         Deliberately only that. `available()` runs during selection on every build, so it must
         not cost a subprocess; and a graphify that is installed but broken is a *runtime*
         failure, which `build()` reports honestly rather than something to pre-empt here.
+
+        `exec_path.resolve` refuses a resolution that is not already absolute, and one inside
+        `project_dir`. On Windows `shutil.which` searches the working directory first, so a
+        `graphify.exe` committed to the repository being analysed is otherwise found ahead of
+        every real PATH entry — and this backend is armed by that same repository's
+        `knowledge-base/settings.json` (SEC-002, ADR-019). A refusal reads as "not installed"
+        here and selection degrades to the floor, which is the honest answer: there is no
+        graphify the *operator* chose.
         """
-        return shutil.which(BINARY) is not None
+        return exec_path.resolve(BINARY, self.project_dir).path is not None
 
     def coverage(self) -> substrate.Coverage:
         """What this backend reads, and which relations it emits.
@@ -414,11 +422,17 @@ class GraphifyBackend:
         the reason a project has no graph, because the floor was what it would have used
         anyway.
         """
-        if not self.available():
-            raise GraphifyUnavailable('%r is not on PATH' % BINARY)
+        # Resolved here rather than read back off `available()`: one lookup, one value, and
+        # the path that passed the check is the exact string that becomes argv[0]. Asking
+        # `available()` and then spawning `BINARY` would leave two independent resolutions,
+        # the second of them a bare name the OS re-searches at spawn time with the scanned
+        # project's own directory in the search order on Windows (SEC-002).
+        binary = exec_path.resolve(BINARY, self.project_dir)
+        if binary.path is None:
+            raise GraphifyUnavailable(binary.reason)
         try:
             proc = subprocess.run(
-                [BINARY, 'update', self.project_dir],
+                [binary.path, 'update', self.project_dir],
                 cwd=self.project_dir, capture_output=True, text=True,
                 timeout=UPDATE_TIMEOUT_SECONDS,
             )
@@ -718,8 +732,15 @@ class GraphifyBackend:
         return _project_key(self.project_dir, stated) != source[0]
 
     def _git_commit(self) -> Optional[str]:
+        # The same defect as the graphify lookup above, in the same file, and unlike
+        # `bin/updater.py`'s git this one really does run with the scanned repository as its
+        # working directory — on POSIX as well as on Windows. No git, or one the project could
+        # have chosen, is simply "no commit": this stamps a graph, it does not gate one.
+        git = exec_path.resolve('git', self.project_dir)
+        if git.path is None:
+            return None
         try:
-            proc = subprocess.run(['git', 'rev-parse', 'HEAD'], cwd=self.project_dir,
+            proc = subprocess.run([git.path, 'rev-parse', 'HEAD'], cwd=self.project_dir,
                                   capture_output=True, text=True)
         except OSError:
             return None

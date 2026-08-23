@@ -16,6 +16,7 @@ from unittest import mock
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import freya_cli  # noqa: E402
 import installer  # noqa: E402
+import updater  # noqa: E402
 
 
 class SuiteRootTest(unittest.TestCase):
@@ -1098,6 +1099,86 @@ class DoctorUpdatesCheckTest(unittest.TestCase):
             self.assertEqual(calls, [])
             status = self._check(checks, "updates")
             self.assertEqual(status[1], "ok")
+
+
+class DoctorCannotRunGitTest(unittest.TestCase):
+    """`updates` when git cannot be spawned at all, rather than when it answers.
+
+    `updater.git` returns `(1, "")` for a missing resolver and for a git it
+    refused, exactly as it does for a real git failure, and `is_git_store` reads
+    `(1, "")` as "not a repository". So `doctor` answered **"the store is not a
+    git checkout"** for a store that was one, while `freya update` on the same
+    machine printed the true reason — two commands, contradictory stories, and
+    the wrong one on the command that exists to explain this state. Both
+    triggers were proved on a real clone; the refusal one is the default outcome
+    on the Windows 3.9-3.11 leg, where `shutil.which` still returns the
+    working-directory hit and `exec_path`'s absoluteness rule is the only
+    control (ADR-030).
+
+    `run=None` throughout, because the whole point is that the ladder is using
+    the real `updater.git`. No git is ever spawned even so: the state under test
+    is precisely the one in which `updater.git` refuses before `subprocess`.
+    """
+
+    def _updates(self, checks):
+        return next(c for c in checks if c[0] == "updates")
+
+    def test_a_resolver_that_could_not_be_loaded_is_named_not_guessed_at(self):
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(updater, "exec_path", None), \
+                mock.patch.object(updater.subprocess, "run") as run:
+            checks = freya_cli.doctor_checks(root=Path(tmp).resolve(), targets={},
+                                             run=None)
+        self.assertEqual(self._updates(checks), ("updates", "fail", updater.NO_RESOLVER))
+        run.assert_not_called()
+
+    def test_a_refused_git_is_reported_as_the_refusal_not_as_a_missing_repository(self):
+        """The Windows 3.9 outcome, spelled the way `exec_path` spells it."""
+        refusal = updater.exec_path.Resolution(
+            None, "git resolved to '.\\git.exe', which is not an absolute path "
+                  "— the working directory would be choosing the binary")
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(updater.exec_path, "resolve", return_value=refusal), \
+                mock.patch.object(updater.subprocess, "run") as run:
+            checks = freya_cli.doctor_checks(root=Path(tmp).resolve(), targets={},
+                                             run=None)
+        label, status, detail = self._updates(checks)
+        self.assertEqual(status, "warn")
+        self.assertEqual(detail, refusal.reason)
+        self.assertNotIn("not a git checkout", detail)
+        run.assert_not_called()
+
+    def test_doctor_and_update_give_the_same_reason(self):
+        """The property, not just the two messages: `doctor`'s row and
+        `preconditions`' first reason come from one body (`updater.git_program`),
+        so they cannot drift back apart. `update` appends its own remedy clause,
+        so the row has to be a prefix of it rather than equal to it."""
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(updater, "exec_path", None):
+            root = Path(tmp).resolve()
+            checks = freya_cli.doctor_checks(root=root, targets={}, run=None)
+            reasons = updater.preconditions(root)
+        self.assertTrue(
+            reasons[0].startswith(self._updates(checks)[2]),
+            f"doctor says {self._updates(checks)[2]!r}, update says {reasons[0]!r}")
+
+    def test_an_injected_runner_still_speaks_for_git(self):
+        """`run=` replaces git wholesale, so the resolver has no say in what
+        those calls return and the row must not describe a spawn that never
+        happens. Without this the guard on the new branch is unpinned: dropping
+        it leaves every other test in this file green on a machine that has git,
+        and turns them all machine-dependent on one that does not."""
+        def answering_run(args, cwd, timeout=None):
+            if args[:2] == ["rev-parse", "--show-toplevel"]:
+                return 0, str(cwd)
+            return 1, ""
+
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(updater, "exec_path", None):
+            checks = freya_cli.doctor_checks(root=Path(tmp).resolve(), targets={},
+                                             run=answering_run)
+        self.assertEqual(self._updates(checks), ("updates", "warn",
+                                                 "this branch has no upstream"))
 
 
 class NotifyWiringTest(unittest.TestCase):

@@ -141,13 +141,20 @@ Worst case at three findings: 16 agent tasks for `scan`, 40 for `audit`.
 | `3` | **Incomplete** — the call ceiling stopped the run early, some tasks got no usable answer, or discovery found more than `--max-findings` and discarded the rest. Its banner names how many. | Report the findings, and record that coverage was truncated — quote the count. **Never** describe this run as clean. |
 | `2` | Failed — bad project path, no usable answers, the context call failed, or the ceiling is too low to verify even one finding. | Report the error. Do **not** write a report; there are no results to write. |
 | `4` | **Declined** — the driver asked to confirm the spend and got no answer: either the user said no, or the shell has no tty and `--yes` was not passed. | Nothing ran, nothing was spent. Do **not** fall back to the in-loop scan — the driver is right there. Re-run with `--yes`, or take the refusal to the user. |
-| `1` | No agent CLI on PATH — **this and nothing else.** | Fall back to the in-loop scan below. |
+| `1` | **No agent CLI is usable** — either none is installed, or the one found was refused. The driver prints which, per CLI, on stderr. | Fall back to the in-loop scan below, and quote the driver's stderr. |
 
-**Exit `1` means one thing: neither `claude` nor `copilot` is installed.** It used to
-also mean "declined" and "no tty", which is how a perfectly healthy driver got read
-as a missing CLI and the whole fan-out quietly reverted to the prose version this
-step exists to replace. Those are `4` now. If you see `1`, the CLI genuinely is not
-there, and only then is the fallback correct.
+**Exit `1` means one thing: no agent CLI can be started.** It does *not* mean
+"declined" or "no tty" — those used to land here, which is how a perfectly healthy
+driver got read as a missing CLI and the whole fan-out quietly reverted to the prose
+version this step exists to replace. Those are `4` now.
+
+**But "cannot be started" now has two causes, and they need different words to the
+user.** A CLI can be absent, or it can be present and *refused*: argv[0] must be an
+absolute path, and it must not resolve inside the project being audited — a `claude`
+a scanned repository shipped is not one the operator installed (SEC-003, ADR-030). So
+do not tell the user to install a CLI on the strength of the exit code alone. Read the
+stderr, which names each CLI and why it was unusable, and quote that line. The
+fallback action is the same either way; the sentence you write about it is not.
 
 **An empty array with exit `0` means clean. An empty array with any other exit code
 means the scan did not run.** The driver refuses to exit `0` when no task got a
