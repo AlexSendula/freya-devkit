@@ -141,14 +141,16 @@ Counted on 2026-08-21, on the working tree of `test/dogfood-polyglot`:
 |---|---|---|
 | Skills | 10 | `ls skills/` |
 | Launcher commands | 17 in the manifest, plus 6 built into the launcher (`help`, `doctor`, `init`, `install`, `update`, `uninstall`) | `bin/commands.json`; `bin/freya_cli.py:26` |
-| Non-test Python | 15,189 lines | `git ls-files '*.py'` minus `test_`/`conftest`, `wc -l` |
-| Test Python | 17,164 lines | the same list, `test_`/`conftest` only |
+| Non-test Python | 16,423 lines | `git ls-files '*.py'` minus `test_`/`conftest`, `wc -l` |
+| Test Python | 22,200 lines | the same list, `test_`/`conftest` only |
 | SKILL.md prose | 5,540 lines across ten files | `git ls-files 'skills/*/SKILL.md' \| xargs wc -l` |
-| Tests | 1,435 passed, 52 subtests | `python3 -m pytest bin/ skills/ -q` — wall clock and the per-area breakdown are [TESTING.md](TESTING.md#what-the-suite-is-measured) |
+| Tests | 1,759 passed, 1,012 subtests | `python3 -m pytest bin/ skills/ -q` — wall clock and the per-area breakdown are [TESTING.md](TESTING.md#what-the-suite-is-measured) |
 | Conformance gate | 13 rules, exit 0 | `python3 bin/check_skill_conformance.py` |
+| Citation gate | 1,311 `path:line` citations resolved | `python3 bin/check_doc_citations.py` |
+| Tree invariants | stdlib-only, no bare-name `subprocess` argv[0] | `python3 bin/check_invariants.py` |
 | ADRs | 29 | `ls knowledge-base/decisions/ADR-*.md` |
 
-CI runs the suite, the conformance gate and an end-to-end install → launcher → uninstall
+CI runs the suite, three static gates and an end-to-end install → launcher → uninstall
 ([TESTING.md § CI](TESTING.md#ci)).
 
 ## What it deliberately is not

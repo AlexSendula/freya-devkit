@@ -19,7 +19,7 @@
       <p class="lead">
         The design documents were written before the code, and most of what they said held. This page
         is the part that did not: a belief this project held confidently, the evidence that refuted it,
-        and what replaced it — sixteen times, in that order.
+        and what replaced it — seventeen times, in that order.
       </p>
 
       <!-- ==================== OPENER ==================== -->
@@ -124,6 +124,10 @@
               <tr>
                 <td><a href="#the-honesty-mechanism-lied">A silence from the honesty check meant all was well</a></td>
                 <td>It meant the scope rule had excluded the whole codebase</td>
+              </tr>
+              <tr>
+                <td><a href="#the-gate-that-checked-the-file">The link gate said every behavior link passed</a></td>
+                <td>It had never looked at the half of the link that names the test</td>
               </tr>
             </tbody>
           </table>
@@ -499,7 +503,7 @@
       <section>
         <h2 id="act-three-running-it">Act III — Things only running it could find</h2>
         <p>
-          Everything above was found by building, reviewing or reading a specification. These seven
+          Everything above was found by building, reviewing or reading a specification. These eight
           were reachable only by running the thing — against a real agent, a real host, a real
           platform, or a real repository — and most of them had survived multiple careful reviews
           that read the code correctly every time.
@@ -655,7 +659,7 @@
           like a measurement.
         </p>
         <p>
-          A CI matrix now runs the suite, the conformance gate and a real end-to-end install across
+          A CI matrix now runs the suite, the static gates and a real end-to-end install across
           <code>ubuntu-latest</code> and <code>windows-latest</code>, on Python 3.9 and 3.13
           (<a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/.github/workflows/ci.yml">.github/workflows/ci.yml</a>).
           The Windows leg came back <strong>29 failed</strong> against a green Linux leg. Nothing had
@@ -794,6 +798,80 @@
           enough to be believed. The claim and the defect were the same observation, read the wrong way
           round — which is only visible if you go and check what a silence is made of.
           <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-029-an-answer-says-what-it-could-not-read.md">ADR-029</a></p>
+        </div>
+
+        <h3 id="the-gate-that-checked-the-file">17 · The gate that checked the file and called it the link</h3>
+        <p>
+          <strong>The belief.</strong> On 2026-08-21 the toolkit was finally run against the only
+          repository it had never been pointed at: itself. Everything reported clean. 1,435 tests
+          green, the conformance gate green, and <code>freya verify-links</code> — the Tier-1 check
+          that is allowed to hard-block a wrap-up — printing
+          <em>&ldquo;OK &mdash; all behavior links pass Tier-1 integrity checks.&rdquo;</em>
+        </p>
+
+        <div class="callout callout--danger">
+          <span class="callout-label">Seventeen of the hundred and forty-nine were broken</span>
+          <p>A behavior's <code>locator</code> is written <code>path#Class.method</code> — a file, and
+          the test inside it. <code>parse_locator</code> returns both halves, and the caller bound the
+          second to a discard: <code>rel_path, _frag = parse_locator(locator)</code>. For every
+          non-Gherkin adapter the entire check was then <code>abs_path.exists()</code>. A second hole
+          sat above it — <code>if adapter == "manual": continue</code> — which exempted manual
+          behaviors from the whole check rather than from the runner, so their locators were never
+          resolved at all, not the method and not even the file.</p>
+        </div>
+
+        <p>
+          The proof was a mutation, not a reading. Every locator target in the repository was renamed
+          out of existence — 132 of them, across 21 files. <code>verify-links</code> exited
+          <strong>0</strong>. The suite stayed green. Nothing anywhere observed that every behavior in
+          the project now pointed at a test that did not exist.
+        </p>
+
+        <div class="callout callout--why">
+          <span class="callout-label">Why it was not caught by the tests that existed</span>
+          <p>Because they tested the gate's <em>reporting</em>, not its <em>reach</em>. There were
+          tests for a locator naming a missing file, and they passed, because that half was real. No
+          test asked what happened to the other half, and the code that discarded it read as
+          deliberate — <code>_frag</code>, with a leading underscore, is the Python idiom for a value
+          you meant to throw away.</p>
+        </div>
+
+        <p>
+          <strong>The same day, the security scan found the shape in the code as well as in the
+          gate.</strong> It raised twenty-two findings against the toolkit; the two most severe were
+          the same defect twice. <code>audit.py</code> runs every scan worker with
+          <code>cwd=&lt;the scanned project&gt;</code> and invokes it by the bare name
+          <code>claude</code>. On Windows, <code>CreateProcess</code> searches the working directory
+          first — so a repository you scan can supply its own <code>claude.exe</code> and have it
+          executed as you, inheriting your whole environment. The second instance lets the scanned
+          repository's own committed <code>settings.json</code> choose the binary.
+        </p>
+
+        <div class="callout callout--warn">
+          <span class="callout-label">What that costs, precisely</span>
+          <p>The toolkit's headline safety property is that its workers run under a read-only
+          allowlist with the shell excluded. That allowlist is expressed in <code>argv</code>, and
+          <code>argv</code> only binds the program you meant to run. If the scanned repository picks
+          the program, the allowlist is describing a process that was never started.</p>
+        </div>
+
+        <p>
+          Seventeen of the twenty-one findings were in files that already had a test file beside them,
+          so &ldquo;no test for that code&rdquo; explains none of them. The suite tests
+          <strong>degradation</strong> — a missing file, unreadable JSON, a git command that fails —
+          exhaustively, and had almost nothing that tested <strong>hostility</strong>: input that is
+          well-formed and chosen by someone who wants something. Those are different questions, and
+          only the first had ever been asked.
+        </p>
+
+        <div class="callout callout--why">
+          <span class="callout-label">The lesson, and it is the one this whole page is about</span>
+          <p>A gate that reports success is not evidence that it ran. Every finding here was in a
+          mechanism this project had already built, documented and believed in — the link checker, the
+          worker sandbox, the read-only allowlist. What running it on itself produced was not new
+          capability. It was the discovery that three things declared everywhere were enforced
+          nowhere, which is the exact defect class the toolkit exists to find in other people's
+          repositories.</p>
         </div>
       </section>
 

@@ -10,8 +10,13 @@ normally run with pytest. There is no second tier of "integration tests", no e2e
 fixture framework and no coverage tool — the project has no database, no HTTP surface and no
 container, so the template sections for those are absent rather than empty.
 
-Two gates guard a commit, and they are not the same gate: the suite, and
-`bin/check_skill_conformance.py`. Both run in CI.
+Four gates guard a commit and none of them substitutes for another: the suite,
+`bin/check_skill_conformance.py` (the shipped skill layer), `bin/check_doc_citations.py`
+(every `path:line` in the prose) and `bin/check_invariants.py` (stdlib-only, and no
+`subprocess` call with a bare-name argv[0]). All four run in CI.
+
+A fifth, `freya verify-links`, is not in CI — it runs at wrap-up, because it checks the
+spec corpus against the tests rather than checking the code.
 
 ## The stack
 
@@ -73,11 +78,25 @@ subprocesses: `git` against real repositories, the launcher run end to end, and 
 binary when it is installed. The other six areas together finish in under four seconds, so
 `python3 -m pytest skills/freya-spec-manager -q` while iterating costs nothing.
 
-The **52 subtests** are `self.subTest(...)` loops, all in `bin/` — nine loops across
-`bin/test_agents_md.py` and `bin/test_freya_cli.py`. pytest reports each iteration's outcome
-separately from the 1435 test items; `unittest` reports only the enclosing test methods, which
-is why `unittest discover -s bin` says `Ran 456` where pytest says `456 passed, 52 subtests
-passed`. Neither total double-counts.
+The **1,012 subtests** are `self.subTest(...)` loops — 102 call sites across 17 files. pytest
+reports each iteration's outcome separately from the 1,759 test items; `unittest` reports only
+the enclosing test methods, so the two runners give different totals for the same work and
+neither double-counts.
+
+That ratio is deliberate and it moved sharply on 2026-08-21, from 52 subtests to 1,012. Most
+of this repo's registries were tested by naming three or four members by hand — `RELATIONS`
+declared 32 relation kinds and its test file named twelve; `CODE_EXTENSIONS` declared twenty
+and named none — so a member added later was covered by nothing and nobody found out. Those
+tables are now driven off the registry itself, which is why the subtest count is now larger
+than the test count.
+
+One trap is worth recording, because the obvious form of that table is silently broken: a
+plain `for member in REGISTRY` loop cannot detect a **deletion**. Empty the registry and the
+loop body never runs, so the test passes. Every table here iterates
+`set(registry) | set(literal_expectations)` instead, which fails in both directions — a member
+added upstream is red until somebody records what it must do, and a member removed is red
+because the recorded behaviour stops happening. Measured, not assumed: dropping one row from
+`RELATIONS` stayed green until the union fixed it.
 
 **How the number moves.** Remove `graphify` from `PATH` and the same command gives
 `1745 passed, 14 skipped, 1009 subtests passed` — the fourteen are guarded by `unittest.skipUnless(HAVE_GRAPHIFY, ...)`
@@ -155,9 +174,11 @@ It is claimed at module scope rather than in a fixture so that a module reading 
 **Know its one hole.** A `conftest.py` is only collected when pytest's rootdir is at or above it,
 so `cd skills && python3 -m pytest .` routes around it entirely. That hole was once expensive —
 ten tests failed that way against a real `~/.freya/settings.json`. It is currently harmless, and
-that is a property of the tests, not of the net: measured today,
+that is a property of the tests, not of the net: measured 2026-08-23,
 `cd skills && FREYA_HOME=<dir containing a graphify-selecting settings.json> python3 -m pytest .`
-gives `979 passed`. The tests that depend on the machine default now isolate themselves.
+gives `1193 passed, 947 subtests passed`. The tests that depend on the machine default now
+isolate themselves. The figure is dated because it moves with the suite; what does not move is
+that the count matches an unsandboxed run, and that is the property being asserted.
 
 ## FREYA_HOME sandboxing in `setUp`
 

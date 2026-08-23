@@ -352,11 +352,30 @@ freya-code-graph</code></pre>
 
         <h3 id="the-ci-matrix">The CI matrix, and its uncovered diagonal</h3>
         <p>
-          Two jobs — the suite plus the conformance gate, and a real end-to-end install — across
+          Two jobs — the suite plus three static gates, and a real end-to-end install — across
           <code>ubuntu-latest</code> and <code>windows-latest</code>, on Python 3.9 and 3.13. Install is
           a separate job on purpose, so a failing test cannot hide the install's answer behind an early
           exit.
         </p>
+        <p>
+          The three gates read what the suite cannot. <code>check_skill_conformance.py</code> scans the
+          shipped skill layer for host-specific constructs. <code>check_doc_citations.py</code> resolves
+          every <code>path:line</code> citation in the prose — 1,311 of them — because a citation that
+          rots is a document quietly lying about the code.
+          <code>check_invariants.py</code> reads the AST for two properties no single unit test owns:
+          that every import is stdlib or a sibling, and that no <code>subprocess</code> call takes a
+          bare-name <code>argv[0]</code>.
+        </p>
+        <div class="callout">
+          <span class="callout-label">Why those two are AST checks and not tests</span>
+          <p>Both are properties of the <em>whole tree</em>, and a per-file test cannot see them. The
+          stdlib rule fails invisibly on the machine that breaks it — you write
+          <code>import yaml</code>, it works for you because you happen to have it, and it breaks for
+          everyone else. The argv rule is the shape of two high-severity findings this toolkit's own
+          security scan raised against it: a worker invoked as bare <code>claude</code> with the scanned
+          repository as its working directory is, on Windows, an invitation for that repository to
+          supply its own <code>claude.exe</code>.</p>
+        </div>
         <div class="callout callout--warn">
           <span class="callout-label">Read the green tick precisely</span>
           <p>The install job runs <strong>symlink mode on Linux and <code>--copy</code> on
