@@ -18,7 +18,7 @@ import os
 import re
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 # Reuse the freya-spec-manager frontmatter parser (stdlib-only, zero-install).
 _SPEC_SCRIPTS = Path(__file__).resolve().parents[2] / "freya-spec-manager" / "scripts"
@@ -504,6 +504,26 @@ def _graph_degraded_from(graph_path):
     return "%s unavailable, built with %s" % (wanted, got if isinstance(got, str) else "?")
 
 
+def _reduce_if_absolute(word):
+    """`word` reduced to its basename if it is an absolute path, else unchanged.
+
+    Both halves are flavour-agnostic, and the second half is the one that is easy to get
+    wrong: detecting a Windows path with `PureWindowsPath` and then taking its basename with
+    `PurePosixPath` returns the whole string, because a backslash is not a separator under
+    POSIX rules. The path has to be *read back* in the flavour it was recognised in.
+
+    Neither half may use `os.path`: this is applied to another tool's stderr, so the spelling
+    is not ours to assume, and the host's answer changes with the platform and — for
+    `ntpath.isabs` on a rooted path with no drive — with the interpreter version.
+    """
+    win, posix = PureWindowsPath(word), PurePosixPath(word)
+    if posix.is_absolute():
+        return posix.name
+    if win.drive or win.root:
+        return win.name
+    return word
+
+
 def _portable(detail, project_dir):
     """One line of another tool's stderr, made safe to commit.
 
@@ -514,13 +534,20 @@ def _portable(detail, project_dir):
 
     The project root becomes `.`; anything still absolute is dropped to its basename. The
     diagnostic survives, the machine does not.
+
+    Absoluteness is judged in BOTH path flavours on every host, never by `os.path.isabs`
+    alone. The stderr being reduced came from some other tool and may name a path in either
+    spelling whatever platform we are on, and the host's own answer is the wrong one twice
+    over: on Windows, Python 3.13 changed `ntpath.isabs` so a rooted path with no drive is no
+    longer absolute, so `/Users/someone/x.json` sailed through unreduced and its home
+    directory reached the committed `behavior.json`. Caught by the first CI run on Windows,
+    on 3.13 only, exactly as `bin/freya_cli.py:_escapes` predicts.
     """
     text = " ".join(str(detail or "").split())[:200]
     root = str(project_dir or "").rstrip(os.sep)
     if root:
         text = text.replace(root + os.sep, "").replace(root, ".")
-    return " ".join(
-        os.path.basename(word) if os.path.isabs(word) else word for word in text.split())
+    return " ".join(_reduce_if_absolute(word) for word in text.split())
 
 
 def _code_graph_deps(entry, project_dir):

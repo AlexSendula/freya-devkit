@@ -190,12 +190,15 @@ class CollectAndRenderTest(unittest.TestCase):
         is set aside and nothing is said about it. That destruction is the specified
         behaviour, and this pins it so nobody softens it into a silent merge later."""
         path = os.path.join(self.tmp.name, "knowledge-base", "BACKLOG.md")
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8") as f:
             f.write("# Backlog\n\n- MINE-1: an item a human typed and no generator knows\n")
         status = self._collect()
         returned = collect_status.write_backlog(self.tmp.name, status)
         self.assertEqual(returned, path)
-        with open(path) as f:
+        # encoding, explicitly: `write_backlog` writes UTF-8 and the rendered header carries
+        # an em dash, but a bare `open()` decodes with the locale codepage — cp1252 on the
+        # Windows runners — and the comparison failed on a mojibake byte, not on content.
+        with open(path, encoding="utf-8") as f:
             after = f.read()
         self.assertNotIn("MINE-1", after)
         self.assertEqual(after, collect_status.render_backlog(status))

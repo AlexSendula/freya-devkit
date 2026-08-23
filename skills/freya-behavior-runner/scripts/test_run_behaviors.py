@@ -634,6 +634,37 @@ class ReasonStringsAreCommittableTest(unittest.TestCase):
         self.assertNotIn("/Users/someone", got)
         self.assertIn("graph.json", got)
 
+    def test_a_windows_absolute_path_is_reduced_on_every_host(self):
+        """The Windows spelling, judged on whatever host runs the suite.
+
+        `os.path.isabs` answers for the platform it is on, and this string came from another
+        tool — so a Linux run must still recognise `C:\\Users\\...` as absolute or the
+        reduction is only as good as the machine that happened to run it.
+        """
+        got = run_behaviors._portable(r"could not read C:\Users\someone\other\graph.json",
+                                      "/home/alex/proj")
+        self.assertNotIn("someone", got)
+        self.assertIn("graph.json", got)
+
+    def test_a_posix_absolute_path_is_reduced_on_every_host(self):
+        """The mirror, and the one CI actually caught.
+
+        On Windows under Python 3.13 `ntpath.isabs('/Users/someone/x')` is False — 3.13
+        stopped treating a rooted path with no drive as absolute — so this leaked a home
+        directory into the committed behavior.json on that interpreter and no other. It
+        passed on Linux, on Windows 3.9, and on every developer machine.
+        """
+        got = run_behaviors._portable("could not read /Users/someone/other/graph.json",
+                                      r"C:\projects\thing")
+        self.assertNotIn("someone", got)
+        self.assertIn("graph.json", got)
+
+    def test_a_bare_word_is_not_mistaken_for_a_path(self):
+        """The rule widened; it must not have widened onto ordinary prose."""
+        got = run_behaviors._portable("could not read the file: permission denied", "/p")
+        self.assertIn("permission denied", got)
+        self.assertIn("could not read the file:", got)
+
     def test_it_is_bounded_and_single_line(self):
         got = run_behaviors._portable("a\nb\n" + "x" * 500, "/p")
         self.assertNotIn("\n", got)

@@ -264,7 +264,7 @@ conditions in ADR-029, not oversights.
 
 **A caveat is never a refusal.** Nothing declines to answer, changes an exit code or takes a gate
 red because of `unmapped_source`, and the rule is written into the code beside the one refusal it
-must not join (`skills/freya-behavior-runner/scripts/run_behaviors.py:558`–`:570`). If you find
+must not join (`skills/freya-behavior-runner/scripts/run_behaviors.py:586`–`:597`). If you find
 yourself "fixing" a run by making it refuse on blind spots, read that comment first: it would
 return `coverage: unknown` for every confirmed and integration behaviour on every polyglot repo,
 and wrap-up's gate would then run zero behaviours and exit 0.
@@ -310,7 +310,7 @@ coverage` — and `substrate.degraded_from` set in the artifact
 
 **Fix.** A degraded graph is not just thinner — it makes `behavior-runner` refuse to compute a
 static closure at all, returning `unknown` with the reason rather than committing a narrower
-closure into `behavior.json` (`run_behaviors.py:547`–`:558`). So this is worth resolving rather
+closure into `behavior.json` (`run_behaviors.py:574`–`:585`). So this is worth resolving rather
 than living with. Related: a wrong-*typed* value (`{"backend": 42}`) is not a degradation, it is
 ignored with a warning on stderr and `auto` is used instead
 (`skills/freya-code-graph/scripts/settings.py:271`–`:279`).
