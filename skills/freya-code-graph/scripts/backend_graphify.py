@@ -40,6 +40,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import containment  # noqa: E402  — the one body of the path-containment rules (ADR-030)
 import settings as settings_mod  # noqa: E402
 import substrate  # noqa: E402
 
@@ -476,7 +477,7 @@ class GraphifyBackend:
         pairs into 417 edges on this repository. That is Phase 3's refinement and it is off by
         default here, so Phase 2's artifact is file-level exactly as spec §5 requires.
         """
-        nodes, external = self._index_nodes(raw, exclusions)
+        nodes, external, escaped = self._index_nodes(raw, exclusions)
         files = {}  # type: Dict[str, Dict[str, Any]]
         for info in nodes.values():
             files.setdefault(info[0], {
@@ -522,6 +523,20 @@ class GraphifyBackend:
             print('code-graph: graphify emitted %d relation(s) this backend does not map (%s);'
                   ' they are recorded under substrate.unmapped_relations and dropped.'
                   % (sum(unmapped.values()), ', '.join(sorted(unmapped))), file=sys.stderr)
+        if escaped:
+            # Dropped, and never silently. A node naming a path outside the repository is not
+            # a repository with fewer files in it, and the only thing worse than admitting the
+            # escaped key would be removing it with no trace: `_refuse_to_erase` catches the
+            # total wipe and nothing catches a handful (obligation 2, ADR-029). Shaped after
+            # the `unmapped_relations` block above so this file has one reporting form.
+            metadata['out_of_project_nodes'] = {
+                'count': sum(escaped.values()),
+                'paths': sorted(escaped)[:_MAX_RECORDED_ESCAPED_PATHS],
+            }
+            print('code-graph: graphify named %d node(s) at %d path(s) outside the project; '
+                  'they are recorded under substrate.out_of_project_nodes and dropped. '
+                  'First: %s' % (sum(escaped.values()), len(escaped), sorted(escaped)[0]),
+                  file=sys.stderr)
         if misdirected:
             # graphify writes `directed: false`, so the source/target field order is the only
             # carrier of direction. Phase 0 measured what losing it costs: reading the graph as
@@ -543,17 +558,23 @@ class GraphifyBackend:
 
     def _index_nodes(self, raw: Dict[str, Any],
                      exclusions: Optional[substrate.Exclusions]
-                     ) -> Tuple[Dict[str, Tuple[str, str, Optional[int]]], Dict[str, str]]:
+                     ) -> Tuple[Dict[str, Tuple[str, str, Optional[int]]],
+                                Dict[str, str], Dict[str, int]]:
         """node id -> (source_file, label, line), for code nodes that are in scope.
 
         Exclusions are applied here, as a post-filter. `graphify update` takes no exclusion
         flag — verified against its `--help` and by watching it index `node_modules/` — so
         obligation 6 has to be honoured on the way out rather than on the way in. That answers
         spec open question 3, which had left the mechanism undecided.
+
+        The third return is the census of `source_file` values that named a path outside the
+        project. They are dropped, and dropping them is exactly why they are counted: a node
+        the backend refused is not a repository with fewer files in it (obligation 2).
         """
         owners = self._method_owners(raw)
         index = {}    # node id -> (file, symbol, line)
         external = {}  # node id -> 'external:<module>'
+        escaped = {}  # the source_file values that named a path outside the project -> count
         for node in raw.get('nodes') or []:
             if not isinstance(node, dict) or node.get('file_type') != CODE_NODE:
                 continue
@@ -569,12 +590,19 @@ class GraphifyBackend:
             source_file = node.get('source_file')
             if not isinstance(source_file, str) or not source_file:
                 continue
-            key = source_file.replace('\\', '/').lstrip('/')
+            key = _project_key(self.project_dir, source_file)
+            if key is None:
+                escaped[source_file] = escaped.get(source_file, 0) + 1
+                continue
+            # Containment first, exclusions second, and the order is load-bearing: an
+            # exclusion pattern is written against a project-relative key, so asking
+            # `excludes` about a value that has not been rebased yet asks it the wrong
+            # question about the wrong path.
             if exclusions is not None and exclusions.excludes(key):
                 continue
             index[node_id] = (key, owners.get(node_id, label),
                               _line(node.get('source_location')))
-        return index, external
+        return index, external, escaped
 
     @staticmethod
     def _method_owners(raw: Dict[str, Any]) -> Dict[str, str]:
@@ -660,20 +688,34 @@ class GraphifyBackend:
                extra.get('from_symbol'), extra.get('to_symbol'))
         return source[0], payload, key
 
-    @staticmethod
-    def _misdirected(link: Dict[str, Any],
+    def _misdirected(self, link: Dict[str, Any],
                      nodes: Dict[str, Tuple[str, str, Optional[int]]]) -> bool:
         """Does a link's own `source_file` disagree with its source node's?
 
         A free consistency check on the one assumption this whole projection rests on. It is
         counted rather than raised: one odd link is not a reason to refuse a graph, but a
         graph full of them means direction is no longer readable and the caller must be told.
+
+        Both sides go through `_project_key`, and asking the *same* question is the whole
+        content of this method — a comparison between two spellings normalised by two
+        different rules measures the rules, not the graph. This side used to spell `stated`
+        with the `lstrip('/')` fold that `_index_nodes` also used, so the two agreed by being
+        one expression written twice. When the key site began rebasing against the project
+        root and this one did not, a link whose `source_file` is an absolute in-project path
+        — the exact class the rebase was added to keep — read as a disagreement, and a clean
+        graph announced `direction_warnings: 1` and told its caller that its own edge
+        direction was unreliable. A false alarm on a trust signal is the ADR-029 failure the
+        rest of this file guards against, inverted.
+
+        A `None` back from `_project_key` still counts as a disagreement. It means the link's
+        stated path leaves the project while its source node's stayed inside it, which is a
+        real conflict about where the edge starts and not a normalisation artifact.
         """
         stated = link.get('source_file')
         source = nodes.get(link.get('source'))
         if source is None or not isinstance(stated, str) or not stated:
             return False
-        return stated.replace('\\', '/').lstrip('/') != source[0]
+        return _project_key(self.project_dir, stated) != source[0]
 
     def _git_commit(self) -> Optional[str]:
         try:
@@ -716,3 +758,78 @@ def _line(location: Any) -> Optional[int]:
         return int(location[1:])
     except ValueError:
         return None
+
+
+#: How many distinct escaping paths the artifact records before it stops. The same number as
+#: `graph_ops._MAX_RECORDED_VALIDATION_ERRORS`, and for the same reason it gives: enough to
+#: diagnose the problem without turning the graph into a log file. A literal rather than an
+#: import because the dependency runs the other way — `graph_ops` reaches the backends, and a
+#: backend must not reach back into the module that selects it.
+_MAX_RECORDED_ESCAPED_PATHS = 20
+
+
+def _project_key(project_dir: str, source_file: str) -> Optional[str]:
+    """A backend's `source_file` as this project's graph key, or None if it escapes.
+
+    This replaces `source_file.replace('\\\\', '/').lstrip('/')`, which was worse than having
+    no check at all because it *laundered* the value: `/etc/passwd` became the key
+    `etc/passwd`, which reads as project-relative to every downstream reader and to
+    `validate_graph`, so an out-of-project node validated completely clean (SEC-015). A guard
+    bolted on after the `lstrip` would be vacuous — by then the value has been made to look
+    legal — so the raw value is what is judged, before anything is stripped off it.
+
+    `containment.rel_within`, because what comes out of here is a **key**, and not either of
+    its neighbours:
+
+      - not `escapes`, the lexical rule for a declared value. graphify may legitimately name
+        a real in-project file by absolute path, and the lexical rule would drop every one of
+        them: a thin graph that reads as a thin repository, which is the confidently-empty
+        answer ADR-005 exists to stop. Rebasing is right for those and dropping is right for
+        the rest, and only a comparison against the root can tell the two apart.
+      - not `within`, which realpaths both sides. `graph.json`, `behavior.json` and
+        `docs.json` are joined on this key by set intersection (ADR-025), so realpath would
+        re-key a legitimately symlinked in-project file and it would stop joining at all
+        rather than join wrongly — a blast radius quietly short, with nothing to read.
+
+    The cost of staying off realpath, stated so nobody rediscovers it: if a backend ever
+    emits an absolute path that has been resolved through a symlink while the project root is
+    reached through one (macOS `/var` → `/private/var`), those nodes are dropped and counted
+    rather than re-keyed. That is a loud wrong answer where realpath's is a silent one, which
+    is the trade ADR-029 asks for. It is also not today's shape: measured on this
+    repository's recorded graphify extraction, every `source_file` is already relative.
+
+    Then `containment.escapes` on the way out, because one host cannot answer for the other.
+    `rel_within` asks "is this under my root", which needs a root and therefore needs this
+    host; `escapes` asks "could this string name anything but a path under a root", which is
+    a question any host can answer about any string. A Windows-flavoured value read on POSIX
+    (`C:/Windows/win.ini`) is *relative* to posixpath, so it joins inside the root and
+    `rel_within` hands it straight back — and a `graph.json` is read on machines that did not
+    write it, so that key joined against a Windows reader's root lands on the drive root.
+    This docstring used to say the second layer catches it: `substrate.validate_graph` does
+    *report* it, but `graph_ops.py:2510` writes the graph anyway and records the errors under
+    `substrate.validation`, so "caught" meant "reported and shipped". Refused here it never
+    becomes a key, and the two layers now hold the same rule instead of one deferring to the
+    other.
+
+    It is the rebased spelling that is judged, not the raw value, which is what keeps the
+    honest absolute-in-project rebase: `src/a.py` escapes nothing. What the second gate does
+    turn away is a real POSIX file literally named `C:foo.py` — legal on Linux, unspellable
+    on Windows. It is dropped and counted rather than keyed, which is the ADR-029 trade
+    again: a key that means one thing on the machine that wrote it and another on the machine
+    that reads it is not an interchange key, and a loud drop beats a silent re-root.
+
+    The backslash fold is unconditional, the same rule and for the same reason as
+    `graph_ops.normalize_key`: a key that means different things on different hosts is not an
+    interchange key.
+    """
+    text = source_file.replace('\\', '/')
+    # `join` discarding the root for an absolute `text` is the point, not an accident: it is
+    # what puts an escaping value in front of the containment check unaltered.
+    rel = containment.rel_within(project_dir, os.path.join(project_dir, text))
+    if rel is None:
+        return None
+    # Judged after the fold, on the exact string that would enter the artifact — the same
+    # string, and the same predicate, `substrate.validate_graph` applies to a key it reads
+    # back out of one.
+    key = str(rel).replace('\\', '/')
+    return None if containment.escapes(key) else key

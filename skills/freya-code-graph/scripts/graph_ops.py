@@ -26,6 +26,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import containment  # noqa: E402  — the one body of the path-containment rules (ADR-030)
 import settings  # noqa: E402  — knowledge-base/settings.json, the committed half
 import substrate  # noqa: E402  — the contract this module's CodeGraph implements
 
@@ -672,6 +673,36 @@ class CodeGraph:
                 return True
         return False
 
+    def _contain(self, candidate: Path) -> Optional[Path]:
+        """`candidate` spelled relative to this project, or None if it is not under it.
+
+        A method rather than a bare call at each site, and worth saying why while the body
+        is one line: a project that *declares* an out-of-tree root is on this branch's
+        roadmap, and that becomes a second branch in here. Two inlined call sites would both
+        have to be rewritten for it; one method gets extended.
+
+        `containment.rel_within`, deliberately, and not either of its neighbours:
+
+          - not `escapes`, which judges a value **declared** in checked-in data. What
+            arrives here is a `Path` this resolver just built out of a tsconfig target, a
+            workspace root or a Python search base. The join has already happened, and the
+            escape this exists to catch is only visible once it has.
+          - not `within`, which realpaths both sides. The return value becomes a graph key,
+            and `graph.json`, `behavior.json` and `docs.json` are joined on that key by set
+            intersection (ADR-025), so resolving would re-key a legitimately symlinked
+            in-project file to its realpath — the file would not join wrongly, it would stop
+            joining at all and a blast radius would come back quietly short. The candidate
+            also need not exist yet; `_is_real_file` is the next question, not this one.
+
+        What it fixes: `relative_to` compares *parts*, so `/proj/../outside/secret.ts`
+        relative to `/proj` succeeded and handed back `../outside/secret.ts` — a path
+        `normalize_key` cannot collapse, recorded as an internal edge target (SEC-014).
+        Measured on a project whose tsconfig maps `@evil/*` to `../outside/*`: the edge was
+        `../outside/secret.ts` and is now `unresolved:@evil/secret`. `rel_within` normalises
+        before it compares, which is what makes the question answerable at all.
+        """
+        return containment.rel_within(self.project_dir, candidate)
+
     def _resolve_fs(self, resolved: Path) -> Optional[str]:
         """Resolve a base path to a real project-relative source file (suffixes/index)."""
         candidates = [
@@ -688,9 +719,8 @@ class CodeGraph:
             resolved / '__init__.py',
         ]
         for candidate in candidates:
-            try:
-                rel = candidate.relative_to(self.project_dir)
-            except ValueError:
+            rel = self._contain(candidate)
+            if rel is None:
                 continue
             # A file, and spelled the way it is spelled on disk. Two separate traps:
             # the bare path is the first candidate and a *directory* satisfies exists(),
@@ -889,9 +919,8 @@ class CodeGraph:
         for part in parts:
             target = target / part
         for candidate in (target.with_suffix('.py'), target / '__init__.py'):
-            try:
-                rel = candidate.relative_to(self.project_dir)
-            except ValueError:
+            rel = self._contain(candidate)
+            if rel is None:
                 continue  # escaped the project; not ours to resolve
             if self._is_real_file(candidate):
                 return normalize_key(rel)

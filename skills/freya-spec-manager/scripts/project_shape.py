@@ -60,16 +60,34 @@ def count_graph(project_dir):
     return len(files), internal_edges, True
 
 
+#: How long a stack detection may run before this caller stops waiting. A detection is a
+#: bounded walk of one repository, so sixty seconds is orders of magnitude of headroom and
+#: still short enough that a wedged child is noticed rather than waited on. There was no
+#: timeout at all until SEC-008: whatever `detect_project` did — including, through a
+#: committed `vendor -> /` symlink, walking the operator's whole filesystem — this call
+#: waited for it, with `capture_output=True` so nothing reached the operator meanwhile.
+#: The child bounds its own walk now (`detect_project._WALK_FILE_LIMIT`), so this is defence
+#: in depth — and it has to be, for the next unbounded scan somebody adds over there.
+_DETECT_TIMEOUT = 60
+
+
 def run_detect_project(project_dir):
-    """Return detect_project.py's stack dict (empty dict on any failure)."""
+    """Return detect_project.py's stack dict (empty dict on any failure).
+
+    `subprocess.TimeoutExpired` is in the except tuple and is not redundant with the `OSError`
+    beside it: it derives from `SubprocessError`, so adding the timeout without adding the
+    class would have swapped a hang for an uncaught exception out of `classify()` — worse than
+    the hang, for a caller whose entire contract is "empty dict on any failure".
+    """
     try:
         out = subprocess.run(
             [sys.executable, str(_DETECT_PROJECT), project_dir],
-            capture_output=True, text=True, check=True,
+            capture_output=True, text=True, check=True, timeout=_DETECT_TIMEOUT,
         )
         data = json.loads(out.stdout)
         return data if isinstance(data, dict) else {}
-    except (subprocess.CalledProcessError, json.JSONDecodeError, FileNotFoundError, OSError):
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired,
+            json.JSONDecodeError, FileNotFoundError, OSError):
         return {}
 
 

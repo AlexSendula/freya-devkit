@@ -133,8 +133,40 @@ def stale_bucket(project_dir):
     return sorted(stale), None
 
 
+#: The settled half of findings-schema.md's `status` vocabulary. `open` is
+#: outstanding; these two are dispositions somebody actually recorded. A fourth
+#: value is not a fourth disposition — it is a value this consumer was never
+#: told how to read, and the schema's "consumers treat any finding whose status
+#: is not `open` as not outstanding" is a rule about the three values it fixes,
+#: not a licence to accept a fourth in silence.
+_SETTLED_STATUSES = frozenset({"resolved", "intentional"})
+
+#: How many unreadable findings the note names before it stops listing them.
+#: The count stays whole and only the list is capped, for the reason
+#: GAPS_SAMPLE exists (SPEC-029): this note now reaches the git-tracked
+#: BACKLOG.md, and an index with three hundred bad rows would put three hundred
+#: ids on one line of it and bury the number that matters.
+UNRECOGNISED_SAMPLE = 10
+
+
 def security_bucket(project_dir):
-    """Open findings from the structured findings.json index."""
+    """Open findings from findings.json — partitioned by status, never filtered by it.
+
+    `resolved` and `intentional` are settled and left out; `open` is
+    outstanding; anything else — a capitalisation, a synonym, a missing key, an
+    entry that is not an object at all — is counted as OPEN and named in the
+    note. This was an exact-match filter, and the drop was silent: a
+    findings.json holding three high-severity findings with statuses `Open`,
+    `unresolved` and none at all returned `([], None)`, which is zero findings
+    and nothing to say about them. Both ends of this file are written by hand —
+    an agent composing JSON against a prose schema at one end, an adopting
+    project committing it at the other — so a vocabulary miss is the expected
+    failure, not the exotic one.
+
+    A silently-zero security bucket reads as CLEAN, not as NEVER SCANNED, and
+    those are the same number and opposite facts. The direction to fail in is
+    the alarm (ADR-005, SPEC-027).
+    """
     path = os.path.join(project_dir, "knowledge-base", "security",
                         "codebase-security", "findings.json")
     if not os.path.exists(path):
@@ -144,10 +176,35 @@ def security_bucket(project_dir):
             data = json.load(f)
     except (json.JSONDecodeError, OSError):
         return [], "findings.json unreadable"
-    findings = data.get("findings", []) if isinstance(data, dict) else []
-    out = [{"id": x.get("id"), "title": x.get("title"),
-            "severity": x.get("severity"), "file": x.get("file")}
-           for x in findings if isinstance(x, dict) and x.get("status") == "open"]
+    findings = data.get("findings") if isinstance(data, dict) else None
+    if not isinstance(findings, list):
+        # A bare top-level array, or a `findings` key holding something else.
+        # The old form defaulted both to `[]`, which is indistinguishable from
+        # a scan that ran and found nothing.
+        return [], "findings.json carries no findings list — nothing was counted"
+    out, unrecognised = [], []
+    for i, x in enumerate(findings):
+        if not isinstance(x, dict):
+            unrecognised.append(f"entry {i}: not an object")
+            continue
+        status = x.get("status")
+        # The isinstance test is not tidiness. `status` is project-supplied
+        # JSON, so it can be a list or a dict, and an unhashable value tested
+        # against a frozenset raises TypeError out of the whole census — the one
+        # thing every bucket in this module promises never to do (SPEC-028).
+        if isinstance(status, str) and status in _SETTLED_STATUSES:
+            continue
+        if status != "open":
+            label = x.get("id") or f"entry {i}"
+            unrecognised.append(f"{label}: " + ("missing" if status is None else repr(status)))
+        out.append({"id": x.get("id"), "title": x.get("title"),
+                    "severity": x.get("severity"), "file": x.get("file")})
+    if unrecognised:
+        named = "; ".join(unrecognised[:UNRECOGNISED_SAMPLE])
+        if len(unrecognised) > UNRECOGNISED_SAMPLE:
+            named += f"; and {len(unrecognised) - UNRECOGNISED_SAMPLE} more"
+        return out, (f"{len(unrecognised)} finding(s) carry a status this report does not "
+                     f"recognise ({named}) — counted as open")
     return out, None
 
 
@@ -173,6 +230,54 @@ def collect(project_dir):
     }
 
 
+def _line(value):
+    r"""A project-supplied string rendered on one markdown line, outside a table.
+
+    Only the newline is collapsed, because only the newline ends something out
+    here. A `|` is ordinary text in a list item, and a backtick inside a code
+    span costs one ugly line — which is cheaper than a lossy transform on a path
+    the reader is meant to be able to select and copy.
+    """
+    text = "" if value is None else str(value)
+    return text.replace("\r", " ").replace("\n", " ")
+
+
+def _cell(value):
+    r"""One markdown table cell from a project-supplied string.
+
+    Two characters end something in a table. `|` ends the cell: a title holding
+    one renders a five-cell row under a three-cell header and pushes the last
+    column off the end, so a behavior loses its spec attribution. A newline ends
+    the whole *table*, and that is the half that matters. Spec frontmatter
+    cannot carry one — that parser is line-oriented (frontmatter.py
+    `_logical_lines`) — but finding titles come from findings.json, which is
+    JSON and git-tracked, and a JSON string holds whatever it likes. Reproduced
+    2026-08-23: a finding titled "RCE |\n\n_None._\n\n## Notes\n\nNothing
+    outstanding." ended the open-findings table after one truncated row, printed
+    `_None._` beneath it and forged a `## Notes` heading — a security section
+    that reads as clean, in a tracked artifact whose own banner tells the reader
+    not to edit it and therefore to trust it.
+
+    **The backslash goes first, and the order is the whole fix.** Escaping only
+    the pipe is a bypass, not a defence: GFM's row scanner consumes a backslash
+    together with the character after it (GFM spec §4.10, tables), and
+    CommonMark §2.4 makes `\\` a literal backslash rather than a shield — so a
+    `|` is a delimiter exactly when an EVEN number of backslashes precedes it.
+    A title already holding `\|` therefore came out of the pipe-only escaper as
+    `\\|`, which is a literal backslash followed by a live delimiter, and the
+    attacker got back the extra column the fix was written to take away.
+    Reproduced 2026-08-23 against the pipe-only version: a finding titled
+    `benign \| EXTRA-CELL` rendered as `benign \` / `EXTRA-CELL`, and `x.py`
+    was pushed past the four-column header and discarded. Escaping the
+    backslash first makes that title `\\\|` — literal backslash, escaped pipe —
+    and the File column survives. The two `replace` calls do not commute, and
+    the test that guards them splits rows by GFM's rule rather than by this
+    function's (`test_collect_status.py:gfm_cells`), because an oracle that
+    reuses the escaper's own rule is how the pipe-only version passed.
+    """
+    return _line(value).replace("\\", "\\\\").replace("|", "\\|")
+
+
 def render_backlog(status):
     """Render BACKLOG.md markdown from a status dict."""
     c = status["behavior_counts"]
@@ -188,10 +293,26 @@ def render_backlog(status):
           f"{gaps['total']} coverage gaps"),
          ""]
 
+    # The census line is a row of numbers, and a number is only worth what its
+    # source was worth. `collect` already returns a note for every source it
+    # could not read — SPEC-028 calls that note the thing that separates "0 open
+    # findings" from "no scan has ever run" — and this renderer dropped that
+    # half, in the one rendering that is committed and read in a PR diff. A
+    # project with no findings.json wrote "0 open findings" and `_None._` under
+    # Open security findings and said nothing about never having scanned.
+    notes = status.get("notes") or []
+    if notes:
+        L += ["> **This census could not read every source** — a section below may be",
+              "> empty because its input was missing, not because it is clean.",
+              ">"]
+        L += [f"> - {_line(n)}" for n in notes]
+        L.append("")
+
     L += ["## Behaviors to confirm", ""]
     if intent:
         L += ["| Behavior | Title | Spec |", "|---|---|---|"]
-        L += [f"| {r['behavior_id']} | {r.get('title') or ''} | {r.get('spec_id') or ''} |" for r in intent]
+        L += [f"| {_cell(r['behavior_id'])} | {_cell(r.get('title'))} | "
+              f"{_cell(r.get('spec_id'))} |" for r in intent]
     else:
         L.append("_None._")
     L.append("")
@@ -199,20 +320,22 @@ def render_backlog(status):
     L += ["## Tests owed", ""]
     if owed:
         L += ["| Behavior | Title | Spec |", "|---|---|---|"]
-        L += [f"| {r['behavior_id']} | {r.get('title') or ''} | {r.get('spec_id') or ''} |" for r in owed]
+        L += [f"| {_cell(r['behavior_id'])} | {_cell(r.get('title'))} | "
+              f"{_cell(r.get('spec_id'))} |" for r in owed]
     else:
         L.append("_None._")
     L.append("")
 
     L += ["## Coverage gaps", ""]
     L.append(f"{gaps['total']} uncovered source file(s)." + (" Sample:" if gaps["sample"] else ""))
-    L += [f"- `{f}`" for f in gaps["sample"]]
+    L += [f"- `{_line(f)}`" for f in gaps["sample"]]
     L.append("")
 
     L += ["## Open security findings", ""]
     if sec:
         L += ["| ID | Severity | Title | File |", "|---|---|---|---|"]
-        L += [f"| {f.get('id') or ''} | {f.get('severity') or ''} | {f.get('title') or ''} | {f.get('file') or ''} |"
+        L += [f"| {_cell(f.get('id'))} | {_cell(f.get('severity'))} | "
+              f"{_cell(f.get('title'))} | {_cell(f.get('file'))} |"
               for f in sec]
     else:
         L.append("_None._")

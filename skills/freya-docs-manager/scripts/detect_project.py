@@ -276,13 +276,16 @@ def detect_database(project_dir: str) -> dict:
     elif any(os.path.exists(os.path.join(project_dir, f)) for f in ["drizzle.config.ts", "drizzle.config.js"]):
         results["orm"] = "drizzle"
 
-    # Check for Django models
-    if glob_search(project_dir, "**/models.py"):
+    # Check for Django models. Bounded walk rather than `**/models.py`: same SEC-008 defect,
+    # different pattern string. It also stops a vendored Django under `node_modules/` from
+    # naming this project's ORM, which is the judgement `infer_runtime_from_sources` has
+    # always made about the same directories.
+    if any_project_file(project_dir, lambda n: n == "models.py"):
         if results["orm"] is None:
             results["orm"] = "django_orm"
 
     # Check for SQLAlchemy
-    if glob_search(project_dir, "**/*models*.py"):
+    if any_project_file(project_dir, lambda n: n.endswith(".py") and "models" in n):
         results["orm"] = results["orm"] or "sqlalchemy"
 
     # Check for mongoose (MongoDB)
@@ -302,9 +305,143 @@ def detect_database(project_dir: str) -> dict:
 
 
 def glob_search(directory: str, pattern: str) -> list:
-    """Simple glob search helper."""
+    """Simple glob search helper.
+
+    Root-only patterns only — `jest.config.*`, `.mocharc*` and the four other config probes.
+    A `**` pattern must go through `walk_project` below instead: `glob` with `recursive=True`
+    descends directory symlinks, prunes nothing and stops at nothing, which is the whole of
+    SEC-008.
+    """
     import glob as g
     return g.glob(os.path.join(directory, pattern), recursive=True)
+
+
+#: Ceiling on the whole-tree walk below. 20,000 is `substrate.CENSUS_LIMIT` and the default
+#: of `project_shape.unreadable_files`, so those three stop in the same place instead of in
+#: three arbitrary ones — `WalkBoundsTest` asserts the agreement rather than trusting this
+#: sentence. It is not every walk a run makes: `infer_runtime_from_sources` above stops at
+#: 5,000 and stays there on purpose. That one counts extensions to pick a single winner, so
+#: each file is a vote and the five-thousandth does not change the count's mind; this one
+#: answers existence questions, where the file that decides can be the last in sorted order.
+_WALK_FILE_LIMIT = 20000
+
+#: How much of a YAML file decides whether it is a Kubernetes manifest, how many are worth
+#: opening, and the ceiling on the whole question.
+#:
+#: 64 KiB per file: `apiVersion` is a required top-level key of every Kubernetes document
+#: (TypeMeta), it is ten bytes, and every generator that writes manifests — `kubectl -o yaml`,
+#: `helm template`, `kustomize build` — emits it as the document's first key. What gets in
+#: front of it in the wild is a comment header: a `# Source: chart/templates/x.yaml` line
+#: (~60 bytes) or an SPDX/Apache-2.0 boilerplate block of eleven to fifteen comment lines
+#: (~900 bytes). 64 KiB is seventy times the larger of those, and it also absorbs one whole
+#: preceding non-Kubernetes document in a `---`-separated file, which is the only realistic
+#: way the key lands late. It is a single `read()`, so the ten-byte token cannot straddle a
+#: buffer boundary, and on the typical few-hundred-byte manifest it costs what a 512-byte
+#: read costs.
+#:
+#: The false negative, stated rather than hidden: a manifest that puts a megabyte of `spec`
+#: ahead of `apiVersion`, or that is the five-hundred-and-first YAML file in sorted order, is
+#: not detected. The observable is one absent string in `infrastructure.containerization`, so
+#: `INFRASTRUCTURE.md` loses its Kubernetes section. That is the price of not letting the
+#: repository being scanned choose how much this process reads.
+_YAML_PREFIX = 64 * 1024
+_YAML_FILE_CAP = 500
+_YAML_BYTE_BUDGET = 4 * 1024 * 1024
+
+
+def _refuses_descent(parent: str, name: str) -> bool:
+    """Is this directory entry one the walk must never enter?
+
+    Today the answer is "any symlink", and nothing overrides it. `glob` with `recursive=True`
+    descends through a directory symlink — measured identical on 3.9, 3.12 and 3.13 — so a
+    committed `vendor -> /` made every `**` pattern in this module walk the operator's whole
+    filesystem, reading files outside the tree it was pointed at and taking as long as that
+    took (SEC-008). No cycle is needed for that; one link to a big tree is the vector.
+
+    `os.walk` already refuses on its own, because `followlinks` defaults to False. This is the
+    same refusal said out loud, and the redundancy is deliberate: it is greppable, it is
+    provable without the privilege a real symlink needs on Windows, and it gives the rule
+    exactly one place to be relaxed if a project is ever handed a way to declare an
+    out-of-tree path legitimate. That declaration would be a *name* the operator can read in a
+    committed file; a symlink target is not, which is why no setting re-admits one here.
+
+    Windows: `os.path.islink` is False for a directory *junction*, and `os.path.isjunction`
+    is 3.12+ while the floor is 3.9. Not handled, and it does not need to be — git cannot
+    check out a junction, so it is not reachable from a hostile clone.
+    """
+    return os.path.islink(os.path.join(parent, name))
+
+
+def walk_project(project_dir: str, limit: int = _WALK_FILE_LIMIT):
+    """Yield this project's files: contained, pruned, capped, in a stable order.
+
+    The bounded replacement for `glob_search(dir, "**/...")`, which had none of those four
+    properties. Five call sites in this module used that form — `**/models.py`,
+    `**/*models*.py`, `**/*.yaml`, `**/test_*.py`/`**/*_test.py` and `**/*.feature` — and
+    every one of them was the same denial of service and the same out-of-tree read under a
+    different pattern string. SEC-008 named one of the five; fixing only that one would have
+    left the other four live.
+
+    * Contained: `_refuses_descent` above, plus the file half of the same trick — a *file*
+      that is a symlink is not yielded, because `x.yaml -> /dev/zero` is an endless source and
+      the handler that used to hide the resulting MemoryError was a bare `except:`.
+    * Pruned: `_CENSUS_SKIP`, exactly as `infer_runtime_from_sources` prunes it, so the two
+      walks in this module agree on which files are this project's own. A vendored Django is
+      not this project's ORM.
+    * Capped at `limit` files.
+    * Ordered: `sorted` on both lists, because a walk that stops at a cap has to examine the
+      same files twice running or the answer depends on the order the filesystem gave.
+
+    Dot-directories are skipped, and that clause is the one thing this replacement had to
+    *keep* rather than add: `glob` never returned anything under `.git`, and `os.walk` walks
+    straight into it, so leaving it out would have widened the read surface to `.git`, `.ssh`
+    and `.aws` — the fix making the finding worse. Dot-*files* are yielded, which `glob` did
+    not do; that is a deliberate widening, taken because `infer_runtime_from_sources` counts
+    them too and two walks in one module disagreeing about what a project file is would cost
+    more than it saves.
+    """
+    root = os.path.abspath(project_dir)
+    seen = 0
+    for parent, dirs, filenames in os.walk(root, followlinks=False):
+        dirs[:] = [d for d in sorted(dirs)
+                   if d not in _CENSUS_SKIP and not d.startswith(".")
+                   and not _refuses_descent(parent, d)]
+        for name in sorted(filenames):
+            path = os.path.join(parent, name)
+            if os.path.islink(path):
+                continue
+            yield path
+            seen += 1
+            if seen >= limit:
+                return
+
+
+def any_project_file(project_dir: str, matches) -> bool:
+    """True as soon as one of this project's files matches — bounded `glob_search(d, "**/x")`.
+
+    `matches` is handed a bare filename, because the basename is all the four `**` patterns
+    this replaced ever looked at, and it is handed it **lower-cased**. Write the predicate
+    against a lower-case literal or it will never match anything.
+
+    The fold lives here rather than in the four predicates so there is exactly one place to
+    get it wrong, and it restores case behaviour the switch away from `glob` dropped by
+    accident. `glob` matches through `os.path.normcase`, so on Windows all four patterns were
+    case-insensitive; and `**/models.py` is a literal, resolved by `_lexists` rather than by
+    `fnmatch`, so it was case-insensitive on default macOS APFS too. Measured 2026-08-23 on
+    APFS with `app/Models.py` present: the old glob returned a match and the predicate
+    `n == "models.py"` returned none, so `detect_database(...)["orm"]` went from
+    `"django_orm"` to `None` with nothing saying so.
+
+    Folding on every host rather than on none is the call `detect_infrastructure` already
+    made for `**/*.yaml` a screen down, for the same reason: one answer everywhere beats
+    reproducing whichever platform happened to be under the old code. The price, stated
+    rather than hidden — on POSIX these four now match names `glob` did not, so a tree whose
+    only model file is `Models.py` reports the Django ORM where it used to report none.
+    """
+    for path in walk_project(project_dir):
+        if matches(os.path.basename(path).lower()):
+            return True
+    return False
 
 
 def detect_infrastructure(project_dir: str) -> dict:
@@ -318,17 +455,39 @@ def detect_infrastructure(project_dir: str) -> dict:
        os.path.exists(os.path.join(project_dir, "docker-compose.yaml")):
         results["containerization"].append("docker-compose")
 
-    # Kubernetes
-    if os.path.exists(os.path.join(project_dir, "k8s")) or \
-       glob_search(project_dir, "**/*.yaml"):
-        for f in glob_search(project_dir, "**/*.yaml"):
-            try:
-                with open(f, 'r') as file:
-                    if "apiVersion" in file.read():
-                        results["containerization"].append("kubernetes")
-                        break
-            except:
-                pass
+    # Kubernetes. One bounded traversal, and no guard in front of it: the condition this
+    # replaces re-ran the identical `**/*.yaml` glob whenever the repo held YAML and had no
+    # `k8s/` directory, and it decided nothing either way — the loop below is already empty
+    # when the walk is. Checked over all four cases (`k8s/` present or absent x YAML present
+    # or absent).
+    #
+    # The extension test is case-folded because `glob` matched through `os.path.normcase`, so
+    # `X.YAML` was examined on Windows and not on POSIX. Folding removes a platform difference
+    # rather than adding one.
+    examined = 0
+    budget = _YAML_BYTE_BUDGET
+    for path in walk_project(project_dir):
+        if not path.lower().endswith(".yaml"):
+            continue
+        if examined >= _YAML_FILE_CAP or budget <= 0:
+            break
+        examined += 1
+        try:
+            # Bytes, not text, and a prefix, not the whole file. `open(path, 'r')` decodes
+            # with the platform encoding, so a single byte that is not valid UTF-8 — or, on
+            # Windows, not valid cp1252 — raises UnicodeDecodeError, which is a ValueError
+            # and which `except OSError` does not catch. So the obvious repair of the bare
+            # `except:` that stood here, swapping it for `except OSError` over the same text
+            # read, would have turned a swallowed error into an uncaught traceback out of
+            # `analyze_project` and no JSON on stdout. Reading bytes retires the question.
+            with open(path, 'rb') as handle:
+                head = handle.read(_YAML_PREFIX)
+        except OSError:
+            continue
+        budget -= len(head)
+        if b"apiVersion" in head:
+            results["containerization"].append("kubernetes")
+            break
 
     # CI/CD
     if os.path.exists(os.path.join(project_dir, ".github", "workflows")):
@@ -424,12 +583,13 @@ def detect_test_runners(project_dir: str) -> dict:
     # unittest is stdlib (no dependency entry); infer from test-file naming only
     # when no richer Python runner was found, to avoid noise.
     if "pytest" not in runners and "pytest-bdd" not in runners:
-        if glob_search(project_dir, "**/test_*.py") or glob_search(project_dir, "**/*_test.py"):
+        if any_project_file(project_dir, lambda n: n.endswith(".py") and (
+                n.startswith("test_") or n.endswith("_test.py"))):
             runners.add("unittest")
             evidence.append("glob:test_*.py")
 
     # --- Gherkin feature files (adapter-agnostic BDD signal) ---
-    if glob_search(project_dir, "**/*.feature"):
+    if any_project_file(project_dir, lambda n: n.endswith(".feature")):
         runners.add("gherkin")
         evidence.append("glob:*.feature")
 

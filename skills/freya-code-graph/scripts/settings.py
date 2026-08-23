@@ -44,6 +44,11 @@ import os
 import posixpath
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
+# The containment rule is imported and never re-derived here (ADR-030). A directory key is a
+# value *declared* in checked-in data, which is the question `escapes` answers — and the
+# reason it, rather than one of the other three predicates, is what `normalise_dir_key` calls.
+import containment
+
 SETTINGS_DIRNAME = 'knowledge-base'
 SETTINGS_FILENAME = 'settings.json'
 
@@ -107,7 +112,7 @@ DEFAULTS = {
 
 
 def normalise_dir_key(name: Any) -> str:
-    """A directory key as the graph spells it: POSIX, no leading or trailing slash.
+    """A directory key as the graph spells it: POSIX, relative, no leading or trailing slash.
 
     Every form a person actually types has to land on the same key. The docs here and in
     SKILL.md write directories with a trailing slash throughout (`node_modules/`, `dist/`),
@@ -115,12 +120,71 @@ def normalise_dir_key(name: Any) -> str:
     Without folding them, `"docs/"` was a key nothing ever looked up: no error, no warning, an
     unchanged graph — and, worse, it still reached the contract as a live override, so the
     artifact claimed a scope the filter had not applied.
+    Folding alone was not enough, and refusing only the two bare strings `.` and `..` was the
+    gap. `''` is returned for anything that does not name a directory *inside* this project,
+    because every consumer joins this key onto the project root or matches it as the prefix of
+    a project-relative path — the scan roots are `project_dir / key.split('/')[0]`, and the
+    override lookups and `Exclusions._under` compare prefixes. A key that escapes has no such
+    reading, and the build does not fail on it: it succeeds, wrongly. Measured 2026-08-23 at
+    `abd1de3`, a committed `{"directories": {"../shared": "source"}}` graphed the sibling tree
+    — `../shared/secret.ts` a node, its exports read out of the file — and, because the scan
+    root is the key's first component, `..` walked back into the project and gave every
+    in-project file a second node under `../<checkout-name>/`. Nothing was printed and
+    `validate_graph` returned clean.
+
+    That last clause is the one with a shelf life, and it has already expired — which is why
+    the measurement is pinned to a commit and not to "the shipped code". Back this refusal out
+    today and the same fixture prints three `files[...]: not a project-relative path` errors,
+    because `substrate.validate_graph` now checks that every key under `files` is
+    project-relative (ADR-025). That is not a substitute for this and does not make it
+    redundant: the message says so itself — "writing it anyway" — and by the time it runs,
+    `secret.ts` has been opened and `SECRET` is already sitting in the artifact being audited.
+    That check reads the graph; this one refuses the read. `D:/secrets` is the same hole on
+    Windows: the drive survives the fold, and `PureWindowsPath('C:/proj') / 'D:'` is `D:` with
+    the project root discarded.
+
+    `containment.escapes` is the predicate, because a directory key is a value **declared** in
+    checked-in data — judged in both path flavours so the host reading the file does not get
+    to decide what a committed key means. It is applied to the *folded* text rather than to
+    the text as written, which is the one way this differs from checking a locator: `a/../b`
+    and `b` have to be one key (ADR-025), so the question is whether the key the consumers
+    will actually join escapes, not whether a `..` appeared on the way to it. Refusing is all
+    this does: naming a directory outside the root stays impossible rather than becoming a
+    third verdict here, because the keys of `directories` are project-relative and every
+    consumer reads them as the prefix of one.
+
+    A leading `/` still folds rather than being refused, and so does a UNC-looking
+    `\\\\server\\share`. SPEC-012 fixes `/docs/` as another spelling of `docs`, and rebasing an
+    absolute-looking key onto the project is what that spelling promises. What comes back is a
+    relative key naming either something under this project or nothing at all, and a key that
+    matches nothing is a dead entry rather than an escape — refusing them would be the easy
+    over-correction, and it would start telling projects their settings file is wrong.
+
+    With one exception, which is a price and not an oversight. A folded key whose *first*
+    component is a single character followed by `:` is a Windows drive to the flavour this
+    rule must also judge in, so a POSIX project with a top-level directory literally named
+    `a:b` — or `x:` — is told its key does not name a directory inside the project, when it
+    does. Measured on this tree, that is the whole of it: the boundary is exactly one
+    character, so `my:dir`, `docs:v2` and `2024:notes` all survive, and a colon anywhere but
+    the first component (`docs/a:b`, `src/C:x`) survives too. Narrowing it means a second,
+    POSIX-only containment rule living in this file against ADR-030's one body, bought by
+    letting a committed key mean a directory on one leg of the CI matrix and a drive on the
+    other — which is the exact thing `containment.escapes` exists to refuse. So the sentence
+    above is qualified rather than withdrawn: this does tell one project its settings file is
+    wrong, it tells it out loud and by name, and the entry beside it still takes effect.
+
+    The cache goes through here too: `graph_ops._load_classifications` folds every key it read
+    out of `classifications.json` with this function before folding the committed verdicts over
+    them, so an escaping key that reached that file is refused on the same rule and by the same
+    line, rather than by a second one somebody has to remember to keep in step.
     """
     text = str(name or '').replace('\\', '/').strip()
     if not text:
         return ''
     text = posixpath.normpath(text).strip('/')
-    return '' if text in ('.', '..') else text
+    if text in ('', '.') or containment.escapes(text):
+        return ''
+    return text
 
 
 def settings_path(project_dir: str) -> str:
@@ -332,6 +396,21 @@ class Settings:
         A bad value is a warning and a skip, never a crash and never a silent drop. Getting no
         graph because of a typo, or getting a quietly different one, are both worse than being
         told which key was wrong.
+
+        That includes a key that escapes the project (`../shared`, `D:/secrets`), which
+        `normalise_dir_key` began refusing on 2026-08-23. A skip and not a raise, deliberately:
+        this module's contract is that a malformed settings file degrades to defaults
+        *visibly*, and a project whose committed file already carries such a key would
+        otherwise stop being able to build at all — an escaping entry never widened scope
+        correctly in the first place, so refusing just that entry loses nothing that worked,
+        while raising would take away the graph as well, over an entry that was never doing
+        anything. The same shape as every other malformation in this file, and the same shape
+        as `_check_substrate`.
+
+        It also covers the one key shape `normalise_dir_key` over-refuses — a top-level POSIX
+        directory named `a:b`, a drive in the flavour that rule must also judge in — and that
+        is what makes the over-refusal affordable: the entry is dropped by name, in a message
+        carrying the file it came from, rather than quietly.
         """
         declared = self.data.get('directories')
         if not isinstance(declared, dict):
@@ -340,8 +419,9 @@ class Settings:
         for name, verdict in declared.items():
             key = normalise_dir_key(name)
             if not key:
-                self.warnings.append('%s: directories: %r is not a directory path; ignored'
-                                     % (self.path, name))
+                self.warnings.append(
+                    '%s: directories: %r does not name a directory inside this project; '
+                    'ignored' % (self.path, name))
                 continue
             if verdict not in DIRECTORY_VERDICTS:
                 self.warnings.append(

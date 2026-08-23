@@ -1693,5 +1693,49 @@ class TestTheTwoCacheGitignoreWritersAgree(unittest.TestCase):
         self.assertNotIn('*', body)
 
 
+class TestAGraphKeyIsProjectRelative(unittest.TestCase):
+    """The key was the one thing `validate_graph` never looked at.
+
+    Every edge was validated and never the key the edge hangs off, so a backend could put an
+    out-of-project path in `files` and the graph came back conforming. `backend_graphify` did
+    exactly that: its `lstrip('/')` turned `/etc/passwd` into the key `etc/passwd`, which
+    reads as project-relative to every downstream reader (SEC-015). The check belongs here
+    rather than only in that backend because this is the only place it binds a backend nobody
+    has written yet.
+    """
+
+    #: The same builder `TestGraphValidation` uses, borrowed rather than copied. This class
+    #: sits at the end of the file so that no existing line moves, not because it is asking a
+    #: different kind of question.
+    graph = TestGraphValidation.graph
+
+    def test_a_key_that_is_not_project_relative_is_a_contract_violation(self):
+        """Both path flavours, on whichever host is running.
+
+        A graph.json is read on machines that did not write it, so a Windows-written key
+        arrives on Linux and back again; `escapes` judges both spellings for that reason, and
+        because `ntpath.isabs` changed in 3.13 so a rooted path with no drive stopped being
+        absolute there.
+        """
+        for key in ('../outside/secret.py', '/etc/passwd', '\\Windows\\win.ini',
+                    'C:/x.ts', 'C:x.ts', 'src/../a.ts'):
+            with self.subTest(key=key):
+                errors = validate_graph(self.graph({key: {'imports': []}}))
+                self.assertTrue(any('not a project-relative path' in e for e in errors),
+                                errors)
+
+    def test_an_ordinary_key_is_not_flagged(self):
+        """The discrimination the pair exists for.
+
+        With the rule replaced by `return True` this row goes red while the row above stays
+        green, so "reports every key" cannot pass itself off as "reports escaping keys".
+        """
+        self.assertEqual(validate_graph(self.graph({
+            'src/a.ts': {'imports': []},
+            'bin/freya': {'imports': []},
+            'a b/c.ts': {'imports': []},
+        })), [])
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

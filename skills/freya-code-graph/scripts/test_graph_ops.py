@@ -2705,5 +2705,173 @@ class TestUnmappedSourceCLI(Base):
         self.assertTrue(body[-1].strip().startswith("- Cached to"))
 
 
+class TestTheResolverCannotEscapeTheProject(Base):
+    """A `..` in an alias target or a workspace subpath resolved out of the tree (SEC-014).
+
+    `Path.relative_to` compares *parts*, so `/proj/../outside/secret.ts` relative to `/proj`
+    succeeded and handed back `../outside/secret.ts` — which `normalize_key` cannot collapse
+    and which then entered the graph as an internal edge target, indistinguishable from a
+    file the project owns. `CodeGraph._contain` is the one gate now.
+
+    Every escape row below is paired with an honest row, because a resolver that resolves
+    nothing passes every escape assertion in this class.
+    """
+
+    def alias_project(self):
+        """A project whose tsconfig maps one alias out of the tree and one inside it.
+
+        The project is a *subdirectory* of the temp dir so that `outside/` is a real sibling
+        of the project root and nothing is written above the directory this test cleans up.
+        """
+        root = self.mk({
+            "proj/tsconfig.json": ('{"compilerOptions":{"baseUrl":".","paths":'
+                                   '{"@evil/*":["../outside/*"],"@ok/*":["./lib/*"]}}}'),
+            "proj/src/a.ts": "import { s } from '@evil/secret'\nexport const a = 1\n",
+            "proj/lib/util.ts": "export const u = 1\n",
+            "outside/secret.ts": "export const s = 1\n",
+        })
+        return os.path.join(root, "proj")
+
+    def workspace_project(self):
+        """A monorepo whose package name is used as a launchpad for `../../../`."""
+        root = self.mk({
+            "proj/package.json": '{"name":"root","workspaces":["packages/*"]}',
+            "proj/packages/domain/package.json": ('{"name":"@acme/domain",'
+                                                  '"main":"src/index.ts"}'),
+            "proj/packages/domain/src/index.ts": "export const d = 1\n",
+            "proj/app/a.ts": "import { c } from '@acme/domain/../../../outside/creds'\n",
+            "outside/creds.ts": "export const c = 1\n",
+        })
+        return os.path.join(root, "proj")
+
+    def test_a_tsconfig_paths_target_with_dotdot_does_not_resolve(self):
+        """Measured before the fix: this returned `../outside/secret.ts`."""
+        proj = self.alias_project()
+        g = CodeGraph(proj)
+        self.assertEqual(g._classify_import("@evil/secret", "src/a.ts"),
+                         "unresolved:@evil/secret")
+        graph_ops.run_build(g)
+        for target in ends(g.query("src/a.ts")["imports"]):
+            self.assertFalse(target.startswith("..") or "/../" in target, target)
+
+    def test_a_workspace_subpath_that_walks_out_does_not_resolve(self):
+        """A different construction from the alias site — `root / subpath` rather than a
+        configured target — and it went out of the tree the same way."""
+        proj = self.workspace_project()
+        g = CodeGraph(proj)
+        self.assertEqual(
+            g._classify_import("@acme/domain/../../../outside/creds", "app/a.ts"),
+            "unresolved:@acme/domain/../../../outside/creds")
+
+    def test_honest_imports_still_resolve(self):
+        """The anti-vacuity control. With `_contain` returning None unconditionally these
+        three go red while both escape rows above stay green."""
+        alias = CodeGraph(self.alias_project())
+        workspace = CodeGraph(self.workspace_project())
+        for label, graph, spec, from_file, expected in (
+                ("relative", alias, "../lib/util", "src/a.ts", "lib/util.ts"),
+                ("alias", alias, "@ok/util", "src/a.ts", "lib/util.ts"),
+                ("workspace", workspace, "@acme/domain", "app/a.ts",
+                 "packages/domain/src/index.ts")):
+            with self.subTest(kind=label):
+                self.assertEqual(graph._classify_import(spec, from_file), expected)
+
+    def test_a_symlinked_in_project_directory_keeps_its_spelled_key(self):
+        """Why the gate normalises and deliberately does not resolve.
+
+        `graph.json`, `behavior.json` and the docs graph are joined on this key by set
+        intersection (ADR-025). Resolving `proj/alias/util.ts` to `proj/real/util.ts` would
+        not key the file *wrongly* — it would key it under a string the other two artifacts
+        never carry, so it would stop joining at all and a blast radius would come back
+        quietly short with nothing to read. Measured: with `_contain` switched to
+        `candidate.resolve()` the key below becomes `real/util.ts`, and no other test in the
+        suite notices.
+
+        Through an *alias*, not a relative import, and the difference is a finding in itself:
+        `_resolve_import_path` already calls `.resolve()` on a relative candidate before this
+        gate ever sees it (`graph_ops.py:1031`), so a relative import through a symlink is
+        re-keyed upstream today and this gate cannot be what fixes that. The alias, workspace
+        and Python sites hand the candidate over unresolved, so they are where the choice is
+        observable.
+        """
+        proj = self.mk({
+            "tsconfig.json": '{"compilerOptions":{"baseUrl":".","paths":{"@s/*":["./alias/*"]}}}',
+            "real/util.ts": "export const u = 1\n",
+            "src/a.ts": "import { u } from '@s/util'\n",
+        })
+        try:
+            os.symlink(os.path.join(proj, "real"), os.path.join(proj, "alias"),
+                       target_is_directory=True)
+        except (OSError, NotImplementedError, AttributeError) as exc:
+            # Windows makes symlinks only for a privileged process or with Developer Mode on.
+            self.skipTest("this host will not create symlinks: %s" % exc)
+        self.assertEqual(CodeGraph(proj)._classify_import("@s/util", "src/a.ts"),
+                         "alias/util.ts")
+
+    def test_the_gate_hands_its_candidate_over_as_spelled_on_every_host(self):
+        """The same choice as the row above, pinned without asking the host for a symlink.
+
+        That row is the only test in the suite that notices `_contain` switching to
+        `containment.rel_within(self.project_dir, candidate.resolve())`, and its body is
+        wrapped in a `skipTest` for hosts that will not create a symlink — Windows without
+        Developer Mode, which is half the CI matrix. So the most subtle decision in this gate
+        was asserted on one leg of the matrix and nowhere else, and a `.resolve()` added back
+        by someone tidying up would go green on the other leg.
+
+        A divergence between how a path is spelled and what it resolves to cannot be built
+        on a real filesystem without a symlink, so it is supplied rather than created: a
+        candidate that spells one in-project file and resolves to another. `os.fspath` is the
+        only thing this gate is entitled to ask a candidate — `rel_within` calls
+        `os.path.abspath`, which is exactly that — so a double that answers both questions
+        differently separates the two implementations on any host.
+
+        This does not replace the row above and is not offered as an equivalent: the symlink
+        row proves a real symlinked directory behaves this way, and this row proves the gate
+        keeps making the choice where no symlink can be made to prove it.
+        """
+        proj = self.mk({"real/util.ts": "export const u = 1\n"})
+
+        class SpelledCandidate:
+            """A stand-in for the symlink. Deliberately not a `Path` subclass: subclassing
+            `pathlib.Path` needs private `_flavour` plumbing below 3.12, and the point is to
+            expose exactly the two questions the gate may ask."""
+
+            def __init__(self, spelled, resolved):
+                self._spelled, self._resolved = spelled, resolved
+
+            def __fspath__(self):
+                return self._spelled
+
+            def resolve(self, strict=False):
+                return Path(self._resolved)
+
+        # Off `g.project_dir` and not off `proj`: the constructor resolves the root, and on
+        # macOS a temp dir is reached through the `/var` -> `/private/var` symlink, so a
+        # candidate spelled from `proj` is under a different string and the gate answers None
+        # for a reason that has nothing to do with what this row is asking.
+        g = CodeGraph(proj)
+        candidate = SpelledCandidate(str(g.project_dir / "alias" / "util.ts"),
+                                     str(g.project_dir / "real" / "util.ts"))
+        self.assertEqual(normalize_key(g._contain(candidate)), "alias/util.ts")
+
+    def test_the_python_resolver_asks_the_same_gate(self):
+        """Defence in depth, and labelled as such rather than sold as a fix.
+
+        No `..` reaches this site through the public API today: `_python_search_bases` builds
+        every base with `Path.parent`, which truncates rather than appends, and a dotted
+        import cannot contain a `..` segment. The site is here so that the two cannot drift —
+        which is the whole reason `_contain` is a method and not two inlined calls.
+        """
+        root = self.mk({"proj/pkg/__init__.py": "", "outside/creds.py": "X = 1\n"})
+        g = CodeGraph(os.path.join(root, "proj"))
+        # `g.project_dir` rather than the string this test built: `CodeGraph.__init__`
+        # resolves the root, and on macOS a temp dir arrives through a symlinked `/var`, so a
+        # hand-built candidate would be outside the root for a reason that has nothing to do
+        # with what is being measured.
+        self.assertIsNone(g._resolve_python_module(g.project_dir / ".." / "outside",
+                                                   ["creds"]))
+        self.assertEqual(g._resolve_python_module(g.project_dir, ["pkg"]), "pkg/__init__.py")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -1044,5 +1044,305 @@ class FingerprintBehaviorTest(unittest.TestCase):
         self.assertEqual(fp["reason"], "level-deferred")
 
 
+class DeclaredAddressesAreContainedBeforeTheyAreActedOnTest(unittest.TestCase):
+    """SEC-013's residual: the runner reached the filesystem with a spec-supplied path.
+
+    `verify_links` has refused an escaping `locator` or `entry` at Tier-1 for some
+    time, and the temptation is to read that as coverage. It is not: it is a
+    different command in a different process, and `behavior_graph` shells straight
+    into `run_behaviors.py` with nothing in front of it. So the runner took a
+    string out of checked-in spec frontmatter and put it into
+    `os.path.join(project_dir, entry)` — which discards `project_dir` outright for
+    an absolute value — and into a `pnpm vitest` / `pytest` argv run with the
+    project as `cwd`.
+
+    There are three kinds of test below and they are not interchangeable. An
+    earlier version of this docstring claimed all of them asserted a sink was not
+    reached; four did, and a reader who takes the whole class for guard-regression
+    coverage trusts it further than it goes. Named, so the claim can be checked:
+
+    **Sink tests** — `..._never_becomes_an_argv`,
+    `..._never_reaches_the_pytest_executor_either`, `..._is_never_stat_ed`,
+    `..._does_not_reach_the_real_filesystem`, `..._refusal_is_not_a_test_failure`,
+    `..._costs_one_behavior_not_the_run`. Each asserts a sink was NOT reached,
+    because a refusal that still stats the file or spawns the process is not a
+    refusal. Revert the guard in `fingerprint_behavior` (`uncontained =
+    _uncontained_address(behavior)` -> `uncontained = None`) and every one of the
+    six goes red. Measured on that revert: 26 `assert_not_called` failures across
+    the six (`run_unit_behavior` 6, `run_pytest_behavior` 5, `static_fingerprint`
+    10, `subprocess.run` 5), plus three rows of `..._costs_one_behavior_not_the_run`
+    that never reach their assertion because the malformed scalar raises the
+    uncaught `TypeError` first — which is that test's own subject, so it is the
+    right red for those rows and not a weaker one.
+
+    **A shape test** — `..._names_the_field_and_the_value_on_stderr`. It pins what
+    the refusal *says*, not what it declines to do, and the stderr line is the only
+    part of a refusal an operator ever sees. It goes red under the revert as well,
+    though not on the message: it is the one test here with no sink mocked at all,
+    so the revert lets it try to spawn `pnpm` in a `/proj` that does not exist and
+    it dies on the `FileNotFoundError`. Red for a true reason, but not the reason
+    it is named for — do not read it as guard coverage.
+
+    **False-positive tests** — `..._judged_by_its_path_half_only`,
+    `..._ordinary_relative_address_is_untouched`,
+    `..._no_address_at_all_still_routes_normally`,
+    `..._empty_declared_address_is_not_called_an_escape`. These assert the sink IS
+    reached, and they stay GREEN under that revert by design. They are the half of
+    the gate that cannot be measured by breaking it: a guard that refused
+    everything would pass all six sink tests and fail only these.
+
+    `..._canonical_body_not_a_local_copy` is none of the three — it is ADR-030's
+    import identity check, and it also stays green under the revert.
+    """
+
+    # (label, locator) — the escaping shapes, judged in both path flavours on every
+    # host. The two Windows rows are not decoration: `ntpath.isabs` changed in 3.13
+    # so a rooted path with no drive stopped being absolute there, which is exactly
+    # the drift `containment.escapes` exists to absorb, and a host-flavour test
+    # would pass on Linux CI while the rule leaked on Windows.
+    ESCAPING = (
+        ("posix absolute", "/etc/passwd"),
+        ("parent traversal", "../../../etc/passwd"),
+        ("traversal mid-path", "tests/../../outside/x.test.ts"),
+        ("windows drive", "C:\\Windows\\System32\\x.test.ts"),
+        ("windows rooted, no drive", "\\Windows\\System32\\x.test.ts"),
+    )
+
+    def test_an_escaping_locator_never_becomes_an_argv(self):
+        for label, locator in self.ESCAPING:
+            with self.subTest(label):
+                beh = {"behavior_id": "BEH-666", "state": "accepted", "level": "unit",
+                       "adapter": "vitest", "locator": locator}
+                with mock.patch.object(run_behaviors, "run_unit_behavior") as run, \
+                     mock.patch.object(run_behaviors, "subprocess") as sp:
+                    fp = run_behaviors.fingerprint_behavior(beh, "/proj", "c1")
+                run.assert_not_called()
+                sp.run.assert_not_called()
+                self.assertEqual(fp["coverage"], "unknown")
+                self.assertEqual(fp["reason"], "locator-escapes-project")
+
+    def test_an_escaping_locator_never_reaches_the_pytest_executor_either(self):
+        # The Python half of the same sink. `pytest_argv` builds a node id from the
+        # locator and hands it to `sys.executable -m pytest` with cwd=project.
+        for label, locator in self.ESCAPING:
+            with self.subTest(label):
+                beh = {"behavior_id": "BEH-667", "state": "accepted", "level": "unit",
+                       "adapter": "pytest", "locator": locator + "::test_x"}
+                with mock.patch.object(run_behaviors, "run_pytest_behavior") as run:
+                    fp = run_behaviors.fingerprint_behavior(beh, "/proj", "c1")
+                run.assert_not_called()
+                self.assertEqual(fp["reason"], "locator-escapes-project")
+
+    def test_an_escaping_entry_is_never_stat_ed(self):
+        # `static_fingerprint` owns the `os.path.exists(os.path.join(project_dir,
+        # entry))` probe, so proving it is not called is proving the stat did not
+        # happen. Both states that route there are covered: `confirmed` (state wins
+        # over level) and accepted `integration`.
+        for state, level in (("confirmed", "integration"), ("accepted", "integration")):
+            for label, entry in self.ESCAPING:
+                with self.subTest(f"{state}/{label}"):
+                    beh = {"behavior_id": "BEH-668", "state": state, "level": level,
+                           "entry": entry}
+                    with mock.patch.object(run_behaviors, "static_fingerprint") as sf:
+                        fp = run_behaviors.fingerprint_behavior(beh, "/proj", "c1")
+                    sf.assert_not_called()
+                    self.assertEqual(fp["coverage"], "unknown")
+                    self.assertEqual(fp["reason"], "entry-escapes-project")
+
+    def test_an_escaping_entry_does_not_reach_the_real_filesystem(self):
+        # The same claim without a mock standing in for the sink: a real project
+        # root, a real absolute entry, and nothing spawned. If the guard is
+        # reverted this reaches `_git_head` and then code-graph.
+        with tempfile.TemporaryDirectory() as proj:
+            beh = {"behavior_id": "BEH-669", "state": "confirmed", "level": "integration",
+                   "entry": os.path.join(os.path.abspath(os.sep), "etc", "passwd")}
+            with mock.patch.object(run_behaviors.subprocess, "run") as spawn:
+                fp = run_behaviors.fingerprint_behavior(beh, proj, "c1")
+            spawn.assert_not_called()
+            self.assertEqual(fp["reason"], "entry-escapes-project")
+
+    def test_a_refusal_is_not_a_test_failure(self):
+        # `merge_fingerprint` treats `test-failed` alone as invalidating: it wipes
+        # committed edges and blocks a commit (ADR-009). A spec typo must not do
+        # that, and an escaping locator must not read as a red test either.
+        beh = {"behavior_id": "BEH-670", "state": "accepted", "level": "unit",
+               "adapter": "vitest", "locator": "/etc/passwd"}
+        with mock.patch.object(run_behaviors, "run_unit_behavior") as run:
+            fp = run_behaviors.fingerprint_behavior(beh, "/proj", "c1")
+        # The sink first: a fingerprint that merely *says* it is not a test failure,
+        # produced after the test was run anyway, would satisfy the two assertions
+        # below and mean nothing.
+        run.assert_not_called()
+        self.assertNotEqual(fp["reason"], "test-failed")
+        self.assertEqual(fp["exercises"], [])
+
+    def test_the_locator_is_judged_by_its_path_half_only(self):
+        # A fragment is a runner selector, not a path: `-t` takes a test title and a
+        # pytest `[...]` id takes a parametrize value. Judging the whole locator
+        # reads as containment and is not — it refuses the behavior that *tests*
+        # traversal, whose title or parametrize id says `../../etc/passwd` because
+        # that is the input under test. `verify_links` draws the line in the same
+        # place (it checks `rel_path`, not `locator`), and these locators escape as
+        # whole strings while their path halves do not.
+        for label, beh, sink in (
+            ("vitest title",
+             {"behavior_id": "BEH-671", "state": "accepted", "level": "unit",
+              "adapter": "vitest", "locator": "lib/paths.test.ts::rejects ../../etc/passwd"},
+             "run_unit_behavior"),
+            ("pytest parametrize id",
+             {"behavior_id": "BEH-672", "state": "accepted", "level": "unit",
+              "adapter": "pytest",
+              "locator": "tests/test_paths.py::test_rejects[../../etc/passwd]"},
+             "run_pytest_behavior"),
+            ("gherkin slug",
+             {"behavior_id": "BEH-673", "state": "accepted", "level": "integration",
+              "adapter": "cucumber", "locator": "features/a.feature#unknown/../email"},
+             "static_fingerprint"),
+        ):
+            with self.subTest(label):
+                self.assertTrue(run_behaviors.escapes(beh["locator"]),
+                                "the whole locator must escape, or this proves nothing")
+                with mock.patch.object(run_behaviors, sink,
+                                       return_value={"coverage": "observed",
+                                                     "exercises": []}) as run:
+                    fp = run_behaviors.fingerprint_behavior(beh, "/proj", "c1")
+                run.assert_called_once()
+                self.assertEqual(fp["coverage"], "observed")
+
+    def test_an_ordinary_relative_address_is_untouched(self):
+        for label, beh, sink in (
+            ("unit vitest",
+             {"behavior_id": "BEH-002", "state": "accepted", "level": "unit",
+              "adapter": "vitest", "locator": "lib/webauthn.test.ts::rejects it"},
+             "run_unit_behavior"),
+            ("unit pytest",
+             {"behavior_id": "BEH-003", "state": "accepted", "level": "unit",
+              "adapter": "pytest", "locator": "tests/test_a.py::TestX::test_y"},
+             "run_pytest_behavior"),
+            ("confirmed with entry",
+             {"behavior_id": "BEH-004", "state": "confirmed", "level": "integration",
+              "entry": "app/api/x/route.ts"},
+             "static_fingerprint"),
+            ("dotted but not dot-dot",
+             {"behavior_id": "BEH-005", "state": "confirmed", "level": "integration",
+              "entry": "app/.well-known/x.ts"},
+             "static_fingerprint"),
+        ):
+            with self.subTest(label):
+                with mock.patch.object(run_behaviors, sink,
+                                       return_value={"coverage": "static",
+                                                     "exercises": []}) as called:
+                    run_behaviors.fingerprint_behavior(beh, "/proj", "c1")
+                called.assert_called_once()
+
+    def test_a_behavior_with_no_address_at_all_still_routes_normally(self):
+        # `proposed`/`confirmed` are pre-test, so an absent locator is ordinary and
+        # the guard must not turn "nothing declared" into "declared something bad".
+        beh = {"behavior_id": "BEH-006", "state": "accepted", "level": "e2e",
+               "adapter": "cucumber"}
+        fp = run_behaviors.fingerprint_behavior(beh, "/proj", "c1")
+        self.assertEqual(fp["reason"], "level-deferred")
+
+    def test_a_non_string_address_costs_one_behavior_not_the_run(self):
+        # Frontmatter scalars are not all strings: `locator: 123` parses to an int
+        # and a flow sequence to a list. Both used to reach `"#" in locator` or
+        # `os.path.join` and raise an uncaught TypeError out of the whole
+        # `--emit-fingerprints` pass, losing every other behavior's fingerprint.
+        #
+        # The falsy rows are the ones the first spelling of the gate let through,
+        # because it asked `if locator:` and that question cannot tell "declared as
+        # 0" from "not declared at all". Measured on a two-behavior fixture spec
+        # before the fix: `locator: 0` exited 1 with `TypeError: argument of type
+        # 'int' is not iterable` and printed no JSON at all, so the honest
+        # behavior's fingerprint went with it, and `locator: []` — a list is
+        # iterable, so `"#" in []` is merely False rather than a TypeError —
+        # travelled intact into `subprocess.run(["pnpm", "vitest", "run", []])`.
+        #
+        # Only `subprocess.run` is mocked and both executors are left real, because
+        # a mocked `run_unit_behavior` swallows the very TypeError this test is
+        # about. One sink is enough to name: `static_fingerprint` spawns `_git_head`
+        # before it stats anything, so an unspawned process proves the stat did not
+        # happen either.
+        #
+        # The stub returns a real `CompletedProcess` rather than a bare MagicMock so
+        # that a regression fails on `assert_not_called` and says so. A MagicMock
+        # return makes `result.returncode != 0` truthy, and the row then dies in
+        # `sys.stderr.write(result.stdout + result.stderr)` with a TypeError about
+        # MagicMock — red either way, but red about the wrong thing.
+        green = subprocess.CompletedProcess([], 0, "", "")
+        for label, beh, reason in (
+            ("int locator",
+             {"behavior_id": "BEH-007", "state": "accepted", "level": "unit",
+              "adapter": "vitest", "locator": 123}, "locator-escapes-project"),
+            ("zero locator",
+             {"behavior_id": "BEH-008", "state": "accepted", "level": "unit",
+              "adapter": "vitest", "locator": 0}, "locator-escapes-project"),
+            ("list locator",
+             {"behavior_id": "BEH-009", "state": "accepted", "level": "unit",
+              "adapter": "vitest", "locator": ["lib/a.test.ts"]}, "locator-escapes-project"),
+            ("empty list locator",
+             {"behavior_id": "BEH-010", "state": "accepted", "level": "unit",
+              "adapter": "vitest", "locator": []}, "locator-escapes-project"),
+            ("int entry",
+             {"behavior_id": "BEH-011", "state": "confirmed", "level": "integration",
+              "entry": 7}, "entry-escapes-project"),
+            ("zero entry",
+             {"behavior_id": "BEH-012", "state": "confirmed", "level": "integration",
+              "entry": 0}, "entry-escapes-project"),
+            ("empty list entry",
+             {"behavior_id": "BEH-013", "state": "confirmed", "level": "integration",
+              "entry": []}, "entry-escapes-project"),
+        ):
+            with self.subTest(label):
+                with mock.patch.object(run_behaviors.subprocess, "run",
+                                       return_value=green) as spawn:
+                    fp = run_behaviors.fingerprint_behavior(beh, "/proj", "c1")
+                spawn.assert_not_called()
+                self.assertEqual(fp["reason"], reason)
+
+    def test_an_empty_declared_address_is_not_called_an_escape(self):
+        # The one present-but-falsy value the gate deliberately does NOT refuse.
+        # `escapes("")` is False, so `locator-escapes-project` would be a false
+        # statement about it, and the fix for the falsy-scalar hole above must not
+        # be spelled `if locator is not None: refuse unless truthy` — that reads as
+        # containment and is not. An empty address keeps its existing fall-through
+        # and the adapter decides what it means.
+        self.assertFalse(run_behaviors.escapes(""))
+        for label, beh, sink in (
+            ("empty locator",
+             {"behavior_id": "BEH-014", "state": "accepted", "level": "unit",
+              "adapter": "vitest", "locator": ""}, "run_unit_behavior"),
+            ("empty entry",
+             {"behavior_id": "BEH-015", "state": "confirmed", "level": "integration",
+              "entry": ""}, "static_fingerprint"),
+        ):
+            with self.subTest(label):
+                with mock.patch.object(run_behaviors, sink,
+                                       return_value={"coverage": "unknown",
+                                                     "exercises": []}) as called:
+                    fp = run_behaviors.fingerprint_behavior(beh, "/proj", "c1")
+                called.assert_called_once()
+                # Not `assertNotIn("reason", fp)`: the sink's stub return has no
+                # `reason` key, so that would pass whether or not it was consulted.
+                self.assertEqual(fp, {"coverage": "unknown", "exercises": []})
+
+    def test_the_rule_is_the_canonical_body_not_a_local_copy(self):
+        # ADR-030: the containment rule is imported, not re-typed. A hand-written
+        # twin here would pass every test above while drifting from the Tier-1
+        # gate at the margin, and the margin is where a locator gets through.
+        from containment import escapes as canonical
+        self.assertIs(run_behaviors.escapes, canonical)
+
+    def test_the_refusal_names_the_field_and_the_value_on_stderr(self):
+        beh = {"behavior_id": "BEH-010", "state": "accepted", "level": "unit",
+               "adapter": "vitest", "locator": "/etc/passwd"}
+        with mock.patch.object(run_behaviors.sys, "stderr") as err:
+            run_behaviors.fingerprint_behavior(beh, "/proj", "c1")
+        message = "".join(call.args[0] for call in err.write.call_args_list)
+        self.assertIn("BEH-010", message)
+        self.assertIn("locator", message)
+        self.assertIn("/etc/passwd", message)
+
+
 if __name__ == "__main__":
     unittest.main()

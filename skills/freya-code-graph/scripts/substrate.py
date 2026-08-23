@@ -6,8 +6,8 @@ project can run the stdlib-only resolver that ships with the toolkit, or a real 
 parser, and everything downstream — blast radius, docs impact, behavior fingerprints — keeps
 working either way.
 
-This module is the socket. It holds no parsing logic and imports nothing outside the standard
-library, so a backend can depend on it without inheriting anything.
+This module is the socket. It holds no parsing logic, and outside the standard library it
+imports only its sibling `containment` (ADR-030), so a backend inherits nothing by using it.
 
 Six obligations. The spec they came from was a working document, deleted with the rest of
 that record on 2026-08-21; the decisions it settled are ADR-018 (the contract), ADR-019 (the
@@ -35,6 +35,8 @@ and F9, and the staleness risk in spec §9.2. None of them is speculative.
 import json
 import os
 from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence, Tuple
+
+import containment
 
 # ---------------------------------------------------------------------------
 # Vocabulary
@@ -709,6 +711,24 @@ def validate_graph(graph: Dict[str, Any], coverage: Optional[Coverage] = None) -
             errors.append('substrate.coverage: missing or malformed')
 
     for path, info in files.items():
+        if isinstance(path, str) and containment.escapes(path):
+            # `containment.escapes` and not `rel_within`, because this judges a string that
+            # is already *in* the artifact and there is no root here to resolve it against:
+            # a graph.json is read on machines that did not write it, so `project_root`
+            # names someone else's filesystem. The rule has to be one the string alone can
+            # answer. Nothing checked keys until now — every edge was validated and never
+            # the key it hangs off — so `backend_graphify`'s `lstrip('/')` could turn
+            # `/etc/passwd` into the key `etc/passwd` and the graph validated clean
+            # (SEC-015). This is the rule's only home that binds a backend nobody has
+            # written yet.
+            #
+            # Unconditional, with no exception for a declared out-of-project root: such a
+            # file may be *resolved against*, but it never becomes a key.
+            #
+            # Reported and not `continue`d — the rest of the entry is still worth checking,
+            # and one finding per defect beats a cascade.
+            errors.append('files[%r]: not a project-relative path — a graph key is a '
+                          'project-relative POSIX path (ADR-025)' % path)
         if not isinstance(info, dict):
             errors.append('files[%r]: must be a dict' % path)
             continue

@@ -28,6 +28,13 @@ import frontmatter  # noqa: E402
 from frontmatter import FrontmatterError  # noqa: E402
 # adapters.py lives alongside frontmatter.py in freya-spec-manager/scripts (already on sys.path).
 from adapters import parse_locator  # noqa: E402
+# The containment rule is owned by freya-code-graph and imported, never re-typed (ADR-030):
+# a runner whose idea of "outside the project" drifts from the Tier-1 gate's is a gate with a
+# seam in it. `_CODE_GRAPH.parent` rather than a second spelling of that directory — the
+# subprocess argv in `_code_graph_deps` already proves the path, and one constant cannot
+# drift from itself.
+sys.path.insert(0, str(_CODE_GRAPH.parent))
+from containment import escapes  # noqa: E402
 
 OBSERVED_CONFIDENCE = 0.8
 STATIC_CONFIDENCE = 0.5
@@ -648,6 +655,70 @@ def static_fingerprint(behavior, project_dir):
     )
 
 
+def _uncontained_address(behavior):
+    """The declared address this behavior may not be acted on with, or None.
+
+    Returns `(field, value)` — `field` is `"locator"` or `"entry"`, the two spec
+    fields that name a file and the two this runner turns into a stat or an argv.
+
+    **`escapes` and not `within`**, and the difference between them is why
+    `containment` has four functions rather than one. A locator is a value
+    *declared* in checked-in spec frontmatter, judged before anything is touched.
+    At the moment of the check the file it names need not exist — a locator whose
+    test is still being written is ordinary — and on the two argv paths nothing
+    here will ever stat it at all: the string is handed to `pnpm vitest` or to
+    `pytest` with `cwd=project_dir` and *they* resolve it. There is no file to
+    `realpath`, so the existence-and-symlink question `within` answers cannot be
+    put, and putting it anyway would refuse every honest locator that points at a
+    test not yet committed. The answerable question is the lexical one `escapes`
+    asks: may this declared string be joined onto a root at all. It is also the
+    exact rule `verify_links` applies to these same two fields, which is the
+    point — one imported body, so the two gates cannot disagree at the margin.
+
+    What that turns away is `/etc/passwd` and `../../.ssh/id_rsa`, and the reason
+    both matter is that neither reaches its sink as a path *under* the project:
+    `os.path.join(project_dir, "/etc/passwd")` discards `project_dir` entirely,
+    and `pnpm vitest run ../../x` is resolved by vitest against a `cwd` it is free
+    to climb out of.
+
+    A value that is not a string is refused by the same gate. Frontmatter scalars
+    are not all strings — `locator: 123` parses to an int and a flow sequence to a
+    list — and both used to travel to `"#" in locator` or
+    `os.path.join(project_dir, entry)` and die there with an uncaught
+    `TypeError`, so one malformed spec cost the fingerprints of every other
+    behavior in the run. That is the same "one bad file must cost one file" rule
+    `load_behaviors` already enforces on specs it cannot read.
+
+    **Presence is `is not None`, never truthiness**, and the first spelling of
+    this gate got that wrong. `if locator:` asks whether the value is *useful*,
+    which is not the question — the question is whether the spec *declared* one,
+    because a declared value is checked-in data and YAML hands us any scalar it
+    likes. `if locator:` answers no for `locator: 0` and `locator: []` exactly as
+    it does for a behavior with no locator at all, so both walked straight past
+    the gate: measured, `0` still died in `parse_locator`, and `[]` — iterable, so
+    `"#" in []` is merely False — got all the way into
+    `subprocess.run(["pnpm", "vitest", "run", []])` before raising. The same
+    mistake on `entry` costs a lie rather than a traceback, because
+    `static_fingerprint`'s own `if not entry` catches it and reports `no-entry`
+    about a behavior that declared one.
+
+    The empty string is the one present value deliberately left alone: `escapes("")`
+    is False, so a reason of `-escapes-project` would be a false statement about
+    it, and it keeps its existing fall-through to the adapter.
+    """
+    locator = behavior.get("locator")
+    if locator is not None:
+        # `parse_locator` splits on `#`/`::` and would itself raise on a non-string,
+        # so the type question is settled before the fragment is stripped.
+        path = parse_locator(locator)[0] if isinstance(locator, str) else locator
+        if not isinstance(path, str) or escapes(path):
+            return "locator", locator
+    entry = behavior.get("entry")
+    if entry is not None and (not isinstance(entry, str) or escapes(entry)):
+        return "entry", entry
+    return None
+
+
 def fingerprint_behavior(behavior, project_dir, commit):
     """Produce one behavior's fingerprint by state then level.
 
@@ -655,7 +726,39 @@ def fingerprint_behavior(behavior, project_dir, commit):
     executable test yet, so it is NEVER run — it gets an advisory STATIC
     fingerprint from its `entry` (or `unknown`/`no-entry` with none). Because it
     is never executed it can never be `test-failed`, so it never gates wrap-up.
+
+    Containment is refused here, once, ahead of the whole ladder, because every
+    sink that turns a spec-declared address into a filesystem or argv operation is
+    downstream of this one function and has no other production caller:
+    `vitest_argv` and `pytest_argv` (both reached only through their `run_*`
+    wrappers, which are reached only from here) and `static_fingerprint`'s
+    `os.path.exists(os.path.join(project_dir, entry))`. It is also the only place
+    the refusal *can* live: the two argv builders return a tuple, not a
+    fingerprint, so refusing inside one of them means raising, and an exception
+    from a single bad spec loses the fingerprints of every other behavior in the
+    run. A new caller of `static_fingerprint` or either `run_*` therefore inherits
+    no guard and must come through here instead.
+
+    `verify_links` refuses the same two fields at Tier-1 with the same imported
+    rule, and that is not this module's containment: it is a different command in
+    a different process, and `behavior_graph._run_behavior_runner` shells straight
+    into this runner with nothing in front of it (SEC-013).
+
+    The refusal is `unknown` with a reason, never an exception and never
+    `test-failed`. No test ran, so there is no result to report, and
+    `merge_fingerprint` treats `test-failed` alone as invalidating — spelling a
+    refusal that way would wipe committed edges and block a commit over a spec
+    typo. Every other reason preserves the prior fingerprint, which is the honest
+    "no news" (ADR-005).
     """
+    uncontained = _uncontained_address(behavior)
+    if uncontained:
+        field, value = uncontained
+        sys.stderr.write(
+            f"[behavior-runner] {behavior.get('behavior_id')}: {field} names a path outside"
+            f" the project ({value}) — refusing to act on it\n"
+        )
+        return shape_fingerprint([], commit, reason=f"{field}-escapes-project")
     if behavior.get("state") == "confirmed":
         return static_fingerprint(behavior, project_dir)
     if behavior.get("level") == "unit" and behavior.get("adapter") == "vitest":
