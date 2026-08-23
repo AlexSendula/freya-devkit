@@ -299,7 +299,7 @@ day: 9 and 10 by the Track B Phase 0 spike, 11 by the review of the repair it pr
 
 ### 1. A `--copy` install is re-copied on every `update`, even when nothing changed
 
-`bin/updater.py:371` queues every non-symlink `ok` entry for refresh unconditionally — no
+`bin/updater.py:489` queues every non-symlink `ok` entry for refresh unconditionally — no
 content comparison and no HEAD comparison. It cannot do better with what it has: the install
 marker written at `bin/installer.py:422` contains only `str(source)`, the source path, with no
 commit stamp. Correct by design in the sense that a copy tracks nothing, but `--copy` is the
@@ -318,8 +318,8 @@ documented, working command fails the gate.
 
 ### 3. `mitigated` is an unreachable disposition
 
-`skills/freya-codebase-security-scan/SKILL.md:605` maps `mitigated` → MITIGATED in its
-disposition table, and `:569` lists it among the valid values. `disposition()` in
+`skills/freya-codebase-security-scan/SKILL.md:612` maps `mitigated` → MITIGATED in its
+disposition table, and `:576` lists it among the valid values. `disposition()` in
 `skills/freya-codebase-security-scan/scripts/audit_engine.py:199-246` only ever returns
 `intentional-design`, `needs-review`, `confirmed`, or `drop`. Neither the original JS engine
 nor the Python port ever emitted `mitigated`. Either wire it up or remove it from the table and

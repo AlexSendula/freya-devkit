@@ -75,7 +75,7 @@ until something can replace it honestly (ADR-019).
 
 The split holds up now that a second backend is real: `GraphifyBackend.build()` extracts,
 projects onto the contract's shape and returns a `Result` — it opens no artifact and writes no
-graph (`backend_graphify.py:330`–`:339`). The funnel has also proved to be the right shape for
+graph (`backend_graphify.py:338`–`:347`). The funnel has also proved to be the right shape for
 work decided later; the unread-file census of ADR-029 was added to `_finalise` rather than to any
 backend, and it is correct for both because it sits at the single point every backend passes
 through.
@@ -111,7 +111,7 @@ through.
   Selection and finalisation are different concerns, though, and the test that matters is that a
   backend which is never selected must still be finalisable by its own suite — the graphify
   tests call `graph_ops.run_build` and `_run_or_degrade` directly, with no registry involved
-  (`test_backend_graphify.py:819`–`:821`, `:844`). `substrate.py` was not an option either: it is
+  (`test_backend_graphify.py:939`–`:941`, `:964`). `substrate.py` was not an option either: it is
   the contract and deliberately knows nothing about implementations (`backends.py:4`), while
   finalisation must reach into the floor — `_finalise`'s census constructs a `CodeGraph` to
   borrow its scope rule (`graph_ops.py:2686`).

@@ -54,7 +54,7 @@ Exclusions are a contract type, `substrate.Exclusions` (`substrate.py:458`), ass
 project and passed into `build()` and `update()`. A backend never decides for itself what is out
 of scope, but it is not required to accept the exclusions natively either: graphify honours
 obligation 6 as a post-filter on its own output, because `graphify update` has no exclusion flag
-(`backend_graphify.py:601`).
+(`backend_graphify.py:615`).
 
 **Obligation 5 was declared and unenforced for the whole of this feature, and was implemented on
 the day this record was written.** `Coverage.incremental` is written into every graph's coverage

@@ -15,7 +15,7 @@ freya code-graph --build --dir . --format summary   # the graph, and what it cou
 ```
 
 `doctor` prints one row per check and exits 1 only if a row says `FAIL`; a `warn` row does not
-fail it (`bin/freya_cli.py:519`–`:525`). The full row table is in
+fail it (`bin/freya_cli.py:542`–`:548`). The full row table is in
 [DEPLOYMENT.md § `freya doctor`](DEPLOYMENT.md#freya-doctor).
 
 ## Common Issues
@@ -34,7 +34,7 @@ anything, because `freya <command>` is the only way any bundled script is invoke
 python3 <store>/bin/freya_cli.py doctor
 ```
 
-That route is supported — `bin/freya_cli.py:603`–`:613` exists so a user whose launcher is not
+That route is supported — `bin/freya_cli.py:626`–`:636` exists so a user whose launcher is not
 on `PATH` can still reach `doctor` (without the `__main__` guard it printed nothing and exited
 0, which reads as a clean bill of health).
 
@@ -90,7 +90,7 @@ reported green.
 
 **Fix.** Decide which store is authoritative. Run the one you mean explicitly (`./bin/freya …`
 from the checkout), or reinstall from it. If both a plugin install and a personal install are
-present, doctor says so separately (`bin/freya_cli.py:497`–`:515`) — and it compares presence
+present, doctor says so separately (`bin/freya_cli.py:520`–`:538`) — and it compares presence
 only, never versions. Two different checkouts registered at once is how a SKILL.md from one
 comes to invoke a `freya` command the other's `bin/commands.json` does not have; the only
 symptom is `freya: unknown command`.
@@ -107,7 +107,7 @@ because `-h` and `--help` are aliases of `help`.
 
 **Fix.** Usually nothing is broken: `wrap-up` is a *skill*, not a CLI command, and the launcher
 says so rather than leaving you to guess — it looks the name up as `freya-<name>` in the store
-and points you at your agent (`bin/freya_cli.py:581`–`:593`). If the name genuinely is a
+and points you at your agent (`bin/freya_cli.py:604`–`:616`). If the name genuinely is a
 manifest command, you are running a different store than the SKILL.md came from; see the
 previous entry.
 
@@ -127,10 +127,10 @@ freya and exits 2 — the same code as an unknown command.
 **Symptom.** One line beginning `freya update:` and nothing merged.
 
 **Confirm.** The message names the precondition. All of them are checked before anything is
-fetched (`bin/updater.py:198`–`:202`): git not on `PATH`, the store is not a git checkout, the
+fetched (`bin/updater.py:316`–`:320`): git not on `PATH`, the store is not a git checkout, the
 branch has no upstream or tracks a local branch, or the tree is dirty. After the fetch there are
-two more: the remote could not be reached (`bin/updater.py:228`–`:232`) and the store has
-diverged, since update only fast-forwards (`bin/updater.py:236`–`:240`).
+two more: the remote could not be reached (`bin/updater.py:346`–`:350`) and the store has
+diverged, since update only fast-forwards (`bin/updater.py:354`–`:358`).
 
 **Fix.** Reconcile the store with git yourself and run it again — a merge commit or a rebase in
 your toolkit checkout is a surprise the updater will not create for you. `freya update
@@ -139,7 +139,7 @@ your toolkit checkout is a surprise the updater will not create for you. `freya 
 **And then reload your agent session.** Agents read their skill list once, at session start, so
 an update applied mid-task is invisible until the session reloads: a new skill will not appear,
 and a renamed or removed one keeps being offered and then fails on use. `freya update` prints
-this reminder whenever it actually moves the store (`bin/updater.py:254`).
+this reminder whenever it actually moves the store (`bin/updater.py:372`).
 
 #### `freya install --force` silently turned a `--copy` install into symlinks
 
@@ -522,9 +522,9 @@ skill's own in-loop scan, which the agent performs itself and which is what wrap
 ```
 
 **Confirm.** `command -v claude`, `command -v copilot`. The driver fans out over the six
-categories on its own thread pool (`audit.py:296`), each worker shelling out to the agent CLI,
+categories on its own thread pool (`audit.py:303`), each worker shelling out to the agent CLI,
 so it needs a headless one; without it the driver exits
-`EXIT_NOTHING_TO_DO` (`skills/freya-codebase-security-scan/scripts/audit.py:371`–`:381`).
+`EXIT_NOTHING_TO_DO` (`skills/freya-codebase-security-scan/scripts/audit.py:371`–`:395`).
 
 **Fix.** Nothing to install from this repo. Fall back to the skill's in-loop scan, which is what
 `wrap-up` uses anyway.
@@ -534,7 +534,7 @@ so it needs a headless one; without it the driver exits
 **Symptom.** No findings, no work done, exit 4.
 
 **Why.** The confirmation gate refuses to spend money without a TTY rather than defaulting to
-yes (`audit.py:423`–`:442`). Exit 4 exists precisely so this cannot be mistaken for "no agent CLI
+yes (`audit.py:448`–`:467`). Exit 4 exists precisely so this cannot be mistaken for "no agent CLI
 found": exit 1 used to carry both meanings, and an agent read the table, concluded the CLI was
 missing, and silently reverted to a prose fan-out on a machine where the CLI was installed
 (`audit.py:63`–`:69`).
@@ -586,14 +586,14 @@ and prints the caveats in prose, including the `NOT GRAPHED:` line. It costs not
 "did this run see my repository?" faster than reading JSON.
 
 **Turn the update notice off while debugging.** `FREYA_NO_UPDATE_CHECK=1` silences the daily
-staleness notice on stderr (`bin/updater.py:450`, `:486`), which otherwise interleaves with a
+staleness notice on stderr (`bin/updater.py:568`, `:604`), which otherwise interleaves with a
 command's own output. It never fires for `help`, `update`, `install`, `uninstall` or `doctor`
 anyway (`bin/freya_cli.py:21`). `FREYA_DEBUG=1` prints the traceback from the one code path
 designed to fail silently.
 
 **Point machine state somewhere disposable.** `FREYA_HOME` relocates `~/.freya` — both the
 machine-level settings file (`skills/freya-code-graph/scripts/settings.py:64`) and the update
-throttle stamp (`bin/updater.py:444`–`:448`). Set it to a temp directory to reproduce "a
+throttle stamp (`bin/updater.py:562`–`:566`). Set it to a temp directory to reproduce "a
 machine that has never configured anything".
 
 **Two words that are not synonyms.** `degraded_from` means *the project asked for a backend and

@@ -28,13 +28,13 @@ because being *in* the table is what stops them being reported as unknown on eve
 
 There is no default row. A relation the table does not name produces no edge, is counted into
 `substrate.unmapped_relations` in the written artifact, and is announced on stderr
-(`backend_graphify.py:496`, `:522`) — the same "say what you could not read" obligation
+(`backend_graphify.py:510`, `:536`) — the same "say what you could not read" obligation
 ADR-029 states for the answer as a whole. On this repository the report is empty, and it is
 meant to be: it is a tripwire for a capability arriving upstream, not a running tally of loss.
 
 The intra-file rule is the second filter, and it applies to links whose relation survived the
 first. A link whose two endpoints share a file is dropped in the projection
-(`backend_graphify.py:662`). The contract then refuses the same thing twice more, independently:
+(`backend_graphify.py:676`). The contract then refuses the same thing twice more, independently:
 `link_dependents` skips a self-target rather than writing it into the reverse index
 (`substrate.py:328`), and `validate_graph` reports it as a contract error
 (`substrate.py:759`). None of the three rejects the artifact — validation records its errors
@@ -47,15 +47,15 @@ A node typed `module` or `namespace` is an aggregate anchor, not a file. graphif
 per external module and one per C# namespace, shared across every file that mentions it, and
 that node still carries a `source_file` — whichever file was parsed first. `ANCHOR_NODE_TYPES`
 (`backend_graphify.py:178`) turns both into `external:<label>` at index time
-(`:586`), which is what the contract already had for "a real dependency that is not a file of
+(`:600`), which is what the contract already had for "a real dependency that is not a file of
 ours". A `package` node deliberately stays a file: its `source_file` is the manifest it was
 parsed from, which is a real path.
 
 `method` links are dropped as edges and kept as a lookup. `_method_owners`
-(`backend_graphify.py:608`) walks them to qualify a bare method label into `Class.method()`,
+(`backend_graphify.py:622`) walks them to qualify a bare method label into `Class.method()`,
 which is what makes ADR-024's symbol refinement name a symbol rather than merely describe one.
 
-Exclusions are honoured as a post-filter on graphify's output (`backend_graphify.py:601`),
+Exclusions are honoured as a post-filter on graphify's output (`backend_graphify.py:615`),
 because `graphify update` accepts only `--force` and `--no-cluster` — there is no exclusion
 flag to pass. That is a property of the tool, verified against its own `--help` at 0.9.47, not
 a preference.
@@ -121,8 +121,8 @@ time, because the fix enumerated the case it had seen instead of the class it be
 graphify's own resolver treats the two identically for the same reason: `resolution.py:671`
 skips both when disambiguating, under a docstring saying they are one module rather than
 distinct same-named symbols. Both cases are pinned
-([`test_backend_graphify.py:604`](../../skills/freya-code-graph/scripts/test_backend_graphify.py)
-and `:614`), as is `package` staying a file (`:641`).
+([`test_backend_graphify.py:625`](../../skills/freya-code-graph/scripts/test_backend_graphify.py)
+and `:635`), as is `package` staying a file (`:662`).
 
 One consequence should be stated plainly rather than celebrated. Phase 0 recorded the two-tier
 `extracted`/`inferred` provenance design as unexercised, because no file-level edge rested

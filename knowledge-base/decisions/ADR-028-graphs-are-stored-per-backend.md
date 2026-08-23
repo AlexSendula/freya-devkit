@@ -33,7 +33,7 @@ why that line is drawn where it is. `clear()` removes the active graph *and* eve
 caller outside tests and it is the write above; there is no `--compare` subcommand, and the
 incremental path does not use the copy either — both backends detect that the *active* graph
 was produced by someone else and force a full rebuild rather than warm-starting from a copy
-they wrote earlier (`graph_ops.py:2116`–`:2127`; `backend_graphify.py:364`). So what this
+they wrote earlier (`graph_ops.py:2116`–`:2127`; `backend_graphify.py:372`). So what this
 decision buys is a preserved baseline on disk, not an automated comparison: the diff is run by
 hand, by a person or an agent, over two files. That is the designed-and-unenforced half of it,
 and it is worth stating plainly, because the guarantee is only as good as the operator who

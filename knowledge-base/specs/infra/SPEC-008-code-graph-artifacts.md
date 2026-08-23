@@ -62,7 +62,7 @@ because whichever skill runs first wins.
 
 A backend that produces its own scratch output is responsible for marking it: the graphify
 backend writes `graphify-out/.gitignore` containing `*` after the tool has run
-(`backend_graphify.py:387`), and stops rewriting it the moment its contents differ from the
+(`backend_graphify.py:395`), and stops rewriting it the moment its contents differ from the
 text it wrote.
 
 ## Why
@@ -110,7 +110,7 @@ treating it as covered.
 `backend_graph_path` has one non-test caller and it is the write. There is no `--compare`
 subcommand, and neither backend warm-starts from a copy it wrote earlier — both detect that
 the *active* graph came from someone else and force a full rebuild instead
-(`graph_ops.py:2121`–`:2129`, `backend_graphify.py:363`).
+(`graph_ops.py:2121`–`:2129`, `backend_graphify.py:371`).
 
 **Rationale**: ADR-028 records the decision and states this half of it plainly: what the
 artifact buys is a preserved baseline on disk, not an automated comparison. The diff is run by
@@ -139,7 +139,7 @@ the blanket form is explicitly rejected by a test.
 **Decision**: `_mark_output_ignored` creates `graphify-out/.gitignore` with `*` in it, after
 the external tool has created the directory. If the file already exists and its contents are
 not the exact text this backend writes, it is left untouched. Every failure to write it is
-swallowed (`backend_graphify.py:387`–`:407`).
+swallowed (`backend_graphify.py:395`–`:415`).
 
 **Rationale**: `graphify-out/` is the external tool's regenerable output at the project root,
 where nothing else this toolkit writes can reach it. The wildcard rather than a filename list

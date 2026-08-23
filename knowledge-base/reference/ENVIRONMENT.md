@@ -21,9 +21,9 @@ vendor's CLI; that is covered under [Credentials](#credentials).
 
 | Variable | Read at | Default | What changes when it is set |
 |---|---|---|---|
-| `FREYA_HOME` | `skills/freya-code-graph/scripts/settings.py:196`, `bin/updater.py:445` | `~/.freya` | Relocates the machine-level settings file and the update-check stamp. Nothing else. |
-| `FREYA_NO_UPDATE_CHECK` | `bin/updater.py:486`, reported by `bin/freya_cli.py:463` | unset | Suppresses the once-a-day staleness check entirely. |
-| `FREYA_DEBUG` | `bin/updater.py:555` | unset | Prints the traceback from the update check, whose contract is to swallow every exception. |
+| `FREYA_HOME` | `skills/freya-code-graph/scripts/settings.py:196`, `bin/updater.py:563` | `~/.freya` | Relocates the machine-level settings file and the update-check stamp. Nothing else. |
+| `FREYA_NO_UPDATE_CHECK` | `bin/updater.py:604`, reported by `bin/freya_cli.py:478` | unset | Suppresses the once-a-day staleness check entirely. |
+| `FREYA_DEBUG` | `bin/updater.py:673` | unset | Prints the traceback from the update check, whose contract is to swallow every exception. |
 | `PATH` | `bin/installer.py:529`, plus every `shutil.which` below | — | Decides which external binaries are found, and whether the installer prints a "not on PATH" hint. |
 | `PYTHONPATH` | `bin/freya_cli.py:153` | unset | Read and *extended* — the launcher prepends the dispatched script's own directory before running it. |
 
@@ -43,13 +43,13 @@ holding this machine's answer to "which parser should freya use":
 ```
 
 Both definitions read the variable the same way and fall back to `~/.freya`
-(`skills/freya-code-graph/scripts/settings.py:196`, `bin/updater.py:445`). A value that is
+(`skills/freya-code-graph/scripts/settings.py:196`, `bin/updater.py:563`). A value that is
 empty or whitespace-only is ignored and the default applies
-(`skills/freya-code-graph/scripts/settings.py:197`, `bin/updater.py:446`). The two definitions
+(`skills/freya-code-graph/scripts/settings.py:197`, `bin/updater.py:564`). The two definitions
 are deliberately kept in step by a test — `test_the_machine_level_home_has_one_definition`,
 `bin/test_backend_setup.py:161` — because a variable that relocated one and not the other would
 isolate a test run's configuration while still writing a throttle stamp into the real home
-(`bin/updater.py:434`).
+(`bin/updater.py:552`).
 
 `~/.freya` is its own directory rather than one belonging to an agent, because the suite
 installs for more than one host and the answer is the same on all of them
@@ -72,10 +72,10 @@ configured resolve to the floor?" does not depend on whose laptop is running the
 
 Every `freya` command *except* `help`, `install`, `uninstall`, `update` and `doctor` runs a
 throttled staleness check — those five are exempt by name (`bin/freya_cli.py:21`, gated at
-`freya_cli.py:535`), because they either act on the notice directly or ask the question
-themselves. The check is at most one `git ls-remote` per 24 hours (`bin/updater.py:449`),
-notify-only, printed to stderr, with every exception swallowed (`bin/updater.py:524`). Setting
-this variable returns `None` before any of that happens (`bin/updater.py:486`).
+`freya_cli.py:558`), because they either act on the notice directly or ask the question
+themselves. The check is at most one `git ls-remote` per 24 hours (`bin/updater.py:567`),
+notify-only, printed to stderr, with every exception swallowed (`bin/updater.py:642`). Setting
+this variable returns `None` before any of that happens (`bin/updater.py:604`).
 
 The test is Python truthiness on the raw string, so **any non-empty value disables the check,
 including `FREYA_NO_UPDATE_CHECK=0`**. `README.md:88` and `CHANGELOG.md:140` both suggest `=1`;
@@ -83,22 +83,22 @@ including `FREYA_NO_UPDATE_CHECK=0`**. `README.md:88` and `CHANGELOG.md:140` bot
 
 `freya doctor` reports the variable rather than obeying it silently: it prints
 `[ok] updates: not checked (FREYA_NO_UPDATE_CHECK is set)` and skips the network
-(`bin/freya_cli.py:463`). When it is *not* set, doctor runs the same check unthrottled on
+(`bin/freya_cli.py:478`). When it is *not* set, doctor runs the same check unthrottled on
 purpose — a diagnostic reporting a cached answer is not diagnosing anything
-(`bin/freya_cli.py:469`).
+(`bin/freya_cli.py:492`).
 
 #### `FREYA_DEBUG`
 
-`notify()` swallows every exception (`except Exception`, `bin/updater.py:551`), because a
+`notify()` swallows every exception (`except Exception`, `bin/updater.py:669`), because a
 notification that can break the command it precedes is worse than no notification
-(`bin/updater.py:527`). It is not the suite's only broad handler — there are 33 outside the
+(`bin/updater.py:645`). It is not the suite's only broad handler — there are 33 outside the
 tests, and the one literal bare `except:` is elsewhere
 (`skills/freya-docs-manager/scripts/detect_project.py:330`). That makes a
 permanently broken update check indistinguishable from "no update available" forever, so this
 variable — again, any non-empty value — prints the traceback to the notice stream
-(`bin/updater.py:555`). It reads `os.environ` rather than the injected `env` mapping
+(`bin/updater.py:673`). It reads `os.environ` rather than the injected `env` mapping
 deliberately: the injected mapping is a plausible source of the exception being handled
-(`bin/updater.py:552`). It affects nothing else in the toolkit.
+(`bin/updater.py:670`). It affects nothing else in the toolkit.
 
 #### `PATH`
 
@@ -126,7 +126,7 @@ on 2026-08-21 with the same three greps, they still hold:
 
 | Idiom | Count | Where |
 |---|---|---|
-| `Path.home()` | 6 | `bin/installer.py:37`, `installer.py:38`, `installer.py:521`, `installer.py:818`; `bin/freya_cli.py:258`; `bin/updater.py:448` |
+| `Path.home()` | 6 | `bin/installer.py:37`, `installer.py:38`, `installer.py:521`, `installer.py:818`; `bin/freya_cli.py:258`; `bin/updater.py:566` |
 | `expanduser` | 1 | `skills/freya-code-graph/scripts/settings.py:199` |
 | `os.environ['HOME']` / `.get('HOME')` | 0 | — |
 
@@ -230,8 +230,8 @@ written by the run and is not committed on any branch here:
 | `python3` / `python` (≥ 3.9) | **yes**, to install | `install.sh:16`, `install.ps1:12` | same | install.sh exits 1 with "no Python 3.9+ found on PATH" |
 | the running interpreter | **yes** | `sys.executable` | `bin/freya_cli.py:135` | n/a — never depends on a bare `python` being on PATH |
 | `git` | for update, and for accuracy elsewhere | `shutil.which`, `bin/updater.py:158` | nine sites, e.g. `bin/updater.py:60` | `freya update` refuses with a distinct message; graph/status/spec commands degrade |
-| `graphify` | **no** — opt-in | `shutil.which`, `skills/freya-code-graph/scripts/backend_graphify.py:310` | `skills/freya-code-graph/scripts/backend_graphify.py:420` | build degrades to the floor and records that it did |
-| `claude` / `copilot` | **no** — only `freya security` | `shutil.which`, `skills/freya-codebase-security-scan/scripts/audit_adapter.py:114` | `skills/freya-codebase-security-scan/scripts/audit.py:233` | driver exits 1 and names the fallback (`audit.py:371`) |
+| `graphify` | **no** — opt-in | `shutil.which`, `skills/freya-code-graph/scripts/backend_graphify.py:310` | `skills/freya-code-graph/scripts/backend_graphify.py:434` | build degrades to the floor and records that it did |
+| `claude` / `copilot` | **no** — only `freya security` | `shutil.which`, `skills/freya-codebase-security-scan/scripts/audit_adapter.py:114` | `skills/freya-codebase-security-scan/scripts/audit.py:240` | driver exits 1 and names the fallback (`audit.py:371`) |
 | `pnpm` + `vitest` | **no** — only in a target project | not probed | `skills/freya-behavior-runner/scripts/run_behaviors.py:228`, `run_behaviors.py:459` | **the runner raises `FileNotFoundError`** — see below |
 | `npm` / `yarn` / `pnpm audit` | **no** — agent-run, no script | not probed | `skills/freya-dependency-vulnerability-check/SKILL.md:57`, `skills/freya-dependency-vulnerability-check/SKILL.md:62`, `skills/freya-dependency-vulnerability-check/SKILL.md:67` | the skill has nothing to read |
 
@@ -297,7 +297,7 @@ that it did. `available()` is a bare `PATH` check and deliberately costs no subp
 (`skills/freya-code-graph/scripts/backend_graphify.py:310`), so an incompatible release is
 selected and then degrades rather than being refused up front. One degrade path is specific to
 this binary: a run that exceeds the 900-second timeout
-(`skills/freya-code-graph/scripts/backend_graphify.py:53`, `backend_graphify.py:425`–`426`).
+(`skills/freya-code-graph/scripts/backend_graphify.py:53`, `backend_graphify.py:439`–`426`).
 The reasons a degrade can carry are tabulated in
 [TROUBLESHOOTING.md § The build used `homegrown`](TROUBLESHOOTING.md#the-build-used-homegrown-when-settingsjson-says-graphify).
 
@@ -308,10 +308,10 @@ backups, though `backend_graphify.py:266` and `graph_ops.py:1178` still say it d
 directory is outside `knowledge-base/`, which is
 the only place this toolkit's own ignore rules reach. The backend therefore writes
 `graphify-out/.gitignore` containing `*` after the tool has run
-(`skills/freya-code-graph/scripts/backend_graphify.py:279`, `backend_graphify.py:387`),
+(`skills/freya-code-graph/scripts/backend_graphify.py:279`, `backend_graphify.py:395`),
 leaving a hand-edited marker alone. freya reads only `graphify-out/graph.json`
 (`skills/freya-code-graph/scripts/backend_graphify.py:48`, `backend_graphify.py:49`,
-`backend_graphify.py:384`). This repository also ignores `graphify-out/` in its own root
+`backend_graphify.py:392`). This repository also ignores `graphify-out/` in its own root
 `.gitignore`.
 
 **Measured difference on this checkout, 2026-08-21.** Both per-backend graphs are present under
@@ -333,9 +333,9 @@ above are file entries in the graphs as built here.
 freya-devkit reads no API key, token or password. The audit driver is the only component that
 touches a credentialed service, and it does so by spawning another vendor's CLI — `claude` or
 `copilot`, whichever is found first
-(`skills/freya-codebase-security-scan/scripts/audit_adapter.py:102`,
-`audit_adapter.py:108`, `audit_adapter.py:111`). freya passes no `env=` to `subprocess.run`
-(`skills/freya-codebase-security-scan/scripts/audit.py:233`), so each worker inherits the full
+(`skills/freya-codebase-security-scan/scripts/audit_adapter.py:184`,
+`audit_adapter.py:190`, `audit_adapter.py:111`). freya passes no `env=` to `subprocess.run`
+(`skills/freya-codebase-security-scan/scripts/audit.py:240`), so each worker inherits the full
 parent environment, including anything credential-shaped that happens to be in it.
 
 The code's assumption is that the CLI uses its own stored login: `Health` exists precisely
@@ -352,7 +352,7 @@ records a policy.]
 Two properties of the workers are enforced rather than assumed, and both are about capability
 rather than credentials: every argv is an explicit read-only allowlist, and `build_argv` refuses
 to emit a blanket permission flag even if one is smuggled in through the prompt
-(`skills/freya-codebase-security-scan/scripts/audit_adapter.py:25`, `audit_adapter.py:34`,
+(`skills/freya-codebase-security-scan/scripts/audit_adapter.py:74`, `audit_adapter.py:83`,
 `audit_adapter.py:45`). The reason is recorded at
 `skills/freya-codebase-security-scan/scripts/audit_adapter.py:7`:
 `--allow-all-tools --deny-tool=write` still let a worker create a file with a shell redirect.
@@ -362,7 +362,7 @@ to emit a blanket permission flag even if one is smuggled in through the prompt
 | Path | Written by | Committed? | Purpose |
 |---|---|---|---|
 | `~/.freya/settings.json` | `freya install` / `freya update` prompt, `--use --global` | outside every repo | machine-level backend + symbols default |
-| `~/.freya/update-check.json` | `bin/updater.py:470` | outside every repo | update-check throttle stamp (`checked_at`, `behind`) |
+| `~/.freya/update-check.json` | `bin/updater.py:588` | outside every repo | update-check throttle stamp (`checked_at`, `behind`) |
 | `knowledge-base/settings.json` | `freya code-graph --use`, or by hand | **meant to be committed**; untracked in this checkout | this project's backend and directory verdicts |
 | `knowledge-base/.graph/.gitignore` | `code-graph --build` | committable — not ignored, but never yet committed in this repo | ignores the parse cache by name, leaving `behavior.json` committable |
 | `graphify-out/.gitignore` | graphify backend, after a successful run | no — its own `*` matches itself, and this repo's root `.gitignore` ignores `graphify-out/` too | ignores graphify's whole output tree |

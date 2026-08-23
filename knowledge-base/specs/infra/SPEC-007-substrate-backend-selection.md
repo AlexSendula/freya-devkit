@@ -177,7 +177,7 @@ non-fatal if the checkout is read-only.
 
 **Decision**: There is no allow-list, capability flag or second confirmation. A name in a
 settings file is sufficient authority to run that backend's binary as a subprocess
-(`backends.py:113`–`:121`; `backend_graphify.py:420`).
+(`backends.py:113`–`:121`; `backend_graphify.py:434`).
 
 **Rationale**: ADR-019 — a project that has written the name down has decided, and a second
 permission list would only be a place for the two to disagree.

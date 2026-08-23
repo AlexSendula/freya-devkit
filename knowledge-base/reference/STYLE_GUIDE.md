@@ -11,9 +11,9 @@ not exist.
 | Convention | Enforced by | What happens if you break it |
 |---|---|---|
 | Standard library only | Nothing automated | Silent: it works on your machine, and the zero-install promise is gone |
-| CPython 3.9 floor | `bin/test_freya_cli.py:447` (`PythonFloorTest`) | Red test if the four declarations drift apart; a `SyntaxError` in front of a user if the syntax itself is too new |
+| CPython 3.9 floor | `bin/test_freya_cli.py:448` (`PythonFloorTest`) | Red test if the four declarations drift apart; a `SyntaxError` in front of a user if the syntax itself is too new |
 | No host-specific construct under `skills/` | `bin/check_skill_conformance.py`, run by CI | Exit 1, one `path:line: RULE: excerpt` per violation |
-| Every bundled script reachable as `freya <command>` | R3, plus `bin/test_freya_cli.py:39` and `:49` | Red test, or an instruction that fails in front of a user |
+| Every bundled script reachable as `freya <command>` | R3, plus `bin/test_freya_cli.py:40` and `:50` | Red test, or an instruction that fails in front of a user |
 | Comments explain why | Nothing automated | Nothing — which is why it is a review matter |
 | Naming | R8/R12 for skills; nothing for Python | Skill: exit 1. Python: nothing |
 | Two-commit separation | Nothing automated | A security report that references an unstable commit |
@@ -51,7 +51,7 @@ genuine optional dependency here is an ADR rather than a bare `except`.
 Four files declare the floor and none of them can import the others, so they are kept in
 step by a test rather than by a constant: `bin/freya:19`, `bin/freya_cli.py:238`,
 `install.sh:17`, `install.ps1:20`, held together by `PythonFloorTest`
-(`bin/test_freya_cli.py:447`).
+(`bin/test_freya_cli.py:448`).
 
 The floor is 3.9 rather than 3.8 for one concrete reason, recorded where the constant lives
 (`bin/freya_cli.py:231`): `skills/freya-spec-manager/scripts/search_specs.py:116` annotates
@@ -131,13 +131,13 @@ Supporting conventions, all with examples:
 
 - **`#:` above a module-level constant, `#` inside a function.** 221 `#:` lines across 13
   modules. The form documents the name that follows it — `bin/installer.py:50`,
-  `bin/updater.py:33` (three paragraphs on why an update prints a reload hint, ending with
+  `bin/updater.py:100` (three paragraphs on why an update prints a reload hint, ending with
   why both agents are named).
 - **Docstrings carry the same load as comments.** `bin/freya_cli.py:56` explains why a
   manifest path is judged with both `PureWindowsPath` and `PurePosixPath`, and cites the
   CI run where 3.13's `ntpath.isabs` change let `/etc/passwd` through on Windows while 3.9
   rejected it.
-- **A test's docstring says what the test is protecting.** `bin/test_freya_cli.py:447` and
+- **A test's docstring says what the test is protecting.** `bin/test_freya_cli.py:448` and
   the module docstring of [`conftest.py`](../../conftest.py) both do this; the latter calls
   itself "a safety net, not the mechanism" and records the ten tests that failed when pytest
   was run from inside `skills/`.

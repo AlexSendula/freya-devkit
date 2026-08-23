@@ -186,7 +186,7 @@ All of it is in `bin/freya` and `bin/freya_cli.py`:
 3. **Built-ins are dispatched before the manifest is consulted** — `help`, `doctor`, `init`,
    `update`, `install`, `uninstall` (`bin/freya_cli.py:26`). A manifest entry colliding with one
    of those names would be unreachable while `freya help` still advertised it under Commands,
-   so a test asserts the two sets stay disjoint (`bin/test_freya_cli.py:552`).
+   so a test asserts the two sets stay disjoint (`bin/test_freya_cli.py:553`).
 4. **Everything else is looked up in `bin/commands.json`** and joined onto `<root>/skills/`
    (`bin/freya_cli.py:118`) — 17 commands as of commit `6252d3e`. The manifest is validated on
    load rather than at the point of use: it must be a JSON object of string values, and each
@@ -207,9 +207,9 @@ unknown command is 2. A registered-but-missing script is also 2, but with a mess
 Three tests hold the manifest to its seams, and between them they are why a stale instruction
 in a SKILL.md fails in CI rather than in front of a user: every entry must point at a file
 that exists; every `skills/*/scripts/*.py` carrying a `__main__` block must have an entry
-(`bin/test_freya_cli.py:39`, `bin/test_freya_cli.py:49`); and every `freya <command>` that any
+(`bin/test_freya_cli.py:40`, `bin/test_freya_cli.py:50`); and every `freya <command>` that any
 `SKILL.md` or the root `README.md` prescribes must resolve to a real command
-(`bin/test_freya_cli.py:559`).
+(`bin/test_freya_cli.py:560`).
 
 ## The shapes a new skill follows
 
@@ -264,7 +264,7 @@ same thing inline at its report step ("Write the report. Do not commit it."), an
 `freya-status` only declares itself read-only — it still needs the paragraph. The reason is
 empirical: phase-6 validation watched an agent with broad tool permissions infer a `git commit`
 that no skill had asked for **and push a malformed message into the history of a repository it
-had only been asked to scan** (`skills/freya-codebase-security-scan/SKILL.md:807`). An agent
+had only been asked to scan** (`skills/freya-codebase-security-scan/SKILL.md:814`). An agent
 will fill in the step you left implicit, so leave none. No conformance rule can check this — prose is the only lever a
 skill has — which is why it is a checklist item below rather than something the gate catches
 for you.

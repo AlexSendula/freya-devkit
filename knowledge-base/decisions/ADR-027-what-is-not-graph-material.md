@@ -90,7 +90,7 @@ fifteen nodes and fifteen links. Ten links are `contains`. The other five are re
 relations — one foreign-key `references`, two view `reads_from`, one
 `aws_cloudfront_distribution.cdn → aws_s3_bucket.assets` interpolation, and one `package.json`
 dependency — and all five have the same file at both ends. The contract projects symbol links
-onto file pairs and drops anything intra-file (ADR-023, `backend_graphify.py:662`), so the graph
+onto file pairs and drops anything intra-file (ADR-023, `backend_graphify.py:676`), so the graph
 freya writes for that fixture is four file nodes and **zero edges**. "graphify parses it" and "the graph gains something" are different
 claims; only the first was ever true here.
 
@@ -187,7 +187,7 @@ it was skipped.
   measured rather than argued.
 
 - **Intra-file links become representable.** File-level self-edges are dropped today for want of
-  a node type below the file (`backend_graphify.py:669`, ADR-023). If a symbol-level graph lands,
+  a node type below the file (`backend_graphify.py:683`, ADR-023). If a symbol-level graph lands,
   the SQL foreign keys, view reads and Terraform interpolations graphify already extracts stop
   being discarded, and config starts contributing content without anyone deciding it should.
   Re-derive the zero measured above rather than assuming it still holds.

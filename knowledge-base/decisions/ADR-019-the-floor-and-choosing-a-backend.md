@@ -34,7 +34,7 @@ reason in the graph's own metadata, not only on stderr.
 
 The name is answered **once per machine, at install time**. `freya install` and `freya update`
 both call the prompt (`bin/backend_setup.py:104`, from `bin/installer.py:988` and
-`bin/updater.py:276`); it asks only at a terminal, only when the machine has never answered, and
+`bin/updater.py:394`); it asks only at a terminal, only when the machine has never answered, and
 only when more than one backend is available. The answer goes to `~/.freya/settings.json`,
 relocatable with `FREYA_HOME` (`settings.py:64`, `settings.py:194`) — its own directory rather
 than any one agent's, because the suite installs for several hosts and the answer is the same on

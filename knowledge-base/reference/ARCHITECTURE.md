@@ -77,7 +77,7 @@ then floor (`skills/freya-code-graph/scripts/settings.py:346`): the project's an
 the committed `knowledge-base/settings.json`, the machine's in `~/.freya/settings.json`,
 relocatable with `FREYA_HOME` (`settings.py:64`), which may carry only `substrate.backend` and
 `substrate.symbols` (`settings.py:74`). The machine question is asked once, at install or update
-time (`bin/backend_setup.py:104`, called from `bin/installer.py:988` and `bin/updater.py:276`),
+time (`bin/backend_setup.py:104`, called from `bin/installer.py:988` and `bin/updater.py:394`),
 because that is where a keyboard is — `code-graph` auto-enables non-interactive mode whenever
 stdin is not a TTY (`graph_ops.py:3116`), which is every agent-driven run. See
 [ADR-019](../decisions/ADR-019-the-floor-and-choosing-a-backend.md).
@@ -210,7 +210,7 @@ Security analysis benefits from impact awareness (code-graph) and from understan
 freya security scan|audit
     │
     ├─ one context call, then N category finders on a bounded thread pool
-    │     (`audit.py:296`), each thread spawning one headless agent CLI process
+    │     (`audit.py:303`), each thread spawning one headless agent CLI process
     │     (`claude -p` / `copilot -p`) under an explicit read-only tool
     │     allowlist — no writes, no shell
     ├─ dedup by file + line-window + category, across rounds
@@ -494,7 +494,7 @@ bin/
 └── check_skill_conformance.py  # the agent-neutrality gate (R1–R13)
 ```
 
-`backend_setup.py` is called from both `bin/installer.py:988` and `bin/updater.py:276` and lives
+`backend_setup.py` is called from both `bin/installer.py:988` and `bin/updater.py:394` and lives
 in `bin/` rather than under `skills/freya-code-graph/`, because the answer it records is a
 property of the machine and belongs to whichever hosts the suite was installed for, not to one
 skill. It is not in `commands.json`: there is no `freya backend-setup` command.
@@ -583,7 +583,7 @@ at the project root, which is a different order of magnitude from the projected 
 in this checkout on 2026-08-21, `graphify-out/` is 16 MB with a 5.0 MB `graph.json`, against the
 51 KB contract graph projected from it. The backend writes a `.gitignore` containing `*` into
 that directory after the tool has run, and leaves a hand-edited one alone
-(`backend_graphify.py:387`).
+(`backend_graphify.py:395`).
 
 ## Related Documentation
 

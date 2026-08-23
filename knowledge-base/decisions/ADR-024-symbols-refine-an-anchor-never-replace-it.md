@@ -109,7 +109,7 @@ graphify labels a method with its bare name, so qualification by the owning clas
 what makes the refinement usable. Re-derived on 2026-08-21, 108 of the 2,553 code
 symbols indexed on this repository share a bare label with a sibling in the same
 file; qualifying with the owner takes that to zero
-(`skills/freya-code-graph/scripts/backend_graphify.py:608`).
+(`skills/freya-code-graph/scripts/backend_graphify.py:622`).
 
 ## Rejected Alternatives
 
@@ -141,7 +141,7 @@ file; qualifying with the owner takes that to zero
 - **Make symbols graph nodes.** The honest model of what graphify actually produces,
   and the only shape that could express intra-file calls — which the file projection
   has to drop outright, since an intra-file call has no file pair to refine
-  (`backend_graphify.py:662`). Rejected because that is a different graph, not a
+  (`backend_graphify.py:676`). Rejected because that is a different graph, not a
   refinement of this one: all three artifacts are joined on file path (ADR-025), and
   a second node type invalidates every consumer at once. The intra-file call graph is
   a real loss and is on the backlog rather than being quietly written off.

@@ -27,35 +27,127 @@ The first two primitives placed under that rule are
 `is_anchored` at `` `:67` ``, `` `:101` ``, `` `:145` `` — and
 `skills/freya-code-graph/scripts/exec_path.py:84`, the binary resolver.
 
-**What is in force as of this record, and what is not.** Only one of these is wired.
-`containment.escapes` has a production caller — `verify_links.py` imports it and its existing
-`LocatorEscapeCase` tests run against it — and `containment.is_anchored` has a second body in
-`check_invariants.is_absolute` that the invariant gate uses on every run. The rest are staged:
+**What is in force as of this record, and what is not.** `containment.escapes` has a production
+caller — `verify_links.py` imports it and its existing `LocatorEscapeCase` tests run against it —
+and `containment.is_anchored` has a second body in `check_invariants.is_absolute` that the
+invariant gate uses on every run.
 
-- **`exec_path.py` has no production caller at all.** Nothing imports it; the only references
-  outside its own module and test are this record. It follows that **root-cause group G2 of the
-  2026-08-21 security report is unmitigated** — `SEC-002`
-  (`skills/freya-code-graph/scripts/backend_graphify.py:310`), `SEC-003`
-  (`skills/freya-codebase-security-scan/scripts/audit_adapter.py:114`) and the unfiled third
-  instance at `bin/updater.py:158` all still hand a bare name to `shutil.which` with the scanned
-  repository as the working directory. This record places the resolver and argues its shape; it
-  does not claim the defect is closed. Adopting it is the job of the groups that own those spawn
-  sites, and each adoption deletes its own `KNOWN_BARE_BINARIES` entry under the rule below.
+- **`exec_path.py` is wired, and G2 is closed.** Amended 2026-08-23. The first draft of this
+  record said the resolver had no production caller and that **root-cause group G2 of the
+  2026-08-21 security report was therefore unmitigated**; both sentences are now false, and the
+  change that falsified them is the one that adopted the resolver at all four sites. `SEC-002`
+  is closed at both of `backend_graphify.py`'s spawns — the `graphify` argv
+  (`skills/freya-code-graph/scripts/backend_graphify.py:434`) and the `git rev-parse` 300 lines
+  below it (`skills/freya-code-graph/scripts/backend_graphify.py:743`), an unreported fourth
+  instance in the file SEC-002 was filed against and the one of the four with no availability
+  gate in front of it: the `graphify` spawn is reached only through `available()`, and nothing
+  is consulted before this one runs. (Three of the four run with the scanned project as their
+  working directory on POSIX as well as Windows — those two, and the agent CLI in `audit.py`,
+  which threads `cwd=args.project` through `make_ask`. Only `bin/updater.py`'s git runs in the
+  store, which is why the contrast that matters is with it and not among these three. An
+  earlier draft of this bullet claimed the superlative for `:743` alone and was simply wrong.)
+  `SEC-003` is closed in `audit_adapter.py`: argv[0] is
+  now the absolute path `main()` resolved (`audit.py:program`), threaded through `make_ask` to
+  every `build_argv`, and `_guard` refuses a non-absolute argv[0] on the way past. The unfiled
+  third instance in `bin/updater.py` is closed at `git()`.
+
+  **What is *not* closed, said next to what is, because the census dropping 11 → 8 reads as
+  more than it is.** G2's *filed* instances are fixed; eight bare-`git` spawns remain, and
+  seven of them run with a repository the operator merely named as their working directory.
+  Measured on a hostile fixture on 2026-08-23: `graph_ops.py --build` against a repository
+  holding a planted `git`, with `.` on `PATH`, still executed it —
+  `skills/freya-code-graph/scripts/graph_ops.py:524`, one of the two allowlisted entries in
+  that file. `graphify` was never executed and `backend_graphify`'s own `_git_commit`
+  correctly returned None in the same run. So "a hostile clone cannot choose which binary we
+  run" is now true of `graphify` and of the agent CLIs, and is not yet true of `git`.
+- **The one user-visible regression the adoption buys, stated where it cannot be missed.** On
+  Windows under CPython 3.9–3.11 the `NoDefaultCurrentDirectoryInExePath` opt-out is ignored, so
+  `shutil.which` still returns the working-directory hit first and the absoluteness refusal is
+  the *only* control. A hostile repository shipping `graphify.exe` or `claude.exe` at its root
+  therefore gets a **refusal** on that leg — a denial of service — where before it got execution.
+  That is the accepted trade, and it is the only user-visible *regression* in this branch. It is
+  not the only user-visible change, and an earlier draft said so: `freya doctor` and
+  `freya update` gained the `NO_RESOLVER` precondition, `doctor`'s `updates` row can now
+  report a refusal instead of a repository fact, and `freya security` gained a per-CLI
+  refusal-reason block and an `EXIT_NOTHING_TO_DO` path for `--agent <name>`. Those are
+  improvements; the refusal is the one thing a user loses.
+  On 3.12+ the opt-out removes the working-directory entry outright and the real binary on PATH
+  is found normally.
+- **The resolver is imported under a guard in two places, and the guard is a decision.**
+  `freya_cli` imports `updater` inside `doctor_checks` (`bin/freya_cli.py:359`) and inside the
+  `update` branch (`:592`), and neither import is wrapped — only `notify`'s is (`:560`). An
+  unguarded `import exec_path` in `updater` therefore turns a missing skill tree into a
+  `ModuleNotFoundError` raised out of `freya doctor` and `freya update`: a traceback from the two
+  commands whose whole job is to diagnose and repair that state, which is the same argument this
+  record makes for the two bootstrap copies below. Measured, not reasoned about: with
+  `exec_path.py` moved aside, both commands died at `updater`'s import line while every other
+  command survived on `notify`'s existing `except Exception`. So the import is guarded, and the
+  resolver's absence is reported as its own precondition (`bin/updater.py:88`, returned first by
+  `preconditions`) rather than guessed at.
+
+  **`except Exception`, not `except ImportError`, and the width is the decision rather than a
+  slip.** The state being guarded against is "the store's skill tree is damaged", and *absent*
+  is only its tidiest spelling. A truncated `exec_path.py` — an interrupted checkout, a partial
+  download, a bad merge — raises `SyntaxError`, which is not an `ImportError` and which
+  `bin/freya_cli.py:618` does not catch either, so the narrow form let the traceback straight
+  back out of `doctor` and `update`. Measured both halves on a scratch store on 2026-08-23:
+  deleted file, and a one-line invalid `exec_path.py`. `bin/backend_setup.py:77` is the
+  precedent and already reads this way. The `sys.path` insert in front of it is guarded on
+  `isdir` and on absence for the same reason `bin/backend_setup.py` guards its own: this runs at
+  import of a module nearly every `freya` command loads, and an unconditional prepend puts a
+  possibly-nonexistent directory ahead of `bin/` for the life of the process.
+
+  **A guard that survives is not enough: what it survives *into* has to be true.** `updater.git`
+  returns `(1, "")` for a missing resolver and for a refused git exactly as it does for a real
+  git failure, and `is_git_store` reads `(1, "")` as "not a repository" — so `doctor` answered
+  *"the store is not a git checkout"* for a store that was one, on the one command that exists
+  to explain this state, while `freya update` on the same machine printed the true reason. That
+  is the default outcome on the Windows 3.9–3.11 leg, where a refusal is the expected result of
+  a repository-local `git.exe`. Both callers now ask `updater.git_program`, one body returning
+  `(path, reason)`, and `bin/freya_cli.py`'s `updates` row prints the reason ahead of
+  interpreting any git answer as a fact about the repository. `DoctorCannotRunGitTest`
+  (`bin/test_freya_cli.py:1104`) pins it, including that the two commands give the same reason.
+
+  **There is no fallback to a bare name** — no degraded resolver and no third body of the
+  absoluteness rule. A store either has the resolver or loses its git-backed features with a
+  stated reason, because a fallback that searched `PATH` would reinstate the defect exactly when
+  the tree is already damaged. `skills/freya-codebase-security-scan/scripts/audit_adapter.py:55`
+  carries the same guard for the same reason and fails closed the same way — `program_for`
+  returns a refusal, `detect` finds nothing, `_guard` refuses every argv — because a `--copy`
+  install *skips* a skill whose target was occupied or foreign, so a security driver really can
+  land in a tree with no `freya-code-graph`. Unguarded it was a raw traceback that exited 1 only
+  because Python's uncaught-exception code happens to equal `EXIT_NOTHING_TO_DO`, a coincidence
+  nothing recorded. The two imports are guarded identically on purpose: an asymmetry here would
+  be two answers to one question about what a damaged tree does.
+
+  A guarded import is the shape `knowledge-base/reference/STYLE_GUIDE.md:47` says must be an ADR
+  rather than a bare `except`; this bullet is that ADR, and it covers both sites. Neither is an
+  optional *dependency* — `exec_path.py` is first-party and ships in the same commit — both are
+  bootstrap guards for a damaged store. That is also why INV-1 grows no carve-out for the shape:
+  all four guarded imports in the tree (`bin/freya_cli.py:195`, `bin/updater.py:77`,
+  `audit_adapter.py:55`, `run_behaviors.py:271`) wrap a first-party module, so the syntax is not
+  evidence of an optional dependency and a rule keyed on it would exempt a future
+  `try: import yaml` for free.
 - **`containment.rel_within` has no caller either, not even `exec_path`.** Its intended first
-  one is the graph-key path: `graph_ops.py:721`–`694` is the `try: relative_to(self.project_dir)
-  / except ValueError: continue` shape it collapses, repeated at `:893` and unguarded at `:1946`,
-  `:1981`, `:1991` and `:2083`. It ships now because the four questions are argued together
+  one is the graph-key path, and that path already has a local body of the same rule:
+  `graph_ops.py:676` is `_contain`, which `rel_within` is meant to replace, and the
+  `try: relative_to(self.project_dir) / except ValueError: continue` shape it also collapses
+  survives at `:1946`–`:1953` and `:1981`–`:1982`, with unguarded `relative_to` calls at
+  `:1991` and `:2083`. (An earlier draft of this bullet cited a backwards line range that
+  pointed at neither.) A local body of a containment rule is exactly what the last paragraph of
+  the Decision forbids without a `ContainmentParityTest` row, so the migration is owed rather
+  than optional. It ships now because the four questions are argued together
   below and splitting the argument across two records would cost more than the unused function
   does; if that migration does not happen, delete it rather than let it drift from the sites it
   was measured against.
 
 **`bin/` keeps exactly two copies, and both are gated.** `bin/freya_cli.py:55` keeps its own
-`_escapes`, and `bin/check_invariants.py:339` keeps its own `is_absolute`, which is
+`_escapes`, and `bin/check_invariants.py:364` keeps its own `is_absolute`, which is
 `containment.is_anchored` under another name. Neither may import from the skill tree, because
 both are the code that has to work when that tree is missing, half-installed or condemned:
 `doctor` and `update` diagnose and repair it, and `load_manifest` is on the path of nearly every
 `freya` invocation. Both copies are held to the canonical bodies by `ContainmentParityTest`
-(`bin/test_freya_cli.py:1247`, asserting at `` `:1291` `` and `` `:1332` ``), which imports
+(`bin/test_freya_cli.py:1328`, asserting at `` `:1376` `` and `` `:1418` ``), which imports
 `containment` with no `skipUnless` so that a missing canonical module is an error rather than a
 skip. So: the `escapes` rule has two bodies and the anchoring rule has two, each pair pinned to
 its canonical one. Before this change `escapes` also had two — `bin/freya_cli.py` and
@@ -73,7 +165,7 @@ docstring says where the gate actually is.
 **The accepted cost, and the rule it imposes on every later change.** Routing `argv[0]` through
 `exec_path.resolve` makes INV-2 structurally blind to the sites that adopt it, because the rule
 reads `argv[0]` at the call site. So when a spawn site starts going through the resolver, its
-`KNOWN_BARE_BINARIES` entry (`bin/check_invariants.py:102`) is **deleted** in the same commit. It
+`KNOWN_BARE_BINARIES` entry (`bin/check_invariants.py:119`) is **deleted** in the same commit. It
 is never left in place as cover.
 
 ## Rationale
@@ -144,23 +236,61 @@ over an eleven-case table on 3.9.6, 3.12.5 and 3.13.5: `posixpath.isabs(t) or nt
 answers True for `\tools\git.exe` on the first two and False on the third, because `ntpath.isabs`
 changed in 3.13 so a rooted path with no drive stopped being absolute; `os.path.isabs` is wrong
 for every Windows spelling when the checker runs on Linux. The drive-and-root form gave identical
-answers on all three. `bin/check_invariants.py:339` had the union behind a docstring promising
+answers on all three. `bin/check_invariants.py:364` had the union behind a docstring promising
 exactly the stability the union does not have; it now has the stable form and a parity test.
+
+**Residual risk, stated because it sits one step from the scenario the fix is named for.**
+Containment is scoped to the project the operator *named*, not to wherever the process happens
+to be standing. Measured on 2026-08-23: from inside a hostile clone, with that clone's own
+directory on `PATH` as an absolute entry, `audit.py scan --project <some other directory>`
+resolves the clone's `claude`, passes both the absoluteness rule and containment — the hit is
+not inside the named project — and would spawn it. The two neighbouring forms are both refused:
+`--project .` refuses on containment (including when the `PATH` entry is outside the repository
+and the file there is a symlink back into it), and the relative spelling of the same escape
+(`.` on `PATH`) refuses on absoluteness. The realistic trigger is not an exotic `PATH`: it is an
+activated in-repository `.venv/bin`, `direnv`, or `node_modules/.bin`.
+
+This is a boundary, not an oversight — `exec_path.resolve` declines to forbid the process
+working directory on purpose (`skills/freya-code-graph/scripts/exec_path.py:102`), because
+`/usr/bin/git` is "inside" a working directory of `/` and the absoluteness rule already closes
+every route by which the working directory *reaches* the answer. What it does not close is a
+directory the operator deliberately put on `PATH` that happens to be inside a repository they do
+not trust. If that is ever to be closed, the question to ask is "is the hit inside any
+repository root at or above the invocation directory", not "is it inside `cwd`".
 
 **The absoluteness rule in `exec_path` refuses, it does not repair.** The security report's
 remediation asked for a resolved program to be "resolved to an absolute path". Running `abspath`
 over a resolution that came from the working directory produces a fully-qualified path to the
 attacker's binary — the same file, spelled more convincingly, and now past any later check that
 only asks whether argv[0] looks absolute. So a non-absolute resolution is refused
-(`skills/freya-code-graph/scripts/exec_path.py:119` onward), and `containment.is_anchored` is the
+(`skills/freya-code-graph/scripts/exec_path.py:125` onward), and `containment.is_anchored` is the
 test, so the resolver and the tree-invariant checker cannot disagree about what absolute means.
 
-**The cost of that resolver, in full.** INV-2 only yields a site when it can resolve a literal
-`argv[0]` at the call site (`bin/check_invariants.py:378`), so
+**The cost of that resolver, in full, and it is paid — not deferred.** INV-2 only yields a site
+when it can resolve a literal `argv[0]` at the call site (`bin/check_invariants.py:403`), so
 `subprocess.run([exec_path.resolve(...).path, ...])` presents a call expression rather than a
 constant and stops being counted. The checker's own docstring already records this shape as a
-known blind spot (`bin/check_invariants.py:26`); adopting the resolver widens it deliberately.
-What makes that survivable is that `apply_allowlist` (`bin/check_invariants.py:392`) is exact in
+known blind spot (`bin/check_invariants.py:27`); adopting the resolver widens it deliberately.
+
+Say it plainly, because the census going 11 → 8 is the kind of number that reads as progress and
+hides this: **INV-2 is now structurally blind to the three fixed call sites, permanently** — the
+`graphify` spawn and the `git rev-parse` in `backend_graphify.py`, and `git()` in
+`bin/updater.py`. Not "watched more loosely" and not "pending a better rule" — the rule cannot
+see a call expression and never will, so no future bare name reintroduced *in those same
+statements* would be caught by it either. Those two files bought their safety by leaving the
+only static gate that was looking at them.
+
+The fourth adopting site, `audit_adapter._claude_argv`, is not part of that trade and must not
+be counted into it: its bare `"claude"` was assembled in a helper and never appeared at a call
+site, so it was never in the census to leave (`bin/check_invariants.py:91`). It gained a runtime
+guard without losing a static one. What replaces the gate for the other two is not another gate:
+it is
+`audit_adapter._guard`, a runtime refusal on the one function every worker argv passes through,
+and for the other two sites nothing but the resolver's own return value and the tests that pin
+it. That asymmetry is the honest description of where this tree stands, and it is the reason
+the entries are **deleted** rather than kept as cover. A deletion that reads as "fixed and still
+watched" would be a lie about the second half.
+What makes that survivable is that `apply_allowlist` (`bin/check_invariants.py:417`) is exact in
 both directions: an allowlist entry with no site left to match is itself a violation, so a stale
 entry is a red gate rather than a quiet one. Hence the deletion rule in the Decision. An entry
 left behind after its site was fixed is worse than the original defect — it is a licence for the
@@ -219,6 +349,6 @@ next bare name in that file, dressed as a record of a debt that no longer exists
   vendored anything — the `skills/_shared/` alternative becomes real and this decision should be
   re-argued rather than inherited.
 
-- **A third body of a containment predicate appears.** `bin/test_freya_cli.py:1247` pins the two
+- **A third body of a containment predicate appears.** `bin/test_freya_cli.py:1328` pins the two
   that exist. A third would need its own entry there in the same change, or this decision has
   quietly become "duplicate freely and say it is a bootstrap".

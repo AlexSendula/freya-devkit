@@ -8,7 +8,7 @@ properties are enforced by tested code rather than by prose.
 
 This is not a vulnerability report of a project the toolkit scanned. Those are written per
 scan to `knowledge-base/security/codebase-security/YYYY-MM-DD.md` in the scanned project
-(`skills/freya-codebase-security-scan/SKILL.md:805`), alongside a machine-readable
+(`skills/freya-codebase-security-scan/SKILL.md:812`), alongside a machine-readable
 `findings.json` (`skills/freya-codebase-security-scan/references/findings-schema.md`). This
 repository has no `knowledge-base/security/` directory: the toolkit has been run against
 itself for graphs and docs, not yet for a committed security report.
@@ -37,10 +37,10 @@ What the toolkit does execute:
 |---|---|---|
 | A bundled script, under the current interpreter | `bin/freya_cli.py:135` | argv is `[sys.executable, <script from bin/commands.json>, *args]`; no `python` need be on `PATH` |
 | `git`, read-only queries | `skills/freya-status/scripts/collect_status.py:33`, `skills/freya-code-graph/scripts/graph_ops.py:524`, `skills/freya-spec-manager/scripts/verify_intent.py:47` | `rev-parse`, `diff --name-only` and similar; the graph and status layers never write git state |
-| `git fetch` and `git merge --ff-only` | `bin/updater.py:228`, `:242` | Only during `freya update`, which fast-forwards the checkout to its tracked branch (`CONTRIBUTING.md:183`) |
-| An agent CLI as an audit worker | `skills/freya-codebase-security-scan/scripts/audit_adapter.py:45`, `:57` | The subject of most of this document |
+| `git fetch` and `git merge --ff-only` | `bin/updater.py:346`, `:360` | Only during `freya update`, which fast-forwards the checkout to its tracked branch (`CONTRIBUTING.md:183`) |
+| An agent CLI as an audit worker | `skills/freya-codebase-security-scan/scripts/audit_adapter.py:123`, `:139` | The subject of most of this document |
 | The project's own test command | `skills/freya-behavior-runner/scripts/run_behaviors.py:191`, `:217` | `pnpm vitest run <test file>`. Running a project's tests is executing project-controlled code, by design and unavoidably |
-| `graphify` | `skills/freya-code-graph/scripts/backend_graphify.py:420` | Only when the project selected that backend; the stdlib floor is the default (ADR-019) |
+| `graphify` | `skills/freya-code-graph/scripts/backend_graphify.py:434` | Only when the project selected that backend; the stdlib floor is the default (ADR-019) |
 
 Environment variables, the `graphify` binary, and the fact that freya reads no API key of its
 own are covered in [ENVIRONMENT.md](ENVIRONMENT.md) and not repeated here.
@@ -56,7 +56,7 @@ the other two fan-outs stay prose:
 
 The control flow lives in Python: one context call, then the six category finders
 (`skills/freya-codebase-security-scan/scripts/audit_io.py:19`) on a bounded thread pool
-(`audit.py:283`), dedup by file + five-line window + category
+(`audit.py:290`), dedup by file + five-line window + category
 (`skills/freya-codebase-security-scan/scripts/audit_engine.py:91`), then three adversarial
 lenses per surviving finding (`audit_io.py:21`) and a majority vote
 (`audit_engine.py:199`). Each agent call is a separate OS process. No agent gets a vote on
@@ -76,13 +76,13 @@ Every worker argv is an explicit allowlist that excludes the shell:
 
 | Adapter | argv fragment | Source |
 |---|---|---|
-| `claude` | `--allowedTools "Read Grep Glob" --disallowedTools "Write Edit Bash"` | `audit_adapter.py:49`, `:50` |
-| `copilot` | `--allow-tool=read --deny-tool=write --deny-tool=shell` | `audit_adapter.py:61`, `:62` |
+| `claude` | `--allowedTools "Read Grep Glob" --disallowedTools "Write Edit Bash"` | `audit_adapter.py:131`, `:132` |
+| `copilot` | `--allow-tool=read --deny-tool=write --deny-tool=shell` | `audit_adapter.py:143`, `:144` |
 
 Four flags may never appear —
 `--allow-all-tools`, `--allow-all`, `--allow-all-paths`, `--allow-all-urls`
-(`audit_adapter.py:25`) — and `build_argv` raises `UnsafeInvocation` if any argv token *is* one
-of them or starts with `<flag>=` (`audit_adapter.py:30`, `:34`, `:37`), which is what catches a
+(`audit_adapter.py:74`) — and `build_argv` raises `UnsafeInvocation` if any argv token *is* one
+of them or starts with `<flag>=` (`audit_adapter.py:79`, `:83`, `:115`), which is what catches a
 prompt that is itself a flag. A flag quoted inside a longer prompt does not raise, and does not
 need to: the whole prompt is one argv element after `-p`, so the host CLI reads it as text.
 
@@ -102,13 +102,13 @@ Two mutants run against the shipped tests on 2026-08-21 confirm that ordering:
 
 (Method: copy `skills/freya-codebase-security-scan/scripts/` to a temporary directory, remove
 the line, `python3 -m pytest` that copy. Four of those 207 tests are the read-only guard
-itself, `test_audit_adapter.py:43`–`:73`.)
+itself, `test_audit_adapter.py:58`–`:73`.)
 
 **What the boundary is not.** It is a *tool* restriction, not a filesystem jail and not a
-process sandbox. A worker runs with `cwd` set to the project (`audit.py:245`), but no argv
+process sandbox. A worker runs with `cwd` set to the project (`audit.py:252`), but no argv
 element confines its reads to that directory — whether the host CLI applies a directory
 boundary of its own is host behaviour nothing here tests. No `env=` is passed to `subprocess.run`
-(`audit.py:233`), so each worker inherits the parent environment whole — including anything
+(`audit.py:240`), so each worker inherits the parent environment whole — including anything
 credential-shaped in it. The no-writes evidence collected so far is scoped to the fixture or
 repository under audit (checksums plus `git status --porcelain` before and after) and could
 not have seen a write to `$HOME` or `/tmp` (ADR-015 § Revisit Conditions). The prompt is
@@ -128,8 +128,8 @@ repository that left `git status --porcelain` and HEAD identical before and afte
 |---|---|
 | Read, grep and glob files | Write, edit or create files |
 | Read files by absolute path — the argv sets no path boundary | Run a shell command, hence no shell redirect |
-| Return a JSON object on stdout | Be granted a blanket permission flag, even via the prompt (`audit_adapter.py:34`) |
-| Take up to `--timeout` seconds, 600 by default (`audit.py:41`) | Ask a question — Copilot workers run `--no-ask-user` (`audit_adapter.py:60`) and there is no tty |
+| Return a JSON object on stdout | Be granted a blanket permission flag, even via the prompt (`audit_adapter.py:83`) |
+| Take up to `--timeout` seconds, 600 by default (`audit.py:41`) | Ask a question — Copilot workers run `--no-ask-user` (`audit_adapter.py:142`) and there is no tty |
 | Fail, and be retried once (`audit.py:42`) | Write the report, assign `SEC-###` ids, or re-evaluate previous findings — those stay in the skill's main loop (`SKILL.md:537`) |
 | | Commit anything. Only `freya-wrap-up` commits generated artifacts (`SKILL.md:807`) |
 
@@ -150,7 +150,7 @@ Worker output is untrusted input, and the driver treats it that way:
 - **Schema validation is ours.** Neither CLI enforces a content schema on a headless
   response, so extraction and validation are implemented here in stdlib
   (`audit_io.py:140`, `:194`). A response that does not validate is rejected with the reason
-  fed back into a single retry (`audit.py:266`–`:274`).
+  fed back into a single retry (`audit.py:273`–`:281`).
 - **Extraction picks the last valid candidate, grouped by deliberateness.** A worker that
   demonstrated the output format before answering had its own example handed back as its
   answer — schema-valid, so the task counted as answered, no retry fired, and a real finding
@@ -166,9 +166,9 @@ Worker output is untrusted input, and the driver treats it that way:
   candidate `{` positions; an unbalanced brace in a 433 KB response measured 6.9 s of
   quadratic scanning on a pool thread that `--timeout` does not cover (`audit_io.py:74`).
 - **No answers is never reported as no findings.** If every call failed, or if tasks went
-  unanswered and nothing survived, the run exits 2 (`audit.py:484`, `:488`); if tasks went
+  unanswered and nothing survived, the run exits 2 (`audit.py:509`, `:513`); if tasks went
   unanswered but findings did survive, the run prints an INCOMPLETE banner and exits 3
-  (`audit.py:502`, `:533`). An empty array means clean only on exit 0
+  (`audit.py:527`, `:558`). An empty array means clean only on exit 0
   (`SKILL.md:138`–`:146`).
 
 ## `audit` spends real money, and the plan is the gate
@@ -184,10 +184,10 @@ The gates, in the order a run meets them:
 1. **`--max-findings` is derived from `--max-calls`, not chosen independently**
    (`audit.py:173`), so the two cannot disagree about what the ceiling can pay for.
 2. **A ceiling too small to verify one finding is refused, not warned about**
-   (`audit.py:396`). Measured: `audit --max-calls 10` prints "`--max-findings` is 0, so this
+   (`audit.py:421`). Measured: `audit --max-calls 10` prints "`--max-findings` is 0, so this
    run could only ever report `[]` no matter what it found — refusing to start" and exits 2.
    The configuration's only possible output is a false clean bill of health.
-3. **The cost plan prints before anything is spent** (`audit.py:405`–`:418`), on stderr,
+3. **The cost plan prints before anything is spent** (`audit.py:430`–`:443`), on stderr,
    because stdout carries only the JSON payload. Measured in this checkout on 2026-08-21:
 
    ```text
@@ -201,17 +201,17 @@ The gates, in the order a run meets them:
    This spends real money. One worker measured ~$0.40 on a trivial fixture.
    ```
 
-4. **`--dry-run` returns immediately after printing that** (`audit.py:420`) — no worker is
+4. **`--dry-run` returns immediately after printing that** (`audit.py:445`) — no worker is
    spawned and nothing is spent. Verified by running the command above.
 5. **An unattended run without `--yes` refuses.** With no tty the driver does not block on
-   `input()`; it declines and exits 4 (`audit.py:427`). Measured: `audit.py scan --project .
+   `input()`; it declines and exits 4 (`audit.py:452`). Measured: `audit.py scan --project .
    < /dev/null` exits 4 with "refusing to spend money unattended". Exit 4 is deliberately
    distinct from exit 1, which means only "neither `claude` nor `copilot` is on `PATH`" — the
    two used to share a code, with the consequence traced in
    [TROUBLESHOOTING.md § `freya security` exits 4 in an unattended run](TROUBLESHOOTING.md#freya-security-exits-4-in-an-unattended-run).
 6. **The ceiling stops the run mid-flight.** `Budget.spend` reserves a slot before every call
    under a lock and raises `BudgetExhausted` at the ceiling (`audit.py:92`); the engine keeps
-   the work already paid for and the driver reports INCOMPLETE (`audit.py:510`).
+   the work already paid for and the driver reports INCOMPLETE (`audit.py:535`).
 
 Because the driver's own confirmation prompt cannot reach a user through an agent shell, the
 money gate moves into the conversation: the skill must show the user the `--dry-run` plan,

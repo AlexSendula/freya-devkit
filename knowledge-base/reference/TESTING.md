@@ -337,7 +337,7 @@ Weak assertions fail this check even when the fixture is right. The graphify edg
 gate is the measured case: pinning `(from, to)` pairs alone, it caught **one of six** deliberate
 mapping mutations, because the fixture carried each pair on several relations and dropping one
 changed nothing the assertion could see. Pinning `(from, to, kind)` over a fixture that exercises
-each guard is what made it bite (`skills/freya-code-graph/scripts/test_backend_graphify.py:926`).
+each guard is what made it bite (`skills/freya-code-graph/scripts/test_backend_graphify.py:1046`).
 
 ADR-016 states the underlying clause: guards that protect against a measured external finding are
 mutation-tested, not merely unit-tested.
@@ -353,8 +353,8 @@ refusal.
 Where a real dependency may be absent, skip rather than fake:
 
 ```python
-HAS_GIT = shutil.which("git") is not None          # bin/test_updater.py:17
-@unittest.skipUnless(HAS_GIT, "git is not installed")   # bin/test_updater.py:50
+HAS_GIT = shutil.which("git") is not None          # bin/test_updater.py:18
+@unittest.skipUnless(HAS_GIT, "git is not installed")   # bin/test_updater.py:51
 ```
 
 `skills/freya-code-graph/scripts/test_backend_graphify.py:33` does the same for the `graphify`
@@ -433,7 +433,7 @@ cannot hide the install's answer behind an early exit. It drives `install.sh` (s
 Linux and `install.ps1 --copy` on Windows, asserts a skill landed, resolves `freya` **by name off
 `PATH`**, runs `freya help` and `freya doctor`, then uninstalls and asserts the skills came back
 out — plus the launcher on Linux; the Windows leg only reports what is left in `bin/`
-(`.github/workflows/ci.yml:203`). The installer's `--target-dir` / `--bin-dir` hooks keep it off
+(`.github/workflows/ci.yml:209`). The installer's `--target-dir` / `--bin-dir` hooks keep it off
 the runner's real `~/.claude`.
 
 **pytest is left unpinned on purpose.** pytest 9 requires 3.10+, and pip's `Requires-Python`

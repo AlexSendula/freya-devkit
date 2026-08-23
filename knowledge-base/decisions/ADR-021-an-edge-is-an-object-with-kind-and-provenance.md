@@ -44,7 +44,7 @@ strings, projected off the edge objects by `edge_ends` (`graph_ops.py:2271`, `:2
 faithfully: the homegrown resolver stamps `extracted` throughout, because it reads import
 statements out of source text and does nothing else (`graph_ops.py:1997`, `:2010`), and the
 graphify backend maps that backend's own `EXTRACTED`/`INFERRED` tag, defaulting an unrecognised
-confidence to `inferred` (`backend_graphify.py:144`, `:656`, `:685`). Past that, no production
+confidence to `inferred` (`backend_graphify.py:144`, `:670`, `:699`). Past that, no production
 code consults the field. `edge_provenance` has exactly one caller, and it is the reverse-index
 builder copying the value onto the mirrored edge (`substrate.py:362`). The design — stated in the
 spec, in the working decision record and on the explainer pages — was that only `extracted` edges

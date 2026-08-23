@@ -41,8 +41,8 @@ The supervising human is a first-class constraint, not an afterthought:
 - AI-inferred specs carry a 0–100 certainty score with a review action attached to each band
   ([patterns.md](../patterns.md#pattern-certainty-scoring)).
 - The security driver spends real money and says so before it does: it prints a cost plan
-  (`skills/freya-codebase-security-scan/scripts/audit.py:418`) and, with no tty to prompt at,
-  refuses rather than defaulting to yes (`audit.py:427`).
+  (`skills/freya-codebase-security-scan/scripts/audit.py:443`) and, with no tty to prompt at,
+  refuses rather than defaulting to yes (`audit.py:452`).
 - Which graph backend to use is a person's answer: asked once per machine at install
   (`bin/backend_setup.py:104`), resolved project-then-machine-then-floor
   (`skills/freya-code-graph/scripts/settings.py:346`), and never scored automatically —
@@ -127,7 +127,7 @@ runtime dependency: every import in `bin/` and `skills/` is stdlib. The test sui
 | `claude` / `copilot` CLI | The security driver's headless workers only; without one it exits 1, which the skill reads as "fall back to the in-loop scan" (`skills/freya-codebase-security-scan/scripts/audit.py:66`) | No |
 | `graphify` | The optional graph backend — 40 languages (`skills/freya-code-graph/scripts/backend_graphify.py:227`) across 93 extensions (`skills/freya-code-graph/scripts/backend_graphify.py:203`), against the built-in floor's 4 languages across 6 (`skills/freya-code-graph/scripts/graph_ops.py:35`) | No |
 | `npm` / `yarn` / `pnpm` | `freya-dependency-vulnerability-check`, which detects the package manager from the lockfile and tells the user it needs a Node project when there is none (`skills/freya-dependency-vulnerability-check/SKILL.md:43`, `:49`) | No |
-| The git remote | `freya update`, and a throttled `ls-remote` behind the daily update notice, opt-out via `FREYA_NO_UPDATE_CHECK` (`bin/updater.py:450`) | No |
+| The git remote | `freya update`, and a throttled `ls-remote` behind the daily update notice, opt-out via `FREYA_NO_UPDATE_CHECK` (`bin/updater.py:568`) | No |
 
 Three install paths: `./install.sh` and `install.ps1` for any agent (the checkout is the store;
 skills are symlinked into the agent's directory, or copied with `--copy`), and a Claude Code

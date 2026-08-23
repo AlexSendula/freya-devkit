@@ -67,7 +67,7 @@ Every argv is an allowlist the driver constructs in full — Claude
 `--allow-tool=read --deny-tool=write --deny-tool=shell` — granting reading and searching and
 nothing else. Four blanket-permission flags (`--allow-all-tools`, `--allow-all`,
 `--allow-all-paths`, `--allow-all-urls`) may never appear in any argv, and `_guard`
-(`audit_adapter.py:34`) inspects every token before the argv leaves the module, raising
+(`audit_adapter.py:83`) inspects every token before the argv leaves the module, raising
 `UnsafeInvocation` when one of them is a token or its `=`-form. The prompt travels as a single
 `-p` element of an argv list; nothing on this side is ever handed to a shell.
 

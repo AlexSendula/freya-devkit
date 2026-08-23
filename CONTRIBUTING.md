@@ -94,7 +94,7 @@ Know the two limits before you rely on it:
     `freya-codebase-security-scan` does **not** carry the canonical block, and that
     is correct: since phase 7 its fan-out belongs to the `freya security scan`
     driver, which schedules its own worker processes and gives no agent a vote.
-    The shorter form there (`skills/freya-codebase-security-scan/SKILL.md:171-177`)
+    The shorter form there (`skills/freya-codebase-security-scan/SKILL.md:178-177`)
     covers only the no-agent-CLI fallback path. Don't "fix" it to match, and don't
     copy it as the reference for a prose fan-out — it keeps the token-cost note, and
     states the 7× cost separately at line 239 in driver terms, but drops the
