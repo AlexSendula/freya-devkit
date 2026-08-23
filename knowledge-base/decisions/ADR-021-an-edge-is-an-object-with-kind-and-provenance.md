@@ -189,7 +189,7 @@ rather than load-bearing forever.
   polyglot repository, not an argument. The concrete trigger is the first project where an
   inferred edge widens a blast radius enough that `wrap-up`'s affected-behaviour re-run
   (`skills/freya-wrap-up/SKILL.md:168`) blocks on a behaviour the change did not touch. If the
-  filter is written, it belongs where blast radius is *consumed* — `behavior_graph.py:243`,
+  filter is written, it belongs where blast radius is *consumed* — `behavior_graph.py:252`,
   `drift.py:76` — not in the graph, which must go on recording every edge it can see.
 
 - **A backend arrives whose relations do not fit the five kinds.** `RELATION_KINDS` is fixed

@@ -36,7 +36,7 @@ What the toolkit does execute:
 | What | Where | Notes |
 |---|---|---|
 | A bundled script, under the current interpreter | `bin/freya_cli.py:135` | argv is `[sys.executable, <script from bin/commands.json>, *args]`; no `python` need be on `PATH` |
-| `git`, read-only queries | `skills/freya-status/scripts/collect_status.py:33`, `skills/freya-code-graph/scripts/graph_ops.py:524`, `skills/freya-spec-manager/scripts/verify_intent.py:47` | `rev-parse`, `diff --name-only` and similar; the graph and status layers never write git state |
+| `git`, read-only queries | `skills/freya-status/scripts/collect_status.py:33`, `skills/freya-code-graph/scripts/graph_ops.py:524`, `skills/freya-spec-manager/scripts/verify_intent.py:74` | `rev-parse`, `diff --name-only` and similar; the graph and status layers never write git state |
 | `git fetch` and `git merge --ff-only` | `bin/updater.py:346`, `:360` | Only during `freya update`, which fast-forwards the checkout to its tracked branch (`CONTRIBUTING.md:183`) |
 | An agent CLI as an audit worker | `skills/freya-codebase-security-scan/scripts/audit_adapter.py:123`, `:139` | The subject of most of this document |
 | The project's own test command | `skills/freya-behavior-runner/scripts/run_behaviors.py:191`, `:217` | `pnpm vitest run <test file>`. Running a project's tests is executing project-controlled code, by design and unavoidably |
@@ -55,7 +55,7 @@ the other two fan-outs stay prose:
 [patterns.md § Coordinator + Independent Tasks](../patterns.md#pattern-coordinator--independent-tasks).
 
 The control flow lives in Python: one context call, then the six category finders
-(`skills/freya-codebase-security-scan/scripts/audit_io.py:19`) on a bounded thread pool
+(`skills/freya-codebase-security-scan/scripts/audit_io.py:20`) on a bounded thread pool
 (`audit.py:290`), dedup by file + five-line window + category
 (`skills/freya-codebase-security-scan/scripts/audit_engine.py:91`), then three adversarial
 lenses per surviving finding (`audit_io.py:21`) and a majority vote
@@ -149,12 +149,12 @@ Worker output is untrusted input, and the driver treats it that way:
 
 - **Schema validation is ours.** Neither CLI enforces a content schema on a headless
   response, so extraction and validation are implemented here in stdlib
-  (`audit_io.py:140`, `:194`). A response that does not validate is rejected with the reason
+  (`audit_io.py:141`, `:195`). A response that does not validate is rejected with the reason
   fed back into a single retry (`audit.py:273`–`:281`).
 - **Extraction picks the last valid candidate, grouped by deliberateness.** A worker that
   demonstrated the output format before answering had its own example handed back as its
   answer — schema-valid, so the task counted as answered, no retry fired, and a real finding
-  vanished into an exit-0 clean report (`audit_io.py:140`).
+  vanished into an exit-0 clean report (`audit_io.py:141`).
 - **A cited spec must exist.** A skeptic downgraded a real SQL injection to
   `intentional-design` by citing an invented path, and another cited the sentence saying no
   specs were found. A citation now only outranks the vote if the project corroborates it —
@@ -252,7 +252,7 @@ and the behavior's passing test is what settles it.
 
 **The bar is enforced by the query, not only by procedure.** `freya behavior-graph --covering
 <file>` filters to `state == "accepted"` before the agent ever judges relevance
-(`skills/freya-behavior-graph/scripts/behavior_graph.py:418`), so a `proposed` or `confirmed`
+(`skills/freya-behavior-graph/scripts/behavior_graph.py:548`), so a `proposed` or `confirmed`
 behavior is never even a candidate for silencing — it may add an advisory note and the finding
 stays open (`SKILL.md:424`). The trust boundary sits in deterministic code rather than in an
 instruction the agent could drift from. (ADR-012 cites this filter as `behavior_graph.py:311`;

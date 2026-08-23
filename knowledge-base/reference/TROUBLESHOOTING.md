@@ -182,7 +182,7 @@ host.
 
 **Confirm.** Run the conformance gate: `python3 bin/check_skill_conformance.py`. Rule **R10**
 reports any frontmatter value over its spec limit — `description` 1024, `compatibility` 500,
-`name` 64 (`bin/check_skill_conformance.py:57`, checked at `:328`–`:334`).
+`name` 64 (`bin/check_skill_conformance.py:60`, checked at `:374`–`:380`).
 
 **Fix.** Shorten the value. This is not a theoretical limit: phase 6 validation found GitHub
 Copilot silently omitting a skill whose `description` ran to 1251 characters while Claude Code

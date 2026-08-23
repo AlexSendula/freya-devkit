@@ -11,7 +11,7 @@ with a working default, and the defaults are what CI and every ordinary install 
 **no `.env` file, no `.env.example`, and no secret of any kind in this repository** —
 `find . -name '*.env*'` outside `.git/` returns nothing, and the only occurrence of the word
 "secrets" in the runtime code is a security-scan *category* name
-(`skills/freya-codebase-security-scan/scripts/audit_io.py:19`). Nothing here authenticates to
+(`skills/freya-codebase-security-scan/scripts/audit_io.py:20`). Nothing here authenticates to
 anything. The one place ambient credentials matter is the audit driver, which spawns another
 vendor's CLI; that is covered under [Credentials](#credentials).
 
@@ -245,13 +245,13 @@ dying in a file the user never named (`bin/freya:12`).
 argv of nine `subprocess` calls across `bin/updater.py:60`,
 `skills/freya-code-graph/scripts/graph_ops.py:525` and `graph_ops.py:563`,
 `skills/freya-code-graph/scripts/backend_graphify.py:722`,
-`skills/freya-behavior-graph/scripts/behavior_graph.py:518`,
+`skills/freya-behavior-graph/scripts/behavior_graph.py:610`,
 `skills/freya-behavior-runner/scripts/run_behaviors.py:443`,
 `skills/freya-spec-manager/scripts/drift.py:69`,
-`skills/freya-spec-manager/scripts/verify_intent.py:47` and
+`skills/freya-spec-manager/scripts/verify_intent.py:74` and
 `skills/freya-status/scripts/collect_status.py:33`. Every one treats a missing git as an answer
 rather than a crash — `run_behaviors.py:447` catches `FileNotFoundError` and returns
-`"unknown"`, `behavior_graph.py:522` returns an empty change list — so the toolkit degrades
+`"unknown"`, `behavior_graph.py:574` returns an empty change list — so the toolkit degrades
 rather than failing when git is absent.
 
 **The unit-behavior runner is the one place where a missing binary is not handled.** It

@@ -72,7 +72,7 @@ you commit.
 It walks every `*.md` and `*.py` under `skills/` and nothing else — `bin/`, `knowledge-base/`
 and the repo root are out of scope (`bin/check_skill_conformance.py:374`). Output is one
 `path:line: RULE: excerpt` per violation on stdout, a per-rule count on stderr, exit 1; a
-`bin/commands.json` it cannot read is exit 2 (`bin/check_skill_conformance.py:387`).
+`bin/commands.json` it cannot read is exit 2 (`bin/check_skill_conformance.py:504`).
 
 Thirteen rules, each with its one-line rationale at `bin/check_skill_conformance.py:29`. The
 ones most often tripped:
