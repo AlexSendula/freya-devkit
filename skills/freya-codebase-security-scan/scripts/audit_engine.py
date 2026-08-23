@@ -18,7 +18,7 @@ import posixpath
 import re
 from collections import namedtuple
 
-from audit_io import CATEGORIES, FINDER_SCHEMA, SKEPTICS, VERDICT_SCHEMA
+from audit_io import CATEGORIES, FINDER_SCHEMA, SKEPTICS, VERDICT_SCHEMA, redact_secret_evidence
 
 K_EMPTY = 2       # consecutive dry rounds that stop discovery
 MAX_ROUNDS = 5    # budget guard
@@ -123,13 +123,42 @@ def annotate_colocated(findings):
 
 #: Paths a citation may name. A spec lives in prose, not in source.
 _CITED_PATH = re.compile(r"[\w./\\-]+\.(?:md|markdown|rst|txt|ya?ml|json)\b")
-#: spec-manager's identifier shapes: SPEC-007, ADR-003, BEH-012.
-_CITED_ID = re.compile(r"\b([A-Z]{2,6}-\d{1,6})\b")
+#: spec-manager's identifier shapes, and only those: SPEC-007, ADR-003, BEH-012.
+#: `[A-Z]{2,6}-\d+` also matched CWE-89, CVE-2021, RFC-7231, ISO-9001, AES-256
+#: and this tool's own SEC-### finding ids. Measured against this repository on
+#: 2026-08-23: every one of those corroborated a citation. No attacker is needed
+#: to reach it — a finding's `cwe` field is interpolated verbatim into the
+#: skeptic prompt, so "per CWE-89 this is the accepted pattern" is a downgrade a
+#: worker arrives at by paraphrasing its own input. SPEC-027 names these three
+#: prefixes and no others; the code was wider than the decision it implements.
+#:
+#: Non-capturing group deliberately. `(SPEC|ADR|BEH)-\d+` makes `findall` return
+#: the bare prefix, so the walk below would search a body for "ADR" instead of
+#: "ADR-003" — looser than the pattern this replaced, not stricter.
+_CITED_ID = re.compile(r"\b((?:SPEC|ADR|BEH)-\d{1,6})\b")
 #: Where a corroborating document is allowed to live, cheapest first.
 _SPEC_ROOTS = ("knowledge-base", "docs", "specs", ".")
 _SPEC_SUFFIXES = (".md", ".markdown", ".rst", ".txt")
 #: A whole tree is not worth walking to check one citation.
 _MAX_SCANNED = 400
+#: Where this skill puts its own reports, relative to a project root. One
+#: constant because *both* branches of `resolve_spec_reference` have to skip the
+#: same directory and they used not to: the id branch pruned it, the path branch
+#: did not, so the invariant held for the harder of the two ways in and not for
+#: the easier one. Two literals is how that drifts back apart.
+_OWN_REPORTS = ("knowledge-base", "security")
+
+
+def _own_reports_dir(root):
+    """The directory holding this skill's own output, ready to compare.
+
+    Lexical and normcase'd, matching how both callers spell their paths.
+    `os.path.realpath` is not applied and the residual is the same one
+    `_project_mentions` already states: a project that keeps these reports
+    somewhere else — including behind a symlink at this path — is still its own
+    witness, and no amount of normalising here finds them.
+    """
+    return os.path.normcase(os.path.join(root, *_OWN_REPORTS))
 
 
 def resolve_spec_reference(reference, project):
@@ -147,17 +176,30 @@ def resolve_spec_reference(reference, project):
     document that exists inside the project, or it names a spec ID that appears
     in one. Anything else falls through to the ordinary vote — an unverifiable
     claim must not outrank three skeptics.
+
+    Neither branch will accept this skill's own reports: see `_OWN_REPORTS`. The
+    path branch needs that at least as much as the id branch does, and probably
+    more — the report file genuinely exists, so a skeptic that can list a
+    directory can cite a real path, where the id branch needed last month's
+    report to happen to name the id it wanted.
     """
     text = str(reference or "").strip()
     if not text or not project:
         return None
     root = os.path.realpath(project)
+    own_reports = _own_reports_dir(root)
 
     for match in _CITED_PATH.finditer(text):
         candidate = match.group(0).split("#", 1)[0].replace("\\", "/")
         target = os.path.realpath(os.path.join(root, candidate.lstrip("/")))
         # `../../etc/passwd` exists everywhere and says nothing about intent.
         if os.path.commonpath([root, target]) != root:
+            continue
+        # Neither does a report this tool wrote. Prefix test rather than
+        # equality: every report sits a directory or two down, under
+        # `codebase-security/` or `dependency-vulnerabilities/`.
+        normalized = os.path.normcase(target)
+        if normalized == own_reports or normalized.startswith(own_reports + os.sep):
             continue
         if os.path.isfile(target):
             return text
@@ -169,14 +211,39 @@ def resolve_spec_reference(reference, project):
 
 
 def _project_mentions(root, ids):
-    """True if any identifier appears in a prose file under the project."""
+    """True if any identifier appears in a prose file under the project.
+
+    Except in this skill's own reports. They live under `_OWN_REPORTS` and each
+    one names every id it discusses — including the invented ones it quotes out
+    of a test — so left in the walk, last month's report corroborates this
+    month's citation. Measured on this repository on 2026-08-23 with the
+    namespace above already narrowed: `SPEC-999` still resolved, and its only
+    occurrence anywhere in the tree is a report sentence saying it must not.
+    Narrowing the prefixes does not close that on its own, because a report
+    carries SPEC-/ADR-/BEH- ids too. The tool does not get to be its own witness
+    — and this half of that is only half: `resolve_spec_reference` skips the
+    same directory on the path branch, and until it did, the invariant this
+    paragraph asserts was false for the more reachable of the two.
+
+    Lexical, not `containment.within`: `root` reaches this function already
+    realpath'd (`resolve_spec_reference`), and `os.walk` does not descend a
+    symlinked directory, so there is no path here that a `realpath` could
+    disagree with — two syscalls per directory to learn nothing.
+
+    Pruned to exactly that directory. A scanned project that keeps these reports
+    somewhere else is still its own witness, and pruning every directory *named*
+    `security` would throw away a third party's genuine threat-model prose,
+    which is the corroboration this function exists to find.
+    """
+    reports = _own_reports_dir(root)
     scanned = 0
     for start in _SPEC_ROOTS:
         base = os.path.join(root, start)
         if not os.path.isdir(base):
             continue
         for dirpath, dirnames, filenames in os.walk(base):
-            dirnames[:] = [d for d in dirnames if not d.startswith(".")]
+            dirnames[:] = [d for d in dirnames if not d.startswith(".")
+                           and os.path.normcase(os.path.join(dirpath, d)) != reports]
             for name in filenames:
                 if not name.endswith(_SPEC_SUFFIXES):
                     continue
@@ -216,11 +283,11 @@ def disposition(verdicts, project=None):
     verdicts = [v for v in verdicts if v]
     upheld = sum(1 for v in verdicts if v.get("verdict") == "upheld")
     total = len(verdicts)
-    # The lenses that ANSWERED, not the ones we asked. This used to be the
-    # SKEPTICS constant, so a finding whose exploitability call timed out was
-    # still reported as `Upheld 2/2 · exploitability+compensating-controls+
-    # spec-intentional` — a report describing a verification that did not
-    # happen. Ordered by SKEPTICS so the row reads the same way every time.
+    # The lenses that ANSWERED, not the ones we asked — and, because `_settle`
+    # binds each slot to the lens it was REQUESTED for, named by the question
+    # put to them rather than by whatever the answer called itself. This used to
+    # be the SKEPTICS constant, so a timed-out exploitability call still read
+    # `Upheld 2/2 · <all three>`. Ordered by SKEPTICS, so the row is stable.
     answered = {v.get("lens") for v in verdicts}
     verification = {"upheld": upheld, "total": total,
                     "lenses": [lens for lens in SKEPTICS if lens in answered]}
@@ -297,7 +364,17 @@ def discover(ask, context, run, *, max_findings=None, max_rounds=MAX_ROUNDS,
                 # Normalize on the way in, not just inside the key: a report
                 # listing the same file as both `./src/a.js` and `src/a.js`
                 # reads like two places even once deduping is correct.
-                item = {**item, "file": normalize_file(item.get("file", ""))}
+                #
+                # Redact on the way in for a different reason. A secrets
+                # finding's `codeSnippet` leaves this engine by three doors —
+                # the skeptic prompt below, which the driver passes as an argv
+                # element and every local user can read out of a process
+                # listing; the driver's stdout; and the report the agent writes
+                # from that stdout and then commits. This is the one door it
+                # comes in by. Patching the three exits is three chances to
+                # miss one, and the one missed is the one that commits it.
+                item = redact_secret_evidence(
+                    {**item, "file": normalize_file(item.get("file", ""))})
                 if dedup_key(item) not in seen:
                     seen.add(dedup_key(item))
                     fresh.append(item)
@@ -330,8 +407,57 @@ def _skeptic(finding, lens, ask, context):
     return thunk
 
 
+def _bind_lenses(verdicts):
+    """Attribute each verdict to the lens it was REQUESTED for, not the one it
+    claims, and count the mismatches.
+
+    Both call sites submit one thunk per lens in `SKEPTICS` order, so slot j IS
+    `SKEPTICS[j]` — and that was thrown away. `disposition` re-derived the lens
+    from each answer's own `lens` key and nothing compared the two, so a worker
+    handed the *exploitability* question could answer `lens: spec-intentional`
+    with a `specReference` and cast the single-lens veto that outranks a
+    majority: three attempts at the veto per finding instead of the one the
+    design intends. No attacker is needed to reach it. The three prompts differ
+    by one word, VERDICT_SCHEMA offers all three names to every worker, and
+    every worker is asked for a specReference. The same field builds
+    `verification.lenses`, so one mislabel also made a report name a lens that
+    never answered.
+
+    Bound by POSITION on the RAW slice, before `disposition` drops the falsy
+    entries. A failed call leaves `None` in its slot, and binding the filtered
+    list slides every later lens one place to the left — promoting
+    compensating-controls into slot 0 and carrying spec-intentional out of the
+    slot where the veto is decided.
+
+    Mismatches are rewritten and counted, never dropped. Discarding an upheld
+    answer can leave an all-refuted remainder, and a finding every remaining
+    skeptic refuted is dropped — so dropping here would delete real findings on
+    the strength of a labelling mistake.
+    """
+    bound = []
+    mislabeled = 0
+    for index, verdict in enumerate(verdicts):
+        # A slot past SKEPTICS was never requested, so there is no lens to bind
+        # it to. Pass it through rather than silently dropping an answer.
+        if not verdict or index >= len(SKEPTICS):
+            bound.append(verdict)
+            continue
+        if verdict.get("lens") != SKEPTICS[index]:
+            mislabeled += 1
+        bound.append({**verdict, "lens": SKEPTICS[index]})
+    return bound, mislabeled
+
+
 def _settle(finding, verdicts, project=None):
-    disp, spec_reference, verification = disposition(verdicts, project)
+    bound, mislabeled = _bind_lenses(verdicts)
+    disp, spec_reference, verification = disposition(bound, project)
+    if mislabeled:
+        # Annotated here rather than inside `disposition`, which twenty-seven
+        # tests call directly with hand-ordered lists and one of them asserts by
+        # whole-dict equality. Absent on a clean run, so the documented
+        # `{upheld, total, lenses}` shape is unchanged for every consumer that
+        # never meets a mislabel.
+        verification = {**verification, "mislabeled": mislabeled}
     return {**finding, "disposition": disp, "specReference": spec_reference,
             "verification": verification}
 

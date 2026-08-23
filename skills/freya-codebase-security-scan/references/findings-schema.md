@@ -32,14 +32,14 @@ Field rules:
   - `open` — a live finding needing attention.
   - `resolved` — fixed/no longer present (lifecycle RESOLVED).
   - `intentional` — explained by intent, so not outstanding. Either a declarative
-    spec decision (`spec_ref` names the spec — a prose claim) **or** an `accepted`,
-    test-backed behavior whose intent explains it (`behavior_ref` names the behavior
-    — a *verified guarantee*, the stronger evidence). A finding may carry both.
+    spec decision (`spec_ref` names the spec) **or** an `accepted` behavior whose
+    intent explains it (`behavior_ref` names the behavior — the stronger of the two,
+    and still a claim: no test is run to produce it). A finding may carry both.
 - `file` / `line` — primary location (`line` optional).
 - `spec_ref` — the declarative spec marking it intentional, when known (optional).
-- `behavior_ref` — the `accepted` behavior (`BEH-NNN`) whose verified intent explains
-  the finding, when known (optional). A behavior-explained finding is the strongest
-  "intentional" evidence (test-backed, not a prose claim).
+- `behavior_ref` — the `accepted` behavior (`BEH-NNN`) whose intent explains the
+  finding, when known (optional). Carry `--covering`'s own `evidence` string into
+  the report's note beside it — it says what was trusted, and what was not run.
 
 Consumers treat any finding whose `status` is not `open` as not outstanding.
 The list mirrors the prose report's findings exactly — same ids, same statuses.

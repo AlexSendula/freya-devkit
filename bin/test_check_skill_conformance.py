@@ -933,6 +933,227 @@ class ShippedTreeTest(unittest.TestCase):
         self.assertEqual(violations, [], f"skills/ is not conformant:\n{detail}")
 
 
+# Appended after ShippedTreeTest rather than filed with the other rule classes:
+# four places cite this file by line (CONTRIBUTING.md:142, DEVELOPER.md:65,
+# TESTING.md:156 and :390), and adding at the end is the only edit that leaves
+# what they point at where it is. Move it up once those are repointed.
+class RedactionTest(unittest.TestCase):
+    """R14: a skill that reads secret material must say what may be written down.
+
+    SEC-009 and SEC-017. The security report's evidence block and the
+    docs-manager ENVIRONMENT worker both take a real secret as input and produce
+    a file `freya-wrap-up` commits, and neither said not to copy the value
+    across. Neither can call a redaction helper — they are prose handed to an
+    agent — so the rule *is* the sentence, and this is the gate on the sentence
+    being there.
+    """
+
+    CLAUSE = (
+        "Never write a real secret value into the doc; the placeholder is "
+        "`[REDACTED]`.\n"
+    )
+
+    def _skill(self, body):
+        return "---\nname: demo\ndescription: d\n---\n\n" + body
+
+    def test_reading_dot_env_without_the_clause_is_flagged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = build_root(tmp, skill_md=self._skill(
+                "**Context to gather:**\n- .env.example files\n"))
+            self.assertIn("R14", rules_hit(root))
+
+    def test_secrets_management_without_the_clause_is_flagged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = build_root(tmp, skill_md=self._skill(
+                "- Secrets management approach\n"))
+            self.assertIn("R14", rules_hit(root))
+
+    def test_hardcoded_credentials_without_the_clause_is_flagged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = build_root(tmp, skill_md=self._skill(
+                "Scan for hardcoded credentials, API keys and private keys.\n"))
+            self.assertIn("R14", rules_hit(root))
+
+    def test_the_clause_satisfies_the_whole_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = build_root(tmp, skill_md=self._skill(
+                "- .env.example files\n- Secrets management approach\n" + self.CLAUSE))
+            self.assertNotIn("R14", rules_hit(root))
+
+    def test_sentinel_without_a_placeholder_is_flagged(self):
+        """Half the rule. "Never write a real secret value" leaves the writer to
+        invent the alternative, and an evidence block left empty loses the
+        finding it was evidence for."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = build_root(tmp, skill_md=self._skill(
+                "- .env.example files\nNever write a real secret value here.\n"))
+            self.assertIn("R14", rules_hit(root))
+
+    def test_placeholder_without_the_sentinel_is_flagged(self):
+        """The other half. Showing `[REDACTED]` in a table never says the value
+        is forbidden — it reads as one formatting option among several."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = build_root(tmp, skill_md=self._skill(
+                "- .env.example files\nExample column: `[REDACTED]`.\n"))
+            self.assertIn("R14", rules_hit(root))
+
+    def test_prose_saying_a_value_is_redacted_is_not_the_placeholder(self):
+        """A delimiter is required: what has to appear is the token the writer
+        types, not a sentence about redaction in the abstract."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = build_root(tmp, skill_md=self._skill(
+                "- .env.example files\n"
+                "Never write a real secret value; make sure it is redacted.\n"))
+            self.assertIn("R14", rules_hit(root))
+
+    def test_angle_bracket_fingerprint_counts_as_the_placeholder(self):
+        """The security report writes a fingerprint, not a fixed token; both
+        writers must be able to satisfy the same rule in their own shape."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = build_root(tmp, skill_md=self._skill(
+                "Scan for exposed secrets.\n"
+                "Never write a real secret value — emit "
+                "`<redacted len=44 prefix='sk-p' sha256=9f2c1ab4>`.\n"))
+            self.assertNotIn("R14", rules_hit(root))
+
+    def test_capitalized_sentinel_is_recognized(self):
+        """Same trap R9 had: the sentinel is lowercase and real prose starts a
+        sentence with it, so the comparison must be against text.lower()."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = build_root(tmp, skill_md=self._skill(
+                "- .env.example files\n"
+                "NEVER WRITE A REAL SECRET VALUE. Write `{REDACTED}` instead.\n"))
+            self.assertNotIn("R14", rules_hit(root))
+
+    def test_flagged_once_per_file_not_per_mention(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = build_root(tmp, skill_md=self._skill(
+                "- .env.example files\n- Secrets management approach\n"
+                "- Exposed secrets in code\n- API keys\n"))
+            self.assertEqual(rules_hit(root).count("R14"), 1)
+
+    #: Files that mention secret material and are still out of scope, with the
+    #: real thing each one stands for. One test over both members rather than
+    #: two: the `.py` member has no single-point mutant that kills it — a `.py`
+    #: file is guarded twice, by the markdown-only return *and* by the
+    #: `SKILL.md` name gate, so hoisting the R14 block above the return leaves
+    #: it green (measured 2026-08-23: 139 pass). A redundancy guard, and filing it
+    #: as a member of the property it belongs to says so instead of letting it
+    #: pose as an independently verified test.
+    OUT_OF_SCOPE = (
+        ("reference_md", "| Variable | Example |\n|---|---|\n"
+                         "| `DATABASE_URL` | read it from `.env.example` |\n"),
+        ("script_py", 'EXTENSIONS = (".sh", ".env", ".gitignore")\n'
+                      'FIXTURE = ".env.local"\n'),
+    )
+
+    def test_only_skill_md_is_checked(self):
+        """R14 reads `SKILL.md` and nothing else under a skill directory.
+
+        `references/templates.md` trips the rule on 18 lines — 15 of them a
+        `.env` mention, 17 mentions in all — and every one of the 18 is
+        scaffolding inside a fenced template, instructing nobody. The `.py`
+        corpus is the same story in fewer places: measured at `f61cfbd`, three
+        hits under `skills/**/*.py`, all of them names (a `.env` entry in an
+        extension list, a `.env.local` graph fixture and the comment about it).
+        SKILL.md is the file the Agent Skills spec guarantees a host loads; it
+        is also the only one worth policing.
+        """
+        for kind, body in self.OUT_OF_SCOPE:
+            with self.subTest(kind=kind), tempfile.TemporaryDirectory() as tmp:
+                root = build_root(tmp, **{kind: body})
+                self.assertNotIn("R14", rules_hit(root))
+
+    def test_ordinary_token_and_password_prose_is_not_flagged(self):
+        """The three sentences that made a bare `token`/`password` keyword
+        unusable: two skills price a fan-out in LLM tokens, the resolver
+        describes token validation, and spec-manager documents a password
+        decision. None of them reads a secret."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = build_root(tmp, skill_md=self._skill(
+                "Costs roughly 7x the tokens of a sequential pass.\n"
+                "SEC-003: auth bypass in token validation.\n"
+                "### No Password Fallback\n"
+                "We do not offer password authentication as a fallback.\n"))
+            self.assertNotIn("R14", rules_hit(root))
+
+    # --- the rule has to be in the slot, not only in the file ---------------
+    #
+    # SEC-009 in one line: the report template's evidence block took a bare
+    # `{code snippet}`, and for a Secrets finding the vulnerable code *is* the
+    # credential. A `### Redaction` section further down the same file is not a
+    # fix for that, it is the excuse — so this clause does not consult the
+    # file-level `stated` check at all.
+
+    SECTION = (
+        "Scan for exposed secrets in code.\n\n"
+        "Never write a real secret value; write `[REDACTED]` instead.\n\n"
+    )
+
+    def test_a_bare_copied_source_slot_is_flagged(self):
+        """The regression itself: the file states the rule in full and the slot
+        the writer types into still says nothing."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = build_root(tmp, skill_md=self._skill(
+                self.SECTION + "**Vulnerable Code:**\n{code snippet}\n"))
+            self.assertIn("R14", rules_hit(root))
+
+    def test_a_slot_carrying_the_placeholder_is_accepted(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = build_root(tmp, skill_md=self._skill(
+                self.SECTION + "**Vulnerable Code:**\n"
+                "{code snippet — swap the literal for "
+                "<redacted len=44 prefix='sk-p' sha256=9f2c1ab4>}\n"))
+            self.assertNotIn("R14", rules_hit(root))
+
+    def test_a_slot_carrying_the_sentinel_is_accepted(self):
+        """Either half is enough *in the slot*: a writer who is told not to
+        write the value has been told the thing that matters, and the file-level
+        check is what makes sure the placeholder is defined somewhere."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = build_root(tmp, skill_md=self._skill(
+                self.SECTION + "**Vulnerable Code:**\n"
+                "{code snippet; never write a real secret value}\n"))
+            self.assertNotIn("R14", rules_hit(root))
+
+    def test_a_slot_with_nested_braces_is_still_a_slot(self):
+        """The remediation for the real one spells the fingerprint out as
+        `<redacted len={n} ...>`, nesting braces one deep. A pattern that stops
+        at the first inner brace would stop checking the slot the moment
+        somebody fixed it — a gate that only ever guards the past."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = build_root(tmp, skill_md=self._skill(
+                self.SECTION + "{code snippet, {language}-tagged}\n"))
+            self.assertIn("R14", rules_hit(root))
+
+    def test_a_slot_in_a_skill_that_reads_no_secrets_is_not_flagged(self):
+        """`freya-code-graph` has bare `{...}` lines too, and no worker of its
+        ever looks at a credential. The trigger is the same for both halves of
+        R14 or the rule stops being about secrets."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = build_root(tmp, skill_md=self._skill(
+                "**Vulnerable Code:**\n{code snippet}\n"))
+            self.assertNotIn("R14", rules_hit(root))
+
+    def test_a_describe_it_slot_is_not_a_copied_source_slot(self):
+        """32 of the 33 bare slots in the shipped corpus take no verbatim source
+        — a description, a command, a template branch, JSON in an example. There
+        is nothing to redact in any of them; demanding a notice is noise."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = build_root(tmp, skill_md=self._skill(
+                self.SECTION + "{What the vulnerability is and why it matters}\n"
+                "{For each finding that matches a spec:}\n"))
+            self.assertNotIn("R14", rules_hit(root))
+
+    def test_every_unguarded_slot_is_reported_not_just_the_first(self):
+        """Unlike the file-level clause, one sentence does not fix these: each
+        slot is its own edit, so each one has to be named."""
+        with tempfile.TemporaryDirectory() as tmp:
+            root = build_root(tmp, skill_md=self._skill(
+                self.SECTION + "{code snippet}\n\n{the secret literal}\n"))
+            self.assertEqual(rules_hit(root).count("R14"), 2)
+
+
 # Last, not mid-file: this used to sit above FrontmatterLengthTest, so running
 # the file directly (rather than through `-m unittest` or pytest) executed
 # unittest.main() before that class existed and silently skipped all five of

@@ -4,6 +4,7 @@
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -11,6 +12,7 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import drift  # noqa: E402  — `_GRAPH_OPS`, for the tests that run the real child CLI
 from drift import append_resolution, active_prior, build_drift_context, compute_impact, drift_gaps, RESOLUTIONS_RELPATH  # noqa: E402
 
 
@@ -130,6 +132,68 @@ class ComputeImpactCase(unittest.TestCase):
             impact, source = compute_impact(".", "BASE")
         self.assertEqual(source, "empty")
         self.assertEqual(impact, set())
+
+
+class ImpactArgvCase(unittest.TestCase):
+    """A name git reports is a filename, and the child CLI has to read it as one.
+
+    `git diff --name-only` will happily print `--build`. It is a legal filename on every
+    platform this runs on, and `git add -- --build` is all it takes to get one into a
+    repository. Those names went into the code-graph child's argv as bare positional
+    values, where argparse read them as flags — and `--build` sits in the same mutually
+    exclusive group as `--impact`, so the child exited rc=2, the `CalledProcessError` was
+    swallowed one frame up, and `compute_impact` returned `changed-only`. Every dependent
+    dropped out of the blast radius, and the run reported success. One filename turns the
+    declarative-drift gate into a check of the changed files and nothing else.
+
+    Two changes went in, and only one of them is load-bearing. Said plainly, because a
+    docstring that credits both would leave the next reader unable to tell which:
+
+      - each path is spelled `./<path>`. argparse cannot mistake that for a flag, and
+        `normalize_key` (posixpath.normpath) strips it again on the way in, so the graph is
+        keyed exactly as before. This is the fix. Drop it, with or without the reorder, and
+        the second test below goes red.
+      - `--impact` moved last, so its `nargs='+'` has no `--dir` or `--format` behind it
+        left to swallow. Defence in depth, and labelled as such: with the `./` in place no
+        input reaches the greedy case, so reverting this alone leaves both tests green. The
+        security report claims both halves are required; measured, they are not.
+
+    Neither is asserted through argv shape. An `assertLess(argv.index(...), ...)` passes
+    with either half missing, which is exactly how this defect survived review the first
+    time.
+
+    These run the real child process against a real graph on purpose. Mocking
+    `subprocess.run` here would assert the argv this file already believes in, which is the
+    thing in question.
+    """
+
+    def _project(self):
+        """Two Python files, b importing a, with a real graph built on disk."""
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        _write(Path(d) / "a.py", "A = 1\n")
+        _write(Path(d) / "b.py", "from a import A\nB = A\n")
+        built = subprocess.run(
+            [sys.executable, drift._GRAPH_OPS, "--build", "--dir", d,
+             "--format", "json", "--non-interactive"], capture_output=True, text=True)
+        self.assertEqual(built.returncode, 0, built.stderr)
+        return d
+
+    def test_an_ordinary_change_still_gets_its_dependents(self):
+        """The `./` prefix must not cost anything: `normalize_key` strips it, so the keys
+        the child answers with are the keys the graph holds."""
+        proj = self._project()
+        with mock.patch("drift.changed_files", return_value=["a.py"]):
+            impact, source = compute_impact(proj, "BASE")
+        self.assertEqual(source, "code-graph")
+        self.assertEqual(impact, {"a.py", "b.py"})
+
+    def test_a_leading_dash_filename_does_not_collapse_the_blast_radius(self):
+        proj = self._project()
+        with mock.patch("drift.changed_files", return_value=["a.py", "--build"]):
+            impact, source = compute_impact(proj, "BASE")
+        self.assertEqual(source, "code-graph")
+        self.assertIn("b.py", impact)
 
 
 class ContextCase(unittest.TestCase):

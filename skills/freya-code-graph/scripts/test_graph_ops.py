@@ -2873,5 +2873,107 @@ class TestTheResolverCannotEscapeTheProject(Base):
         self.assertEqual(g._resolve_python_module(g.project_dir, ["pkg"]), "pkg/__init__.py")
 
 
+class TestTheCachedCommitIsNotAGitArgument(Base):
+    """`graph.json` is input, not fact, and its `commit` was pasted into a git revision.
+
+    The cache is gitignored *here*, so the reflex is "nobody can reach it". Nothing stops
+    another repository committing one, and `--update` is the first thing wrap-up runs after
+    a checkout. A `commit` of `--output=<path>` turned the revision slot into a git option:
+    `git diff --output=<path>..HEAD --name-only ...` wrote git's own output over that path
+    and printed nothing, so `_get_changed_files` returned `[]`, `update()` read `[]` as
+    "nothing changed", and the graph reported itself up to date for as long as the poisoned
+    cache survived. A truncated file and a frozen graph, and the run exited 0.
+
+    Two controls, tested apart because together they hide each other:
+
+      - the hash check in `update()`, which means the string never reaches argv. This is the
+        one that does not depend on the git version.
+      - `--end-of-options` in the argv, which holds if the check is ever loosened. Its
+        position is the whole trick: git refuses `--name-only` *after* a non-option
+        argument, so the separator goes last, after the options and before the revision.
+        Put it first — the obvious reading — and every `--update` on every machine returns
+        rc=128, `_get_changed_files` answers None forever, and the incremental path silently
+        becomes a full rebuild. That failure is invisible; it just costs minutes.
+    """
+
+    def _poisoned(self, commit):
+        """A real repository whose cached graph carries `commit`, and nothing else."""
+        proj = self.mk({"src/a.ts": "export const a = 1\n"})
+        _git_repo(proj)
+        gdir = Path(proj) / "knowledge-base" / ".graph"
+        gdir.mkdir(parents=True, exist_ok=True)
+        (gdir / "graph.json").write_text(json.dumps({
+            "version": substrate.GRAPH_SCHEMA_VERSION, "commit": commit, "files": {},
+        }), encoding="utf-8")
+        return proj, gdir
+
+    def test_a_cached_commit_that_is_not_a_hash_rebuilds_instead_of_freezing(self):
+        """End to end, with the payload the finding names: no write outside the graph, and
+        the answer is a real rebuild rather than "up to date"."""
+        # Its own empty directory, and asserted empty rather than globbed for a name. Aimed
+        # at the shared temp root instead, this passes or fails on debris another test left
+        # behind — which it did, once, and read as a fix.
+        target = Path(self.mk({}))
+        proj, gdir = self._poisoned("--output=" + str(target / "pwn"))
+
+        out = graph_ops.run_update(CodeGraph(proj), non_interactive=True)
+
+        self.assertEqual(out["status"], substrate.Result.BUILT)
+        self.assertIn("src/a.ts", json.loads((gdir / "graph.json").read_text())["files"])
+        self.assertEqual(sorted(p.name for p in target.iterdir()), [],
+                         "git wrote outside the project on the strength of a cached string")
+
+    def test_a_cached_commit_that_is_not_a_hash_is_never_handed_to_git(self):
+        """The half the separator would otherwise cover for. Both controls turn a poisoned
+        cache into a rebuild, so "it rebuilt" cannot tell them apart — this asks the narrower
+        question the hash check exists to answer: git is never asked at all."""
+        asked = []
+
+        class Recording(CodeGraph):
+            def _get_changed_files(self, since_commit):
+                asked.append(since_commit)
+                return super()._get_changed_files(since_commit)
+
+        proj, _ = self._poisoned("--output=" + str(Path(self.mk({})) / "pwn"))
+        self.assertEqual(graph_ops.run_update(Recording(proj), non_interactive=True)["status"],
+                         substrate.Result.BUILT)
+        self.assertEqual(asked, [])
+
+        proj, _ = self._poisoned("0" * 40)   # hex, so this one is allowed through to git
+        graph_ops.run_update(Recording(proj), non_interactive=True)
+        self.assertEqual(asked, ["0" * 40])
+
+    def test_the_diff_argv_puts_its_options_before_the_revision(self):
+        """`_get_changed_files` directly, with the hash check out of the picture.
+
+        The second assertion is the reason this test exists. Ordering the argv the obvious
+        way — separator first — passes the first assertion and fails this one, because git
+        answers `option '--name-only' must come before non-option arguments`, rc=128, for
+        every ordinary revision as well as the hostile one.
+        """
+        root = self.mk({"pkg/src/a.ts": "export const a = 1\n",
+                        "pkg/src/b.ts": 'import { a } from "./a"\nexport const b = a\n'})
+        proj = os.path.join(root, "pkg")
+        env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@e",
+                   GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@e")
+        for argv in (["git", "init", "-q"], ["git", "add", "-A"],
+                     ["git", "commit", "-qm", "one"]):
+            subprocess.run(argv, cwd=root, env=env, capture_output=True, check=True)
+        base = subprocess.run(["git", "rev-parse", "HEAD"], cwd=root, env=env,
+                              capture_output=True, text=True, check=True).stdout.strip()
+        with open(os.path.join(proj, "src", "b.ts"), "w", encoding="utf-8") as f:
+            f.write('import { a } from "./a"\nexport const b = a\nexport const NEW = 2\n')
+        for argv in (["git", "add", "-A"], ["git", "commit", "-qm", "two"]):
+            subprocess.run(argv, cwd=root, env=env, capture_output=True, check=True)
+
+        g = CodeGraph(proj)
+        target = Path(self.mk({}))
+        self.assertIsNone(g._get_changed_files("--output=" + str(target / "pwn")))
+        self.assertEqual(sorted(p.name for p in target.iterdir()), [])
+        # Project-relative, from a project one directory below the repository root: the
+        # separator must not cost `--relative` its effect.
+        self.assertEqual(g._get_changed_files(base), ["src/b.ts"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

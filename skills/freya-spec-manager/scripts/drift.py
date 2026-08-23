@@ -87,8 +87,8 @@ def compute_impact(project, base):
         return set(), "empty"
     try:
         out = subprocess.run(
-            [sys.executable, _GRAPH_OPS, "--impact", *changed,
-             "--dir", project, "--format", "json"],
+            [sys.executable, _GRAPH_OPS, "--dir", project, "--format", "json",
+             "--impact", *("./" + p for p in changed)],  # a path, never a flag
             capture_output=True, text=True, check=True).stdout
         data = json.loads(out)
         if "all_affected" in data:

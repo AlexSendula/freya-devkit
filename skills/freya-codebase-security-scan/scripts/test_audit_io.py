@@ -400,5 +400,166 @@ class CategoryVocabularyTest(unittest.TestCase):
                         audit_io.extract_json(text, audit_io.VERDICT_SCHEMA), answer)
 
 
+#: AWS's own documentation example secret key. Forty characters, no `.md` or
+#: path token in it, and it is a published example, so a test fixture carrying
+#: it is not itself the thing these tests are about.
+SECRET = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+#: A second credential-shaped string that is never handed to the redactor.
+UNTOLD = "ghp_0123456789abcdefghijABCDEFGHIJ012345"
+
+
+class RedactionTest(unittest.TestCase):
+    """A credential a finder read out of the scanned repository must not be
+    copied into anything this toolkit prints or commits.
+
+    `codeSnippet` is a verbatim copy of the vulnerable line, and for a
+    `secrets` finding that line *is* the credential. It rode out of the engine
+    three ways: into the skeptic prompt, which the driver passes as an argv
+    element visible in any local process listing; into the driver's stdout; and
+    from there into a git-tracked report, which turns a secret that lived only
+    in an untracked file into a blob that survives both rotation and deleting
+    the report.
+
+    Scope, stated rather than implied, because the first pass at this covered
+    two fields of four and read as though it covered all of them: what these
+    tests pin is `codeSnippet` plus the three prose fields in
+    `_SCRUBBED_FIELDS`, and only against the snippet's own literals. A
+    credential a finder paraphrases or quotes from somewhere the snippet never
+    went is out of scope here and out of scope in the code — see
+    `redact_secret_evidence`, which says why it will not go looking.
+    """
+
+    def test_the_fingerprint_never_contains_the_value(self):
+        """Length, a four-character prefix and a digest — nothing reversible.
+
+        Asserted over every 8-character window past the declared prefix rather
+        than on the whole string, so a fingerprint that quietly appended the
+        original, or widened the prefix, is caught too.
+        """
+        out = audit_io.redact_literals(SECRET, [SECRET])
+        self.assertNotIn(SECRET, out)
+        for start in range(audit_io.KEEP_PREFIX, len(SECRET) - 8):
+            with self.subTest(window=start):
+                self.assertNotIn(SECRET[start:start + 8], out)
+        self.assertIn(str(len(SECRET)), out)
+
+    def test_a_known_literal_is_replaced_and_an_unknown_one_is_not(self):
+        """Literal substitution, not detection. The half that says a value it
+        was never handed survives is the important one: a detector's false
+        positive deletes evidence out of a report nobody re-reads."""
+        out = audit_io.redact_literals(f"key {SECRET} token {UNTOLD}", [SECRET])
+        self.assertNotIn(SECRET, out)
+        self.assertIn(UNTOLD, out)
+
+    def test_a_literal_that_is_a_prefix_of_another_keeps_its_tail_covered(self):
+        """Longest first. Replacing `sk-abc` inside `sk-abcdef123456` leaves
+        `def123456` standing in the clear, which is most of the secret."""
+        out = audit_io.redact_literals("token=sk-abcdef123456;",
+                                       ["sk-abc", "sk-abcdef123456"])
+        self.assertNotIn("def123456", out)
+
+    def test_the_same_value_fingerprints_identically_across_calls(self):
+        """Stability is why it is a digest and not a counter: a reader has to be
+        able to say "same secret as last month" from two reports."""
+        self.assertEqual(audit_io.redact_literals(SECRET, [SECRET]),
+                         audit_io.redact_literals(SECRET, [SECRET]))
+
+    def test_two_values_of_one_length_and_prefix_stay_distinguishable(self):
+        first, second = "sk-a" + "A" * 36, "sk-a" + "B" * 36
+        self.assertNotEqual(audit_io.redact_literals(first, [first]),
+                            audit_io.redact_literals(second, [second]))
+
+    def test_a_value_too_short_to_prefix_shows_no_prefix(self):
+        """`len=7 prefix='hunt'` is a hint, not a redaction."""
+        out = audit_io.redact_literals("password is hunter2 here", ["hunter2"])
+        self.assertIn("prefix=''", out)
+        self.assertNotIn("hunt", out)
+
+    def test_a_non_secrets_finding_is_returned_untouched(self):
+        """The vulnerable-code block is most of what a report is worth for an
+        injection finding. This is not a secret detector and must not act like
+        one."""
+        item = finding(codeSnippet="db.query('SELECT * FROM u WHERE n=' + name)")
+        self.assertEqual(audit_io.redact_secret_evidence(item), item)
+
+    def test_a_secrets_finding_loses_its_snippet_and_its_quoted_line(self):
+        snippet = f'AWS_SECRET_ACCESS_KEY = "{SECRET}"'
+        item = finding(category="secrets", codeSnippet=snippet,
+                       description=f"AWS_SECRET_ACCESS_KEY is assigned here: {snippet}")
+        out = audit_io.redact_secret_evidence(item)
+        self.assertNotIn(SECRET, json.dumps(out))
+        self.assertIn("AWS_SECRET_ACCESS_KEY", out["description"])
+
+    def test_a_description_quoting_one_line_of_the_snippet_is_scrubbed(self):
+        """A finder that quotes the offending line rather than the whole block
+        is the common shape, and the whole-snippet literal never matches it."""
+        snippet = 'config = {\n    "apiKey": "%s",\n}' % SECRET
+        item = finding(category="secrets", codeSnippet=snippet,
+                       description='The line `"apiKey": "%s",` is committed.' % SECRET)
+        out = audit_io.redact_secret_evidence(item)
+        self.assertNotIn(SECRET, json.dumps(out))
+
+    def test_a_secrets_finding_with_no_snippet_is_unchanged(self):
+        item = finding(category="secrets", description="a key is hardcoded")
+        self.assertEqual(audit_io.redact_secret_evidence(item), item)
+
+    def _only_this_field_quotes_the_snippet(self, field):
+        """A secrets finding whose one prose mention of the credential sits in
+        `field`. One field at a time, so a red test names the leak."""
+        snippet = f'AWS_SECRET_ACCESS_KEY = "{SECRET}"'
+        item = finding(category="secrets", codeSnippet=snippet,
+                       **{field: f"the line `{snippet}` is committed"})
+        return audit_io.redact_secret_evidence(item)
+
+    def test_a_description_quoting_the_snippet_is_scrubbed(self):
+        """The field the first pass covered, kept as the control for the two
+        below: if this one ever goes red with them, the loop is gone, not
+        narrowed."""
+        out = self._only_this_field_quotes_the_snippet("description")
+        self.assertNotIn(SECRET, json.dumps(out))
+        self.assertIn("redacted", out["description"])
+
+    def test_a_title_quoting_the_snippet_is_scrubbed(self):
+        """A finder titles a secrets finding by quoting what it found, and a
+        title is the one field that reaches a report's table of contents, its
+        summary line and its commit message."""
+        out = self._only_this_field_quotes_the_snippet("title")
+        self.assertNotIn(SECRET, json.dumps(out))
+        self.assertIn("redacted", out["title"])
+
+    def test_a_recommendation_quoting_the_snippet_is_scrubbed(self):
+        """`recommendation` is required by FINDER_SCHEMA and "remove <the key>
+        and rotate it" is the obvious thing to write in it — the likeliest of
+        the three to carry the value, and the last one anybody thinks to check.
+        """
+        out = self._only_this_field_quotes_the_snippet("recommendation")
+        self.assertNotIn(SECRET, json.dumps(out))
+        self.assertIn("redacted", out["recommendation"])
+
+    def test_a_cwe_carrying_the_snippet_is_scrubbed(self):
+        """`cwe` was nearly excluded as "an identifier" — which describes what
+        the field is for, not what a model writes into it. FINDER_SCHEMA
+        declares it a free string, and a finder that explains its classification
+        quotes the line it classified. Measured on the version that excluded it:
+        the credential came back out of `audit()` through all three doors.
+
+        The rule this pins is the general one: a field earns exclusion by what
+        scrubbing it COSTS, never by what it is nominally for. Scrubbing `cwe`
+        costs nothing, which the control below is what proves.
+        """
+        out = self._only_this_field_quotes_the_snippet("cwe")
+        self.assertNotIn(SECRET, json.dumps(out))
+        self.assertIn("redacted", out["cwe"])
+
+    def test_a_genuine_cwe_identifier_survives_untouched(self):
+        """The control for the test above, and the reason the exclusion argument
+        was wrong. `redact_literals` substitutes literals, so a real `CWE-798`
+        shares no bytes with the snippet and comes back exactly as written —
+        scrubbing the field costs nothing at all."""
+        snippet = f'AWS_SECRET_ACCESS_KEY = "{SECRET}"'
+        item = finding(category="secrets", codeSnippet=snippet, cwe="CWE-798")
+        self.assertEqual(audit_io.redact_secret_evidence(item)["cwe"], "CWE-798")
+
+
 if __name__ == "__main__":
     unittest.main()

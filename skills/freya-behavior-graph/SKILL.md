@@ -73,3 +73,42 @@ freya behavior-graph --gaps --project /path/to/project
 # Security cross-ref — accepted behaviors whose exercised code includes FILE:
 freya behavior-graph --covering lib/webauthn.ts --project /path/to/project
 ```
+
+## What `--covering` answers, and what it does not
+
+`--covering` is the one query whose answer licenses a security finding to be downgraded, so
+it labels its own evidence rather than leaving the caller to guess. Real output of the
+command above, against a project with one accepted behavior over `lib/webauthn.ts`:
+
+```json
+{
+  "version": 1,
+  "file": "lib/webauthn.ts",
+  "covering": [
+    {
+      "behavior_id": "BEH-003",
+      "spec_id": "SPEC-004",
+      "coverage": "observed",
+      "locator": "tests/webauthn.spec.ts::logs in with a passkey"
+    }
+  ],
+  "evidence": "state and locator re-derived from knowledge-base/specs; exercised paths and coverage read from the project's committed knowledge-base/.graph/behavior.json. No test was run by this query, so this is a label on the evidence, not a verification of it."
+}
+```
+
+`state`, `spec_id` and `locator` are re-read from the spec frontmatter, not taken from
+`behavior.json`, and a declared locator that does not resolve to a file inside the project
+drops the row. So a behavior demoted to `proposed`, or one whose test file was renamed,
+stops licensing a downgrade at the *next query* rather than at the next `--build`. A row can
+therefore disappear between two runs with no code change: that is the check working.
+
+**The locator check only runs on a locator that is there.** `covering()` never reads
+`adapter`, so a behavior declaring none skips the check entirely — measured 2026-08-23,
+`state: accepted, adapter: vitest` with no locator is refused by `verify_links` at Tier 1
+(`missing-locator`) and returned here, as a row with `"locator": null`. Read that null as
+"nothing was checked", not as "nothing to check".
+
+**No test is run by this query.** Both inputs belong to the project being scanned, and the
+only evidence that would not be is executing that project's suite. `evidence` says as much
+in one sentence, and the caller is expected to carry that sentence into the report a human
+reads — see `freya-codebase-security-scan`, `check-specs` Phase 3.

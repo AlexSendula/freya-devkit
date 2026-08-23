@@ -90,15 +90,15 @@ security_implications: "No role-based access control needed for post operations"
 
 If no specs exist, note this and proceed (but warn that findings may include intentional design decisions).
 
-**Also cross-reference accepted behaviors (verified evidence).** Beyond declarative
-specs, an `accepted`, test-backed behavior whose intent explains a finding is the
-**strongest** "intentional" evidence — a verified guarantee, not a prose claim. When
-validating findings (in `scan`/`update` as well as `check-specs`), apply the
-behavior cross-reference exactly as in **`check-specs` Phase 3**: run
-`behavior-graph --covering <finding-file>`, judge whether an accepted behavior
-explains the finding, and on a match mark it intentional with `behavior_ref` +
-"verified by passing test". Only `accepted` behaviors downgrade a finding;
-`proposed`/`confirmed` add at most an advisory note and the finding stays open.
+**Also cross-reference accepted behaviors.** Beyond declarative specs, an
+`accepted` behavior whose intent explains a finding is the **strongest**
+"intentional" evidence on offer — which is not the same thing as a verified
+guarantee, and the query says so itself. When validating findings (in
+`scan`/`update` as well as `check-specs`), apply the behavior cross-reference
+exactly as in **`check-specs` Phase 3**: run `behavior-graph --covering
+<finding-file>`, judge whether an accepted behavior explains the finding, and on
+a match mark it intentional with `behavior_ref` plus the query's `evidence`
+string copied verbatim. `proposed`/`confirmed` never downgrade; they stay open.
 
 ### Step 3: Run the Security Category Scans
 
@@ -207,7 +207,7 @@ Scan for:
 - Missing input sanitization
 
 #### Category 3: Secrets & Sensitive Data
-Scan for:
+Scan for (report the location and a fingerprint, never the value — see [Redaction](#redaction)):
 - Exposed secrets in code (API keys, passwords, tokens)
 - Sensitive data in logs
 - PII exposure risks
@@ -403,7 +403,7 @@ Cross-reference security findings against project specifications to identify int
    - Decision rationale
 
 **Phase 3: Cross-Reference Each Finding**
-For each finding, check two evidence sources — declarative specs and verified behaviors:
+For each finding, check two evidence sources — declarative specs and accepted behaviors:
 
 *Declarative specs (existing):*
 1. Identify the feature/component involved
@@ -413,7 +413,7 @@ For each finding, check two evidence sources — declarative specs and verified 
    - Update status to **INTENTIONAL DESIGN**
    - Add the spec reference (`spec_ref`) and include the rationale from the spec
 
-*Accepted behaviors (verified guarantee — the stronger evidence):*
+*Accepted behaviors (the stronger evidence — read what it is evidence of):*
 5. Run the behavior graph to find the `accepted` behaviors that exercise the
    finding's file:
    ```bash
@@ -421,17 +421,17 @@ For each finding, check two evidence sources — declarative specs and verified 
      --covering <finding-file> --project .
    ```
 6. For each returned behavior, read its intent (its spec's Behavior entry /
-   rationale) and judge: **does this behavior's verified intent explain this
-   finding?** (the same relevance judgment as for specs)
+   rationale) and judge: **does this behavior's intent explain this finding?**
+   (the same relevance judgment as for specs)
 7. If an accepted behavior explains the finding:
    - Update status to **INTENTIONAL DESIGN** and record `behavior_ref: BEH-NNN`
-   - Note *"verified by passing test BEH-NNN (SPEC-MMM)"* — this is the **strongest**
-     evidence and stands even when no declarative spec covers the finding (verified >
-     a prose claim). A finding may carry both `spec_ref` and `behavior_ref`.
-8. **Only `accepted` behaviors downgrade a finding.** `--covering` returns only
-   accepted behaviors; if a `proposed`/`confirmed` behavior is known to be relevant,
-   add only an advisory note ("intended per BEH-NNN, but test owed — not yet
-   verified") and **leave the finding open**.
+   - Note `intentional per BEH-NNN (SPEC-MMM)`, then copy the query's own
+     `evidence` string into the note **verbatim**. Never *"verified by passing
+     test"* — no test ran. A finding may carry both `spec_ref` and `behavior_ref`.
+8. **Only `accepted` behaviors downgrade a finding**, and only on what `--covering`
+   checked: `state` and `spec_id` re-read from the specs, and a locator — *only if one
+   is declared* — resolving to a file in the project. A row with `"locator": null` had
+   no check. `proposed`/`confirmed`: note *"intended, test owed"*, and stay open.
 
 **Phase 4: Update Original Report In Place**
 Enhance the existing security report directly (no new file created):
@@ -868,7 +868,7 @@ most critical issues requiring immediate attention}
 
 **Vulnerable Code:**
 ```{language}
-{code snippet}
+{code snippet — a Secrets finding reaches you already fingerprinted as <redacted len={n} prefix='{first 4}' sha256={first 8 hex}>; leave it that way, never write a real secret value}
 ```
 
 **Validation:**
@@ -1081,7 +1081,7 @@ commit the findings describe. It mirrors the report's findings exactly —
 one entry per finding with `id`, `title`, `severity` (lowercase), `status`
 (`open`/`resolved`/`intentional`), `file`, optional `line`, `spec_ref`
 when a declarative spec marks the finding intentional, and `behavior_ref` when an
-`accepted` behavior verifiably explains it (the stronger evidence). This lets `freya-status`
+`accepted` behavior explains it (the stronger evidence, not a verified one). This lets `freya-status`
 and the backlog surface open findings without parsing prose. Overwrite it on
 each report write (no dated suffixes — it always reflects the latest report).
 
@@ -1092,7 +1092,7 @@ each report write (no dated suffixes — it always reflects the latest report).
 - Open the suspicious code and examine it in context
 - Focus on actual vulnerabilities, not false positives
 - Provide specific file paths and line numbers
-- Include code snippets showing the issue
+- Include code snippets showing the issue, with any secret literal in them redacted first
 
 ### Severity Guidelines
 
@@ -1132,6 +1132,39 @@ eval\(
 path\.join\([^)]*req\.
 readFile\([^)]*req\.
 ```
+
+### Redaction
+
+The four Secrets patterns above match live credentials, and the report is a file
+`freya-wrap-up` commits. So: **never write a real secret value into the report, into
+`findings.json`, or into anything else you leave behind.** A key that lived only in a
+gitignored `.env` must not come out of it as a tracked blob — the operator can rotate
+the key, but deleting the report tomorrow does not delete the blob.
+
+A fingerprint goes where the value would have gone: how long it was, the first few
+characters, and a truncated SHA-256 of the whole of it. That is enough to act on the
+finding, to tell a live credential from a test fixture, and to recognize the same value
+again on the next scan — the digest is what makes last month's report diffable against
+this one. The `file:line` in the **Location** field is how a reader goes and looks;
+nobody needs the secret quoted back at them.
+
+The driver has already done this for you. Every `secrets`-category finding comes back
+from `freya security` with its `codeSnippet` replaced, and with that same literal
+scrubbed out of the finding's prose fields, in this shape:
+
+```
+<redacted len=44 prefix='sk-p' sha256=8991bfb4>
+```
+
+An empty `prefix=''` is not a bug: a value short enough that four characters would be
+most of it gets none, because `len=7 prefix='hunte'` is a hint rather than a redaction.
+Match that shape when you write a snippet by hand, and never edit a fingerprint back
+into a value — the driver redacts what the finder handed it, so a credential you
+paraphrase yourself is one nothing downstream will catch.
+
+The rule covers passwords, tokens, private keys, connection strings carrying either, and
+every other Category 3 hit — in the report, in `findings.json`, and in whatever you say
+on the way past.
 
 ## Output Format
 

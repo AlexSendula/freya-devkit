@@ -801,6 +801,260 @@ class SpecCitationTest(unittest.TestCase):
         self.assertEqual(result.findings[0]["disposition"], "confirmed")
         self.assertIsNone(result.findings[0]["specReference"])
 
+    def test_an_id_outside_the_spec_namespace_is_not_a_citation(self):
+        """`[A-Z]{2,6}-\\d+` also matched CWE-89, CVE-2021, RFC-7231, ISO-9001,
+        AES-256 and this tool's own SEC-### ids, every one of which corroborated
+        a citation against this repository. A finding's `cwe` field is
+        interpolated verbatim into the skeptic prompt, so a worker reaches "per
+        CWE-89 this is accepted" by paraphrasing its own input.
+
+        The citation strings deliberately carry no `.md` token: with one, the
+        path branch decides the case and the namespace is never consulted — the
+        same trap `test_a_citation_may_not_escape_the_project` documents.
+        """
+        self._spec("docs/SECURITY.md",
+                   "We defend against CWE-89 (SQL injection), follow RFC-7231,\n"
+                   "hold ISO-9001, use AES-256, and SEC-004 is closed.\n")
+        for token in ["CWE-89", "RFC-7231", "ISO-9001", "AES-256", "SEC-004"]:
+            with self.subTest(token=token):
+                d, ref, _ = audit_engine.disposition(
+                    verdicts(("exploitability", "upheld"),
+                             ("compensating-controls", "upheld"))
+                    + [cited("Documented as an accepted risk, see the %s note"
+                             % token)],
+                    project=self.project)
+                self.assertEqual((d, ref), ("confirmed", None))
+
+    def test_the_adr_and_behavior_namespaces_still_corroborate(self):
+        """The fence against narrowing one prefix too far. spec-manager issues
+        all three and the coverage above only exercises SPEC-."""
+        self._spec("knowledge-base/decisions/ADR-003-x.md", "# ADR-003\nDecided.\n")
+        self._spec("knowledge-base/specs/b.md", "BEH-012 is accepted.\n")
+        for token in ["ADR-003", "BEH-012"]:
+            with self.subTest(token=token):
+                d, ref, _ = audit_engine.disposition(
+                    verdicts(("exploitability", "upheld")) + [cited(token)],
+                    project=self.project)
+                self.assertEqual((d, ref), ("intentional-design", token))
+
+    def test_this_skills_own_reports_do_not_corroborate_a_citation(self):
+        """The scanner is not its own witness — by id.
+
+        A report names every id it discusses, including invented ones quoted out
+        of a test, and it lands inside the walked roots — so last month's report
+        corroborates this month's citation. Measured on this repository on
+        2026-08-23 with the namespace already narrowed: `SPEC-999` still
+        resolved, and its only occurrence in the whole tree is a report sentence
+        saying it must not.
+
+        Half the invariant. The path half is the test below, and it is the half
+        that was missing while this docstring claimed the whole thing.
+        """
+        self._spec("knowledge-base/security/codebase-security/2026-08-21.md",
+                   "SEC-005: the invented `SPEC-999` case must not resolve.\n")
+        spoof = (verdicts(("exploitability", "upheld"),
+                          ("compensating-controls", "upheld")) + [cited("SPEC-999")])
+        d, ref, _ = audit_engine.disposition(spoof, project=self.project)
+        self.assertEqual((d, ref), ("confirmed", None))
+
+        # The control, so the assertion above is about *where* the mention was
+        # and not about the id: an ordinary spec still corroborates it.
+        self._spec("knowledge-base/specs/real.md", "SPEC-999 is accepted.\n")
+        d, ref, _ = audit_engine.disposition(spoof, project=self.project)
+        self.assertEqual((d, ref), ("intentional-design", "SPEC-999"))
+
+    def test_a_report_cited_by_path_does_not_corroborate_a_citation(self):
+        """The scanner is not its own witness — by path either.
+
+        The more reachable of the two branches, and the one the id prune left
+        open. A report file genuinely exists, so a skeptic that can list a
+        directory can cite a real path and `os.path.isfile` says yes; the id
+        branch needed the report to happen to name the id being cited. Measured
+        against the tree of 2026-08-23 before the prune: the path branch
+        returned the report and the disposition came back `intentional-design`
+        on a finding two lenses upheld.
+        """
+        report = "knowledge-base/security/codebase-security/2026-08-21.md"
+        self._spec(report, "SEC-005: accepted risk, see the note above.\n")
+        spoof = (verdicts(("exploitability", "upheld"),
+                          ("compensating-controls", "upheld"))
+                 + [cited("%s#sec-005" % report)])
+        d, ref, _ = audit_engine.disposition(spoof, project=self.project)
+        self.assertEqual((d, ref), ("confirmed", None))
+
+        # Two controls, because "no" is cheap to get for the wrong reason.
+        # First: the prune is about the directory, not about the filename or
+        # the `#fragment` — the same document one level up still corroborates.
+        self._spec("knowledge-base/2026-08-21.md", "SEC-005: accepted.\n")
+        d, _, _ = audit_engine.disposition(
+            verdicts(("exploitability", "upheld"))
+            + [cited("knowledge-base/2026-08-21.md#sec-005")],
+            project=self.project)
+        self.assertEqual(d, "intentional-design")
+
+        # Second: a third party's own security prose is not this tool's output
+        # and is exactly the corroboration the resolver exists to find.
+        self._spec("docs/security/threat-model.md", "Accepted: SEC-005.\n")
+        d, _, _ = audit_engine.disposition(
+            verdicts(("exploitability", "upheld"))
+            + [cited("docs/security/threat-model.md")],
+            project=self.project)
+        self.assertEqual(d, "intentional-design")
+
+
+class SecretRedactionTest(unittest.TestCase):
+    """A credential a finder copied out of the scanned repository must not leave
+    this engine in any field it copied it into.
+
+    It used to leave by three doors, and the engine owns all three: the skeptic
+    prompt, which the driver passes as an argv element that any local user can
+    read out of a process listing; the driver's stdout; and the git-tracked
+    report the agent writes from that stdout. These tests pin the fix at the one
+    *ingest*, so they stay green if the value is redacted earlier and go red the
+    moment it is redacted later — which is the difference between one edit and
+    three chances to miss one.
+
+    "In any field it copied it into" is load-bearing and was not always true:
+    the fixture below quotes the snippet in `title`, `description` and
+    `recommendation` because a fixture loading only `description` left two
+    fields uncovered while this docstring said the credential could not leave.
+    What is still not claimed, here or in `redact_secret_evidence`: a credential
+    a finder *paraphrases* rather than copies is not caught, because catching it
+    needs pattern detection the redactor declines to do.
+
+    AWS's own published example key, so the fixture is not itself a secret.
+    """
+
+    SECRET = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+    SNIPPET = 'AWS_SECRET_ACCESS_KEY = "%s"' % SECRET
+
+    def _ask(self, prompts, category="secrets"):
+        def ask(prompt, schema=None):
+            prompts.append(prompt)
+            if schema is audit_engine.FINDER_SCHEMA:
+                # Every prose field quotes the snippet, because a finder writes
+                # the same evidence into whichever one it is filling. A fixture
+                # that only loaded `description` is how a fix covering two of
+                # the four fields read as though it covered all of them.
+                return {"findings": [finding(
+                    file="src/config.js", line=12, category=category,
+                    title="hardcoded credential %s" % self.SNIPPET,
+                    description="hardcoded credential: %s" % self.SNIPPET,
+                    recommendation="remove %s and rotate it" % self.SNIPPET,
+                    codeSnippet=self.SNIPPET)]}
+            if schema is not None:
+                lens = prompt.split("Lens: ", 1)[1].split(".", 1)[0]
+                return {"lens": lens, "verdict": "upheld", "reason": "r"}
+            return "context"
+        return ask
+
+    def test_a_credential_never_survives_discovery(self):
+        found = audit_engine.discover(self._ask([]), "ctx", SEQUENTIAL,
+                                      max_rounds=1)
+        self.assertTrue(found.findings, "fixture must produce a finding")
+        self.assertNotIn(self.SECRET, str(found.findings))
+
+    def test_no_skeptic_prompt_ever_carries_the_credential(self):
+        """`_skeptic` interpolates the whole finding dict, so this is the argv
+        element the driver builds. Asserted on the count as well as the content:
+        a stub that never reached a skeptic would pass an empty loop."""
+        prompts = []
+        result = audit_engine.audit(self._ask(prompts), SEQUENTIAL, max_rounds=1)
+        skeptic = [p for p in prompts if "Lens: " in p]
+        self.assertEqual(len(skeptic), len(audit_engine.SKEPTICS))
+        self.assertTrue(result.findings)
+        for prompt in skeptic:
+            self.assertNotIn(self.SECRET, prompt)
+            # What the skeptic keeps: where to look, and a stand-in stable
+            # enough to recognise the same secret on the next run. The worker
+            # can open the file itself; it does not need the bytes posted to it.
+            self.assertIn("src/config.js", prompt)
+            self.assertIn("redacted", prompt)
+
+    def test_another_category_keeps_its_snippet_all_the_way_through(self):
+        """The anti-over-reach half. Vulnerable code is most of what a report is
+        worth for an injection finding, and redacting at ingest is exactly where
+        an over-broad rule would quietly eat it."""
+        prompts = []
+        result = audit_engine.audit(self._ask(prompts, category="injection"),
+                                    SEQUENTIAL, max_rounds=1)
+        self.assertEqual(result.findings[0]["codeSnippet"], self.SNIPPET)
+        self.assertIn(self.SNIPPET, [p for p in prompts if "Lens: " in p][0])
+
+
+class LensBindingTest(unittest.TestCase):
+    """A verdict is attributed to the lens whose question produced it.
+
+    The wave submits one thunk per lens in SKEPTICS order and regroups by index,
+    so slot j is SKEPTICS[j] — but `disposition` re-derived the lens from each
+    answer's own `lens` key and nothing compared the two. Any of the three
+    workers could therefore cast the single-lens spec veto that outranks a
+    majority, and one mislabel made a report name a lens that never answered.
+
+    A separate class rather than more methods on VerifyAllTest: inserting there
+    would shift `test_audit_engine.py:725-727`, which the security report cites.
+    """
+
+    def _ask(self, replies):
+        def ask(prompt, schema=None):
+            return replies(prompt.split("Lens: ", 1)[1].split(".", 1)[0])
+        return ask
+
+    def _settle_one(self, replies):
+        return audit_engine.verify_all([finding()], self._ask(replies), "ctx",
+                                       SEQUENTIAL)[0]
+
+    def test_a_verdict_is_bound_to_the_lens_it_was_asked_for(self):
+        """No `project`, so the citation is trusted as written and the binding
+        is the only thing between the spoof and `intentional-design`."""
+        def replies(lens):
+            if lens == "exploitability":
+                return {"lens": "spec-intentional", "verdict": "refuted",
+                        "reason": "r", "specReference": "SPEC-007"}
+            return {"lens": lens, "verdict": "upheld", "reason": "r"}
+
+        out = self._settle_one(replies)
+        self.assertEqual(out["disposition"], "confirmed")
+        self.assertIsNone(out["specReference"])
+        self.assertEqual(out["verification"]["mislabeled"], 1)
+
+    def test_a_failed_call_does_not_slide_the_lenses_left(self):
+        """Binding runs on the raw slice. `disposition` opens by dropping the
+        falsy entries, so binding the filtered list would move every later lens
+        one place left — compensating-controls into slot 0, and spec-intentional
+        out of the slot where the veto is decided."""
+        def replies(lens):
+            if lens == "exploitability":
+                return None
+            return {"lens": "exploitability", "verdict": "upheld", "reason": "r"}
+
+        out = self._settle_one(replies)
+        self.assertEqual(out["verification"]["lenses"],
+                         ["compensating-controls", "spec-intentional"])
+        self.assertEqual(out["verification"]["total"], 2)
+
+    def test_a_mislabelled_verdict_is_counted_and_not_discarded(self):
+        """Rewritten, never dropped. Discarding the one upheld answer here
+        leaves an all-refuted remainder, and a finding every remaining skeptic
+        refuted is deleted — on the strength of a labelling mistake."""
+        def replies(lens):
+            if lens == "spec-intentional":
+                return {"lens": "exploitability", "verdict": "upheld", "reason": "r"}
+            return {"lens": lens, "verdict": "refuted", "reason": "r"}
+
+        out = self._settle_one(replies)
+        self.assertEqual(out["verification"]["total"], 3)
+        self.assertEqual(out["disposition"], "needs-review")
+
+    def test_a_clean_wave_carries_no_mislabeled_key(self):
+        """`mislabeled` is additive: absent whenever every worker answered the
+        question it was asked, so the documented `{upheld, total, lenses}` shape
+        is what every ordinary run still produces."""
+        out = self._settle_one(
+            lambda lens: {"lens": lens, "verdict": "upheld", "reason": "r"})
+        self.assertEqual(out["verification"],
+                         {"upheld": 3, "total": 3, "lenses": audit_engine.SKEPTICS})
+
 
 # Last, not mid-file: this used to sit above PathNormalizationTest, so running
 # the file directly (rather than through `-m unittest`) executed unittest.main()

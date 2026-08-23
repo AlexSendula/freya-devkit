@@ -560,8 +560,8 @@ class CodeGraph:
                 # matched, `update()` found nothing to do and reported success. The graph then
                 # froze at the last full build while continuing to answer confidently.
                 # A no-op at the repository root, so it cannot regress the common case.
-                ['git', 'diff', f'{since_commit}..HEAD', '--name-only', '--no-renames',
-                 '--relative'],
+                ['git', 'diff', '--name-only', '--no-renames', '--relative',
+                 '--end-of-options', f'{since_commit}..HEAD'],
                 cwd=self.project_dir,
                 capture_output=True,
                 text=True,
@@ -2112,9 +2112,9 @@ Respond with ONLY a JSON object, no markdown formatting:
             return self.build(non_interactive=non_interactive, exclusions=exclusions,
                               selection_metadata=selection_metadata)
 
-        last_commit = graph.get('commit')
-        if not last_commit:
-            print('No commit info in cached graph. Running full build...', file=sys.stderr)
+        last_commit = str(graph.get('commit') or '')
+        if not re.fullmatch(r'[0-9a-fA-F]{7,64}', last_commit):
+            print('No usable commit in cached graph. Running full build...', file=sys.stderr)
             return self.build(non_interactive=non_interactive, exclusions=exclusions,
                               selection_metadata=selection_metadata)
 

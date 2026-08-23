@@ -6,6 +6,12 @@ import unittest
 import unittest.mock as mock
 
 import behavior_graph
+# Import order is load-bearing, not alphabetical: verify_links lives under
+# freya-spec-manager, and importing behavior_graph is what puts that scripts/
+# directory on sys.path (behavior_graph.py:20). It is imported rather than
+# shelled out to because LocatorCheckDivergesFromTier1Test asserts what Tier 1
+# says about the same fixture, and a described comparison is one that rots.
+import verify_links  # noqa: E402
 
 
 SPEC = """---
@@ -543,6 +549,13 @@ behaviors:
         os.makedirs(specs)
         with open(os.path.join(specs, "SPEC-100.md"), "w") as f:
             f.write(self.SPEC)
+        # BEH-002's locator has to name a real file: `covering()` runs its own
+        # locator check, because the repository it answers about is one whose
+        # gates nobody here ran. It is not verify_links' Tier-1 check re-run —
+        # the two diverge, and `LocatorCheckDivergesFromTier1Test` is where.
+        os.makedirs(os.path.join(self.proj, "lib"), exist_ok=True)
+        with open(os.path.join(self.proj, "lib", "webauthn.test.ts"), "w") as f:
+            f.write("")
         # code-graph file set (graph.json keys) — the recognised source files
         graph_dir = os.path.join(self.proj, "knowledge-base", ".graph")
         os.makedirs(graph_dir)
@@ -666,7 +679,11 @@ behaviors:
 
     def test_covering_excludes_confirmed_behavior(self):
         # BEH-006 (confirmed) exercises app/api/x/route.ts but is NOT accepted,
-        # so it must not be returned — only verified behaviors downgrade findings.
+        # so it must not be returned. This comment used to read "only verified
+        # behaviors downgrade findings", which is the SEC-006 overclaim in
+        # miniature: `accepted` is a state the scanned project *declares*, and
+        # nothing here ran a test. Only behaviors declared accepted downgrade
+        # findings — that is a narrower sentence and it is the true one.
         r = behavior_graph.covering(self.proj, "app/api/x/route.ts")
         self.assertEqual(r["covering"], [])
 
@@ -680,6 +697,273 @@ behaviors:
         r = behavior_graph.covering(self.proj, "lib/webauthn.ts")
         self.assertEqual(r["file"], "lib/webauthn.ts")
         self.assertEqual(r["covering"], [])
+
+
+class CoveringEvidenceTest(unittest.TestCase):
+    """What `--covering` may claim, and what it may only label (SEC-006).
+
+    The 2026-08-21 scan reproduced the mechanism exactly: a hand-written
+    behavior.json declaring `BEH-777` accepted, with a locator naming a file that
+    does not exist, made `--covering src/vulnerable.ts` return it — and that
+    return value is what licenses ADR-012's downgrade, the only sanctioned way
+    this toolkit stops counting a real security finding.
+
+    It cannot be fixed by reading a different committed file: the specs are
+    committed by whoever committed the graph. So these tests pin the two things
+    that can be fixed — single ownership of `state` (the spec owns it, per
+    ADR-002/ADR-003) and a locator that names a real file — and then pin the
+    residual out loud in
+    `test_an_accepted_behavior_with_no_locator_still_covers`, because a limit
+    nobody wrote down is a limit somebody will mistake for a guarantee.
+
+    The locator property here is *related to* verify_links' Tier-1 one and is
+    not the same property; `LocatorCheckDivergesFromTier1Test` measures the gap.
+    Neither is a verification: an `accepted` state and a resolving locator are
+    both things the scanned repository asserts about itself, and no test is run
+    by any of this.
+    """
+
+    SPEC = """---
+id: SPEC-777
+title: Covering fixture
+category: features
+status: implemented
+behaviors:
+  - behavior_id: BEH-777
+    title: A behavior somebody declared
+    state: {state}
+    level: unit
+    adapter: {adapter}
+{locator_line}---
+# body
+"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.proj = self.tmp.name
+        os.makedirs(os.path.join(self.proj, "lib"))
+        with open(os.path.join(self.proj, "lib", "webauthn.test.ts"), "w") as f:
+            f.write("")
+        # The attacker's artifact, verbatim: accepted state and an exercise on the
+        # flagged file, asserted by the graph and by nothing else.
+        behavior_graph.write_behavior_json(self.proj, {
+            "version": 1, "commit": "fixture",
+            "behaviors": {
+                "BEH-777": {"spec_id": "SPEC-777", "state": "accepted",
+                            "coverage": "observed",
+                            "exercises": [{"path": "src/vulnerable.ts"}]},
+            },
+        })
+
+    def _write_spec(self, state="accepted", locator="lib/webauthn.test.ts::x",
+                    adapter="vitest"):
+        specs = os.path.join(self.proj, "knowledge-base", "specs", "features")
+        os.makedirs(specs, exist_ok=True)
+        locator_line = "" if locator is None else "    locator: {}\n".format(locator)
+        with open(os.path.join(specs, "SPEC-777.md"), "w") as f:
+            f.write(self.SPEC.format(state=state, adapter=adapter,
+                                     locator_line=locator_line))
+
+    def _covering(self):
+        return behavior_graph.covering(self.proj, "src/vulnerable.ts")["covering"]
+
+    def test_a_spec_backed_accepted_behavior_covers(self):
+        """The control. Without it the other five pass on a query that is simply
+        always empty, which would be a worse bug wearing this fix's clothes."""
+        self._write_spec()
+        self.assertEqual(self._covering(), [{
+            "behavior_id": "BEH-777", "spec_id": "SPEC-777", "coverage": "observed",
+            "locator": "lib/webauthn.test.ts::x",
+        }])
+
+    def test_an_accepted_state_only_in_behavior_json_does_not_cover(self):
+        """SEC-006's reproduction: behavior.json says accepted and no spec says
+        anything. The graph is a projection of the specs, so an entry with no spec
+        behind it is not evidence of intent — it is an unsourced assertion."""
+        self.assertEqual(self._covering(), [])
+
+    def test_a_behavior_demoted_in_the_specs_stops_covering(self):
+        """The likelier case, and it needs no attacker: somebody demoted the
+        behavior and nobody re-ran `--build`, so a stale graph still says accepted.
+        State is read from the spec, so the demotion takes effect at this query
+        rather than whenever the graph is next rebuilt."""
+        self._write_spec(state="proposed")
+        self.assertEqual(self._covering(), [])
+
+    def test_a_locator_naming_no_file_does_not_cover(self):
+        """verify_links refuses this at Tier 1 — but that gate ran on a repository
+        somebody chose to run it on, and this query answers about one nobody did."""
+        self._write_spec(locator="lib/gone.test.ts::x")
+        self.assertEqual(self._covering(), [])
+
+    def test_a_locator_escaping_the_project_does_not_cover(self):
+        """A locator is project-supplied text that gets joined onto the project
+        path, so it is the same shape as SEC-013 in a different file. The escape
+        target is a real file in the temp directory's parent rather than
+        `/etc/hosts`, which does not exist on the Windows runners and would make
+        this assertion pass there for the wrong reason."""
+        outside = os.path.join(os.path.dirname(self.proj), "beh777-probe.test.ts")
+        with open(outside, "w") as f:
+            f.write("")
+        self.addCleanup(os.remove, outside)
+        self._write_spec(locator="../beh777-probe.test.ts::x")
+        self.assertEqual(self._covering(), [])
+
+    def test_a_locator_with_no_path_does_not_cover(self):
+        """`#scenario` on its own names no file. Joined onto the project it is the
+        project directory, which exists — so the existence check would answer a
+        question it was never asked."""
+        self._write_spec(locator="'#does-not-reveal'")
+        self.assertEqual(self._covering(), [])
+
+    def test_a_locator_naming_a_directory_does_not_cover(self):
+        """A locator addresses a test, and eleven of the twelve adapters in
+        `frontmatter.KNOWN_ADAPTERS` address one by file (`manual` addresses
+        nothing, which is why it carries no locator) — so a directory has
+        not resolved, it has failed to under an `os.path.exists` that says yes to
+        anything on disk. The forgery this closes is cheaper than the rest of the
+        class: `.` is the project root, it exists in every project, and it takes
+        no knowledge of the scanned tree at all."""
+        os.makedirs(os.path.join(self.proj, "tests"), exist_ok=True)
+        for locator in ("tests::x", "tests", "'.::x'"):
+            with self.subTest(locator=locator):
+                self._write_spec(locator=locator)
+                self.assertEqual(self._covering(), [])
+
+    def test_an_accepted_behavior_with_no_locator_still_covers(self):
+        """The residual forgery path, pinned rather than closed. `manual` is the
+        one adapter Tier 1 *permits* to declare no locator, and this fixture is
+        that legal shape — but the exemption here is wider than that, because
+        `covering()` never reads the adapter: any spec declaring no locator gets
+        the same pass. `test_a_missing_locator_is_refused_by_tier_1_and_returned_here`
+        is the same shape with `adapter: vitest` and is the one that matters, so
+        do not read this test as bounding the residual to manual behaviors.
+        Closing it would mean refusing an accepted behavior for declaring
+        nothing, which is a decision about every adapter rather than a fix for
+        SEC-006, and this repository has zero accepted behaviors (149 proposed,
+        measured 2026-08-23) to test such a rule against."""
+        self._write_spec(locator=None, adapter="manual")
+        self.assertEqual([c["behavior_id"] for c in self._covering()], ["BEH-777"])
+
+    def test_the_answer_says_what_it_trusted(self):
+        """The actual remediation. Nothing here was verified — both inputs are
+        files the scanned project committed — so the query states that instead of
+        implying otherwise by staying silent. It pins the label's presence, not
+        that any consumer reads it; carrying it into the report is SKILL.md's job.
+        """
+        self._write_spec()
+        r = behavior_graph.covering(self.proj, "src/vulnerable.ts")
+        self.assertIn("behavior.json", r["evidence"])
+        self.assertIn("No test was run", r["evidence"])
+
+
+class LocatorCheckDivergesFromTier1Test(unittest.TestCase):
+    """`covering()`'s locator check against verify_links' Tier-1 one, same fixture.
+
+    `covering()`'s docstring used to say it "re-establishes" the Tier-1 property.
+    It does not: neither check implies the other, and the consequence is a
+    repository that passes every gate and still has `--covering` refuse a
+    behavior. A maintainer who has read "re-establishes" reads that refusal as a
+    bug in this file and goes looking for the wrong thing.
+
+    So the divergence is asserted rather than described. Each row runs one
+    fixture through both, and the class is red the moment either side moves —
+    including the day somebody fixes the Tier-1 hole in row 3, which is the
+    outcome this class most wants and would otherwise silently outlive.
+    """
+
+    SPEC = """---
+id: SPEC-778
+title: Divergence fixture
+category: features
+status: implemented
+behaviors:
+  - behavior_id: BEH-778
+    title: A behavior somebody declared
+    state: accepted
+    level: unit
+    adapter: {adapter}
+{locator_line}---
+# body
+"""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.proj = self.tmp.name
+        os.makedirs(os.path.join(self.proj, "lib"))
+        with open(os.path.join(self.proj, "lib", "a.test.ts"), "w") as f:
+            f.write("")
+        with open(os.path.join(self.proj, "lib", "test_a.py"), "w") as f:
+            f.write("def test_real():\n    pass\n")
+        behavior_graph.write_behavior_json(self.proj, {
+            "version": 1, "commit": "fixture",
+            "behaviors": {
+                "BEH-778": {"spec_id": "SPEC-778", "state": "accepted",
+                            "coverage": "observed",
+                            "exercises": [{"path": "src/vulnerable.ts"}]},
+            },
+        })
+
+    def _both(self, locator, adapter="vitest"):
+        """(does Tier 1 pass it, does `--covering` return it) for one locator."""
+        specs = os.path.join(self.proj, "knowledge-base", "specs")
+        os.makedirs(os.path.join(specs, "features"), exist_ok=True)
+        locator_line = "" if locator is None else "    locator: {}\n".format(locator)
+        with open(os.path.join(specs, "features", "SPEC-778.md"), "w") as f:
+            f.write(self.SPEC.format(adapter=adapter, locator_line=locator_line))
+        tier1 = not verify_links.verify(specs)
+        covers = bool(behavior_graph.covering(self.proj, "src/vulnerable.ts")["covering"])
+        return tier1, covers
+
+    def test_the_two_agree_on_a_real_file(self):
+        """The control. Without it every row below passes on a fixture that is
+        simply broken for both, which would read as a divergence and is not."""
+        self.assertEqual(self._both("lib/a.test.ts::x"), (True, True))
+
+    def test_the_two_agree_on_a_file_that_does_not_exist(self):
+        """The case the Tier-1 comparison is actually about — and the one where
+        the two checks do line up. It is here so the rows that follow are read as
+        exceptions to a rule rather than as the rule."""
+        self.assertEqual(self._both("lib/gone.test.ts::x"), (False, False))
+
+    def test_an_empty_path_part_is_now_refused_by_both(self):
+        """This row used to read `(True, False)` — Tier 1 passed a locator that
+        names nothing, because `escapes("")` is false and `root / ""` is the
+        project root, which exists. The divergence was the evidence, and on
+        2026-08-23 it was spent: `verify_links` now refuses an empty path part
+        and the two agree.
+
+        Kept, and kept as an assertion rather than a deleted row, because the
+        agreement is the thing worth pinning. If either side loosens, this goes
+        red from whichever side moved."""
+        self.assertEqual(self._both("'#scenario-only'"), (False, False))
+
+    def test_a_directory_is_now_refused_by_both(self):
+        """The same fix, one rung less obvious: Tier 1 asked `Path.exists`, which
+        a directory satisfies, while this query asks `os.path.isfile`. Tier 1 now
+        asks `is_file` too. A locator names a test file, and a directory sitting
+        at that path is not one."""
+        self.assertEqual(self._both("lib::x"), (False, False))
+
+    def test_a_missing_locator_is_refused_by_tier_1_and_returned_here(self):
+        """The divergence running the other way, and the one that matters for
+        SEC-006. Tier 1 knows `accepted` + a non-`manual` adapter must carry a
+        locator; this query reads only what is declared, so a spec declaring
+        nothing has nothing refused. That is the residual forgery path
+        `test_an_accepted_behavior_with_no_locator_still_covers` pins — this row
+        adds that the gate would have caught it, so the exposure is exactly the
+        repositories nobody ran the gate on."""
+        self.assertEqual(self._both(None), (False, True))
+
+    def test_an_unresolvable_python_fragment_is_refused_by_tier_1_and_returned_here(self):
+        """Tier 1 parses a `.py` locator's fragment and resolves the symbol. This
+        check stops at the file, so `::nope` is returned. Recorded because it is
+        the honest limit of "the locator resolves": it means the file is there,
+        not that the named test is."""
+        self.assertEqual(self._both("lib/test_a.py::nope", adapter="pytest"),
+                         (False, True))
 
 
 class GapsCoverablePredicateTest(unittest.TestCase):

@@ -20,6 +20,15 @@ _SPEC_SCRIPTS = Path(__file__).resolve().parents[2] / "freya-spec-manager" / "sc
 sys.path.insert(0, str(_SPEC_SCRIPTS))
 import frontmatter  # noqa: E402
 from frontmatter import FrontmatterError  # noqa: E402
+from adapters import parse_locator  # noqa: E402  (covering() splits a spec locator)
+
+# The containment rule is owned by freya-code-graph and imported, not copied
+# (ADR-030). `covering()` joins a project-supplied locator onto the project path,
+# and a second body of that predicate is one that disagrees with the first at the
+# margin — which is exactly where it matters.
+_GRAPH_SCRIPTS = Path(__file__).resolve().parents[2] / "freya-code-graph" / "scripts"
+sys.path.insert(0, str(_GRAPH_SCRIPTS))
+from containment import escapes  # noqa: E402
 
 _RUNNER = Path(__file__).resolve().parents[2] / "freya-behavior-runner" / "scripts" / "run_behaviors.py"
 _CODE_GRAPH = Path(__file__).resolve().parents[2] / "freya-code-graph" / "scripts" / "graph_ops.py"
@@ -491,24 +500,107 @@ def gaps(project_dir):
     return result
 
 
+def _locator_resolves(project_dir, locator):
+    """Does this spec locator name a file that exists inside the project?
+
+    A file, not a path: `isfile`, not `exists`. A locator addresses the test a
+    behavior claims verifies it, and eleven of the twelve entries in
+    `frontmatter.KNOWN_ADAPTERS` address one by file; the twelfth is `manual`,
+    which addresses nothing. A locator naming a directory has not resolved, it
+    has failed to wearing a green tick — measured on the `exists` spelling this
+    line replaces, `locator: .::x` resolved and bought an ADR-012 downgrade.
+
+    **The caller's exemption is a missing locator, not the `manual` adapter.**
+    `covering()` never reads `adapter`, so it skips this predicate for *any*
+    behavior declaring no locator. Measured 2026-08-23: `state: accepted,
+    adapter: vitest`, no locator — Tier 1 refuses it (`missing-locator`) and
+    `--covering` returned it. `covering()` owns that residual;
+    `test_a_missing_locator_is_refused_by_tier_1_and_returned_here` pins it.
+
+    A locator with no path part (`#scenario` alone) is the same defect one step
+    earlier — joined onto the project it *is* the project directory — and the
+    `not rel_path` guard rejects it before the join. **That guard is redundant
+    and stays anyway, a claim no test can check, so it is made here.** `isfile`
+    already answers no for the empty path, and deleting the guard was
+    mutation-checked on 2026-08-23: the suite stayed green. It stays as the only
+    place the empty-path case is *stated* — widen `isfile` back to `exists`, or
+    to `lexists` for a symlinked test file, and the hole reopens silently.
+    """
+    rel_path, _frag = parse_locator(locator)
+    if not rel_path or escapes(rel_path):
+        return False
+    return os.path.isfile(os.path.join(project_dir, rel_path))
+
+
 def covering(project_dir, file):
     """Accepted behaviors whose `exercises` include `file` (read-only).
 
-    Only `accepted` (test-verified) behaviors are returned — they are the
-    strongest "intentional" evidence for the security cross-reference (SP5).
+    Only `accepted` behaviors are returned — they are the strongest "intentional"
+    evidence the security cross-reference has (SP5), and this query is what
+    licenses a downgrade (ADR-012). Three things bound what that means:
+
+    * `state`, `spec_id` and `locator` come from the spec frontmatter, never from
+      behavior.json. The spec is where state lives (ADR-002, ADR-003), so a
+      behavior demoted to `proposed` stops licensing a downgrade at the next
+      query instead of at the next `--build`, and a behavior.json entry with no
+      spec behind it licenses nothing at all.
+    * a declared locator must stay inside the project and name a file that
+      exists. verify_links checks something similar at Tier 1, but this query
+      answers about a repository whose gates nobody here ran, so the check is
+      made here rather than assumed. **It is not the same check, and neither
+      one implies the other** — say so plainly, because the asymmetry means a
+      gate-green repository can still have `--covering` refuse a behavior, and
+      the next maintainer to meet that will read a correct refusal as a bug.
+      Measured, one fixture through both (see `LocatorCheckDivergesFromTier1Test`):
+
+        - no path part (`locator: "#scenario"`) — Tier 1 **passes** it, because
+          `escapes("")` is false and `root / ""` is the root, which exists.
+          Here it is refused.
+        - names a directory — Tier 1 **passes** it (`Path.exists`). Here it is
+          refused (`os.path.isfile`).
+        - no locator at all with a non-`manual` adapter — Tier 1 refuses it
+          (`missing-locator`); here it is **returned**, because this check reads
+          what is declared and nothing is. `manual` is the one adapter for which
+          that is legal, and this query does not read the adapter, so a forged
+          spec of that shape still licenses a downgrade. Pinned, not closed.
+        - a `.py` fragment naming no symbol, or a Gherkin file missing its
+          `@BEH-NNN` reverse tag — Tier 1 refuses both; here they are
+          **returned**. This check stops at the file.
+
+      Both divergences in this query's favour fail closed (the finding stays
+      open), which is the safe direction for the one query that can silence a
+      security finding. The two in Tier 1's favour are why running the gate is
+      still worth more than running this.
+    * none of this proves the behavior passes. Both inputs are supplied by the
+      project being scanned, and the only evidence that would not be is running
+      the linked test — executing a scanned repository's suite is worse than the
+      problem it would solve. So the answer is labelled instead: `evidence` says
+      what was trusted, and the caller is expected to carry that sentence into
+      the report a human reads.
+
     Empty `covering` (file echoed) when there is no graph or none cover it.
     """
     behaviors = load_behavior_json(project_dir).get("behaviors", {})
+    projected = project_behaviors(os.path.join(project_dir, "knowledge-base", "specs"))
     out = []
     for bid, rec in behaviors.items():
-        if rec.get("state") != "accepted":
+        spec = projected.get(bid)
+        if not spec or spec.get("state") != "accepted":
+            continue
+        locator = spec.get("locator")
+        if locator and not _locator_resolves(project_dir, locator):
             continue
         paths = {e["path"] for e in rec.get("exercises", [])}
         if file in paths:
-            out.append({"behavior_id": bid, "spec_id": rec.get("spec_id"),
-                        "coverage": rec.get("coverage")})
+            out.append({"behavior_id": bid, "spec_id": spec.get("spec_id"),
+                        "coverage": rec.get("coverage"), "locator": locator})
     out.sort(key=lambda c: c["behavior_id"])
-    return {"version": 1, "file": file, "covering": out}
+    return {"version": 1, "file": file, "covering": out,
+            "evidence": ("state and locator re-derived from knowledge-base/specs; "
+                         "exercised paths and coverage read from the project's committed "
+                         "knowledge-base/.graph/behavior.json. No test was run by this "
+                         "query, so this is a label on the evidence, not a verification "
+                         "of it.")}
 
 
 def _changed_files(base, project_dir):

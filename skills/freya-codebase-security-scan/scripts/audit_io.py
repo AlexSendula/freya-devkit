@@ -13,6 +13,7 @@ subset the two audit schemas use.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 
@@ -217,3 +218,132 @@ def validate(obj, schema, path="$"):
     elif schema["type"] == "array" and "items" in schema:
         for index, item in enumerate(obj):
             validate(item, schema["items"], f"{path}[{index}]")
+
+
+#: A secret's stand-in: how long it was, what it started with, and a truncated
+#: digest of the whole of it. Enough for a reviewer to tell a live credential
+#: from a test fixture without being handed either. The digest is what makes the
+#: stand-in *stable* — the same value fingerprints identically on every run, so
+#: last month's report can still be diffed against this one, and two 40-character
+#: keys that both start `sk-a` stay distinguishable. A row of asterisks does
+#: neither.
+#:
+#: This spelling is the canonical one, and it is canonical because two producers
+#: write fingerprints into the same report — this function, and the agent
+#: following the skill's own redaction rule — so a second spelling costs exactly
+#: the property the digest is here for: a reader cannot match this month's
+#: stand-in against last month's mechanically. The tie goes to the deterministic
+#: producer, and to the form that survives an awkward value: `{prefix!r}` quotes
+#: and escapes, so a suppressed prefix reads `prefix=''` rather than trailing
+#: whitespace, and a prefix containing a space or a comma stays parseable. A
+#: prose form ("44 chars, prefix sk-p") has neither property. Any document
+#: stating the rule quotes this constant rather than paraphrasing it.
+_REDACTED = "<redacted len={n} prefix={prefix!r} sha256={digest}>"
+
+#: How much of the value the fingerprint may show. Four characters is enough to
+#: recognise a provider prefix — `AKIA`, `ghp_`, `sk-p` — and short enough that
+#: the remainder is not guessable from it. Arguable, like every default of this
+#: kind; it is a constant so that an argument about it has somewhere to land.
+KEEP_PREFIX = 4
+
+
+def _fingerprint(value, keep=KEEP_PREFIX):
+    # No prefix at all from a value short enough that four characters would be
+    # most of it: `len=6 prefix='hunte'` is not a redaction, it is a hint. The
+    # digest still identifies the value across runs, which is the part a
+    # reviewer needs; the prefix is only ever a convenience.
+    shown = value[:keep] if len(value) > keep * 2 else ""
+    digest = hashlib.sha256(value.encode("utf-8")).hexdigest()[:8]
+    return _REDACTED.format(n=len(value), prefix=shown, digest=digest)
+
+
+def redact_literals(text, literals, *, keep=KEEP_PREFIX):
+    """`text` with every string in `literals` replaced by a stable fingerprint.
+
+    Literal substitution, never pattern detection, and that is the design rather
+    than a first draft. A detector fails two ways and both are silent: a miss
+    leaks the value this function exists to contain, and a false positive
+    deletes evidence out of a report nobody will diff against the source. So the
+    caller has to already know the bytes — which the one caller here does,
+    because the finder handed them over as the finding's own evidence.
+
+    Longest literal first, so one that is a prefix of another does not shred it
+    and leave the tail in the clear.
+
+    Here and not in the shared-primitive module, because ADR-030 places a
+    primitive there once *more than one* skill needs it and only this one does.
+    The moment a second caller appears it moves, by that rule and not by taste.
+    """
+    out = str(text)
+    for literal in sorted({str(i) for i in literals if i}, key=len, reverse=True):
+        out = out.replace(literal, _fingerprint(literal, keep))
+    return out
+
+
+#: The prose fields scrubbed of the snippet's literals. All three of the
+#: model-written free-text fields FINDER_SCHEMA declares, and naming them here
+#: is the point: `description` alone was two-thirds of a fix. `recommendation`
+#: is a *required* field and "remove <the key> and rotate it" is the obvious
+#: thing to write in it; a finder titles a secrets finding by quoting what it
+#: found. Measured on 2026-08-23 with all three carrying the same AWS example
+#: key: with only `description` in this tuple, 3 of 3 skeptic prompts carried
+#: the credential and it reached the audit result.
+#:
+#: `cwe` is in the tuple too, and the reason it was nearly left out is worth
+#: keeping. It was excluded as "an identifier" — a statement about what the
+#: field is FOR, not about what a model puts in it. FINDER_SCHEMA declares it a
+#: free string, and measured on 2026-08-23 a `cwe` of
+#: `CWE-798 - the line is AWS_SECRET_ACCESS_KEY = "<key>"` came back out of
+#: `audit()` with the credential intact through all three doors. Scrubbing it
+#: costs nothing, because `redact_literals` substitutes literals and a genuine
+#: `CWE-798` contains none of them. The general rule: a field earns exclusion by
+#: what it COSTS to scrub, never by what it is nominally for.
+#:
+#: `file` is the one field excluded on cost — it is what a reader needs in order
+#: to go and rotate the key, and `normalize_file` owns it. `category` and
+#: `severity` are closed enums, so no prose reaches them. `codeSnippet` is out
+#: because it is replaced whole rather than scrubbed.
+_SCRUBBED_FIELDS = ("description", "title", "recommendation", "cwe")
+
+
+def redact_secret_evidence(finding):
+    """A `secrets`-category finding with its evidence fingerprinted.
+
+    Here rather than in the engine because this module is where the shape of a
+    finding is declared: `codeSnippet` exists in FINDER_SCHEMA and nowhere else
+    in the tree, so the rule about what may be carried in it belongs beside it.
+
+    `codeSnippet` is a verbatim copy of bytes read out of the scanned
+    repository, and for this one category those bytes *are* the credential, so
+    it is replaced whole. Each field in `_SCRUBBED_FIELDS` — `description`,
+    `title` and `recommendation`, the three the model writes prose into — is then
+    scrubbed of that same literal and of each of its lines, because a finder
+    that writes "hardcoded key AKIA... on line 12" has copied the snippet into
+    its prose, and does so in whichever field it happens to be filling.
+
+    Every other category comes back untouched. The vulnerable-code block is most
+    of what a report is worth for an injection or an auth finding, and this is
+    not a secret detector — it acts only where the finder already said
+    "secrets". State the gap that leaves rather than papering over it, because
+    it is real and this function does not close it: what is scrubbed is the
+    snippet's own bytes, so a credential a finder paraphrases, reflows, or
+    quotes from somewhere other than `codeSnippet` survives. Catching that needs
+    the pattern detection `redact_literals` refuses, and refuses for reasons.
+
+    Prevention, not retraction. It stops a value from being written; it cannot
+    recall one already committed. ADR-010's open question about an escape hatch
+    for spec-manager's append-only resolution logs is a different mechanism in a
+    different skill, and this does not close it.
+    """
+    if finding.get("category") != "secrets":
+        return finding
+    snippet = str(finding.get("codeSnippet") or "")
+    if not snippet:
+        return finding
+    out = dict(finding)
+    out["codeSnippet"] = _fingerprint(snippet)
+    literals = [snippet] + [line.strip() for line in snippet.splitlines()]
+    for field in _SCRUBBED_FIELDS:
+        if finding.get(field):
+            out[field] = redact_literals(finding[field], literals)
+    return out

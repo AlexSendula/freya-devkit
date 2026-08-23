@@ -25,9 +25,45 @@ import collect_status  # noqa: E402
 class DowngradeTest(unittest.TestCase):
     """ADR-012's downgrade rule, at the layer where the finding is written down."""
 
+    SPEC = """---
+id: SPEC-500
+title: Anti-enumeration
+category: features
+status: implemented
+behaviors:
+  - behavior_id: BEH-500
+    title: Unknown email does not reveal whether a user exists
+    state: accepted
+    level: unit
+    adapter: vitest
+    locator: lib/anti-enumeration.test.ts::does not reveal
+  - behavior_id: BEH-501
+    title: Dates render in the requested locale
+    state: proposed
+    level: unit
+    adapter: vitest
+    locator: lib/date-formatter.test.ts::renders the locale
+---
+# body
+"""
+
     def setUp(self):
         self.proj = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, self.proj, ignore_errors=True)
+
+        # The spec is the fixture's evidence, not the graph. This setUp used to write a
+        # behavior.json with nothing behind it, which is SEC-006's mechanism verbatim —
+        # sitting in this suite as the thing that licensed a downgrade. `covering()` now
+        # reads state and locator from the spec and requires the locator to resolve, so
+        # the fixture has to carry both.
+        specs = os.path.join(self.proj, "knowledge-base", "specs", "features")
+        os.makedirs(specs)
+        with open(os.path.join(specs, "SPEC-500.md"), "w", encoding="utf-8") as f:
+            f.write(self.SPEC)
+        os.makedirs(os.path.join(self.proj, "lib"))
+        for name in ("anti-enumeration.test.ts", "date-formatter.test.ts"):
+            with open(os.path.join(self.proj, "lib", name), "w", encoding="utf-8") as f:
+                f.write("")
 
         graph_dir = os.path.join(self.proj, "knowledge-base", ".graph")
         os.makedirs(graph_dir)

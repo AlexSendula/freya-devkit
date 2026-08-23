@@ -174,12 +174,34 @@ def verify(specs_dir: str = None) -> list:
                 continue
 
             rel_path, frag = parse_locator(locator)
+            # Two shapes used to walk straight through here, and both did it by
+            # being *almost* nothing rather than by being hostile. A locator of
+            # `#scenario-only` parses to an empty path: `escapes("")` is false
+            # and `root / ""` is the project root, which exists — so the gate
+            # resolved a locator that names no file and reported OK. And a
+            # locator naming a directory passed `Path.exists` for the same
+            # reason. Both were found by `behavior_graph.covering()`, which asks
+            # the stricter question and was diverging from this gate as a result.
+            #
+            # The empty case gets its own kind rather than being folded into
+            # either neighbour. `is_file` below would catch it, but it would be
+            # reported as "path does not exist", and a locator that names
+            # nothing at all is a different authoring mistake from one that
+            # names the wrong thing — the fix is to write a path, not to correct
+            # one. Reusing `locator-escapes-project` would be worse still: an
+            # empty path escapes nothing.
+            if not rel_path:
+                errors.append(_err(s.id, bid, "locator-names-no-file",
+                                   f"locator has no path part: {locator!r}"))
+                continue
             if _escapes(rel_path):
                 errors.append(_err(s.id, bid, "locator-escapes-project",
                                    f"locator names a path outside the project: {rel_path}"))
                 continue
             abs_path = root / rel_path
-            if not abs_path.exists():
+            # `is_file`, not `exists`: a locator names a test file, and a
+            # directory that happens to sit at that path is not one.
+            if not abs_path.is_file():
                 errors.append(_err(s.id, bid, "locator-unresolved",
                                    f"locator path does not exist: {rel_path}"))
                 continue

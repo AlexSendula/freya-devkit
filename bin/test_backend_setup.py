@@ -200,5 +200,110 @@ class TestItSharesOneDefinitionOfTheMachineHome(unittest.TestCase):
                 os.environ["FREYA_HOME"] = previous
 
 
+class TestTheInstallInstructionIsPinnedAndUnambiguous(Base):
+    """The install instruction in the prompt — the only one of the toolkit's three under a gate.
+
+    Nothing here declares `graphifyy`. INV-1 makes the standard library the whole runtime,
+    so there is no requirements.txt, pyproject or lockfile for a dependency bot to read and
+    nothing to pin in the usual sense — the install is prose in a prompt, which makes the
+    pin prose as well. Prose with no gate under it drifts, and this one already had: the
+    unpinned command resolved to 0.9.48 within two days of the reference recording 0.9.47
+    as the release actually measured here. This class is the gate the manifest would have
+    been.
+
+    **It gates one copy of the command, and the drift it exists to catch is live in another.**
+    Measured 2026-08-23: `ENVIRONMENT.md` § "The optional backend binary" still prints
+    `uv tool install "graphifyy[sql,terraform]"`, unpinned, directly under a sentence calling
+    itself the install-time prompt's own output — the SEC-018 remediation names that file
+    alongside `backend_setup.py` and only `backend_setup.py` was changed. `CHANGELOG.md`
+    prints the unpinned form a third time. Nothing below reads either: a test that did would
+    be red until a page outside this file's ownership is edited, so the second and third
+    copies are named here rather than gated. Whoever pins them can widen `shown()`.
+
+    The name split is the other half and it is not cosmetic. The distribution is
+    `graphifyy`, two y's; the console script it installs is `graphify`, one. A `graphify`
+    project exists on PyPI and is not this one, so the single-y typo installs a stranger's
+    package — SEC-018 is the record, and it is the whole finding, not a hypothetical. (This
+    docstring first said that project holds "zero files" and so "fails today". Nothing in the
+    tree corroborates either, and an unattributed fact about a live index is the kind that is
+    true until it is not; dropped rather than dated.) The prompt is the moment a
+    person is about to type the name, so the prompt is where it has to be said — saying it
+    only in the reference is saying it to whoever already knew.
+    """
+
+    ONLY_FLOOR = ["homegrown"]
+
+    #: The only spec a person should ever be told to type. Extras-bearing because without them
+    #: graphify still *declares* .sql, .tf and .tfvars and parses none of them; pinned because
+    #: graphifyy is 0.x and the unpinned command moved to 0.9.48 two days after the reference
+    #: recorded 0.9.47.
+    SPEC = "graphifyy[sql,terraform]==0.9.47"
+
+    #: Matched on the install **verb**, never on the package name. The first version of this
+    #: test counted the substring `graphifyy[`, so an extras-free line — `pip install
+    #: graphifyy` — was not an install as far as the count was concerned and slipped through
+    #: green carrying neither extras nor pin: measured, the pip and uv spellings both passed.
+    #: The `spec` group takes one shell token, quoted or bare, after any flags.
+    INSTALL = (r"\b(?:uv\s+tool\s+|uv\s+pip\s+|pipx\s+|python3?\s+-m\s+pip\s+|pip3?\s+)"
+               r"install\s+(?:-\S+\s+)*(?P<spec>\"[^\"]*\"|'[^']*'|\S+)")
+
+    def shown(self):
+        """The upsell as a person on the floor actually sees it."""
+        backend_setup.offer(STORE, stream=self.out, reader=lambda: "", interactive=True,
+                            options=self.ONLY_FLOOR)
+        return self.out.getvalue()
+
+    def installs(self, shown):
+        """Every install command `INSTALL` can see, as the spec each one would install.
+
+        Enumerated rather than searched for, because the failure to expect is not somebody
+        deleting the pin — it is a second install line added beside it, and any `assertIn` or
+        name-keyed count sails straight past that.
+        """
+        # Imported here, not at the top: `bin/test_backend_setup.py:26` and `:161` are cited
+        # by line from TESTING.md and ENVIRONMENT.md, and a line added to the import block
+        # moves both without breaking either loudly enough for a gate to notice.
+        import re
+
+        return [m.group("spec").strip("\"'") for m in re.finditer(self.INSTALL, shown)]
+
+    def test_every_install_it_prints_names_an_exact_version(self):
+        """Every install `INSTALL` can see — an unpinned or extras-free second line fails here
+        spelled `pip`, `pip3`, `pipx`, `python -m pip`, `uv pip` or `uv tool`, quoted or bare,
+        with or without flags. Not "however spelled", which is what this said first: measured
+        2026-08-23, `uv add`, `poetry add`, `conda install` and `easy_install graphifyy` all
+        pass green — manifest verbs and other packagers, none of which belongs in a prompt for
+        a standalone tool. But "however spelled" is what sent me to measure, so the sentence
+        now says what the regex does."""
+        specs = self.installs(self.shown())
+        self.assertTrue(specs, "the prompt no longer prints an install command at all")
+        for spec in specs:
+            self.assertEqual(spec, self.SPEC,
+                             "the prompt prints an install that is not the pinned one")
+
+    def test_it_says_which_spelling_is_the_package_and_which_is_the_command(self):
+        shown = self.shown()
+        self.assertIn("two y's", shown,
+                      "the prompt must name the package spelling at the point of install")
+        self.assertIn("one y", shown,
+                      "the prompt must name the command spelling at the point of install")
+        self.assertIn("--use graphify --global", shown)
+
+    def test_it_warns_that_pip_needs_a_newer_python_than_this_toolkit_does(self):
+        """Every graphifyy release, 0.9.47 included, declares `Requires-Python >=3.10`.
+        The prompt offers pip as the alternative to `uv tool install`, and uv provisions its
+        own interpreter while pip uses the one you are standing on — so on the floor this
+        project supports, and the floor CI runs a leg of, the alternative simply fails.
+
+        `MIN_PYTHON` is read rather than assumed: raise the floor to 3.10 and this caveat
+        stops being true, and the test that tells you so should be this one.
+        """
+        import freya_cli
+
+        self.assertLess(freya_cli.MIN_PYTHON, (3, 10),
+                        "the floor moved — the pip caveat in _UPSELL is now noise")
+        self.assertIn("3.10+", self.shown())
+
+
 if __name__ == "__main__":
     unittest.main()
