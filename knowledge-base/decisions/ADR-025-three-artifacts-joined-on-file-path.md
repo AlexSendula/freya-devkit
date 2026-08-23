@@ -17,7 +17,7 @@ The graph layer is three artifacts under `knowledge-base/.graph/`, and each one 
 exactly one piece of code.
 
 `graph.json` holds code → code and is written by `persist_graph`
-(`skills/freya-code-graph/scripts/graph_ops.py:2427`), whichever backend produced the content —
+(`skills/freya-code-graph/scripts/graph_ops.py:2484`), whichever backend produced the content —
 the contract persists, a backend only produces (ADR-020) — with a per-backend copy alongside it
 (ADR-028). `behavior.json` holds behaviour → test → code and is written by
 `write_behavior_json` (`skills/freya-behavior-graph/scripts/behavior_graph.py:197`);
@@ -39,7 +39,7 @@ one of those anchors but never replaces it (ADR-024), so the key survives.
 
 There is no combined store and no fourth linking artifact. The fourth file in that directory,
 `classifications.json`, is not one either: it is code-graph's own per-project classification
-cache, written by the same owner as `graph.json` (`graph_ops.py:391`).
+cache, written by the same owner as `graph.json` (`graph_ops.py:398`).
 
 What is *not* built is the query layer the design named — a reader that loads whichever
 artifacts are present and answers across them. Two pairwise joins ship instead, each hardcoded
@@ -85,8 +85,8 @@ could not tell which half was current.
 
 Separate files are also what lets the git decision be made per artifact.
 `knowledge-base/.graph/.gitignore` names `graph.json`, `graph.*.json`, `classifications.json`
-and `docs.json` individually and deliberately omits `behavior.json` (`graph_ops.py:244`, with a
-byte-identical copy in `behavior_graph.py:113` that `test_substrate.py:1519` pins). ADR-017
+and `docs.json` individually and deliberately omits `behavior.json` (`graph_ops.py:245`, with a
+byte-identical copy in `behavior_graph.py:113` that `test_substrate.py:1574` pins). ADR-017
 argued that split; it is only expressible because the artifacts are three files.
 
 In this repository that nested file decides nothing, and the reason is worth stating precisely

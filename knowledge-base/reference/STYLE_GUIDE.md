@@ -93,7 +93,7 @@ the launcher form there too; the gate is a floor, not the convention.
 
 Measured on 2026-08-21 at commit `f407251`: 18 markdown and 49 Python files scanned, exit 0,
 and none of the ten `SKILL.md` files names an interpreter. Naming a script by filename in prose
-is a separate matter and not caught: `skills/freya-code-graph/SKILL.md:132` and `:582` both do.
+is a separate matter and not caught: `skills/freya-code-graph/SKILL.md:149` and `:599` both do.
 
 ## Comments explain why, and cite the thing that made them necessary
 
@@ -116,7 +116,7 @@ that set it:
 FRONTMATTER_LIMITS = {"description": 1024, "compatibility": 500, "name": 64}
 ```
 
-`skills/freya-code-graph/scripts/graph_ops.py:954` — a search order that reads like an
+`skills/freya-code-graph/scripts/graph_ops.py:1009` — a search order that reads like an
 omission, with the measurement proving it is not:
 
 ```python
@@ -196,7 +196,7 @@ CI runs the whole suite on `windows-latest`, where the platform default is not U
 Eleven shipped-code `open()` calls do not follow it and fall back to the platform default —
 nine in `skills/freya-docs-manager/scripts/detect_project.py` (reading `package.json`,
 `pyproject.toml`, `schema.prisma`) and two in
-`skills/freya-code-graph/scripts/graph_ops.py:1522` and `:1581` (reading and writing
+`skills/freya-code-graph/scripts/graph_ops.py:1577` and `:1636` (reading and writing
 `classifications.json`).
 
 [TODO: Are those eleven `open()` calls deliberate, or a defect to file on the roadmap? A

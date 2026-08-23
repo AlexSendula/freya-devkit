@@ -45,7 +45,7 @@ The supervising human is a first-class constraint, not an afterthought:
   refuses rather than defaulting to yes (`audit.py:452`).
 - Which graph backend to use is a person's answer: asked once per machine at install
   (`bin/backend_setup.py:104`), resolved project-then-machine-then-floor
-  (`skills/freya-code-graph/scripts/settings.py:346`), and never scored automatically —
+  (`skills/freya-code-graph/scripts/settings.py:727`), and never scored automatically —
   `auto` means the floor and nothing else (`skills/freya-code-graph/scripts/backends.py:166`,
   [ADR-019](../decisions/ADR-019-the-floor-and-choosing-a-backend.md)).
 - Model-judgment checks are *resolve-to-proceed* procedures, not script exit codes; only
@@ -176,7 +176,7 @@ CI runs the suite, three static gates and an end-to-end install → launcher →
   nothing makes the run stop there. Python, Go, Java and the rest
   have no equivalent here.
 - **Not multi-repo.** A graph is built from one `project_dir`
-  (`skills/freya-code-graph/scripts/graph_ops.py:389`) and every path in it is relative to that
+  (`skills/freya-code-graph/scripts/graph_ops.py:396`) and every path in it is relative to that
   root, so a system split across repositories gets one graph per repo and no edge between them
   (open defect 12 in [roadmap.md](../roadmap.md)).
 - **Not autonomous.** It does not call a model on its own except in the security driver, which

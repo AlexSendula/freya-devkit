@@ -36,7 +36,7 @@ What the toolkit does execute:
 | What | Where | Notes |
 |---|---|---|
 | A bundled script, under the current interpreter | `bin/freya_cli.py:135` | argv is `[sys.executable, <script from bin/commands.json>, *args]`; no `python` need be on `PATH` |
-| `git`, read-only queries | `skills/freya-status/scripts/collect_status.py:33`, `skills/freya-code-graph/scripts/graph_ops.py:524`, `skills/freya-spec-manager/scripts/verify_intent.py:74` | `rev-parse`, `diff --name-only` and similar; the graph and status layers never write git state |
+| `git`, read-only queries | `skills/freya-status/scripts/collect_status.py:33`, `skills/freya-code-graph/scripts/graph_ops.py:535`, `skills/freya-spec-manager/scripts/verify_intent.py:74` | `rev-parse`, `diff --name-only` and similar; the graph and status layers never write git state |
 | `git fetch` and `git merge --ff-only` | `bin/updater.py:346`, `:360` | Only during `freya update`, which fast-forwards the checkout to its tracked branch (`CONTRIBUTING.md:183`) |
 | An agent CLI as an audit worker | `skills/freya-codebase-security-scan/scripts/audit_adapter.py:123`, `:139` | The subject of most of this document |
 | The project's own test command | `skills/freya-behavior-runner/scripts/run_behaviors.py:191`, `:217` | `pnpm vitest run <test file>`. Running a project's tests is executing project-controlled code, by design and unavoidably |

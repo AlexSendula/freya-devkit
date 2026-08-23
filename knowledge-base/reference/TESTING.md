@@ -163,7 +163,7 @@ The repository root holds a single `conftest.py` (27 lines). It does one thing: 
 
 The reason is that `settings.load()` consults a machine-level default at
 `~/.freya/settings.json` — the graph backend the engineer chose once at install time
-(`skills/freya-code-graph/scripts/settings.py:64`, ADR-019). Backend selection reads it, and
+(`skills/freya-code-graph/scripts/settings.py:87`, ADR-019). Backend selection reads it, and
 every graph build reads backend selection. Without the sandbox, the answer to "does a project
 with no settings resolve to the floor?" depends on whose laptop is running the tests. A suite
 whose result depends on unversioned state outside the checkout is not a regression gate.
@@ -216,12 +216,12 @@ because the session-level sandbox has already set it.
 **A subprocess does not inherit an isolation you only applied in-process if you also pass a
 trimmed `env`.** Tests that shell out build it explicitly:
 `env=dict(os.environ, FREYA_HOME=self.home)`
-(`skills/freya-code-graph/scripts/test_graph_ops.py:1970`,
-`skills/freya-code-graph/scripts/test_graph_ops.py:2461`). The second of those carries the
+(`skills/freya-code-graph/scripts/test_graph_ops.py:1973`,
+`skills/freya-code-graph/scripts/test_graph_ops.py:2464`). The second of those carries the
 measurement that justifies it: on a machine that answered the install question with `graphify`,
 every fixture builds with a backend that reads `.java`, the census correctly reports nothing, and
 six assertions about twelve unmapped files fail — green here, red on a colleague's laptop
-(`skills/freya-code-graph/scripts/test_graph_ops.py:2448`).
+(`skills/freya-code-graph/scripts/test_graph_ops.py:2451`).
 
 Writing the isolation where the test is, rather than only in `conftest.py`, is also better
 documentation: a test asserting "with nothing configured" should say so at the point it asserts it.
@@ -282,8 +282,8 @@ somewhere else, so removing the original leaves a second one for the assertion t
 - `test_an_out_of_vocabulary_kind_is_validated_rather_than_raised` asserted
   `any('mixes_in' in e ...)` over the validator's errors. `link_dependents` mirrors the offending
   kind into the target's `dependents`, where the reverse-edge half of the validator reports it a
-  second time (`skills/freya-code-graph/scripts/substrate.py:798`) — so replacing the
-  forward-edge vocabulary check (`skills/freya-code-graph/scripts/substrate.py:746`) with
+  second time (`skills/freya-code-graph/scripts/substrate.py:820`) — so replacing the
+  forward-edge vocabulary check (`skills/freya-code-graph/scripts/substrate.py:768`) with
   `if False:` left this test and the other 139 in the file green. The repair asserts the whole
   forward-edge message, which the mirrored copy does not produce.
 
@@ -299,22 +299,22 @@ otherwise make the loop pass by iterating nothing.
 fixtures must not be planted under `docs/`, `scripts/`, `node_modules`, `dist`, `build`,
 `vendor` or `knowledge-base` unless pruning is itself the subject. The worked example is the
 unmapped-source census.
-`substrate.CENSUS_PRUNE` (`skills/freya-code-graph/scripts/substrate.py:885`) is a set of
+`substrate.CENSUS_PRUNE` (`skills/freya-code-graph/scripts/substrate.py:907`) is a set of
 directory names — `node_modules`, `dist`, `build`, `vendor`, `target` and others — that the walk
 prunes *before* it calls `_should_exclude`
-(`skills/freya-code-graph/scripts/graph_ops.py:2654`). An earlier version of
+(`skills/freya-code-graph/scripts/graph_ops.py:2753`). An earlier version of
 `test_it_honours_the_build_s_own_exclusions` built its fixture under `node_modules/` and `dist/`.
 The assertion passed. It would also have passed with `_should_exclude` deleted, because no
-fixture file ever reached it (`skills/freya-code-graph/scripts/test_graph_ops.py:2056`). The fix
+fixture file ever reached it (`skills/freya-code-graph/scripts/test_graph_ops.py:2059`). The fix
 was to rebuild the fixture out of paths only `_should_exclude` rejects, and to add a separate
 test pinning that the prune list and the scope rule *both* apply
-(`skills/freya-code-graph/scripts/test_graph_ops.py:2072`).
+(`skills/freya-code-graph/scripts/test_graph_ops.py:2075`).
 
 Two older findings sit in the same three shapes:
 
 - The dotfile guard — shape 1. The fixture used `.env.local` and `.eslintrc.json`, whose
   extensions are in neither tier list, so every file was dropped by the extension check before
-  the guard ran (`skills/freya-code-graph/scripts/test_graph_ops.py:2095`).
+  the guard ran (`skills/freya-code-graph/scripts/test_graph_ops.py:2098`).
 - The graph contract's reverse-edge validator — shape 3, and the neighbour of the `mixes_in`
   case above: two `dependents` checks that could be deleted with the whole suite still green
   (`skills/freya-code-graph/scripts/test_substrate.py:331`).
@@ -322,7 +322,7 @@ Two older findings sit in the same three shapes:
 Worked, measured, on this checkout — this is the whole ritual:
 
 ```bash
-# delete the two-line dotfile guard at graph_ops.py:2656-2628, then:
+# delete the two-line dotfile guard at graph_ops.py:2723-2695, then:
 python3 -m pytest skills/freya-code-graph/scripts/test_graph_ops.py -q
 # → 1 failed, 163 passed      (at f407251 — the total moves as the file grows; the 1 does not)
 #   FAILED ...::TestUnmappedSourceWalk::test_dotfiles_and_extensionless_files_are_skipped

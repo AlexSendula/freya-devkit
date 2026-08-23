@@ -21,7 +21,7 @@ vendor's CLI; that is covered under [Credentials](#credentials).
 
 | Variable | Read at | Default | What changes when it is set |
 |---|---|---|---|
-| `FREYA_HOME` | `skills/freya-code-graph/scripts/settings.py:196`, `bin/updater.py:563` | `~/.freya` | Relocates the machine-level settings file and the update-check stamp. Nothing else. |
+| `FREYA_HOME` | `skills/freya-code-graph/scripts/settings.py:481`, `bin/updater.py:563` | `~/.freya` | Relocates the machine-level settings file and the update-check stamp. Nothing else. |
 | `FREYA_NO_UPDATE_CHECK` | `bin/updater.py:604`, reported by `bin/freya_cli.py:478` | unset | Suppresses the once-a-day staleness check entirely. |
 | `FREYA_DEBUG` | `bin/updater.py:673` | unset | Prints the traceback from the update check, whose contract is to swallow every exception. |
 | `PATH` | `bin/installer.py:529`, plus every `shutil.which` below | — | Decides which external binaries are found, and whether the installer prints a "not on PATH" hint. |
@@ -43,9 +43,9 @@ holding this machine's answer to "which parser should freya use":
 ```
 
 Both definitions read the variable the same way and fall back to `~/.freya`
-(`skills/freya-code-graph/scripts/settings.py:196`, `bin/updater.py:563`). A value that is
+(`skills/freya-code-graph/scripts/settings.py:481`, `bin/updater.py:563`). A value that is
 empty or whitespace-only is ignored and the default applies
-(`skills/freya-code-graph/scripts/settings.py:197`, `bin/updater.py:564`). The two definitions
+(`skills/freya-code-graph/scripts/settings.py:482`, `bin/updater.py:564`). The two definitions
 are deliberately kept in step by a test — `test_the_machine_level_home_has_one_definition`,
 `bin/test_backend_setup.py:161` — because a variable that relocated one and not the other would
 isolate a test run's configuration while still writing a throttle stamp into the real home
@@ -53,9 +53,9 @@ isolate a test run's configuration while still writing a throttle stamp into the
 
 `~/.freya` is its own directory rather than one belonging to an agent, because the suite
 installs for more than one host and the answer is the same on all of them
-(`skills/freya-code-graph/scripts/settings.py:60`). It is also deliberately outside the
+(`skills/freya-code-graph/scripts/settings.py:83`). It is also deliberately outside the
 checkout: `freya update` fast-forwards that tree, and configuration a `git pull` can clobber is
-not configuration (`skills/freya-code-graph/scripts/settings.py:62`).
+not configuration (`skills/freya-code-graph/scripts/settings.py:85`).
 
 **What `FREYA_HOME` does not do.** It does not relocate the install. The agent skills
 directories and the launcher target are derived from `Path.home()` directly and ignore this
@@ -127,7 +127,7 @@ on 2026-08-21 with the same three greps, they still hold:
 | Idiom | Count | Where |
 |---|---|---|
 | `Path.home()` | 6 | `bin/installer.py:37`, `installer.py:38`, `installer.py:521`, `installer.py:818`; `bin/freya_cli.py:258`; `bin/updater.py:566` |
-| `expanduser` | 1 | `skills/freya-code-graph/scripts/settings.py:199` |
+| `expanduser` | 1 | `skills/freya-code-graph/scripts/settings.py:484` |
 | `os.environ['HOME']` / `.get('HOME')` | 0 | — |
 
 The single `expanduser` is the machine-level default's home, and it is the one that
@@ -163,26 +163,26 @@ the authority for why.
 
 | File | Scope | Committed? | May contain |
 |---|---|---|---|
-| `~/.freya/settings.json` (`FREYA_HOME` relocates) | one machine | no — outside every repo | `substrate.backend`, `substrate.symbols` only (`settings.py:74`) |
+| `~/.freya/settings.json` (`FREYA_HOME` relocates) | one machine | no — outside every repo | `substrate.backend`, `substrate.symbols` only (`settings.py:97`) |
 | `knowledge-base/settings.json` | one project | **yes** — belongs in the repo, and `--use` asks for it to be committed | `substrate.*` and `directories.*` |
 
 Both are optional. Absent, unreadable or malformed all yield defaults rather than an error, on
 the principle that a build must not fail because configuration is missing
-(`skills/freya-code-graph/scripts/settings.py:463`, `settings.py:214`). The defaults are
+(`skills/freya-code-graph/scripts/settings.py:767`, `settings.py:499`). The defaults are
 `substrate.backend: "auto"` and `substrate.symbols: false`
-(`skills/freya-code-graph/scripts/settings.py:98`–`106`).
+(`skills/freya-code-graph/scripts/settings.py:143`–`106`).
 
 Precedence and what a degrade records are
 [ARCHITECTURE.md § The graph substrate](ARCHITECTURE.md#the-graph-substrate). One distinction
 belongs here because it is a property of the *file*: "absent" and "explicitly `auto`" are
 different states, and an explicit `auto` in a project file means *defer to the machine*
-(`skills/freya-code-graph/scripts/settings.py:360`, `settings.py:370`).
+(`skills/freya-code-graph/scripts/settings.py:663`, `settings.py:673`).
 
 Keys outside the two allowed at machine level are dropped **and reported on stderr**, not
-silently honoured (`skills/freya-code-graph/scripts/settings.py:256`). `directories` is
+silently honoured (`skills/freya-code-graph/scripts/settings.py:541`). `directories` is
 excluded there on purpose: a global `docs: source` would apply to repositories nobody has
 looked at, and a global `node_modules: source` is a 50,000-file graph on every project on the
-machine (`skills/freya-code-graph/scripts/settings.py:70`–`68`).
+machine (`skills/freya-code-graph/scripts/settings.py:93`–`68`).
 
 Writing the answer down:
 
@@ -194,22 +194,22 @@ freya code-graph --use auto --global        # clears the machine default
 
 At machine scope `auto` is not an answer but the absence of one, so `--use auto --global`
 deletes the key rather than writing it — the only way to un-answer the install-time question
-(`skills/freya-code-graph/scripts/settings.py:533`, `settings.py:554`).
+(`skills/freya-code-graph/scripts/settings.py:837`, `settings.py:858`).
 
 The name is validated against the registry at the moment somebody is present to be told they
-typed it wrong (`skills/freya-code-graph/scripts/graph_ops.py:2972`), and the project-scope
+typed it wrong (`skills/freya-code-graph/scripts/graph_ops.py:3157`), and the project-scope
 message asks for the file to be committed so a clone, a colleague and CI all resolve the same
-backend (`skills/freya-code-graph/scripts/graph_ops.py:3007`). The machine-scope message is
+backend (`skills/freya-code-graph/scripts/graph_ops.py:3192`). The machine-scope message is
 careful about what it promises: a project already carrying its own answer keeps it
-(`skills/freya-code-graph/scripts/graph_ops.py:3001`).
+(`skills/freya-code-graph/scripts/graph_ops.py:3324`).
 
 The first `--build` or `--update` in a project that has not decided copies the machine's answer
 into that project's own committed settings
-(`skills/freya-code-graph/scripts/graph_ops.py:3133` → `graph_ops.py:2925` →
-`skills/freya-code-graph/scripts/settings.py:586`), validating it against the registry on the
+(`skills/freya-code-graph/scripts/graph_ops.py:3318` → `graph_ops.py:3110` →
+`skills/freya-code-graph/scripts/settings.py:890`), validating it against the registry on the
 way. A headless run with nothing configured writes nothing. Nothing verifies that the seeded
 file is actually committed — the build prints one line asking for it
-(`skills/freya-code-graph/scripts/graph_ops.py:2949`) and that is the entire mechanism; ADR-019
+(`skills/freya-code-graph/scripts/graph_ops.py:3270`) and that is the entire mechanism; ADR-019
 states this gap rather than implying enforcement.
 
 Measured on this worktree on 2026-08-21, `knowledge-base/settings.json` reads — this copy was
@@ -243,7 +243,7 @@ dying in a file the user never named (`bin/freya:12`).
 
 `git` is used well beyond `freya update`. Counted 2026-08-21, `["git", ...]` appears as the
 argv of nine `subprocess` calls across `bin/updater.py:60`,
-`skills/freya-code-graph/scripts/graph_ops.py:525` and `graph_ops.py:563`,
+`skills/freya-code-graph/scripts/graph_ops.py:536` and `graph_ops.py:574`,
 `skills/freya-code-graph/scripts/backend_graphify.py:722`,
 `skills/freya-behavior-graph/scripts/behavior_graph.py:610`,
 `skills/freya-behavior-runner/scripts/run_behaviors.py:443`,
@@ -304,7 +304,7 @@ The reasons a degrade can carry are tabulated in
 **What it writes.** `graphify update <project>` puts its extraction (`graph.json`), an HTML
 viewer (`graph.html`), a report (`GRAPH_REPORT.md`), a manifest and a cache in
 `graphify-out/` at the project root — measured on 0.9.47, over two runs, it keeps no dated
-backups, though `backend_graphify.py:266` and `graph_ops.py:1178` still say it does. That
+backups, though `backend_graphify.py:266` and `graph_ops.py:1233` still say it does. That
 directory is outside `knowledge-base/`, which is
 the only place this toolkit's own ignore rules reach. The backend therefore writes
 `graphify-out/.gitignore` containing `*` after the tool has run

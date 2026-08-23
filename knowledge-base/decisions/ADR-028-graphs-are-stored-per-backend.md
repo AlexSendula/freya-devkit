@@ -16,24 +16,24 @@ tags:
 Every build is written twice. `persist_graph` serialises the graph once and writes that same
 payload to `knowledge-base/.graph/graph.json` — the active artifact every consumer reads — and
 to `knowledge-base/.graph/graph.<backend>.json`, named for the backend that produced it
-(`skills/freya-code-graph/scripts/graph_ops.py:2427`, `:2440`;
-`skills/freya-code-graph/scripts/substrate.py:257`, `:262`). The two files are byte-identical
+(`skills/freya-code-graph/scripts/graph_ops.py:2484`, `:2497`;
+`skills/freya-code-graph/scripts/substrate.py:279`, `:284`). The two files are byte-identical
 at the moment of writing. It has one production caller, in the contract's shared funnel
-(`graph_ops.py:2519`), so no backend can opt out and none can name the file differently.
+(`graph_ops.py:2576`), so no backend can opt out and none can name the file differently.
 
 Switching backends therefore replaces the active graph and leaves the previous backend's copy
 untouched, at its own path, with the `timestamp`, `commit` and `substrate` block of the build
 that produced it still inside it. Both files are in the cache `.gitignore` the build writes
-(`graph_ops.py:244`), so the copy is a working artifact, not a committed one — see ADR-017 for
+(`graph_ops.py:245`), so the copy is a working artifact, not a committed one — see ADR-017 for
 why that line is drawn where it is. `clear()` removes the active graph *and* every
-`graph.*.json` beside it (`graph_ops.py:2374`, `:2385`), pinned by a test
-(`skills/freya-code-graph/scripts/test_substrate.py:1469`).
+`graph.*.json` beside it (`graph_ops.py:2431`, `:2442`), pinned by a test
+(`skills/freya-code-graph/scripts/test_substrate.py:1524`).
 
 **Nothing in the toolkit reads `graph.<backend>.json.`** `backend_graph_path` has exactly one
 caller outside tests and it is the write above; there is no `--compare` subcommand, and the
 incremental path does not use the copy either — both backends detect that the *active* graph
 was produced by someone else and force a full rebuild rather than warm-starting from a copy
-they wrote earlier (`graph_ops.py:2116`–`:2127`; `backend_graphify.py:372`). So what this
+they wrote earlier (`graph_ops.py:2183`–`:2194`; `backend_graphify.py:372`). So what this
 decision buys is a preserved baseline on disk, not an automated comparison: the diff is run by
 hand, by a person or an agent, over two files. That is the designed-and-unenforced half of it,
 and it is worth stating plainly, because the guarantee is only as good as the operator who
@@ -45,7 +45,7 @@ A substrate swap changes every blast radius in the project at once, silently and
 ADR-016's discipline says such a thing is proved against the real repository rather than argued,
 and ADR-019 makes passing that comparison the gate on any backend becoming a default. Comparing
 requires two artifacts to exist at the same time. Under the contract both backends write to the
-same path (`substrate.py:257`), so with one file the baseline is destroyed at exactly the moment
+same path (`substrate.py:279`), so with one file the baseline is destroyed at exactly the moment
 it is needed, and the only way to recover it is to reinstate the old backend and pay a full
 rebuild — a real full rebuild, since the foreign-artifact check above refuses the incremental
 route.
@@ -69,10 +69,10 @@ Two properties follow from the second file existing, and both had to be built ra
 assumed. Adding an artifact to `.graph/` means the cache `.gitignore` has to be upgradable in
 place, or an already-onboarded project keeps the list it was given and every later artifact
 arrives committable — which is why `_EVER_IGNORED` records every list we have ever written
-(`graph_ops.py:269`). And a cache clear that knows about only one of the two files is worse than
+(`graph_ops.py:270`). And a cache clear that knows about only one of the two files is worse than
 no clear at all: it leaves a complete, correctly-shaped, current-looking graph that nothing will
 ever report as stale, whereas a missing `graph.json` at least announces its own absence.
-`classifications.json` is deliberately spared by the same clear (`graph_ops.py:2381`) — it holds
+`classifications.json` is deliberately spared by the same clear (`graph_ops.py:2438`) — it holds
 human and model judgements about which directories are source, which a cache clear has no
 business discarding.
 
@@ -81,7 +81,7 @@ has introduced a substrate that owns and clears `.graph/` wholesale, in which ca
 would have to move out of that directory. Checked on 2026-08-21 by running a build and then a
 clear in a temporary project with `behavior.json` present: `clear()` unlinks `graph.json` and
 `graph.*.json`, then attempts `rmdir()` inside a bare `try`/`except` that fails harmlessly while
-anything else remains (`graph_ops.py:2385`–`:2395`). `behavior.json`, `classifications.json` and
+anything else remains (`graph_ops.py:2442`–`:2452`). `behavior.json`, `classifications.json` and
 the directory itself all survived. No shipped backend wipes `.graph/`; graphify confines itself
 to `graphify-out/`. `behavior.json` does not need to move.
 
@@ -126,7 +126,7 @@ to `graphify-out/`. `behavior.json` does not need to move.
   `skills/freya-behavior-graph/scripts/behavior_graph.py:293`,
   `skills/freya-behavior-runner/scripts/run_behaviors.py:308`,
   `skills/freya-docs-manager/scripts/docs_graph.py:327`,
-  `skills/freya-spec-manager/scripts/project_shape.py:25` — and none of them imports the
+  `skills/freya-spec-manager/scripts/project_shape.py:36` — and none of them imports the
   substrate module or knows the backend-selection rules. Making four skills learn how a backend
   is chosen just to locate a file inverts the point of ADR-020, where the contract owns
   persistence precisely so consumers do not have to know which backend ran. One stable path is

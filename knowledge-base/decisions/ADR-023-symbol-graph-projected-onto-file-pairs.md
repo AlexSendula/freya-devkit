@@ -36,9 +36,9 @@ The intra-file rule is the second filter, and it applies to links whose relation
 first. A link whose two endpoints share a file is dropped in the projection
 (`backend_graphify.py:676`). The contract then refuses the same thing twice more, independently:
 `link_dependents` skips a self-target rather than writing it into the reverse index
-(`substrate.py:328`), and `validate_graph` reports it as a contract error
-(`substrate.py:759`). None of the three rejects the artifact — validation records its errors
-under `substrate.validation` and the graph is written anyway (`graph_ops.py:2489`) — so the
+(`substrate.py:350`), and `validate_graph` reports it as a contract error
+(`substrate.py:781`). None of the three rejects the artifact — validation records its errors
+under `substrate.validation` and the graph is written anyway (`graph_ops.py:2546`) — so the
 guarantee is that a self-edge cannot reach a *caller*, not that it cannot be produced.
 
 Three shapes need naming because they are not what they look like:

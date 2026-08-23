@@ -18,8 +18,8 @@ Symbol-level detail is an optional refinement on a record whose anchor is always
 file path, in the two artifacts that have it.
 
 In `graph.json`, an edge may carry `from_symbol`, `to_symbol` and `line` alongside
-its `to`/`from`, `kind` and `provenance` (`skills/freya-code-graph/scripts/substrate.py:107`,
-`:125`). In `behavior.json`, an `exercises` entry may carry `symbols` — a sorted list
+its `to`/`from`, `kind` and `provenance` (`skills/freya-code-graph/scripts/substrate.py:129`,
+`:147`). In `behavior.json`, an `exercises` entry may carry `symbols` — a sorted list
 of function names — alongside its `path`
 (`skills/freya-behavior-runner/scripts/run_behaviors.py:178`). Neither field is ever
 the anchor. An edge that omits its symbols is the file-level edge that shipped before
@@ -28,10 +28,10 @@ one.
 
 Graph refinement is off unless a project asks for it: `substrate.symbols` in the
 project's `knowledge-base/settings.json`, falling back to a machine-level default,
-defaulting to `false` (`skills/freya-code-graph/scripts/settings.py:108`, `:435`).
+defaulting to `false` (`skills/freya-code-graph/scripts/settings.py:158`, `:817`).
 Asking is a request, not a requirement — a backend that cannot see symbols is
 unaffected, and the floor resolver declares only `imports` and `re_export`
-(`skills/freya-code-graph/scripts/graph_ops.py:428`), so turning the flag on
+(`skills/freya-code-graph/scripts/graph_ops.py:439`), so turning the flag on
 for a homegrown project changes nothing.
 
 A behaviour's symbols come from the istanbul coverage report — the named functions
@@ -80,7 +80,7 @@ reproduces now, so the ratio is the durable fact here and the counts are not.
 
 Nothing narrows on those symbols. The only code that reads them is the printed edge
 annotation on `--query --format summary`, which renders `[calls: caller → callee:42]`
-(`graph_ops.py:2775`). Everything that gates or feeds another skill works in path
+(`graph_ops.py:2953`). Everything that gates or feeds another skill works in path
 strings by design (ADR-021). So the size is currently paid for human display, and
 default-off is the honest price for a consumer that does not exist yet.
 
@@ -116,7 +116,7 @@ file; qualifying with the owner takes that to zero
 - **Move wholly to symbol anchors.** The sharpest possible graph, and the one
   graphify natively produces: a `calls` edge between two named functions, with no
   file-level noise and none of the dual-key bookkeeping the reverse index now carries
-  to keep symbol-refined edges distinct (`substrate.py:363`). Rejected on durability
+  to keep symbol-refined edges distinct (`substrate.py:385`). Rejected on durability
   and on reach. Names are not stable ids, so every rename becomes a breaking change
   to a committed artifact; and it is a one-way door — file-level is recoverable from
   symbol-level only if *every* backend supplies symbols, and the floor backend
@@ -166,7 +166,7 @@ file; qualifying with the owner takes that to zero
   Rejected because there is no such reader: the field is written
   (`behavior_graph.py:230`, `run_behaviors.py:446`) and nothing anywhere inspects it,
   unlike `graph.json`'s version, which really does drive a staleness rebuild
-  (`graph_ops.py:2140`). Bumping it would have been a compatibility gesture with no
+  (`graph_ops.py:2196`). Bumping it would have been a compatibility gesture with no
   compatibility behind it. The guarantee that matters is structural and is asserted
   instead of announced: an entry with no symbols is byte-identical to one written
   before the field existed
@@ -184,7 +184,7 @@ file; qualifying with the owner takes that to zero
 
 - **A consumer appears that genuinely narrows on a symbol.** The default-off trade
   rests entirely on there being none; today the sole reader is a print statement
-  (`graph_ops.py:2775`). When `behavior-graph`, `docs-manager` or wrap-up wants to
+  (`graph_ops.py:2953`). When `behavior-graph`, `docs-manager` or wrap-up wants to
   answer *which function*, re-argue it — and start with whether the switch should be
   per relation kind (`calls` only, say) rather than one global boolean, since that is
   where most of the 6x comes from.

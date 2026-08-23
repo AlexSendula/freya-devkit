@@ -19,45 +19,45 @@ in the reverse index it is the same object keyed `from`. `kind` is one of the fi
 `RELATION_KINDS` — `imports`, `re_exports`, `calls`, `inherits`, `references`
 (`skills/freya-code-graph/scripts/substrate.py:47`). `provenance` is one of the **two** values
 in `PROVENANCE` — `extracted` or `inferred` (`substrate.py:59`). `make_edge` raises on anything
-outside either vocabulary (`substrate.py:128`), and `validate_graph` reports an out-of-vocabulary
-kind or provenance on the forward edge (`substrate.py:741`, `:744`) and on its mirror in the
-reverse index (`:793`, `:796`) — a reverse edge is an edge, held to the same vocabulary. An edge
+outside either vocabulary (`substrate.py:150`), and `validate_graph` reports an out-of-vocabulary
+kind or provenance on the forward edge (`substrate.py:763`, `:766`) and on its mirror in the
+reverse index (`:815`, `:818`) — a reverse edge is an edge, held to the same vocabulary. An edge
 may also carry the optional symbol refinement, which ADR-024 governs; the file anchor is never
 replaced by it.
 
-The change bumped the artifact's schema from 1 to 2 (`substrate.py:75`). Readers accept both
+The change bumped the artifact's schema from 1 to 2 (`substrate.py:90`). Readers accept both
 shapes: every consumer goes through accessors that take a bare string or an object
-(`substrate.py:144`, `:156`, `:162`), and `upgrade_edges` rewrites string edges in memory on load
-(`substrate.py:211`). An upgraded edge claims `imports` / `extracted`, which is exactly what the
+(`substrate.py:166`, `:178`, `:184`), and `upgrade_edges` rewrites string edges in memory on load
+(`substrate.py:233`). An upgraded edge claims `imports` / `extracted`, which is exactly what the
 string era could express and the only honest reading of it. `upgrade_edges` deliberately does not
-stamp `version` (`substrate.py:231`): that field records what is on disk, and reading is how
+stamp `version` (`substrate.py:253`): that field records what is on disk, and reading is how
 staleness is discovered. A version-1 artifact therefore forces a full rebuild inside
 `CodeGraph.update`, ahead of the "nothing changed" short-circuit that the steady-state workflow
-otherwise takes (`graph_ops.py:2129`).
+otherwise takes (`graph_ops.py:2184`).
 
 The node queries stay in paths. `--impact`, `--dependents` and `--dependencies` answer with path
-strings, projected off the edge objects by `edge_ends` (`graph_ops.py:2271`, `:2335`). Only
+strings, projected off the edge objects by `edge_ends` (`graph_ops.py:2326`, `:2392`). Only
 `--query` returns edges, because it is the one query whose question is "tell me about this file"
-(`graph_ops.py:2196`).
+(`graph_ops.py:2251`).
 
 **Provenance is recorded and read by nothing.** Every edge carries `extracted` or `inferred`
 faithfully: the homegrown resolver stamps `extracted` throughout, because it reads import
-statements out of source text and does nothing else (`graph_ops.py:1997`, `:2010`), and the
+statements out of source text and does nothing else (`graph_ops.py:2052`, `:2065`), and the
 graphify backend maps that backend's own `EXTRACTED`/`INFERRED` tag, defaulting an unrecognised
 confidence to `inferred` (`backend_graphify.py:144`, `:670`, `:699`). Past that, no production
 code consults the field. `edge_provenance` has exactly one caller, and it is the reverse-index
-builder copying the value onto the mirrored edge (`substrate.py:362`). The design — stated in the
+builder copying the value onto the mirrored edge (`substrate.py:384`). The design — stated in the
 spec, in the working decision record and on the explainer pages — was that only `extracted` edges
 may gate `wrap-up` and `inferred` ones are advisory. No code implements that filter, so an
 inferred edge reaches blast radius indistinguishable from an extracted one. **The tier is
 designed and unenforced**, and the skill documentation says so out loud
-(`skills/freya-code-graph/SKILL.md:635`). Writing the filter, or striking the promise, is
+(`skills/freya-code-graph/SKILL.md:651`). Writing the filter, or striking the promise, is
 open defect 13 in `knowledge-base/roadmap.md` (§ *Per-edge provenance is recorded and
 enforced by nothing*).
 
 `unresolved` is not a provenance value and never was. "Could not be resolved" is a fact about
 where an edge points, not about how it was read, so it is a prefix on the target —
-`unresolved:<raw specifier>`, alongside `external:` (`substrate.py:71`). The edge is kept and
+`unresolved:<raw specifier>`, alongside `external:` (`substrate.py:86`). The edge is kept and
 visible rather than dropped, which is ADR-005's rule applied at edge granularity.
 
 ## Rationale
@@ -111,7 +111,7 @@ in spec-manager's drift check (`drift.py:95`) and `paths & impact` in the behavi
 skill that gains nothing from the extra fields; the third consumer, behavior-runner, instead
 rejects any `--dependencies` answer that is not a list of strings and degrades that behaviour to
 coverage-unknown (`run_behaviors.py:353`). All three needed no change at all. The readers that
-open `graph.json` directly did, and `project_shape.py:56` now reads both shapes because
+open `graph.json` directly did, and `project_shape.py:73` now reads both shapes because
 misreading a version-1 artifact would report a wired codebase as greenfield.
 
 And readers stay tolerant of the old shape permanently, until the version says otherwise.
@@ -157,9 +157,9 @@ rather than load-bearing forever.
   `substrate` metadata block entirely, and that block cannot be reconstructed from the artifact —
   only a real build knows which backend ran and what it can see. Stamping the version would have
   frozen the graph permanently claiming no backend and no coverage. A rebuild, not a rewrite,
-  is what ships (`graph_ops.py:2129`), and the persistence path refuses to rewrite a stale
+  is what ships (`graph_ops.py:2184`), and the persistence path refuses to rewrite a stale
   artifact a backend wrongly reported as up to date, saying so on stderr instead
-  (`graph_ops.py:2467`).
+  (`graph_ops.py:2562`).
 
 - **Discard inferred edges entirely and run the second backend in its most conservative mode.**
   This was the first recommendation when the trust question was raised, and it would have removed

@@ -78,7 +78,7 @@ the evidence for each. Existing-documentation detection is part of the same outp
 specified separately in [SPEC-014](./SPEC-014-existing-docs-detection.md).
 
 Consumers are `freya-docs-manager` (which doc templates to plan) and
-`freya project-shape` (`skills/freya-spec-manager/scripts/project_shape.py:239`), which folds
+`freya project-shape` (`skills/freya-spec-manager/scripts/project_shape.py:255`), which folds
 the stack summary into the greenfield/brownfield recommendation that `spec-manager bootstrap`
 shows before it branches.
 

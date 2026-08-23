@@ -56,7 +56,7 @@ invariant gate uses on every run.
   seven of them run with a repository the operator merely named as their working directory.
   Measured on a hostile fixture on 2026-08-23: `graph_ops.py --build` against a repository
   holding a planted `git`, with `.` on `PATH`, still executed it —
-  `skills/freya-code-graph/scripts/graph_ops.py:524`, one of the two allowlisted entries in
+  `skills/freya-code-graph/scripts/graph_ops.py:535`, one of the two allowlisted entries in
   that file. `graphify` was never executed and `backend_graphify`'s own `_git_commit`
   correctly returned None in the same run. So "a hostile clone cannot choose which binary we
   run" is now true of `graphify` and of the agent CLIs, and is not yet true of `git`.
@@ -130,10 +130,10 @@ invariant gate uses on every run.
   `try: import yaml` for free.
 - **`containment.rel_within` has no caller either, not even `exec_path`.** Its intended first
   one is the graph-key path, and that path already has a local body of the same rule:
-  `graph_ops.py:676` is `_contain`, which `rel_within` is meant to replace, and the
+  `graph_ops.py:708` is `_contain`, which `rel_within` is meant to replace, and the
   `try: relative_to(self.project_dir) / except ValueError: continue` shape it also collapses
-  survives at `:1946`–`:1953` and `:1981`–`:1982`, with unguarded `relative_to` calls at
-  `:1991` and `:2083`. (An earlier draft of this bullet cited a backwards line range that
+  survives at `:2001`–`:2008` and `:2036`–`:2037`, with unguarded `relative_to` calls at
+  `:2046` and `:2138`. (An earlier draft of this bullet cited a backwards line range that
   pointed at neither.) A local body of a containment rule is exactly what the last paragraph of
   the Decision forbids without a `ContainmentParityTest` row, so the migration is owed rather
   than optional. It ships now because the four questions are argued together

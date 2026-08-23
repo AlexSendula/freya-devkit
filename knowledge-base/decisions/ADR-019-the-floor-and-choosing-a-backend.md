@@ -29,31 +29,31 @@ there is no second permission list. A named backend that is not available degrad
 with a reason rather than failing the build — `not installed` when the name is registered but
 absent from the machine, `unknown backend` when the name is not a backend at all
 (`backends.py:138`) — and a backend that passes selection and then throws mid-build degrades the
-same way (`graph_ops.py:2563`). Every one of those fallbacks records `degraded_from` and its
+same way (`graph_ops.py:2630`). Every one of those fallbacks records `degraded_from` and its
 reason in the graph's own metadata, not only on stderr.
 
 The name is answered **once per machine, at install time**. `freya install` and `freya update`
 both call the prompt (`bin/backend_setup.py:104`, from `bin/installer.py:988` and
 `bin/updater.py:394`); it asks only at a terminal, only when the machine has never answered, and
 only when more than one backend is available. The answer goes to `~/.freya/settings.json`,
-relocatable with `FREYA_HOME` (`settings.py:64`, `settings.py:194`) — its own directory rather
+relocatable with `FREYA_HOME` (`settings.py:87`, `settings.py:479`) — its own directory rather
 than any one agent's, because the suite installs for several hosts and the answer is the same on
 all of them. The machine file may carry only `substrate.backend` and `substrate.symbols`
-(`settings.py:74`); anything else in it is dropped *and reported* (`settings.py:253`).
+(`settings.py:97`); anything else in it is dropped *and reported* (`settings.py:538`).
 `freya code-graph --use <name> [--global]` is the same decision made later,
 and it validates the name against the registry at the moment somebody is present to be told they
-typed it wrong (`graph_ops.py:2964`). At machine scope, `--use auto` is not an answer — it
+typed it wrong (`graph_ops.py:3149`). At machine scope, `--use auto` is not an answer — it
 clears the default, which is the only way to un-answer the install question
-(`settings.py:533`).
+(`settings.py:837`).
 
-Precedence is **project, then machine, then floor** (`settings.py:346`). An explicit name in a
+Precedence is **project, then machine, then floor** (`settings.py:727`). An explicit name in a
 project's `knowledge-base/settings.json` — including `homegrown` — wins, and is how one
 repository opts out without touching the others; `auto` in a project file means *defer to the
 machine*; a project that has said nothing at all follows the machine, and the floor answers when
 the machine has not been asked. "Absent" and "explicitly `auto`" are deliberately different
-states (`settings.py:360`, `settings.py:370`). The first `--build` or `--update` in a project
+states (`settings.py:663`, `settings.py:673`). The first `--build` or `--update` in a project
 that has not decided copies the machine's answer into that project's own committed
-`knowledge-base/settings.json` (`graph_ops.py:3122` → `settings.py:586`), validating it against
+`knowledge-base/settings.json` (`graph_ops.py:3307` → `settings.py:890`), validating it against
 the registry on the way so a typo in one person's home directory does not become a repository's
 permanent setting. A headless run with nothing configured writes nothing: "not yet asked" is a
 state the system keeps rather than resolves. The same precedence and the same seeding apply to
@@ -103,14 +103,14 @@ the two commands that switch (`backends.py:176`). Verified live on this reposito
 2026-08-21: `code-graph: 'graphify' is installed and declares it reads 2 file(s) here that
 'homegrown' cannot (.ps1, .sh)`, with the `--use graphify` and `--use graphify --global` lines
 under it. The hint has a hole: the census is skipped when only one backend is available
-(`graph_ops.py:3014`), so it can only ever tell you about a tool you already own. Two other
+(`graph_ops.py:3199`), so it can only ever tell you about a tool you already own. Two other
 places close that gap — the install prompt's single-backend branch says what is missing and how
 to get it (`bin/backend_setup.py:39`), and the blind-spot report derives its remedy from a
 backend's *declared* coverage, deliberately without checking whether it is installed
 (`backends.py:207`).
 
 Install is where the question goes because install is where the keyboard is. `code-graph`
-auto-enables non-interactive mode whenever stdin is not a TTY (`graph_ops.py:3105`), which is
+auto-enables non-interactive mode whenever stdin is not a TTY (`graph_ops.py:3290`), which is
 every agent-driven run and every `wrap-up` run — a mid-workflow prompt fires almost exclusively
 for someone typing the command by hand. `freya install` and `freya update` are the two commands
 a person runs deliberately, and asking on update is the migration path for anyone installed
@@ -127,10 +127,10 @@ sharing anyone's laptop configuration. That is the property the settings file ex
 is why the file lives in `knowledge-base/`, whose name every skill already hardcodes, which
 survives a cache clear, and where only the generated files under `.graph/` are gitignored —
 `specs/`, `decisions/` and `principles.md` are tracked, so a settings file beside them is
-committed by default (`graph_ops.py:244`, ADR-017). The seeding is a seed and not a live link:
+committed by default (`graph_ops.py:245`, ADR-017). The seeding is a seed and not a live link:
 once a project has an answer of its own, the project file wins, and changing the machine default
 later does not reach back into it — which the `--use --global` output says out loud rather than
-promising more than it does (`graph_ops.py:2990`).
+promising more than it does (`graph_ops.py:3175`).
 
 Degradation is not cosmetic, and the proof is that another skill acts on it. `degraded_from` in
 the artifact means the project asked for a backend and did not get one, so the graph is thinner
@@ -139,7 +139,7 @@ returns `unknown` with the reason instead of a narrower answer that looks author
 (`skills/freya-behavior-runner/scripts/run_behaviors.py:323`). One honest gap remains and this
 record states it rather than implying enforcement: nothing verifies that a seeded
 `settings.json` is actually committed. The build prints one line asking for it
-(`graph_ops.py:2939`) and that is the entire mechanism. A project that ignores the line keeps
+(`graph_ops.py:3124`) and that is the entire mechanism. A project that ignores the line keeps
 the divergence the seeding was designed to remove.
 
 ## Rejected Alternatives
@@ -187,7 +187,7 @@ the divergence the seeding was designed to remove.
   terminal prompt does not: the script emits "I need a decision", the agent asks in chat, the
   answer comes back on the next call. The machinery is even half-built —
   `needs_classification()`, `get_classification_prompt()` and `classify_with_ai_response()` exist
-  (`graph_ops.py:1823`) and, verified at `2762d54`, have no caller and no CLI flag anywhere in
+  (`graph_ops.py:1878`) and, verified at `2762d54`, have no caller and no CLI flag anywhere in
   the repository. Rejected on standing cost: the instruction telling the agent what to do would
   live in the skill layer, which is read on *every* invocation to say nothing on almost all of
   them, and this question is asked once per machine. The instruction rides in the output of the
@@ -215,7 +215,7 @@ the divergence the seeding was designed to remove.
   adopting project for a tool that already owns a directory. *Extending
   `knowledge-base/.graph/classifications.json`* adds no new file at all, and that file is where
   the first version of the directory overrides actually went — rejected because it is named in
-  the cache's own `.gitignore` (`graph_ops.py:244`), so a setting recorded there works for
+  the cache's own `.gitignore` (`graph_ops.py:245`), so a setting recorded there works for
   whoever typed it and reaches neither a fresh clone nor CI, leaving every checkout to re-decide.
   *A `"freya"` key in `package.json`* is the Node ecosystem's own convention and costs nothing in
   a Node repo — worth

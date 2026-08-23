@@ -18,12 +18,12 @@ tags:
 it can produce the code graph; the contract is the deliverable and the backends are
 implementations. It is structural rather than inherited — a backend supplies `name`,
 `project_dir`, `coverage()`, `available()`, `build()` and `update()`
-(`substrate.py:574`) and imports no base class, because the second backend wraps a tool nobody
+(`substrate.py:596`) and imports no base class, because the second backend wraps a tool nobody
 here controls and a contract only the incumbent can satisfy is not a contract. It is checked at
 runtime, not by types: `choose_backend` calls `conformance_errors` on the backend it selected,
 and a backend that fails is refused before it runs, replaced by the floor, and recorded in the
-graph metadata as a degradation with the reason (`graph_ops.py:3021`). The check binds the call
-itself, not just the attribute names — `BUILD_KWARGS` and `UPDATE_KWARGS` (`substrate.py:584`)
+graph metadata as a degradation with the reason (`graph_ops.py:3206`). The check binds the call
+itself, not just the attribute names — `BUILD_KWARGS` and `UPDATE_KWARGS` (`substrate.py:606`)
 are bound against each method's signature, because "callable" is not a contract and a backend
 that passes an attribute check can still be uninvokable.
 
@@ -32,25 +32,25 @@ project root; the backend hands back a `substrate.Result` and the contract final
 is ADR-020. **Report what it could not resolve**: an unresolvable reference is emitted as
 `unresolved:<raw>`, and `validate_graph` turns that into a rule — an internal-looking edge that
 names no file in the graph is an error, because anything unresolvable belongs behind the prefix
-where it is visible (`substrate.py:761`). `unresolved:` is a prefix on the edge's *target*, not
+where it is visible (`substrate.py:783`). `unresolved:` is a prefix on the edge's *target*, not
 a provenance value; `PROVENANCE` has exactly two members, `extracted` and `inferred`
-(`substrate.py:59`), and the validator rejects a third (`substrate.py:744`). **Carry per-edge
+(`substrate.py:59`), and the validator rejects a third (`substrate.py:766`). **Carry per-edge
 provenance**, structurally enforced on forward and reverse edges alike; what provenance is
 allowed to decide is ADR-021. **Declare coverage** — languages, extensions and relation kinds —
 enforced from both ends: `conformance_errors` refuses a backend that declares no languages or
-no extensions at all (`substrate.py:648`), and `validate_graph` refuses a graph containing a
-file outside the declared extensions (`substrate.py:808`). **Support incremental update, or
+no extensions at all (`substrate.py:670`), and `validate_graph` refuses a graph containing a
+file outside the declared extensions (`substrate.py:830`). **Support incremental update, or
 decline it.** **Honour the project's exclusions**, which the caller passes in.
 
 The coverage block names relation kinds as well as languages, and the vocabulary is fixed by the
 contract rather than by each backend: `RELATION_KINDS` is a five-member tuple
-(`substrate.py:47`), `make_edge` raises on anything outside it (`substrate.py:134`), `Coverage`
-raises on a declaration outside it (`substrate.py:403`), and `validate_graph` rejects an edge
+(`substrate.py:47`), `make_edge` raises on anything outside it (`substrate.py:156`), `Coverage`
+raises on a declaration outside it (`substrate.py:425`), and `validate_graph` rejects an edge
 carrying one. Today homegrown declares four languages, six extensions and two relations;
 graphify declares forty languages, ninety-three extensions and all five (measured on this
 checkout, 2026-08-21).
 
-Exclusions are a contract type, `substrate.Exclusions` (`substrate.py:458`), assembled by the
+Exclusions are a contract type, `substrate.Exclusions` (`substrate.py:480`), assembled by the
 project and passed into `build()` and `update()`. A backend never decides for itself what is out
 of scope, but it is not required to accept the exclusions natively either: graphify honours
 obligation 6 as a post-filter on its own output, because `graphify update` has no exclusion flag
@@ -58,12 +58,12 @@ obligation 6 as a post-filter on its own output, because `graphify update` has n
 
 **Obligation 5 was declared and unenforced for the whole of this feature, and was implemented on
 the day this record was written.** `Coverage.incremental` is written into every graph's coverage
-block (`substrate.py:411`), and until 2026-08-21 the only read in the repository was
+block (`substrate.py:433`), and until 2026-08-21 the only read in the repository was
 `Coverage.from_dict` reconstituting the value it had just written. The clause existed, the branch
 did not, and both shipping backends declare `True` — so nothing had ever been in a position to
 notice. `run_update` now calls the backend's build path when `coverage().incremental` is false,
 and takes the same safe route when a backend cannot describe its coverage at all
-(`graph_ops.py:2608`). It is pinned by a test that fails under mutation of that branch.
+(`graph_ops.py:2675`). It is pinned by a test that fails under mutation of that branch.
 
 **`coverage.relations` is still declared and unenforced**, and this record says so rather than
 repeating the design's present tense: written on every build, consumed by no caller, so the
@@ -72,9 +72,9 @@ unused. The vocabulary half of the same decision *is* load-bearing, because it i
 edge's `kind` checkable at all — see ADR-021.
 
 The store behind the project's exclusions is **not** `classifications.json`, which was the
-original plan. `classifications.json` stayed a gitignored derived cache (`graph_ops.py:244`);
+original plan. `classifications.json` stayed a gitignored derived cache (`graph_ops.py:245`);
 the committed store is `knowledge-base/settings.json` under a `directories` key
-(`settings.py:77`). That correction, and the arguable-defaults problem behind it, are ADR-022.
+(`settings.py:100`). That correction, and the arguable-defaults problem behind it, are ADR-022.
 
 ## Rationale
 
@@ -100,7 +100,7 @@ Obligation 4 is the one that earns its keep in another skill's code rather than 
 repository graphed as empty and reported as success is the headline failure Track B exists to
 remove, and the fix is not in the graph builder — it is that spec-manager reads the declared
 extensions out of the graph and refuses to call an unreadable repository greenfield
-(`project_shape.py:117`). Declaring coverage is what makes "no dependencies" and "this backend
+(`project_shape.py:133`). Declaring coverage is what makes "no dependencies" and "this backend
 does not read Java" different sentences. ADR-029 generalises the same move from the repository
 to the individual answer.
 
@@ -123,7 +123,7 @@ other backend a scope that omitted them, and a project running graphify graphed 
 `target/` and the toolkit's own `knowledge-base/` while the floor on the same repository did
 not. The obligation had been written down and honoured by one implementation. It now assembles
 the built-in lists, the project's directory verdicts and `.gitignore` into the one input every
-backend receives (`graph_ops.py:438`).
+backend receives (`graph_ops.py:449`).
 
 Relation kinds were settled in the contract's first phase rather than deferred to the phase that
 added symbols, because a vocabulary invented under the pressure of a migration is worse than one
