@@ -111,6 +111,21 @@ class CountGraphTest(unittest.TestCase):
         })
         self.assertEqual(project_shape.count_graph(self.proj), (2, 1, True))
 
+    def test_a_crossing_into_a_declared_root_is_not_this_project_s_wiring(self):
+        """`outside:` is the fourth signal, and this file's copy of the list was the third body.
+
+        A crossing resolved to a real file, so it is not `unresolved:` — but the file is in
+        somebody else's repository, and counting it says this checkout is wired when the wiring
+        is not here. Mutation: restore the local `("external:", "unresolved:")` literal and
+        `lib/a.ts` reads as two internal edges instead of one, which is enough to flip a bare
+        scaffold that imports a shared design system from greenfield to brownfield.
+        """
+        _write_graph(self.proj, {
+            "lib/a.ts": {"imports": ["lib/b.ts", "outside:ui/src/Button.tsx"]},
+            "lib/b.ts": {"imports": []},
+        })
+        self.assertEqual(project_shape.count_graph(self.proj), (2, 1, True))
+
     def test_counts_object_shaped_edges(self):
         """The shape code-graph writes since 2026-08-20."""
         _write_graph(self.proj, {

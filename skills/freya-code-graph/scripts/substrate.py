@@ -65,10 +65,25 @@ PROVENANCE = (
     'inferred',     # derived by resolution the source did not spell out
 )
 
+# A target that resolved to a real file under a directory this project *declared* outside its
+# own root — the `outside` section of `knowledge-base/settings.json` (ADR-031). The tail is
+# `<alias>/<path under that root>`: the alias the project chose, never the path, so the token
+# is the same string in every clone and no absolute path reaches an artifact.
+#
+# It is a signal and not a key, and that is the whole of the design. `is_internal` is false for
+# it, so `link_dependents` builds no reverse edge and `validate_graph` demands no node, and the
+# key space stays exactly what ADR-025 says it is — which is what lets the `files`-key rule in
+# `validate_graph` stay unconditional. It is also why a consumer that has never heard of
+# declarations fails *closed*: `outside:ui/src/Button.tsx` joined onto any root names nothing
+# that exists, and it carries no `..`, no drive and no leading slash with which to try.
+OUTSIDE_PREFIX = 'outside:'
+
 # Prefixes that mark an import specifier as a signal rather than a resolved path. Kept in one
 # place because three skills independently filter on them, and a fourth prefix added without
-# updating all of them would be counted as an internal edge.
-IMPORT_SIGNALS = ('external:', 'unresolved:')
+# updating all of them would be counted as an internal edge. That is not hypothetical: the
+# fourth arrived on 2026-08-23, and `graph_ops` and `project_shape` had each grown their own
+# copy of the tuple by then. Both import this one now.
+IMPORT_SIGNALS = ('external:', 'unresolved:', OUTSIDE_PREFIX)
 
 # 1: edges were bare strings.
 # 2: edges are objects carrying `kind` and `provenance` (2026-08-20).
@@ -85,7 +100,14 @@ ACTIVE_GRAPH = 'graph.json'
 
 
 def is_internal(specifier: str) -> bool:
-    """Is this import specifier a resolved project file, rather than a signal?"""
+    """Is this import specifier a resolved project file, rather than a signal?
+
+    Four answers, not three, since 2026-08-23: a file in this project, a package
+    (`external:`), something that could not be resolved (`unresolved:`), and something that
+    resolved under a declared out-of-tree root (`outside:`). Only the first is internal. The
+    fourth is the one worth stating, because it *did* resolve to a real file and is still not
+    a node: a declaration buys resolution, never a place in the key space (ADR-031).
+    """
     return bool(specifier) and not specifier.startswith(IMPORT_SIGNALS)
 
 

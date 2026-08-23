@@ -69,12 +69,28 @@ Optional. Absent, everything below is the default.
   },
   "directories": {
     "docs": "source"
+  },
+  "outside": {
+    "ui": "../packages/ui"
   }
 }
 ```
 
 `directories` is how a project argues with the built-in exclusions — see
-[Overriding the built-in exclusions](#overriding-the-built-in-exclusions) below.
+[Overriding the built-in exclusions](#overriding-the-built-in-exclusions) below. Its keys name
+paths **inside** the project root; one that escapes is refused and named.
+
+`outside` is the other half, and the only way anything beyond the root is reached. Inside the
+root, discovery is automatic and needs no entry anywhere. Crossing is never *implicit*: no
+import's `..` and no symlink reaches out on its own. **The declaration is the only door, and it
+is the one place `..` is expected** — it is written relative to the project root, so
+`../packages/ui`, never `/opt/ui` and never `~/ui`, because this file is committed and those two
+name a different directory for every reader. A declaration buys *resolution only*: an import
+that lands under a declared root becomes the edge target `outside:<alias>/<path>`, and every
+build says what it declared and how far each root got under `substrate.outside_roots`, zero
+crossings included. Nothing under a declared root is scanned, graphed or read (ADR-031). Two
+roots cannot share an alias, and where two nest — `../packages` and `../packages/ui` — the more
+specific one names the file, so the outer one reporting no crossings is not a fault.
 
 `symbols` asks a backend to record *which symbol* each edge leaves and arrives at, where it
 knows. Off by default: measured on this repository it turns **120 file-level edges into
@@ -121,10 +137,11 @@ honest state, and recording the floor as though somebody chose it is not.
 
 | Machine-level (`~/.freya/settings.json`) | Project-level |
 |---|---|
-| `substrate.backend`, `substrate.symbols` | those, plus `directories` |
+| `substrate.backend`, `substrate.symbols` | those, plus `directories` and `outside` |
 
 Scope is never a machine-level setting — a global `docs: source` would apply to repositories
-nobody has looked at. Anything else in that file is ignored and reported.
+nobody has looked at, and a global `outside` would point every project on the machine at one
+directory. Anything else in that file is ignored and reported.
 
 ### Backends
 

@@ -29,6 +29,9 @@ Shape:
       "directories": {
         "docs": "source",          // this project's docs/ really is source
         "packages/legacy": "exclude"
+      },
+      "outside": {
+        "ui": "../packages/ui"     // a sibling checkout this project's code imports
       }
     }
 
@@ -37,17 +40,42 @@ Shape:
 and which is the mistake this module's second paragraph was already written to prevent. An
 override survived on the machine that made it and vanished on clone, so CI and every colleague
 silently graphed a smaller codebase and were told it succeeded.
+
+`outside` is the other half of the same subject and the two must not be confused, so the split
+is stated here where both are defined. **`directories` names paths INSIDE the project root**;
+its keys are project-relative and every consumer reads them as the prefix of one, which is why
+`normalise_dir_key` refuses a key that escapes rather than folding it. **`outside` names a
+directory that is NOT inside the root**, by alias, and it is the only way anything beyond the
+root is ever reached (ADR-031). Inside the root, discovery stays automatic and needs no entry
+in either map; crossing the root is never implicit.
 """
 
 import json
 import os
 import posixpath
+import string
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 # The containment rule is imported and never re-derived here (ADR-030). A directory key is a
 # value *declared* in checked-in data, which is the question `escapes` answers — and the
 # reason it, rather than one of the other three predicates, is what `normalise_dir_key` calls.
 import containment
+# The token a crossing is spelled with is edge vocabulary, so it belongs to the contract and
+# not to the file reader — and one string written out twice is exactly how `IMPORT_SIGNALS`
+# came to have three bodies. The direction is settings -> substrate -> containment and it must
+# stay that way: `substrate` imports nothing first-party but `containment`, and a
+# `substrate -> settings` edge would make the contract depend on the configuration file, which
+# is the coupling ADR-018 exists to prevent.
+#
+# The name is imported rather than the module, because four functions below bind a *local*
+# called `substrate` for the settings section of that name, and a module shadowed in four
+# places is a trap laid for whoever edits one of them next.
+#
+# Not a re-export, and it carried a `# noqa: F401 — re-exported` saying it was: the name is
+# used here, in `OutsideRoots.key_for`, so F401 could never have fired, and nothing anywhere
+# reads `settings.OUTSIDE_PREFIX` — every other reader goes to `substrate`, which is where the
+# comment above says the definition belongs.
+from substrate import OUTSIDE_PREFIX
 
 SETTINGS_DIRNAME = 'knowledge-base'
 SETTINGS_FILENAME = 'settings.json'
@@ -75,6 +103,28 @@ GLOBAL_KEYS = (('substrate', 'backend'), ('substrate', 'symbols'))
 
 # What a project may say about one of its directories.
 DIRECTORY_VERDICTS = ('source', 'exclude')
+
+# Where a project declares a directory OUTSIDE its own root (ADR-031).
+#
+# A top-level section and not a third verdict on `directories`, and the reason is the key space
+# rather than taste. That map's *keys* are project-relative paths, and every consumer reads
+# them as the prefix of one: the scan roots are `project_dir / key.split('/')[0]`, the override
+# lookups match prefixes, and so does `Exclusions._under`. A path outside the root has no such
+# spelling — which is why `{"directories": {"../shared": "source"}}` did not extend the
+# mechanism, it corrupted the graph (see `normalise_dir_key` below for the measurement).
+# `_classify_directories` cannot produce a verdict for a directory it cannot reach by
+# `project_dir.iterdir()` either, so an out-of-tree entry could never carry the `ai` tier the
+# two-tier design in ADR-022 is built around.
+#
+# The alias, and never the path, is what reaches an answer. It is the same string in every
+# clone, it carries no absolute path into an artifact, and it is what makes
+# `outside:<alias>/<rel>` splittable on the first `/`.
+OUTSIDE_SECTION = 'outside'
+
+# What an alias may be spelled with. Deliberately narrow: no `/`, because the token splits on
+# the first one; no `:`, because the token already carries one; no whitespace, because an alias
+# that differs from another by a space is a typo nobody will see in a diff.
+_ALIAS_CHARS = frozenset(string.ascii_letters + string.digits + '._-')
 
 # `auto` means **defer**: to the machine-level default if one is set, and otherwise to the
 # floor — the backend that is always installed.
@@ -108,6 +158,11 @@ DEFAULTS = {
         'symbols': False,
     },
     'directories': {},
+    # Present so that `load()` type-checks the section and warns on a non-object, rather than
+    # copying it through the forward-compatibility branch untouched. An older freya reading a
+    # newer file still ignores it there and simply does not cross the root, which is the right
+    # way for this to fail on a version that does not understand it.
+    'outside': {},
 }
 
 
@@ -185,6 +240,314 @@ def normalise_dir_key(name: Any) -> str:
     if text in ('', '.') or containment.escapes(text):
         return ''
     return text
+
+
+class OutsideRoots:
+    """The directories this project declared outside its own root, resolved once.
+
+    One predicate — `key_for` — answering one question: may this candidate be crossed to, and
+    what is the crossing called. Empty is the default and the common case; a project that
+    declares nothing gets an instance that answers None to everything without touching the
+    filesystem, which is what keeps the zero-config path free.
+
+    The grant is **resolution, never traversal**. Nothing here walks, globs or reads a declared
+    root. The most this can cause is `os.path.realpath` on a candidate some in-project file
+    named, and — once the caller has a key — the `is_file()` plus one cached `listdir` of that
+    file's own directory that the in-project resolver already performs. No content outside the
+    project is ever read, and no file under a declared root ever becomes a `graph['files']`
+    key. That is what lets `validate_graph`'s key rule stay unconditional, and it is the whole
+    difference between this and SEC-008 with a declaration written on it.
+
+    Fail-closed is structural rather than a rule somebody has to remember. A crossing is only
+    ever spelled `outside:<alias>/<rel>`, never as an ordinary path, so a consumer that has not
+    been taught about declarations cannot open one: the token has no drive, no leading slash
+    and no `..`, so joining it onto any root is safe and names nothing that exists. It refuses;
+    it does not read. Emitting the real `../packages/ui/src/Button.tsx` instead would have
+    handed every untaught consumer a working path out of the project.
+    """
+
+    __slots__ = ('roots', 'refused')
+
+    def __init__(self, roots: Sequence[Tuple[str, str, str]] = (),
+                 refused: Sequence[Tuple[str, str, str]] = ()):
+        #: (alias, path as written, resolved absolute path) for each root in force, ordered
+        #: **most specific first** and not as the file happened to spell them. Two roots where
+        #: one contains the other are both legal — `{"ui": "../packages/ui", "pkgs":
+        #: "../packages"}` is an ordinary thing to write — and `key_for` returns on the first
+        #: match, so without this the token a file is reported under was decided by JSON key
+        #: order. That is not a theoretical instability: `write()` re-serialises this map with
+        #: `sort_keys=True`, and `seed_project_backend` calls it on the first build of any
+        #: project carrying a machine default, so freya alphabetised the aliases itself and
+        #: changed every `outside:` token in the next graph with no code change at all.
+        #:
+        #: The longest resolved path is the most specific one, because a contained root is a
+        #: prefix of its container plus at least one more component. The alias breaks ties, so
+        #: two aliases naming the same directory still resolve the same way in every clone.
+        self.roots = tuple(sorted(roots, key=lambda root: (-len(root[2]), root[0])))
+        #: (alias, value as written, why) for each declaration that was turned away.
+        self.refused = tuple(refused)
+
+    def __bool__(self) -> bool:
+        return bool(self.roots)
+
+    def __repr__(self) -> str:
+        return 'OutsideRoots(%s)' % ', '.join(
+            ['%s=%r' % (alias, declared) for alias, declared, _ in self.roots]
+            + ['%s=refused' % alias for alias, _, _ in self.refused])
+
+    def key_for(self, candidate: Any) -> Optional[str]:
+        """`outside:<alias>/<path under that root>` for a declared crossing, else None.
+
+        `containment.within` and not one of its neighbours, because this is the security
+        question: the answer decides whether a path outside the project is touched at all. Both
+        sides go through `realpath`, so a symlink planted under a declared root that points
+        somewhere else — back into the project, or at `/etc` — is not contained and the
+        crossing is refused. A symlink is an *implicit* crossing, and a declaration never
+        re-authorises one (SEC-008).
+
+        The extra `realpath` for the relative spelling is paid deliberately rather than
+        hoisted out of `within`: re-deriving the containment comparison here to save a syscall
+        would be a second body of the rule (ADR-030), and this runs only for a candidate that
+        is already known not to be in the project, which on any real repository is a handful of
+        imports.
+
+        A candidate that *is* the root resolves to the empty tail, `outside:<alias>/`. It never
+        reaches an edge — the caller's next question is `_is_real_file`, and a directory is not
+        one — but it keeps "split on the first `/`" true for every token this can produce.
+
+        First match wins, and `__init__` is what makes "first" mean *most specific* rather than
+        *first written*. Where two declared roots nest, the inner one names the file; the outer
+        one is not consulted for anything the inner one already covers, which is why its
+        `crossings` count can be zero while it is doing its job — see `_outside_report`.
+        """
+        for alias, _declared, resolved in self.roots:
+            if not containment.within(resolved, candidate):
+                continue
+            rel = os.path.relpath(os.path.realpath(candidate), resolved)
+            tail = '' if rel == os.curdir else rel.replace(os.sep, '/')
+            return OUTSIDE_PREFIX + alias + '/' + tail
+        return None
+
+    def to_dict(self) -> Optional[Dict[str, Any]]:
+        """The declarations as an artifact should record them, or None if there were none.
+
+        `None` and not `{}`, so a repository that has never declared anything produces
+        byte-identical output (ADR-029's absent-not-empty rule).
+
+        The *resolved* absolute path is deliberately not carried. It is derivable from the
+        graph's own project root and the declared value, and an absolute path written into a
+        machine-readable artifact is a path off this machine the moment the artifact moves.
+
+        Refusals are carried beside the roots in force for ADR-029's reason: each one also
+        produces a warning, and stderr is dead skill-to-skill. A declaration that was thrown
+        away is precisely the thing a reader of the artifact needs told.
+        """
+        if not self.roots and not self.refused:
+            return None
+        block = {}  # type: Dict[str, Any]
+        if self.roots:
+            block['declared'] = [{'alias': alias, 'path': declared}
+                                 for alias, declared, _ in self.roots]
+        if self.refused:
+            block['refused'] = [{'alias': alias, 'path': declared, 'reason': why}
+                                for alias, declared, why in self.refused]
+        return block
+
+
+#: What a value that is not project-relative is told. One string, because the two places that
+#: can produce it — an anchored value, and a drive-relative tail after the `..` — are the same
+#: mistake and reading two different sentences for it would suggest they were not.
+_NOT_RELATIVE = ('is not a relative path — a declared root is written relative to the project '
+                 'root, so that the same commit names the same directory in every clone')
+
+
+def _outside_target(value: Any) -> Tuple[Optional[str], Optional[str]]:
+    """`(relative path, None)` for a declarable value, or `(None, why not)`.
+
+    The grammar of a declaration is deliberately small: *n* leading `..` components, then a
+    tail that would itself be a legal `directories` key. That decomposition is what lets the
+    existing predicates answer this without a fifth body of either — `containment.escapes`
+    refuses `..` outright, which is the one thing a declaration must be *allowed*, so it is
+    asked about the tail rather than about the value.
+
+    Three refusals, in the order that gets each one the right sentence:
+
+    * `~` first, and by name. Every `~` value would be refused anyway by the `up == 0` clause
+      below — no home path starts with `../` — so this branch exists for the *message*. Without
+      it a person who wrote `~/shared` is told their path is inside the project, which is the
+      one answer guaranteed to send them looking in the wrong place. This file is committed and
+      `~` names a different directory for every reader, which is the failure that is silent on
+      every machine at once.
+    * `containment.escapes` on the tail. This is also where **absoluteness** is judged, and
+      that is not a coincidence: stripping leading `../` from an absolute value strips nothing,
+      so an absolute path arrives at this line as its own tail. `is_anchored` was written into
+      an earlier draft of this function beside it and measured redundant — every spelling it
+      caught, `escapes` had already caught one line later with the same sentence.
+
+      The predicate matters and `os.path.isabs` will not do, which is the 3.9/3.13 trap in a
+      new place: `os.path.isabs('C:/shared')` is False on Linux and `ntpath.isabs('/opt/sdk')`
+      is False on Windows from 3.13, so the host rule waves through one spelling on each leg
+      of the CI matrix. `escapes` judges in both flavours, so a committed value means the same
+      thing wherever it is read.
+    * `up == 0` last: a value that never leaves the root is not a declaration at all, and it
+      is sent to `directories`. That clause carries most of the refusals by count, which is
+      worth knowing when reading the two above — they are there for the *reason* at least as
+      often as for the verdict.
+
+    A known boundary, the same one `normalise_dir_key` documents and priced the same way: a
+    first component of one character then `:` is a drive to the flavour this must also judge
+    in, so a POSIX project with a sibling directory literally named `x:` cannot declare it. On
+    the other side of the same boundary, `C:shared` — drive-relative, no root — is caught by
+    `escapes` and gets the relativeness sentence, which is what a Windows reader needs.
+
+    Both refusals are portability, not security, and the limit belongs in plain sight:
+    refusing absolutes is **not** a bound on where a declaration can reach. `../../../../etc`
+    is expressible and resolves exactly where it reads. What the relative form buys is that the
+    destination is legible in review — `../packages/ui` beside a checkout is a sentence anyone
+    can check — and that the same commit means the same thing in every clone. The bound on what
+    a declaration *does* is the resolution-only grant, not this.
+    """
+    if not isinstance(value, str) or not value.strip():
+        return None, 'is not a directory path'
+    text = value.replace('\\', '/').strip()
+    if text.startswith('~'):
+        return None, ('starts with ~, which names a different directory for every user; this '
+                      'file is committed, so write the path relative to the project')
+    text = posixpath.normpath(text)
+    up = 0
+    while text == '..' or text.startswith('../'):
+        up += 1
+        text = '' if text == '..' else text[3:]
+    if containment.escapes(text):
+        return None, _NOT_RELATIVE
+    if not up:
+        return None, ('names a directory inside this project; a scope inside the root belongs '
+                      'in "directories", and inside the root nothing needs declaring at all')
+    return posixpath.join(*(['..'] * up + ([text] if text else []))), None
+
+
+def parse_outside(raw: Any, project_dir: str,
+                  path: str) -> Tuple[OutsideRoots, List[str]]:
+    """Read the `outside` section. Returns `(OutsideRoots, warnings)`.
+
+    A bad entry is a warning and a skip, never a crash and never a silent drop — the same shape
+    as every other malformation in this file, and for the reason its opening paragraph gives: a
+    build must not fail because configuration is wrong, and a project whose committed file
+    carries a stale root would otherwise stop being able to build at all. Refusing one entry
+    loses nothing that worked, because a declaration that cannot be resolved never reached
+    anything in the first place.
+
+    Every refusal carries the value it turned away and why. A declaration is the one thing in
+    this file that a person writes expecting the toolkit to look somewhere new; a silent
+    no-effect entry there is worse than a dead directory key, because nothing else in the
+    output would ever hint at it.
+
+    The first two branches guard **direct callers only**, and that is worth saying because they
+    look like the file-reading path and are not. `DEFAULTS` carries `'outside': {}`, so `load()`
+    type-checks this section itself and substitutes the default with its own sentence ("using
+    defaults for it") before `Settings` ever reaches here; a `null` or a list in the committed
+    file is caught there and never arrives. They are kept rather than deleted because this is a
+    module-level parser with a public name and a caller that hands it a list should get a
+    sentence rather than an `AttributeError` — but they are pinned by a test that calls this
+    function directly, because a branch no test can reach is how the next reader concludes the
+    live ones are optional too.
+    """
+    if raw is None:
+        return OutsideRoots(), []
+    if not isinstance(raw, dict):
+        return OutsideRoots(), ['%s: "%s" must be an object; ignoring it'
+                                % (path, OUTSIDE_SECTION)]
+
+    roots = []  # type: List[Tuple[str, str, str]]
+    refused = []  # type: List[Tuple[str, str, str]]
+    warnings = []  # type: List[str]
+    taken = set()  # type: set
+
+    def turn_away(alias: Any, value: Any, why: str) -> None:
+        shown = alias if isinstance(alias, str) else repr(alias)
+        refused.append((shown, value if isinstance(value, str) else repr(value), why))
+        warnings.append('%s: %s.%s: %r %s; ignored'
+                        % (path, OUTSIDE_SECTION, shown, value, why))
+
+    for alias, value in raw.items():
+        name = alias.strip() if isinstance(alias, str) else ''
+        if not name or not set(name) <= _ALIAS_CHARS:
+            turn_away(alias, value,
+                      'is not usable as an alias — an alias is one or more letters, digits, '
+                      '".", "_" or "-", and it is the name a crossing is reported under')
+            continue
+        target, why = _outside_target(value)
+        if why:
+            turn_away(name, value, why)
+            continue
+        resolved = os.path.realpath(os.path.join(project_dir, target))
+        if not os.path.isdir(resolved):
+            turn_away(name, value, 'does not name a directory that exists')
+            continue
+        # `within` on both sides, and in this order. The first catches a root that resolves
+        # back inside the project — through `..` and in again, or through a symlink — which
+        # would give one file two spellings, `src/a.ts` and `outside:x/a.ts`, and break the
+        # key space ADR-025 depends on from the other direction. The second catches `..` and
+        # `../..`, which name an ancestor: an ancestor is not a scope, and declaring one would
+        # quietly re-admit the whole tree the project sits in.
+        if containment.within(project_dir, resolved):
+            turn_away(name, value,
+                      'resolves inside this project; a scope inside the root belongs in '
+                      '"directories"')
+            continue
+        if containment.within(resolved, project_dir):
+            turn_away(name, value,
+                      'contains this project, which is not a scope — point freya at that '
+                      'directory instead if it is the real project root')
+            continue
+        # Two entries cannot share an alias. JSON cannot spell a literal duplicate key, so this
+        # only ever fires on two spellings that `strip()` folds together — `"ui"` and `" ui "` —
+        # which is exactly the typo `_ALIAS_CHARS` refuses whitespace to keep out of a diff.
+        # Left unchecked it was not merely cosmetic: both entries reached `declared`, `key_for`
+        # answered from whichever sorted first, and `_outside_report` counted the crossing once
+        # and stamped it on both, so the artifact reported two crossings against a total of one.
+        if name in taken:
+            turn_away(name, value,
+                      'repeats an alias already declared in this section; an alias is the name '
+                      'a crossing is reported under, so two roots cannot share one')
+            continue
+        # Honoured, and said out loud. A declared root reached through a symlink is not the
+        # implicit crossing SEC-008 refuses — the path was declared, and `key_for` still refuses
+        # a symlink *under* the root that leaves it. But it is the one case where the committed
+        # text is not the whole answer, and this record's argument for refusing absolute paths
+        # is that a relative one is legible in review. `../packages/ui` is only a sentence
+        # anyone can check while every component of it is what it looks like, so when one is
+        # not, the run says where the declaration actually landed.
+        #
+        # Compared against the project's own *realpath*, deliberately. Measuring from the
+        # unresolved `project_dir` would fire on every macOS checkout under `/tmp` and every
+        # repository reached through a symlinked home, which is a warning nobody would read
+        # twice. What is left is divergence contributed by the declaration itself.
+        lexical = os.path.normpath(os.path.join(os.path.realpath(project_dir), target))
+        if os.path.normcase(lexical) != os.path.normcase(resolved):
+            warnings.append(
+                '%s: %s.%s: %r reaches %s through a symlink; the declaration is honoured, but '
+                'the committed path is not where the build looked'
+                % (path, OUTSIDE_SECTION, name, value, _relative_to(resolved, project_dir)))
+        taken.add(name)
+        roots.append((name, value, resolved))
+
+    return OutsideRoots(roots, refused), warnings
+
+
+def _relative_to(target: str, project_dir: str) -> str:
+    """`target` spelled from the project root, or absolutely when it has no such spelling.
+
+    Only ever used in a stderr sentence, so the fallback is a real answer rather than a
+    refusal: on Windows a declared root on another drive has no relative spelling at all
+    (`ntpath.relpath` raises), and naming the absolute path is more use to the reader than
+    saying nothing. An absolute path in an *artifact* is the thing `OutsideRoots.to_dict`
+    refuses, and this is not one.
+    """
+    try:
+        return os.path.relpath(target, os.path.realpath(project_dir)).replace(os.sep, '/')
+    except ValueError:
+        return target
 
 
 def settings_path(project_dir: str) -> str:
@@ -290,7 +653,7 @@ class Settings:
     it is not.
     """
 
-    __slots__ = ('data', 'path', 'present', 'warnings', 'directories',
+    __slots__ = ('data', 'path', 'present', 'warnings', 'directories', 'outside',
                  'global_data', 'file_backend', 'file_symbols')
 
     def __init__(self, data: Dict[str, Any], path: str, present: bool,
@@ -316,7 +679,25 @@ class Settings:
         # before touching `.directories` got an empty list and printed nothing. Both of them
         # did, which meant a typo'd verdict was dropped in complete silence.
         self.directories = self._parse_directories()
+        # Eagerly, and for the same reason as the line above: a lazily parsed field appends
+        # its own warnings, so every caller that reads `.warnings` before touching the field
+        # prints nothing and a refused declaration vanishes. That has already happened once in
+        # this class; repeating it in the one field whose whole purpose is to make a crossing
+        # visible would be the easiest possible way to ship a silent one.
+        self.outside, outside_warnings = parse_outside(
+            self.data.get(OUTSIDE_SECTION), self._project_dir(), self.path)
+        self.warnings.extend(outside_warnings)
         self._check_substrate()
+
+    def _project_dir(self) -> str:
+        """This project's root, derived from the settings path rather than passed in.
+
+        `settings_path` is `<project>/knowledge-base/settings.json`, so two `dirname`s get back
+        what `load()` was handed. Derived and not a new constructor parameter, because every
+        existing `Settings(...)` call site — including the tests that build one by hand — would
+        otherwise have to grow an argument to keep working.
+        """
+        return os.path.dirname(os.path.dirname(self.path))
 
     def _check_substrate(self) -> None:
         """Warn about a `substrate` value of the wrong type, rather than dropping it.
@@ -421,7 +802,8 @@ class Settings:
             if not key:
                 self.warnings.append(
                     '%s: directories: %r does not name a directory inside this project; '
-                    'ignored' % (self.path, name))
+                    'ignored. A directory outside the project root is declared under "%s", '
+                    'by alias (ADR-031)' % (self.path, name, OUTSIDE_SECTION))
                 continue
             if verdict not in DIRECTORY_VERDICTS:
                 self.warnings.append(

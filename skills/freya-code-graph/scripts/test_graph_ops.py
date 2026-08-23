@@ -14,6 +14,8 @@ Covers:
 Run: python test_graph_ops.py
 """
 
+import contextlib
+import io
 import json
 import os
 import shutil
@@ -24,6 +26,7 @@ import unittest
 from pathlib import Path, PurePosixPath, PureWindowsPath
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import containment  # noqa: E402
 import graph_ops  # noqa: E402
 import settings  # noqa: E402
 import substrate  # noqa: E402
@@ -37,6 +40,22 @@ def _git_repo(path):
                GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@e")
     for argv in (["git", "init", "-q"], ["git", "add", "-A"],
                  ["git", "commit", "-qm", "init"]):
+        subprocess.run(argv, cwd=path, env=env, capture_output=True, check=True)
+    out = subprocess.run(["git", "rev-parse", "HEAD"], cwd=path, env=env,
+                         capture_output=True, text=True, check=True)
+    return out.stdout.strip()[:12]
+
+
+def _commit(path, message="next"):
+    """Commit everything in `path`, and return the new short HEAD.
+
+    Separate from `_git_repo` because the incremental path only exists between two commits:
+    `--update` asks git what moved since the commit the cached graph recorded, so a second
+    commit is the whole fixture for it.
+    """
+    env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@e",
+               GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@e")
+    for argv in (["git", "add", "-A"], ["git", "commit", "-qm", message]):
         subprocess.run(argv, cwd=path, env=env, capture_output=True, check=True)
     out = subprocess.run(["git", "rev-parse", "HEAD"], cwd=path, env=env,
                          capture_output=True, text=True, check=True)
@@ -2973,6 +2992,427 @@ class TestTheCachedCommitIsNotAGitArgument(Base):
         # Project-relative, from a project one directory below the repository root: the
         # separator must not cost `--relative` its effect.
         self.assertEqual(g._get_changed_files(base), ["src/b.ts"])
+
+
+class TestCrossingTheRootIsADeclaredAct(Base):
+    """Nothing outside the project root is reached unless the project declared it (ADR-031).
+
+    Two halves, and both have to hold or the feature is either useless or SEC-008 with a
+    declaration written on it. Inside the root discovery stays automatic. Crossing the root is
+    never implicit — and when it does happen, the answer says so.
+
+    The fixture is the motivating shape: a checkout beside the package it imports, which is
+    what an Expo app in one repository importing a design system from another looks like.
+    `proj/` is a subdirectory of the temp dir so `packages/` is a genuine sibling and nothing
+    is written above the tree this class cleans up.
+    """
+
+    SECRET = "SECRET_FROM_OUTSIDE"
+
+    def sibling_project(self, declaration=None):
+        root = self.mk({
+            "proj/src/a.ts": "import { B } from '../../packages/ui/src/Button'\n"
+                             "export const a = 1\n",
+            "proj/src/b.ts": "import { a } from './a'\nexport const b = 1\n",
+            "packages/ui/src/Button.tsx": "export const B = 1\n"
+                                          "export const %s = 'leaked'\n" % self.SECRET,
+            # Never referenced by anything in the project. A declaration must not make this
+            # reachable: the grant is resolution of a reference in-project code wrote, never a
+            # licence to walk the tree the reference landed in.
+            "packages/ui/unreferenced/keys.ts": "export const %s = 'walked'\n" % self.SECRET,
+        })
+        proj = os.path.join(root, "proj")
+        os.makedirs(os.path.join(proj, "knowledge-base"), exist_ok=True)
+        if declaration is not None:
+            with open(os.path.join(proj, "knowledge-base", "settings.json"), "w",
+                      encoding="utf-8") as handle:
+                json.dump({"outside": declaration}, handle)
+        return root, proj
+
+    def built(self, declaration=None):
+        root, proj = self.sibling_project(declaration)
+        g = CodeGraph(proj)
+        graph_ops.run_build(g, non_interactive=True, exclusions=g.project_exclusions())
+        return root, proj, g
+
+    # -- the default is refusal ------------------------------------------------------------
+
+    def test_an_undeclared_sibling_stays_unresolved(self):
+        """Zero-config behaviour is unchanged, and declaration is the whole opt-in.
+
+        This is the row that says the feature is not on by default. Without it, an
+        implementation that resolved every sibling would pass everything below.
+        """
+        _, _, g = self.built()
+        self.assertEqual(ends(g.graph["files"]["src/a.ts"]["imports"]),
+                         ["unresolved:../../packages/ui/src/Button"])
+        self.assertNotIn("outside_roots", g.graph["substrate"])
+
+    def test_an_undeclared_project_enumerates_nothing_outside_its_own_root(self):
+        """Containment runs before the `is_file()` and before the `listdir`, and this proves it.
+
+        *Enumerates*, and the name says so rather than saying "touches", because the stronger
+        claim is false and was asserted here for a while: `_resolve_import_path` builds a
+        relative candidate with `(from_dir / import_path).resolve()`, which `lstat`s every
+        component of a `../..` specifier before `_contain` is consulted at all, declared or
+        not. That realpath is pre-existing, it is the one ADR-031's Rationale prices, and this
+        row cannot see it — `_dir_listing_cache` is populated only by `_is_real_file`, so it is
+        the record of every directory this build *enumerated*, which is the bound that is
+        actually held.
+
+        Move the `_contain` call after `self._is_real_file(candidate)` in `_resolve_fs` and the
+        edge classification does not change at all — it is still `unresolved:` — but the
+        sibling directory appears in this cache. That is the mutation this row exists for:
+        without it, a version of the fix that looks correct still leaves an existence oracle
+        over paths outside the project.
+        """
+        _, proj, g = self.built()
+        for parent in g._dir_listing_cache:
+            with self.subTest(listed=str(parent)):
+                self.assertIsNotNone(containment.rel_within(g.project_dir, parent),
+                                     "%s is outside %s" % (parent, g.project_dir))
+
+    # -- a declaration buys resolution, and only resolution --------------------------------
+
+    def test_a_declared_root_resolves_to_a_signal_and_never_to_a_node(self):
+        """The crossing is an edge target, not a file.
+
+        Two independent mutations, each of which must turn this red on its own. Remove
+        `'outside:'` from `substrate.IMPORT_SIGNALS` and `is_internal` becomes true for the
+        target, so `validate_graph` reports an edge naming no file in the graph. Have
+        `OutsideRoots.key_for` return the raw relative path and the first assertion sees
+        `../packages/ui/src/Button.tsx`.
+        """
+        _, _, g = self.built({"ui": "../packages/ui"})
+        self.assertEqual(ends(g.graph["files"]["src/a.ts"]["imports"]),
+                         ["outside:ui/src/Button.tsx"])
+        self.assertNotIn("outside:ui/src/Button.tsx", g.graph["files"])
+        self.assertEqual(sorted(g.graph["files"]), ["src/a.ts", "src/b.ts"])
+        self.assertEqual(substrate.validate_graph(g.graph, g.coverage()), [])
+        for path, info in g.graph["files"].items():
+            with self.subTest(node=path):
+                self.assertNotIn("outside:ui/src/Button.tsx",
+                                 ends(info.get("dependents") or []))
+
+    def test_the_declared_root_is_resolved_into_and_never_walked(self):
+        """The line between this feature and SEC-008 with a declaration written on it.
+
+        `unreferenced/keys.ts` sits under the declared root and nothing in the project references
+        it. If any part of this globbed, walked or scanned the declared tree it would be in
+        the artifact. And `Button.tsx` — which *is* referenced — contributes an edge target and
+        nothing else: its exports are not read, because reading them means opening a file
+        outside the project, which no declaration buys.
+
+        The secret string is planted in both files and asserted absent from the whole artifact,
+        because that is the blunt version of the claim and it does not depend on knowing which
+        key content would have arrived under.
+        """
+        _, proj, g = self.built({"ui": "../packages/ui"})
+        artifact = json.dumps(g.graph)
+        self.assertNotIn(self.SECRET, artifact)
+        self.assertNotIn("unreferenced", artifact)
+        listed = {os.path.basename(str(p)) for p in g._dir_listing_cache}
+        self.assertNotIn("unreferenced", listed)
+        self.assertNotIn("ui", listed)
+
+    def test_an_untaught_consumer_cannot_open_any_edge_target(self):
+        """Fail-closed, asserted over the artifact rather than over one token.
+
+        Every consumer that has not been taught about declarations does the same thing with a
+        target: joins it onto the project root and looks. So the property is not "the token is
+        tidy", it is that no edge target in a built graph can be turned into a file outside the
+        project by that join. Emitting `../packages/ui/src/Button.tsx` instead — the obvious
+        alternative design — turns this red, and would have handed every untaught consumer in
+        the tree a working path out of the repository.
+        """
+        _, proj, g = self.built({"ui": "../packages/ui"})
+        crossings = 0
+        for info in g.graph["files"].values():
+            for target in ends(info["imports"]):
+                with self.subTest(target=target):
+                    landed = os.path.realpath(os.path.join(str(g.project_dir), target))
+                    self.assertTrue(
+                        containment.within(str(g.project_dir), landed)
+                        or not os.path.exists(landed),
+                        "%r joined onto the project root opens %s" % (target, landed))
+                    if not target.startswith(substrate.OUTSIDE_PREFIX):
+                        continue
+                    crossings += 1
+                    # Stronger than "names nothing", and only claimed of a crossing: the
+                    # token carries no `..`, no drive and no root in either flavour, so the
+                    # join above cannot leave the root whatever the filesystem looks like.
+                    # An `unresolved:` tail is whatever the source wrote and may well hold
+                    # `..`, which is why this half is not asserted of every target.
+                    self.assertFalse(containment.escapes(target))
+        self.assertEqual(crossings, 1, "the fixture stopped crossing; this row proves nothing")
+
+    def test_the_python_resolver_crosses_by_the_same_gate(self):
+        """One gate, two languages. `_contain` is a method for exactly this reason: inlined at
+        both sites, the TypeScript and Python resolvers would eventually disagree about what
+        this project is allowed to reach."""
+        root = self.mk({
+            "proj/knowledge-base/settings.json": '{"outside": {"sdk": "../sdk"}}',
+            "proj/app.py": "import client\n",
+            "sdk/client.py": "X = 1\n",
+        })
+        g = CodeGraph(os.path.join(root, "proj"))
+        self.assertEqual(g._resolve_python_module(g.project_dir / ".." / "sdk", ["client"]),
+                         "outside:sdk/client.py")
+        self.assertIsNone(g._resolve_python_module(g.project_dir / ".." / "elsewhere",
+                                                   ["client"]))
+
+    # -- the answer says it left the project ------------------------------------------------
+
+    def test_a_project_that_declares_nothing_produces_byte_identical_output(self):
+        """ADR-029's absent-not-empty rule, which this inherits rather than reinvents.
+
+        Mutation: write `graph['substrate']['outside_roots'] = crossed or {}` in `_finalise`
+        and this fails immediately — every repository in the world would start carrying an
+        empty key, and every `--query` answer would grow a field that always reads the same.
+        """
+        for label, declaration in (("no settings file", None), ("empty section", {})):
+            with self.subTest(case=label):
+                _, proj, g = self.built(declaration)
+                self.assertNotIn("outside_roots", g.graph["substrate"])
+                self.assertEqual(graph_ops._answer_caveats(g.graph), {})
+                self.assertNotIn("outside_roots", g.query("src/a.ts"))
+
+    def test_the_artifact_and_the_query_both_say_what_was_crossed(self):
+        """The payload half of ADR-029's split, on the two surfaces that can carry structure.
+
+        `--query` is where an agent reads programmatically, and an impact answer computed over
+        a graph with edges leaving the repository is not the same sentence as one that is
+        entirely in-tree.
+        """
+        _, proj, g = self.built({"ui": "../packages/ui"})
+        expected = {"declared": [{"alias": "ui", "path": "../packages/ui", "crossings": 1}],
+                    "crossings": 1}
+        self.assertEqual(g.graph["substrate"]["outside_roots"], expected)
+        self.assertEqual(g.query("src/a.ts")["outside_roots"], expected)
+        self.assertEqual(graph_ops._answer_caveats(g.graph)["outside_roots"], expected)
+
+    def test_a_declared_root_nothing_imports_is_reported_with_zero_crossings(self):
+        """A declaration that buys nothing is a typo or a leftover, and omitting it is the
+        silent-no-effect configuration this repository keeps paying for.
+
+        Mutation: return early from `_outside_report` when the total is zero, or filter
+        `declared` down to the aliases that were crossed. Either turns this red while the row
+        above stays green.
+        """
+        _, _, g = self.built({"ui": "../packages/ui", "unused": "../packages"})
+        block = g.graph["substrate"]["outside_roots"]
+        self.assertEqual({e["alias"]: e["crossings"] for e in block["declared"]},
+                         {"ui": 1, "unused": 0})
+        self.assertEqual(block["crossings"], 1)
+
+    def test_a_refused_declaration_reaches_the_artifact_and_not_only_stderr(self):
+        """The reason the refusals are carried at all: the warning goes to stderr, and ADR-029
+        measured that stderr is dead skill-to-skill. A declaration thrown away in a run nobody
+        watched is exactly what a reader of the artifact needs told."""
+        _, _, g = self.built({"ui": "../packages/ui", "gone": "../packages/nope"})
+        self.assertEqual(g.graph["substrate"]["outside_roots"]["refused"],
+                         [{"alias": "gone", "path": "../packages/nope",
+                           "reason": "does not name a directory that exists"}])
+
+    def test_the_bare_array_surfaces_say_it_on_stderr_and_keep_their_shape(self):
+        """ADR-029's channel split, unchanged and for the reason it measured.
+
+        `run_behaviors._code_graph_deps` validates `--dependencies` with
+        `isinstance(data, list)` and routes anything else to `graph-query-failed`, which takes
+        every behaviour to `coverage: unknown` and wrap-up's gate green over zero behaviours.
+        So the caveat goes to stderr and the array stays an array.
+
+        It is worth saying on these two in particular: `substrate.internal_ends` filters an
+        `outside:` target out of both — correctly, since it names no node to walk to — so this
+        is the one surface where a crossing is otherwise structurally invisible.
+        """
+        _, proj, g = self.built({"ui": "../packages/ui"})
+        # `_ANNOUNCED` dedupes for the life of the process, and the build above already said
+        # this once. Saved and put back rather than just cleared: leaving it empty lets every
+        # later test in the same process re-announce lines an earlier one had already spent.
+        previously = set(graph_ops._ANNOUNCED)
+        self.addCleanup(graph_ops._ANNOUNCED.update, previously)
+        graph_ops._ANNOUNCED.clear()
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            deps = g.get_dependencies("src/a.ts")
+        self.assertIsInstance(deps, set)
+        self.assertEqual(deps, set())
+        self.assertIn("leaves the project root", err.getvalue())
+        self.assertIn("'ui'", err.getvalue())
+
+    def test_a_declaration_changed_after_a_build_reaches_every_edge(self):
+        """`--update` is the command the steady-state workflow runs, and a declaration is not
+        a per-file change.
+
+        Every other row in this class goes through `run_build`, and that is where this feature
+        was wrong in both directions. `_get_changed_files` names what git says moved, so every
+        *unchanged* file keeps the edges it was given under the old `outside` section, while
+        `_outside_report` reads the settings file as it is *now* and stamps a `crossings` count
+        over edges nobody re-resolved.
+
+        Both directions were reachable by touching one unrelated file, and both lie:
+
+        * remove a declaration and the artifact keeps `outside:` targets with no declaration in
+          force at all — which is the shape ADR-031 defers to "a second backend starts emitting
+          `outside:` tokens", reachable today with one producer;
+        * add one and the report says `crossings: 0` over a file that does cross, and
+          `_outside_report`'s own docstring defines a zero as a typo or a leftover. The report
+          tells the reader to delete a declaration that is live.
+
+        Mutation: drop the `declared_then != declared_now` comparison in `CodeGraph.update` and
+        both halves go red — `status` comes back `updated`, and the edge and the report
+        disagree.
+        """
+        for label, before, after, edge, report in (
+                ("removed", {"ui": "../packages/ui"}, {},
+                 "unresolved:../../packages/ui/src/Button", None),
+                ("added", {}, {"ui": "../packages/ui"},
+                 "outside:ui/src/Button.tsx",
+                 {"declared": [{"alias": "ui", "path": "../packages/ui", "crossings": 1}],
+                  "crossings": 1})):
+            with self.subTest(declaration=label):
+                root, proj = self.sibling_project(before)
+                _git_repo(root)
+                g = CodeGraph(proj)
+                graph_ops.run_build(g, non_interactive=True, exclusions=g.project_exclusions())
+                with open(os.path.join(proj, "knowledge-base", "settings.json"), "w",
+                          encoding="utf-8") as handle:
+                    json.dump({"outside": after}, handle)
+                # One file, unrelated to the crossing. The point is that the crossing is
+                # re-resolved even though git has nothing to say about the file that carries it.
+                with open(os.path.join(proj, "src", "unrelated.ts"), "w",
+                          encoding="utf-8") as handle:
+                    handle.write("export const unrelated = 1\n")
+                _commit(root)
+                fresh = CodeGraph(proj)
+                summary = graph_ops.run_update(fresh, non_interactive=True,
+                                               exclusions=fresh.project_exclusions())
+                self.assertEqual(summary["status"], substrate.Result.BUILT)
+                self.assertEqual(ends(fresh.graph["files"]["src/a.ts"]["imports"]), [edge])
+                self.assertEqual(fresh.graph["substrate"].get("outside_roots"), report)
+
+    def test_a_declared_root_nothing_crossed_is_not_announced_as_a_crossing(self):
+        """"This graph leaves the project root" is a claim about the edges, not about the file.
+
+        Gated on a declaration merely being in force, it was false in the commonest state of a
+        new declaration — one nobody has imported through yet — and printed on `--build` and
+        again on every `--dependents`. On graphify it is worse: that backend never consults
+        declarations, so the zero is not even a measurement and the sentence asserted a
+        crossing over a backend that never looked.
+
+        Mutation: restore the unconditional wording in `_outside_sentence` and both halves go
+        red. The companion row `test_a_declared_root_nothing_imports_is_reported_with_zero_
+        crossings` asserts the payload and never looks at a sentence, which is how this
+        survived.
+        """
+        root = self.mk({
+            "proj/knowledge-base/settings.json": '{"outside": {"ui": "../packages/ui"}}',
+            "proj/src/a.ts": "export const a = 1\n",
+            "proj/src/b.ts": "import { a } from './a'\nexport const b = 1\n",
+            "packages/ui/src/Button.tsx": "export const B = 1\n",
+        })
+        proj = os.path.join(root, "proj")
+        g = CodeGraph(proj)
+        previously = set(graph_ops._ANNOUNCED)
+        self.addCleanup(graph_ops._ANNOUNCED.update, previously)
+        graph_ops._ANNOUNCED.clear()
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            summary = graph_ops.run_build(g, non_interactive=True,
+                                          exclusions=g.project_exclusions())
+        self.assertEqual(g.graph["substrate"]["outside_roots"]["crossings"], 0)
+        self.assertIn("does not leave the project root", err.getvalue())
+        self.assertNotIn("this graph leaves the project root", err.getvalue())
+        self.assertIn("does not leave the project root",
+                      graph_ops.format_summary(summary, "build"))
+        graph_ops._ANNOUNCED.clear()
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            g.get_dependents("src/a.ts")
+        self.assertIn("does not leave the project root", err.getvalue())
+        # The second line qualifies *this answer*, and there is nothing to qualify: printed
+        # unconditionally it warned that "a file under a declared root is resolved to" for an
+        # answer in which no file was.
+        self.assertNotIn("resolved to, never graphed", err.getvalue())
+
+    def test_the_summary_surfaces_carry_the_caveat_the_payload_carries(self):
+        """ADR-029 splits the caveat by audience, and `--format summary` fell through the split.
+
+        `--query --format summary` printed an `outside:` target with no qualification at all,
+        and `--impact --format summary` printed a blast radius with nothing on either stream,
+        while both carried the block in `--format json`. That inverts the ADR: the machine was
+        told and the person was not. `--dependents`/`--dependencies` are the exception and stay
+        one — they answer with a bare array that cannot carry a field, so they use stderr.
+
+        Mutation: drop `_outside_line` from any one of the four `format_summary` branches and
+        the row for it goes red. TROUBLESHOOTING.md presents `--format summary` as "the graph,
+        and what it could not read", so this is the documented human entry point.
+        """
+        _, _, g = self.built({"ui": "../packages/ui"})
+        cached = graph_ops.persist_graph(g.project_dir, g.name, g.graph)
+        self.assertTrue(cached)
+        for operation, data in (
+                ("build", dict(substrate.build_summary(g.graph, cached),
+                               **graph_ops._answer_caveats(g.graph, full=True))),
+                ("update", dict({"status": "updated", "files_changed": 1, "commit": "abc"},
+                                **graph_ops._answer_caveats(g.graph, full=True))),
+                ("update", dict({"status": "up_to_date", "files_changed": 0, "commit": "abc"},
+                                **graph_ops._answer_caveats(g.graph, full=True))),
+                ("query", g.query("src/a.ts")),
+                ("impact", g.get_impact(["src/a.ts"]))):
+            with self.subTest(surface="%s/%s" % (operation, data.get("status", "-"))):
+                rendered = graph_ops.format_summary(data, operation)
+                self.assertIn("leaves the project root", rendered)
+                self.assertIn("'ui' (../packages/ui)", rendered)
+        # And the control: a project that declares nothing renders exactly what it always did.
+        _, _, plain = self.built()
+        self.assertNotIn("project root",
+                         graph_ops.format_summary(plain.query("src/a.ts"), "query"))
+
+    def test_a_persisted_block_of_the_wrong_shape_breaks_closed(self):
+        """The two bare-array surfaces must degrade, not raise, on any artifact shape.
+
+        `_outside_block` guarded the outer dict and stopped there, so a persisted
+        `{"declared": ["ui"]}` — or `"ui"`, which is truthy and iterates into characters —
+        reached `.get` one level down and raised `AttributeError` out of `--dependents` and
+        `--dependencies`. That is the same defect `_census_block`'s docstring records, one
+        level deeper in the same block, and ADR-031 requires these two to break closed.
+
+        Mutation: replace `_declared_entries`' body with `block.get('declared') or []` and
+        every shape below raises.
+        """
+        _, _, g = self.built({"ui": "../packages/ui"})
+        for shape in ({"declared": ["ui"]}, {"declared": "ui"}, {"declared": [None]},
+                      {"declared": {"alias": "ui"}}, {"crossings": 1}, {}):
+            with self.subTest(shape=repr(shape)):
+                g.graph["substrate"]["outside_roots"] = shape
+                graph_ops.persist_graph(g.project_dir, g.name, g.graph)
+                fresh = CodeGraph(str(g.project_dir))
+                with contextlib.redirect_stderr(io.StringIO()):
+                    self.assertEqual(fresh.get_dependencies("src/a.ts"), set())
+                    self.assertEqual(fresh.get_dependents("src/b.ts"), set())
+                self.assertEqual(graph_ops._outside_sentence(shape), "")
+
+    def test_a_symlink_out_of_the_project_is_still_not_a_declaration(self):
+        """A symlink is an *implicit* crossing, and a declaration never re-authorises one.
+
+        The declared root here is `../packages/ui`, and `proj/vendor` is a symlink to
+        `../packages` — one level above it. Resolution through the symlink lands outside the
+        declared root, so it is refused: a declaration authorises the directory it names, not
+        the neighbourhood it sits in (SEC-008).
+        """
+        root, proj = self.sibling_project({"ui": "../packages/ui"})
+        try:
+            os.symlink(os.path.join(root, "packages"), os.path.join(proj, "vendor"),
+                       target_is_directory=True)
+        except (OSError, NotImplementedError, AttributeError) as exc:
+            self.skipTest("this host will not create symlinks: %s" % exc)
+        with open(os.path.join(proj, "src", "c.ts"), "w", encoding="utf-8") as handle:
+            handle.write("import { X } from '../vendor/other/x'\n")
+        g = CodeGraph(proj)
+        self.assertEqual(g._classify_import("../vendor/other/x", "src/c.ts"),
+                         "unresolved:../vendor/other/x")
 
 
 if __name__ == "__main__":
