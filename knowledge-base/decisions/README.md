@@ -50,10 +50,26 @@ add one rather than rewriting history.
 > `skills/`, `bin/` and the rest of `knowledge-base/` resolve against the working tree.
 > Citations into `docs/design/…`, `docs/superpowers/…` or `docs/polyglot/…` do **not** — those
 > are the documents these ADRs were distilled from — the first two deleted on 2026-08-19,
-> `docs/polyglot/` on 2026-08-21. They resolve against git history: `git log --all -- <path>`,
-> or `git show 04a9b8b:<path>` for the first two and `git show 2762d54:<path>` for
+> `docs/polyglot/` on 2026-08-21. They resolve against git history:
+> `git show c4f3cf0:<path>` for the first two and `git show ad79cd6:<path>` for
 > `docs/polyglot/`. The line numbers are exact as of that commit and are kept deliberately,
 > because a citation without a line is not provenance.
+>
+> **Those two commits are on `feat/polyglot-restructure`, not on `main`.** That branch was
+> squash-merged, so a fresh clone has one commit where it had seventy-five and neither SHA
+> resolves until you fetch the branch:
+>
+> ```
+> git fetch origin feat/polyglot-restructure
+> git show c4f3cf0:docs/design/behavior-layer/00-vision.md
+> ```
+>
+> The branch is kept on the remote for exactly this reason. An earlier version of this note
+> named two other commits, `04a9b8b` and `2762d54`; those were the pre-rewrite SHAs and no
+> longer exist. The history was rewritten on 2026-08-23 to remove private project names and
+> home paths before the first push, which changed every SHA on the branch — a cost worth
+> recording, because it is the second time a `path:line`-style citation in this repo has been
+> broken by an edit somewhere else entirely.
 >
 > A working-tree citation written before 2026-08-21 may name `docs/…`: on that date this
 > repo's whole documentation tree moved to `knowledge-base/` and `architecture.md`,
