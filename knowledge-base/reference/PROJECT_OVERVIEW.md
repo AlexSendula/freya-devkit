@@ -45,7 +45,7 @@ The supervising human is a first-class constraint, not an afterthought:
   refuses rather than defaulting to yes (`audit.py:427`).
 - Which graph backend to use is a person's answer: asked once per machine at install
   (`bin/backend_setup.py:104`), resolved project-then-machine-then-floor
-  (`skills/freya-code-graph/scripts/settings.py:282`), and never scored automatically —
+  (`skills/freya-code-graph/scripts/settings.py:346`), and never scored automatically —
   `auto` means the floor and nothing else (`skills/freya-code-graph/scripts/backends.py:166`,
   [ADR-019](../decisions/ADR-019-the-floor-and-choosing-a-backend.md)).
 - Model-judgment checks are *resolve-to-proceed* procedures, not script exit codes; only
@@ -125,7 +125,7 @@ runtime dependency: every import in `bin/` and `skills/` is stdlib. The test sui
 | `git` | Incremental updates, the two commits, `freya update` | Yes, in practice |
 | An Agent Skills host | Reading the skills. `install.sh` knows two targets by name: `~/.claude/skills` and the shared `~/.agents/skills` (`bin/installer.py:36`) | Yes |
 | `claude` / `copilot` CLI | The security driver's headless workers only; without one it exits 1, which the skill reads as "fall back to the in-loop scan" (`skills/freya-codebase-security-scan/scripts/audit.py:66`) | No |
-| `graphify` | The optional graph backend — 40 languages (`skills/freya-code-graph/scripts/backend_graphify.py:226`) across 93 extensions (`skills/freya-code-graph/scripts/backend_graphify.py:202`), against the built-in floor's 4 languages across 6 (`skills/freya-code-graph/scripts/graph_ops.py:34`) | No |
+| `graphify` | The optional graph backend — 40 languages (`skills/freya-code-graph/scripts/backend_graphify.py:227`) across 93 extensions (`skills/freya-code-graph/scripts/backend_graphify.py:203`), against the built-in floor's 4 languages across 6 (`skills/freya-code-graph/scripts/graph_ops.py:35`) | No |
 | `npm` / `yarn` / `pnpm` | `freya-dependency-vulnerability-check`, which detects the package manager from the lockfile and tells the user it needs a Node project when there is none (`skills/freya-dependency-vulnerability-check/SKILL.md:43`, `:49`) | No |
 | The git remote | `freya update`, and a throttled `ls-remote` behind the daily update notice, opt-out via `FREYA_NO_UPDATE_CHECK` (`bin/updater.py:450`) | No |
 
@@ -176,7 +176,7 @@ CI runs the suite, three static gates and an end-to-end install → launcher →
   nothing makes the run stop there. Python, Go, Java and the rest
   have no equivalent here.
 - **Not multi-repo.** A graph is built from one `project_dir`
-  (`skills/freya-code-graph/scripts/graph_ops.py:388`) and every path in it is relative to that
+  (`skills/freya-code-graph/scripts/graph_ops.py:389`) and every path in it is relative to that
   root, so a system split across repositories gets one graph per repo and no edge between them
   (open defect 12 in [roadmap.md](../roadmap.md)).
 - **Not autonomous.** It does not call a model on its own except in the security driver, which

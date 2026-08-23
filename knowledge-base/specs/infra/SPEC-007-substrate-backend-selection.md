@@ -141,7 +141,7 @@ not a bug. Do not "fix" `auto` to choose the widest backend.
 **Decision**: Every path where the requested backend cannot be used — not on PATH, not a
 registered name at all, raises on construction, fails `conformance_errors`, or throws
 mid-build — falls back to the floor, finishes the build, and exits 0
-(`backends.py:138`–`:150`, `graph_ops.py:3020`–`:3038`, `graph_ops.py:2540`). The only
+(`backends.py:138`–`:150`, `graph_ops.py:3049`–`:3067`, `graph_ops.py:2569`). The only
 non-recoverable case is the floor itself failing, which is re-raised.
 
 **Rationale**: ADR-019. The floor is what the run would have used had nobody configured
@@ -152,7 +152,7 @@ discharged by recording the fallback rather than by refusing to answer.
 `choose_backend` and `_run_or_degrade` are deliberate fail-open paths, not swallowed errors.
 Each one writes `degraded_from` and a reason into the artifact. Flag them only if a path is
 found that degrades *without* recording it — that is the actual defect class here, and it has
-occurred once (`graph_ops.py:3026`).
+occurred once (`graph_ops.py:3055`).
 
 ### The first build writes the machine's answer into the project's committed settings
 
@@ -177,7 +177,7 @@ non-fatal if the checkout is read-only.
 
 **Decision**: There is no allow-list, capability flag or second confirmation. A name in a
 settings file is sufficient authority to run that backend's binary as a subprocess
-(`backends.py:113`–`:121`; `backend_graphify.py:419`).
+(`backends.py:113`–`:121`; `backend_graphify.py:420`).
 
 **Rationale**: ADR-019 — a project that has written the name down has decided, and a second
 permission list would only be a place for the two to disagree.

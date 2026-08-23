@@ -17,7 +17,7 @@ The graph layer is three artifacts under `knowledge-base/.graph/`, and each one 
 exactly one piece of code.
 
 `graph.json` holds code → code and is written by `persist_graph`
-(`skills/freya-code-graph/scripts/graph_ops.py:2398`), whichever backend produced the content —
+(`skills/freya-code-graph/scripts/graph_ops.py:2427`), whichever backend produced the content —
 the contract persists, a backend only produces (ADR-020) — with a per-backend copy alongside it
 (ADR-028). `behavior.json` holds behaviour → test → code and is written by
 `write_behavior_json` (`skills/freya-behavior-graph/scripts/behavior_graph.py:197`);
@@ -34,18 +34,18 @@ on that key and needs no translation table. `_affected_from_impact` is the join 
 (`skills/freya-behavior-graph/scripts/behavior_graph.py:262`). The runner works to stay in that
 key space: istanbul reports absolute paths, and it converts each one with
 `Path(abs_path).resolve().relative_to(project).as_posix()` before it becomes an exercise
-(`run_behaviors.py:124`). `docs.json` edge targets are the same strings. A symbol may refine
+(`run_behaviors.py:131`). `docs.json` edge targets are the same strings. A symbol may refine
 one of those anchors but never replaces it (ADR-024), so the key survives.
 
 There is no combined store and no fourth linking artifact. The fourth file in that directory,
 `classifications.json`, is not one either: it is code-graph's own per-project classification
-cache, written by the same owner as `graph.json` (`graph_ops.py:390`).
+cache, written by the same owner as `graph.json` (`graph_ops.py:391`).
 
 What is *not* built is the query layer the design named — a reader that loads whichever
 artifacts are present and answers across them. Two pairwise joins ship instead, each hardcoded
 in the consumer: `docs_graph.load_code_files` reads `graph.json` to get the file set it
 validates citations against (`docs_graph.py:321`), and `run_behaviors._code_graph_deps` shells
-out to `code-graph --dependencies` to build a static fingerprint (`run_behaviors.py:284`). The
+out to `code-graph --dependencies` to build a static fingerprint (`run_behaviors.py:291`). The
 third pair has no consumer at all: nothing in the toolkit reads `docs.json`, and `freya
 docs-graph` has no programmatic caller — its only mentions outside its own source are the
 launcher registration and an instruction to the agent to chain it after a blast radius
@@ -77,7 +77,7 @@ it. `docs.json` carries `code_graph_present` in every build (`docs_graph.py:392`
 zero-edge artifact is distinguishable from a repository nobody documented. `_code_graph_deps`
 returns `None` with a reason — `no-graph`, or `graph-degraded: <backend>` — rather than the
 empty closure it used to return, and the merge then preserves the prior fingerprint instead of
-overwriting it with a narrower one (`run_behaviors.py:284`). That is ADR-029's rule applied at
+overwriting it with a narrower one (`run_behaviors.py:291`). That is ADR-029's rule applied at
 the artifact level: an answer says what it could not read. One combined file could carry the
 same flags in principle, but it would carry them for a document nobody can partially refresh —
 whichever producer ran last would decide the whole file's freshness, and a caller reading it
@@ -85,7 +85,7 @@ could not tell which half was current.
 
 Separate files are also what lets the git decision be made per artifact.
 `knowledge-base/.graph/.gitignore` names `graph.json`, `graph.*.json`, `classifications.json`
-and `docs.json` individually and deliberately omits `behavior.json` (`graph_ops.py:243`, with a
+and `docs.json` individually and deliberately omits `behavior.json` (`graph_ops.py:244`, with a
 byte-identical copy in `behavior_graph.py:113` that `test_substrate.py:1519` pins). ADR-017
 argued that split; it is only expressible because the artifacts are three files.
 
@@ -127,7 +127,7 @@ repo-relative path, so there is no identifier to translate; the join is `&`.
   an indirection point: if any artifact later moved to an identifier that is not a file path,
   only the linking layer would learn the new key and no consumer would change. Rejected because
   it is an empty table today — every producer already speaks paths, and the runner does real
-  work to keep it that way (`run_behaviors.py:124`). A fourth artifact means a fourth producer,
+  work to keep it that way (`run_behaviors.py:131`). A fourth artifact means a fourth producer,
   a fourth staleness question and a fourth failure mode bought for a translation that is the
   identity function.
 
@@ -144,7 +144,7 @@ repo-relative path, so there is no identifier to translate; the join is `&`.
   emits a `cites` relation, so the doc→code question could have arrived free with the code
   graph and needed no markdown parser at all. Rejected, and the rejection is enforced in code:
   the graphify backend maps `'cites': None` with the note that `docs.json` owns that question
-  (`skills/freya-code-graph/scripts/backend_graphify.py:127`), listed explicitly rather than
+  (`skills/freya-code-graph/scripts/backend_graphify.py:128`), listed explicitly rather than
   omitted so it does not resurface in the unmapped report on every build. Owning it in the
   substrate would have made doc edges disappear the moment a project ran on the floor backend,
   and would have anchored them wherever the backend chose rather than at the section, which is

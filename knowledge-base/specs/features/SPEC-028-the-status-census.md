@@ -86,7 +86,7 @@ behaviors:
 ## What
 
 `freya status` answers "where do I stand" from five independent sources and mutates nothing
-(`collect_status.collect`, `collect_status.py:154`). The answer is one document: a census of
+(`collect_status.collect`, `collect_status.py:211`). The answer is one document: a census of
 every behavior in `knowledge-base/specs/**` by lifecycle state, the two worklists that drain
 that census (`proposed` → confirm, `confirmed` → write a test), whole-repo coverage gaps,
 Tier-1 link-integrity failures, behaviors whose captured coverage fingerprint predates HEAD,
@@ -149,7 +149,7 @@ Two gaps. **BEH-140** guards a regression that already happened once: the `excep
 that strict decoding of one spec with a stray byte "raise[d] out of the whole status walk".
 The fix is in the code and nothing asserts it, so the same class of failure can return
 silently. **BEH-145** is the never-blocks guarantee — `main` returns 0 unconditionally
-(`collect_status.py:262`) — which is stated in ADR-007, in the skill and in the module
+(`collect_status.py:385`) — which is stated in ADR-007, in the skill and in the module
 docstring, and is checked by nothing: no test invokes `main` at all.
 
 ## Intentional Design Decisions
@@ -202,7 +202,7 @@ complaining, and nothing currently distinguishes the two.
 ### Only `open` findings count as outstanding
 
 **Decision**: `security_bucket` keeps findings whose `status` is exactly `open`, so `resolved`
-and `intentional` are both excluded (`collect_status.py:150`).
+and `intentional` are both excluded (`collect_status.py:197`).
 
 **Rationale**: `intentional` is the disposition a spec's declared decision produces; carrying
 it in the outstanding-work list would mean the backlog never empties and would re-litigate a

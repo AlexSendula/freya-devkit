@@ -84,7 +84,7 @@ invalidates stored edges, and an `unknown` with any other reason (`level-deferre
 (`skills/freya-behavior-graph/scripts/behavior_graph.py:37`). The never-falsely-empty rule carries
 the highest cost of all: an empty `exercises` list reads to Direction A as "nothing to re-run",
 which is the one output that silently disables the regression gate. The dispatch that enforces
-this is `fingerprint_behavior` (`skills/freya-behavior-runner/scripts/run_behaviors.py:624`), which
+this is `fingerprint_behavior` (`skills/freya-behavior-runner/scripts/run_behaviors.py:631`), which
 routes by state then level and falls through to `reason="level-deferred"` rather than to an empty
 observed result.
 

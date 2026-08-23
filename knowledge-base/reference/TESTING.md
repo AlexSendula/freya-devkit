@@ -100,7 +100,7 @@ because the recorded behaviour stops happening. Measured, not assumed: dropping 
 
 **How the number moves.** Remove `graphify` from `PATH` and the same command gives
 `1745 passed, 14 skipped, 1009 subtests passed` — the fourteen are guarded by `unittest.skipUnless(HAVE_GRAPHIFY, ...)`
-(`skills/freya-code-graph/scripts/test_backend_graphify.py:31`). That is the shape CI runs in,
+(`skills/freya-code-graph/scripts/test_backend_graphify.py:33`). That is the shape CI runs in,
 since the runner installs nothing but pytest. Measure against a clean export
 (`git archive HEAD | tar -x -C …`) if you want a number tied to a commit rather than to whatever
 is currently in your working tree.
@@ -163,7 +163,7 @@ The repository root holds a single `conftest.py` (27 lines). It does one thing: 
 
 The reason is that `settings.load()` consults a machine-level default at
 `~/.freya/settings.json` — the graph backend the engineer chose once at install time
-(`skills/freya-code-graph/scripts/settings.py:59`, ADR-019). Backend selection reads it, and
+(`skills/freya-code-graph/scripts/settings.py:64`, ADR-019). Backend selection reads it, and
 every graph build reads backend selection. Without the sandbox, the answer to "does a project
 with no settings resolve to the floor?" depends on whose laptop is running the tests. A suite
 whose result depends on unversioned state outside the checkout is not a regression gate.
@@ -282,8 +282,8 @@ somewhere else, so removing the original leaves a second one for the assertion t
 - `test_an_out_of_vocabulary_kind_is_validated_rather_than_raised` asserted
   `any('mixes_in' in e ...)` over the validator's errors. `link_dependents` mirrors the offending
   kind into the target's `dependents`, where the reverse-edge half of the validator reports it a
-  second time (`skills/freya-code-graph/scripts/substrate.py:778`) — so replacing the
-  forward-edge vocabulary check (`skills/freya-code-graph/scripts/substrate.py:726`) with
+  second time (`skills/freya-code-graph/scripts/substrate.py:798`) — so replacing the
+  forward-edge vocabulary check (`skills/freya-code-graph/scripts/substrate.py:746`) with
   `if False:` left this test and the other 139 in the file green. The repair asserts the whole
   forward-edge message, which the mirrored copy does not produce.
 
@@ -299,10 +299,10 @@ otherwise make the loop pass by iterating nothing.
 fixtures must not be planted under `docs/`, `scripts/`, `node_modules`, `dist`, `build`,
 `vendor` or `knowledge-base` unless pruning is itself the subject. The worked example is the
 unmapped-source census.
-`substrate.CENSUS_PRUNE` (`skills/freya-code-graph/scripts/substrate.py:865`) is a set of
+`substrate.CENSUS_PRUNE` (`skills/freya-code-graph/scripts/substrate.py:885`) is a set of
 directory names — `node_modules`, `dist`, `build`, `vendor`, `target` and others — that the walk
 prunes *before* it calls `_should_exclude`
-(`skills/freya-code-graph/scripts/graph_ops.py:2625`). An earlier version of
+(`skills/freya-code-graph/scripts/graph_ops.py:2654`). An earlier version of
 `test_it_honours_the_build_s_own_exclusions` built its fixture under `node_modules/` and `dist/`.
 The assertion passed. It would also have passed with `_should_exclude` deleted, because no
 fixture file ever reached it (`skills/freya-code-graph/scripts/test_graph_ops.py:2056`). The fix
@@ -322,7 +322,7 @@ Two older findings sit in the same three shapes:
 Worked, measured, on this checkout — this is the whole ritual:
 
 ```bash
-# delete the two-line dotfile guard at graph_ops.py:2627-2628, then:
+# delete the two-line dotfile guard at graph_ops.py:2656-2628, then:
 python3 -m pytest skills/freya-code-graph/scripts/test_graph_ops.py -q
 # → 1 failed, 163 passed      (at f407251 — the total moves as the file grows; the 1 does not)
 #   FAILED ...::TestUnmappedSourceWalk::test_dotfiles_and_extensionless_files_are_skipped
@@ -337,7 +337,7 @@ Weak assertions fail this check even when the fixture is right. The graphify edg
 gate is the measured case: pinning `(from, to)` pairs alone, it caught **one of six** deliberate
 mapping mutations, because the fixture carried each pair on several relations and dropping one
 changed nothing the assertion could see. Pinning `(from, to, kind)` over a fixture that exercises
-each guard is what made it bite (`skills/freya-code-graph/scripts/test_backend_graphify.py:924`).
+each guard is what made it bite (`skills/freya-code-graph/scripts/test_backend_graphify.py:926`).
 
 ADR-016 states the underlying clause: guards that protect against a measured external finding are
 mutation-tested, not merely unit-tested.
@@ -357,7 +357,7 @@ HAS_GIT = shutil.which("git") is not None          # bin/test_updater.py:17
 @unittest.skipUnless(HAS_GIT, "git is not installed")   # bin/test_updater.py:50
 ```
 
-`skills/freya-code-graph/scripts/test_backend_graphify.py:31` does the same for the `graphify`
+`skills/freya-code-graph/scripts/test_backend_graphify.py:33` does the same for the `graphify`
 binary — those are the 14 skips CI takes.
 
 Injection is reserved for three cases, and each is argued rather than assumed:

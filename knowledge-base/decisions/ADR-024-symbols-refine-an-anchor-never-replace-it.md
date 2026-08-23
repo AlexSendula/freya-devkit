@@ -18,25 +18,25 @@ Symbol-level detail is an optional refinement on a record whose anchor is always
 file path, in the two artifacts that have it.
 
 In `graph.json`, an edge may carry `from_symbol`, `to_symbol` and `line` alongside
-its `to`/`from`, `kind` and `provenance` (`skills/freya-code-graph/scripts/substrate.py:105`,
-`:123`). In `behavior.json`, an `exercises` entry may carry `symbols` — a sorted list
+its `to`/`from`, `kind` and `provenance` (`skills/freya-code-graph/scripts/substrate.py:107`,
+`:125`). In `behavior.json`, an `exercises` entry may carry `symbols` — a sorted list
 of function names — alongside its `path`
-(`skills/freya-behavior-runner/scripts/run_behaviors.py:171`). Neither field is ever
+(`skills/freya-behavior-runner/scripts/run_behaviors.py:178`). Neither field is ever
 the anchor. An edge that omits its symbols is the file-level edge that shipped before
 they existed, and an exercise entry that omits them is byte-identical to a pre-symbol
 one.
 
 Graph refinement is off unless a project asks for it: `substrate.symbols` in the
 project's `knowledge-base/settings.json`, falling back to a machine-level default,
-defaulting to `false` (`skills/freya-code-graph/scripts/settings.py:103`, `:355`).
+defaulting to `false` (`skills/freya-code-graph/scripts/settings.py:108`, `:435`).
 Asking is a request, not a requirement — a backend that cannot see symbols is
 unaffected, and the floor resolver declares only `imports` and `re_export`
-(`skills/freya-code-graph/scripts/graph_ops.py:427`), so turning the flag on
+(`skills/freya-code-graph/scripts/graph_ops.py:428`), so turning the flag on
 for a homegrown project changes nothing.
 
 A behaviour's symbols come from the istanbul coverage report — the named functions
 whose execution count is non-zero — and never from the code graph
-(`run_behaviors.py:99`). There is one `exercises` entry per file, with symbols as a
+(`run_behaviors.py:106`). There is one `exercises` entry per file, with symbols as a
 list on it, not one entry per symbol.
 
 `docs.json` has none of this, although the design said it would. Its edges are
@@ -80,7 +80,7 @@ reproduces now, so the ratio is the durable fact here and the counts are not.
 
 Nothing narrows on those symbols. The only code that reads them is the printed edge
 annotation on `--query --format summary`, which renders `[calls: caller → callee:42]`
-(`graph_ops.py:2746`). Everything that gates or feeds another skill works in path
+(`graph_ops.py:2775`). Everything that gates or feeds another skill works in path
 strings by design (ADR-021). So the size is currently paid for human display, and
 default-off is the honest price for a consumer that does not exist yet.
 
@@ -93,13 +93,13 @@ reading a real report and both still reproducing today against the testbed's
 functions across its 123 entries; 405 of them are `(anonymous_N)`, where N is a
 positional counter per file — `(anonymous_1)` occurs in 44 of them — so inserting one
 function renumbers every later one and would churn a committed file's diff on an edit
-that changed nothing about what ran (`run_behaviors.py:171`). The execution filter is
+that changed nothing about what ran (`run_behaviors.py:178`). The execution filter is
 the sharper of the two on that report: exactly one of the 775, `verifyChallenge` in
 `lib/webauthn.ts`, has a non-zero count, because a coverage report instruments what
 the test loaded and not what it entered.
 
 Symbols reach `behavior.json` only on the observed path. The static fingerprint used
-for integration-level behaviours passes none (`run_behaviors.py:377`), which is
+for integration-level behaviours passes none (`run_behaviors.py:384`), which is
 correct: a static dependency closure is inference and has no measured function to
 name.
 
@@ -109,14 +109,14 @@ graphify labels a method with its bare name, so qualification by the owning clas
 what makes the refinement usable. Re-derived on 2026-08-21, 108 of the 2,553 code
 symbols indexed on this repository share a bare label with a sibling in the same
 file; qualifying with the owner takes that to zero
-(`skills/freya-code-graph/scripts/backend_graphify.py:580`).
+(`skills/freya-code-graph/scripts/backend_graphify.py:608`).
 
 ## Rejected Alternatives
 
 - **Move wholly to symbol anchors.** The sharpest possible graph, and the one
   graphify natively produces: a `calls` edge between two named functions, with no
   file-level noise and none of the dual-key bookkeeping the reverse index now carries
-  to keep symbol-refined edges distinct (`substrate.py:361`). Rejected on durability
+  to keep symbol-refined edges distinct (`substrate.py:363`). Rejected on durability
   and on reach. Names are not stable ids, so every rename becomes a breaking change
   to a committed artifact; and it is a one-way door — file-level is recoverable from
   symbol-level only if *every* backend supplies symbols, and the floor backend
@@ -141,7 +141,7 @@ file; qualifying with the owner takes that to zero
 - **Make symbols graph nodes.** The honest model of what graphify actually produces,
   and the only shape that could express intra-file calls — which the file projection
   has to drop outright, since an intra-file call has no file pair to refine
-  (`backend_graphify.py:634`). Rejected because that is a different graph, not a
+  (`backend_graphify.py:662`). Rejected because that is a different graph, not a
   refinement of this one: all three artifacts are joined on file path (ADR-025), and
   a second node type invalidates every consumer at once. The intra-file call graph is
   a real loss and is on the backlog rather than being quietly written off.
@@ -164,9 +164,9 @@ file; qualifying with the owner takes that to zero
 - **Bump `behavior.json`'s `version`.** Exactly what a version field is for, and it
   would let a future reader distinguish a pre-symbol file from a post-symbol one.
   Rejected because there is no such reader: the field is written
-  (`behavior_graph.py:230`, `run_behaviors.py:439`) and nothing anywhere inspects it,
+  (`behavior_graph.py:230`, `run_behaviors.py:446`) and nothing anywhere inspects it,
   unlike `graph.json`'s version, which really does drive a staleness rebuild
-  (`graph_ops.py:2111`). Bumping it would have been a compatibility gesture with no
+  (`graph_ops.py:2140`). Bumping it would have been a compatibility gesture with no
   compatibility behind it. The guarantee that matters is structural and is asserted
   instead of announced: an entry with no symbols is byte-identical to one written
   before the field existed
@@ -184,7 +184,7 @@ file; qualifying with the owner takes that to zero
 
 - **A consumer appears that genuinely narrows on a symbol.** The default-off trade
   rests entirely on there being none; today the sole reader is a print statement
-  (`graph_ops.py:2746`). When `behavior-graph`, `docs-manager` or wrap-up wants to
+  (`graph_ops.py:2775`). When `behavior-graph`, `docs-manager` or wrap-up wants to
   answer *which function*, re-argue it — and start with whether the switch should be
   per relation kind (`calls` only, say) rather than one global boolean, since that is
   where most of the 6x comes from.
@@ -197,7 +197,7 @@ file; qualifying with the owner takes that to zero
   must not stay stated as present fact in either place.
 
 - **A coverage adapter lands for a non-istanbul runner.** `symbols` is captured from
-  one hard-coded path, `coverage/coverage-final.json` (`run_behaviors.py:206`), so it
+  one hard-coded path, `coverage/coverage-final.json` (`run_behaviors.py:213`), so it
   is in practice a vitest/unit-level field. If coverage.py's report turns out not to
   name functions per file — the design assumed it does, and nothing has checked —
   then `symbols` is JavaScript-only, and that asymmetry belongs in the backend's

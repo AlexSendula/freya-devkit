@@ -47,22 +47,22 @@ Where a build's output lands, and which of those files a repository is expected 
 
 One serialisation is written to two paths: `knowledge-base/.graph/graph.json`, the active graph
 every other skill reads, and `knowledge-base/.graph/graph.<backend>.json`, named for the backend
-that produced it. Both are written by `persist_graph` (`graph_ops.py:2404`), which has exactly
+that produced it. Both are written by `persist_graph` (`graph_ops.py:2433`), which has exactly
 one production caller — the contract's shared funnel — so no backend can opt out of either
 file or name it differently.
 
 Alongside them the build writes `knowledge-base/.graph/.gitignore`, listing `graph.json`,
-`graph.*.json`, `classifications.json` and `docs.json` (`CACHE_IGNORED`, `graph_ops.py:245`).
+`graph.*.json`, `classifications.json` and `docs.json` (`CACHE_IGNORED`, `graph_ops.py:246`).
 `behavior.json` is not listed, and its absence is spelled out in the file's own header text.
 `freya-behavior-graph` writes the same marker, and the two copies are held byte-identical
 because whichever skill runs first wins.
 
 `clear()` removes the active graph and every `graph.*.json` beside it, and deliberately keeps
-`classifications.json` (`graph_ops.py:2351`).
+`classifications.json` (`graph_ops.py:2380`).
 
 A backend that produces its own scratch output is responsible for marking it: the graphify
 backend writes `graphify-out/.gitignore` containing `*` after the tool has run
-(`backend_graphify.py:386`), and stops rewriting it the moment its contents differ from the
+(`backend_graphify.py:387`), and stops rewriting it the moment its contents differ from the
 text it wrote.
 
 ## Why
@@ -110,7 +110,7 @@ treating it as covered.
 `backend_graph_path` has one non-test caller and it is the write. There is no `--compare`
 subcommand, and neither backend warm-starts from a copy it wrote earlier — both detect that
 the *active* graph came from someone else and force a full rebuild instead
-(`graph_ops.py:2092`–`:2100`, `backend_graphify.py:362`).
+(`graph_ops.py:2121`–`:2129`, `backend_graphify.py:363`).
 
 **Rationale**: ADR-028 records the decision and states this half of it plainly: what the
 artifact buys is a preserved baseline on disk, not an automated comparison. The diff is run by
@@ -139,7 +139,7 @@ the blanket form is explicitly rejected by a test.
 **Decision**: `_mark_output_ignored` creates `graphify-out/.gitignore` with `*` in it, after
 the external tool has created the directory. If the file already exists and its contents are
 not the exact text this backend writes, it is left untouched. Every failure to write it is
-swallowed (`backend_graphify.py:386`–`:406`).
+swallowed (`backend_graphify.py:387`–`:407`).
 
 **Rationale**: `graphify-out/` is the external tool's regenerable output at the project root,
 where nothing else this toolkit writes can reach it. The wildcard rather than a filename list

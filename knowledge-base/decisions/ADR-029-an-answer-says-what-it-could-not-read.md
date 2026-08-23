@@ -18,20 +18,20 @@ Every build or update that writes a graph runs one pruned tree walk over the
 project and records what it found at `graph["substrate"]["unmapped_source"]`:
 how many in-scope source files the running backend cannot read, which
 extensions they are, and which directories to search instead. The walk is
-performed in `_finalise` (`skills/freya-code-graph/scripts/graph_ops.py:2486`)
+performed in `_finalise` (`skills/freya-code-graph/scripts/graph_ops.py:2515`)
 — the single funnel every backend passes through, and the only point after
 `update()` has rebuilt `graph['substrate']` wholesale. It is filtered by the
-build's *own* scope rule, `CodeGraph._should_exclude` (`graph_ops.py:1279`)
+build's *own* scope rule, `CodeGraph._should_exclude` (`graph_ops.py:1308`)
 plus the caller's `Exclusions`, which are the two layers `build()` itself
-applies, and by a two-tier extension model (`substrate.py:821` and `:848`).
+applies, and by a two-tier extension model (`substrate.py:841` and `:868`).
 
 `--build`, `--update`, `--query` and `--impact` carry the block inside their
 JSON answer. The first two carry it whole, including a prose `advice` sentence
 and a `readable_by` recommendation; the last two carry a structured digest of
 `files`, `extensions` and `directories`, plus truncation markers when they are
-true (`substrate.unmapped_digest`, `substrate.py:1008`). `--dependents` and
+true (`substrate.unmapped_digest`, `substrate.py:1028`). `--dependents` and
 `--dependencies` keep their bare arrays and say the same thing on stderr
-(`_announce_unmapped`, `graph_ops.py:2706`). The key is **absent** — not empty
+(`_announce_unmapped`, `graph_ops.py:2735`). The key is **absent** — not empty
 — when there is nothing to say, so a repository the backend reads completely
 produces byte-identical output to what it produced before this existed.
 `{"files": 0}` means the census ran and found nothing; `{"files": null,
@@ -39,7 +39,7 @@ produces byte-identical output to what it produced before this existed.
 
 It is never a refusal. Nothing declines to answer, changes an exit code, or
 takes a gate red because of it. The rule is written into
-`skills/freya-behavior-runner/scripts/run_behaviors.py:317` as a comment beside
+`skills/freya-behavior-runner/scripts/run_behaviors.py:324` as a comment beside
 the `degraded_from` refusal it must not join, and pinned by
 `test_a_repo_with_unmapped_files_still_fingerprints_static`.
 
@@ -47,20 +47,20 @@ the `degraded_from` refusal it must not join, and pinned by
 artifact's block to a fresh walk — but the census's **silence is not
 authoritative**. It is trusted when it finds something, or when the graph has
 content to be authoritative about; over an empty graph, `_blind_spots`
-(`skills/freya-spec-manager/scripts/project_shape.py:183`) falls back to an
+(`skills/freya-spec-manager/scripts/project_shape.py:201`) falls back to an
 open-world walk. An empty graph over a non-empty directory returns `unknown`
 with the reason that every file here is outside the graph's scope
-(`project_shape.py:256`), never `greenfield`.
+(`project_shape.py:274`), never `greenfield`.
 
 ## Rationale
 
 The floor backend reads 4 languages across 6 extensions; graphify reads 40
 across 93 and has to be installed separately (ADR-019). What made that gap
 dangerous is that it is not visible from the outside. `CodeGraph._scan_files`
-(`graph_ops.py:1859`) globs by `FILE_PATTERNS`, so a file whose extension the
+(`graph_ops.py:1888`) globs by `FILE_PATTERNS`, so a file whose extension the
 backend does not handle is never enumerated at Python level at all — it is not
 "skipped", it is invisible. `files_scanned` is then `len(graph['files'])`
-(`substrate.py:375`): it reads like a denominator and is a numerator. A
+(`substrate.py:377`): it reads like a denominator and is a numerator. A
 repository of twelve `.java` files with three `.ts` files in it reported
 `files_scanned: 3` and mentioned Java nowhere — not on stdout, not on stderr,
 not in the artifact.
@@ -73,14 +73,14 @@ this repo is unread" are not the same sentence. The argument for fixing it in
 the payload was already written down in this codebase: `get_impact` returns
 `not_in_graph` in the JSON, with the comment that "the caller is usually
 another skill reading `--format json`, and stderr is not part of what it
-parses" (`graph_ops.py:2338-2339`). It had been applied to "the file you asked
+parses" (`graph_ops.py:2367-2339`). It had been applied to "the file you asked
 about is unmapped" and never generalised to "this answer is incomplete".
 
 The consumer is not a human. `non_interactive` auto-enables whenever stdin is
-not a TTY (`graph_ops.py:3076`), which is every agent-driven run and every
+not a TTY (`graph_ops.py:3105`), which is every agent-driven run and every
 wrap-up run, so a printed warning lands nowhere. Verified: the three
 programmatic callers — `behavior_graph.py:249`,
-`skills/freya-spec-manager/scripts/drift.py:89` and `run_behaviors.py:330` —
+`skills/freya-spec-manager/scripts/drift.py:89` and `run_behaviors.py:337` —
 all use `capture_output=True` and read only stdout on success. Stderr is dead
 skill-to-skill. It is alive agent-to-CLI, because `bin/freya_cli.py:173` is a
 plain `subprocess.call` with inherited streams. That asymmetry is what makes
@@ -99,11 +99,11 @@ serve. A caveat that cries wolf is worse than no caveat, because an agent
 learns to skip the field and then misses the one time it was real.
 
 Two tiers draw the noise line (`substrate.material_extensions`,
-`substrate.py:880`). Definite program source is reported unconditionally: one
+`substrate.py:900`). Definite program source is reported unconditionally: one
 unreadable `.java` in a 500-file TypeScript repo is precisely the case worth
 knowing about. Scripting and data-definition extensions — `.sh`, `.sql`,
 `.ps1` — are reported only when their count beats both the graphed file count
-and a floor of 2 (`substrate.py:860`), so one build script never fires the
+and a floor of 2 (`substrate.py:880`), so one build script never fires the
 caveat but a repository that genuinely is a PowerShell codebase still does.
 Re-measured 2026-08-21 with the shipped code: freya-devkit is silent (two
 candidate files, both tier 2, published as `files: 0`); acme-site-testbed
@@ -116,7 +116,7 @@ revisit conditions.
 `directories`, not just `extensions`, because `{".java": 12}` makes an agent
 derive a search target and `{"src/main/java/com/acme": 12}` **is** one. The
 paths are already in the walk's hand; both censuses that existed before this
-held them and threw them away. `rollup_directories` (`substrate.py:907`)
+held them and threw them away. `rollup_directories` (`substrate.py:927`)
 collapses each top-level root to the deepest common prefix under it, so a
 package tree becomes one grep target rather than four.
 
@@ -169,7 +169,7 @@ confident "nothing" is least earned.
 - **Wrap `--dependencies` in an envelope so it can qualify itself.** One shape
   across every surface, no stderr channel, no asymmetry to explain. Rejected
   because it breaks **closed**: `run_behaviors` validates the answer with
-  `isinstance(data, list)` (`run_behaviors.py:346`) and otherwise returns
+  `isinstance(data, list)` (`run_behaviors.py:353`) and otherwise returns
   `graph-query-failed`, which routes every confirmed and every integration
   behaviour to `coverage: unknown`; `merge_fingerprint`
   (`behavior_graph.py:34`) then freezes `behavior.json` where there is prior
@@ -180,8 +180,8 @@ confident "nothing" is least earned.
 
 - **Wrap `--dependents` only, since nothing parses it.** Genuinely free: the
   only non-test occurrences of the flag are its own argparse declaration
-  (`graph_ops.py:3056`) and the dispatch that reads `args.dependents`
-  (`graph_ops.py:3128`). It would have bought the payload signal on one of the
+  (`graph_ops.py:3085`) and the dispatch that reads `args.dependents`
+  (`graph_ops.py:3157`). It would have bought the payload signal on one of the
   two bare-array surfaces at no risk at all. Rejected because it buys a shape
   asymmetry inside a trio ADR-021 presents as answering alike, on a surface
   nothing parses; the stderr line gives it the same signal at no shape cost.
@@ -206,8 +206,8 @@ confident "nothing" is least earned.
   carrying a `files: 0` sentinel.** It would remove the need for a field that
   exists only to say "nothing to report" and make old artifacts
   self-identifying. Rejected on the second-order cost: `is_stale`
-  (`substrate.py:243`) then forces a full rebuild on every machine
-  (`graph_ops.py:2100-2113`), and that rebuild changes the graph the
+  (`substrate.py:245`) then forces a full rebuild on every machine
+  (`graph_ops.py:2129-2113`), and that rebuild changes the graph the
   `--dependencies` closures are computed against — closures that are written
   into the **committed** `behavior.json`. Thirty bytes in an untracked file
   make the same distinction with no forced rebuild and no fingerprint churn.
@@ -272,7 +272,7 @@ confident "nothing" is least earned.
 ## Revisit Conditions
 
 - **An adopter reports a blind spot the census did not name.** The tier lists
-  are curated and closed-world (`substrate.py:821`, `:848`), so a language
+  are curated and closed-world (`substrate.py:841`, `:868`), so a language
   nobody listed produces silence — a narrower instance of the hole this closes,
   accepted as the price of a signal quiet enough to be believed. One-off
   additions are the right fix. If it happens repeatedly, the model is wrong and
@@ -300,5 +300,5 @@ confident "nothing" is least earned.
   stderr channel for the bare-array surfaces is forced by that one validator
   and by the three callers that discard stderr; change either fact and the
   trio can become symmetric, which is what ADR-021 would prefer. Recheck
-  `run_behaviors.py:346`, `behavior_graph.py:249` and `drift.py:89` before
+  `run_behaviors.py:353`, `behavior_graph.py:249` and `drift.py:89` before
   assuming the split still has to exist.

@@ -62,7 +62,7 @@ Every answer the code graph gives says what it could not read.
 
 Each build or update that writes a graph performs one pruned tree walk over the project and
 records the result at `graph["substrate"]["unmapped_source"]` (`graph_ops._census`,
-`graph_ops.py:2643`): how many in-scope source files the running backend does not read, which
+`graph_ops.py:2672`): how many in-scope source files the running backend does not read, which
 extensions they are, and which directories to grep instead. `--build` and `--update` carry the
 whole block in their JSON answer, including a prose `advice` sentence and — on a run that did
 not degrade — a `readable_by` recommendation naming a backend that would read them. `--query`
@@ -70,16 +70,16 @@ and `--impact` carry a structured digest of `files`, `extensions`, `directories`
 truncation markers. `--dependents` and `--dependencies` keep their bare arrays and say the same
 thing on stderr.
 
-What counts as unread source is a two-tier model (`substrate.py:825` and `:852`). Tier one is
+What counts as unread source is a two-tier model (`substrate.py:845` and `:872`). Tier one is
 program source a backend could reasonably be expected to graph, and any of it is material.
 Tier two is script and schema extensions — shell, PowerShell, SQL, batch — which are material
 only when they outnumber both the graphed file count and a floor of two
-(`SCRIPT_MATERIALITY_FLOOR`, `substrate.py:860`). Anything on neither list is never reported.
+(`SCRIPT_MATERIALITY_FLOOR`, `substrate.py:880`). Anything on neither list is never reported.
 
 Three states are expressible and distinguishable: a populated block, `{"files": 0}` meaning
 the census ran and found nothing, and `{"files": null, "error": …}` meaning it could not run.
 Only the first reaches an answer — `unmapped_digest` returns `None` for the second
-(`substrate.py:1012`), so the key is absent rather than empty.
+(`substrate.py:1032`), so the key is absent rather than empty.
 
 ## Why
 
@@ -120,7 +120,7 @@ worth having if both directions hold.
 
 BEH-045 is the gap. `backends.readable_by` is deliberately availability-blind — it answers "is
 there a remedy at all?", which matters most on a machine that has never installed one — and
-`_census` suppresses it on a degraded run (`graph_ops.py:2666`–`:2673`) so the answer does not
+`_census` suppresses it on a degraded run (`graph_ops.py:2695`–`:2702`) so the answer does not
 recommend `--use graphify` in the same breath as "graphify is unavailable". Nothing asserts
 that suppression: no test in this repository constructs a degraded build and inspects the
 census block. A regression would produce advice that contradicts the stderr line directly above
@@ -159,7 +159,7 @@ is a new entry in the frozenset, not a default case.
 
 ### The census re-derives the build's scope rule instead of reading the recorded exclusions
 
-**Decision**: `_unmapped_source_paths` (`graph_ops.py:2595`) filters using
+**Decision**: `_unmapped_source_paths` (`graph_ops.py:2624`) filters using
 `CodeGraph._should_exclude` plus the caller's `Exclusions` — the two layers `build()` itself
 applies — rather than the `substrate.exclusions` block recorded in the artifact.
 

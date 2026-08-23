@@ -116,7 +116,7 @@ that set it:
 FRONTMATTER_LIMITS = {"description": 1024, "compatibility": 500, "name": 64}
 ```
 
-`skills/freya-code-graph/scripts/graph_ops.py:925` — a search order that reads like an
+`skills/freya-code-graph/scripts/graph_ops.py:954` — a search order that reads like an
 omission, with the measurement proving it is not:
 
 ```python
@@ -196,7 +196,7 @@ CI runs the whole suite on `windows-latest`, where the platform default is not U
 Eleven shipped-code `open()` calls do not follow it and fall back to the platform default —
 nine in `skills/freya-docs-manager/scripts/detect_project.py` (reading `package.json`,
 `pyproject.toml`, `schema.prisma`) and two in
-`skills/freya-code-graph/scripts/graph_ops.py:1493` and `:1552` (reading and writing
+`skills/freya-code-graph/scripts/graph_ops.py:1522` and `:1581` (reading and writing
 `classifications.json`).
 
 [TODO: Are those eleven `open()` calls deliberate, or a defect to file on the roadmap? A

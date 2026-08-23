@@ -36,11 +36,11 @@ What the toolkit does execute:
 | What | Where | Notes |
 |---|---|---|
 | A bundled script, under the current interpreter | `bin/freya_cli.py:135` | argv is `[sys.executable, <script from bin/commands.json>, *args]`; no `python` need be on `PATH` |
-| `git`, read-only queries | `skills/freya-status/scripts/collect_status.py:33`, `skills/freya-code-graph/scripts/graph_ops.py:523`, `skills/freya-spec-manager/scripts/verify_intent.py:47` | `rev-parse`, `diff --name-only` and similar; the graph and status layers never write git state |
+| `git`, read-only queries | `skills/freya-status/scripts/collect_status.py:33`, `skills/freya-code-graph/scripts/graph_ops.py:524`, `skills/freya-spec-manager/scripts/verify_intent.py:47` | `rev-parse`, `diff --name-only` and similar; the graph and status layers never write git state |
 | `git fetch` and `git merge --ff-only` | `bin/updater.py:228`, `:242` | Only during `freya update`, which fast-forwards the checkout to its tracked branch (`CONTRIBUTING.md:183`) |
 | An agent CLI as an audit worker | `skills/freya-codebase-security-scan/scripts/audit_adapter.py:45`, `:57` | The subject of most of this document |
-| The project's own test command | `skills/freya-behavior-runner/scripts/run_behaviors.py:184`, `:210` | `pnpm vitest run <test file>`. Running a project's tests is executing project-controlled code, by design and unavoidably |
-| `graphify` | `skills/freya-code-graph/scripts/backend_graphify.py:419` | Only when the project selected that backend; the stdlib floor is the default (ADR-019) |
+| The project's own test command | `skills/freya-behavior-runner/scripts/run_behaviors.py:191`, `:217` | `pnpm vitest run <test file>`. Running a project's tests is executing project-controlled code, by design and unavoidably |
+| `graphify` | `skills/freya-code-graph/scripts/backend_graphify.py:420` | Only when the project selected that backend; the stdlib floor is the default (ADR-019) |
 
 Environment variables, the `graphify` binary, and the fact that freya reads no API key of its
 own are covered in [ENVIRONMENT.md](ENVIRONMENT.md) and not repeated here.
@@ -262,7 +262,7 @@ the code has moved since — `:311` is now inside `_covered`.)
 in the report with status INTENTIONAL DESIGN and a `behavior_ref` naming the behavior and its
 test (`SKILL.md:420`; `references/findings-schema.md:22`, `:40`), and drops out of the
 *outstanding* count only — that last part is code, a `status == "open"` filter over
-`findings.json` (`skills/freya-status/scripts/collect_status.py:150`). Unlike the accepted-only
+`findings.json` (`skills/freya-status/scripts/collect_status.py:197`). Unlike the accepted-only
 filter above, **this half is procedure**: the report is written by the skill's main loop, and
 nothing checks that a downgraded finding is still in it. A misjudgment is therefore a visible,
 reversible annotation rather than a vanished finding. Findings also persist across scans: the previous report's findings

@@ -35,16 +35,16 @@ The first two primitives placed under that rule are
 - **`exec_path.py` has no production caller at all.** Nothing imports it; the only references
   outside its own module and test are this record. It follows that **root-cause group G2 of the
   2026-08-21 security report is unmitigated** — `SEC-002`
-  (`skills/freya-code-graph/scripts/backend_graphify.py:309`), `SEC-003`
+  (`skills/freya-code-graph/scripts/backend_graphify.py:310`), `SEC-003`
   (`skills/freya-codebase-security-scan/scripts/audit_adapter.py:114`) and the unfiled third
   instance at `bin/updater.py:158` all still hand a bare name to `shutil.which` with the scanned
   repository as the working directory. This record places the resolver and argues its shape; it
   does not claim the defect is closed. Adopting it is the job of the groups that own those spawn
   sites, and each adoption deletes its own `KNOWN_BARE_BINARIES` entry under the rule below.
 - **`containment.rel_within` has no caller either, not even `exec_path`.** Its intended first
-  one is the graph-key path: `graph_ops.py:690`–`694` is the `try: relative_to(self.project_dir)
-  / except ValueError: continue` shape it collapses, repeated at `:893` and unguarded at `:1917`,
-  `:1952`, `:1962` and `:2054`. It ships now because the four questions are argued together
+  one is the graph-key path: `graph_ops.py:721`–`694` is the `try: relative_to(self.project_dir)
+  / except ValueError: continue` shape it collapses, repeated at `:893` and unguarded at `:1946`,
+  `:1981`, `:1991` and `:2083`. It ships now because the four questions are argued together
   below and splitting the argument across two records would cost more than the unused function
   does; if that migration does not happen, delete it rather than let it drift from the sites it
   was measured against.

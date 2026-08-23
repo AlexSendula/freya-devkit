@@ -47,7 +47,7 @@ body byte for byte (`docs_graph.py:97`, pinned at `test_docs_graph.py:107`).
 `docs.json` is git-ignored, which is the opposite of the call ADR-017 made for
 `behavior.json`, and for the reason stated in the ignore file itself: it is
 parsed from markdown that is already committed, so it is regenerable in the same
-sense the code graph is (`graph_ops.py:245`, `:256-257`).
+sense the code graph is (`graph_ops.py:246`, `:257-258`).
 
 Two things the approved design promised that the shipped code does not do are
 recorded here rather than left to be rediscovered. **No docs edge carries a
@@ -106,7 +106,7 @@ half an ASCII tree. `knowledge-base/reference/ARCHITECTURE.md` carries directory
 and the explainer site carries mermaid, so any size-based splitter would have
 been hit on the first run. A `# comment` inside a ` ```bash ` block is
 indistinguishable from an H1 by pattern alone. The precedent is exact rather
-than analogous: `_strip_jsonc` (`graph_ops.py:592`) had to be made string-aware
+than analogous: `_strip_jsonc` (`graph_ops.py:593`) had to be made string-aware
 because a naive regex read the `/*` inside the alias string `"@/*"` as a comment
 opener and broke tsconfig alias resolution (`test_graph_ops.py:73`).
 Structure-unaware text processing is one bug class, and it was caught by a
