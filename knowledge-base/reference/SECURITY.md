@@ -8,7 +8,7 @@ properties are enforced by tested code rather than by prose.
 
 This is not a vulnerability report of a project the toolkit scanned. Those are written per
 scan to `knowledge-base/security/codebase-security/YYYY-MM-DD.md` in the scanned project
-(`skills/freya-codebase-security-scan/SKILL.md:812`), alongside a machine-readable
+(`skills/freya-codebase-security-scan/SKILL.md:805`), alongside a machine-readable
 `findings.json` (`skills/freya-codebase-security-scan/references/findings-schema.md`). This
 repository has no `knowledge-base/security/` directory: the toolkit has been run against
 itself for graphs and docs, not yet for a committed security report.
@@ -36,9 +36,9 @@ What the toolkit does execute:
 | What | Where | Notes |
 |---|---|---|
 | A bundled script, under the current interpreter | `bin/freya_cli.py:135` | argv is `[sys.executable, <script from bin/commands.json>, *args]`; no `python` need be on `PATH` |
-| `git`, read-only queries | `skills/freya-status/scripts/collect_status.py:33`, `skills/freya-code-graph/scripts/graph_ops.py:535`, `skills/freya-spec-manager/scripts/verify_intent.py:74` | `rev-parse`, `diff --name-only` and similar; the graph and status layers never write git state |
+| `git`, read-only queries | `skills/freya-status/scripts/collect_status.py:33`, `skills/freya-code-graph/scripts/graph_ops.py:535`, `skills/freya-spec-manager/scripts/verify_intent.py:76` | `rev-parse`, `diff --name-only` and similar; the graph and status layers never write git state |
 | `git fetch` and `git merge --ff-only` | `bin/updater.py:346`, `:360` | Only during `freya update`, which fast-forwards the checkout to its tracked branch (`CONTRIBUTING.md:183`) |
-| An agent CLI as an audit worker | `skills/freya-codebase-security-scan/scripts/audit_adapter.py:123`, `:139` | The subject of most of this document |
+| An agent CLI as an audit worker | `skills/freya-codebase-security-scan/scripts/audit_adapter.py:45`, `:139` | The subject of most of this document |
 | The project's own test command | `skills/freya-behavior-runner/scripts/run_behaviors.py:191`, `:217` | `pnpm vitest run <test file>`. Running a project's tests is executing project-controlled code, by design and unavoidably |
 | `graphify` | `skills/freya-code-graph/scripts/backend_graphify.py:434` | Only when the project selected that backend; the stdlib floor is the default (ADR-019) |
 
@@ -58,8 +58,8 @@ The control flow lives in Python: one context call, then the six category finder
 (`skills/freya-codebase-security-scan/scripts/audit_io.py:20`) on a bounded thread pool
 (`audit.py:290`), dedup by file + five-line window + category
 (`skills/freya-codebase-security-scan/scripts/audit_engine.py:91`), then three adversarial
-lenses per surviving finding (`audit_io.py:21`) and a majority vote
-(`audit_engine.py:199`). Each agent call is a separate OS process. No agent gets a vote on
+lenses per surviving finding (`audit_io.py:22`) and a majority vote
+(`audit_engine.py:266`). Each agent call is a separate OS process. No agent gets a vote on
 whether the fan-out happens.
 
 The security consequence is what makes it belong in this document: because the driver spawns
@@ -68,7 +68,7 @@ the workers, the driver decides what the workers are allowed to do.
 `scan` and `audit` are presets of one engine differing in exactly one parameter, discovery
 rounds — 1 versus 5 (`audit.py:50`, `audit_engine.py:24`). Verification is never cut. With a
 single lens any one refutation is unanimous, `disposition` reaches `upheld == 0`, and a real
-vulnerability is dropped with no trace in the report (`audit_engine.py:245`).
+vulnerability is dropped with no trace in the report (`audit_engine.py:312`).
 
 ## The read-only allowlist, and what it is not
 
@@ -159,12 +159,12 @@ Worker output is untrusted input, and the driver treats it that way:
   `intentional-design` by citing an invented path, and another cited the sentence saying no
   specs were found. A citation now only outranks the vote if the project corroborates it —
   the named document exists inside the project, or the named id (`SPEC-007`, `ADR-003`,
-  `BEH-012`) appears in a prose file under it (`audit_engine.py:135`). Path traversal is
+  `BEH-012`) appears in a prose file under it (`audit_engine.py:164`). Path traversal is
   rejected by a `commonpath` check, because `../../etc/passwd` exists everywhere and says
-  nothing about intent (`audit_engine.py:160`).
+  nothing about intent (`audit_engine.py:196`).
 - **A hostile or broken response cannot hang the run.** The salvage scanner stops after 500
   candidate `{` positions; an unbalanced brace in a 433 KB response measured 6.9 s of
-  quadratic scanning on a pool thread that `--timeout` does not cover (`audit_io.py:74`).
+  quadratic scanning on a pool thread that `--timeout` does not cover (`audit_io.py:75`).
 - **No answers is never reported as no findings.** If every call failed, or if tasks went
   unanswered and nothing survived, the run exits 2 (`audit.py:509`, `:513`); if tasks went
   unanswered but findings did survive, the run prints an INCOMPLETE banner and exits 3
@@ -252,11 +252,11 @@ and the behavior's passing test is what settles it.
 
 **The bar is enforced by the query, not only by procedure.** `freya behavior-graph --covering
 <file>` filters to `state == "accepted"` before the agent ever judges relevance
-(`skills/freya-behavior-graph/scripts/behavior_graph.py:548`), so a `proposed` or `confirmed`
+(`skills/freya-behavior-graph/scripts/behavior_graph.py:427`), so a `proposed` or `confirmed`
 behavior is never even a candidate for silencing — it may add an advisory note and the finding
 stays open (`SKILL.md:424`). The trust boundary sits in deterministic code rather than in an
-instruction the agent could drift from. (ADR-012 cites this filter as `behavior_graph.py:311`;
-the code has moved since — `:311` is now inside `_covered`.)
+instruction the agent could drift from. (ADR-012 cites this filter as `behavior_graph.py:320`;
+the code has moved since — `:320` is now inside `_covered`.)
 
 **A downgrade annotates and reclassifies; it never deletes.** The finding stays fully visible
 in the report with status INTENTIONAL DESIGN and a `behavior_ref` naming the behavior and its
@@ -273,10 +273,10 @@ are re-evaluated and carried forward as PERSISTENT, RESOLVED or REGRESSED rather
 inside the driver and before any report exists:
 
 - A finding refuted by *every* lens that answered is dropped and never leaves the engine
-  (`audit_engine.py:245`, `:412`). Three-of-three is the bar precisely because one lens
+  (`audit_engine.py:312`, `:538`). Three-of-three is the bar precisely because one lens
   would make any single refutation unanimous.
 - Zero verdicts — every skeptic call failed — yields `needs-review`, not a drop
-  (`audit_engine.py:240`). No information is not unanimous refutation. This is a deliberate
+  (`audit_engine.py:307`). No information is not unanimous refutation. This is a deliberate
   divergence from the retired JS engine, which deleted the finding.
 
 The `mitigated` disposition appears in the skill's status mapping (`SKILL.md:605`) but **no

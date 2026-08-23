@@ -70,7 +70,7 @@ flags below, and CI runs it as its own step so neither signal hides the other. R
 you commit.
 
 It walks every `*.md` and `*.py` under `skills/` and nothing else — `bin/`, `knowledge-base/`
-and the repo root are out of scope (`bin/check_skill_conformance.py:374`). Output is one
+and the repo root are out of scope (`bin/check_skill_conformance.py:491`). Output is one
 `path:line: RULE: excerpt` per violation on stdout, a per-rule count on stderr, exit 1; a
 `bin/commands.json` it cannot read is exit 2 (`bin/check_skill_conformance.py:504`).
 
@@ -83,7 +83,7 @@ ones most often tripped:
 | R2 | `/freya-devkit:` — use the prefixed skill name `freya-<skill>` |
 | R3 | a `freya <command>` with no entry in `bin/commands.json` |
 | R4 | agent-specific tool names, including backticked and `Workflow-powered` forms |
-| R5, R10, R11, R12 | frontmatter outside the Agent Skills spec: unknown keys; values over the length limits (`description` 1024, `compatibility` 500, `name` 64 — `bin/check_skill_conformance.py:57`); a missing `description`; a `name` outside the grammar |
+| R5, R10, R11, R12 | frontmatter outside the Agent Skills spec: unknown keys; values over the length limits (`description` 1024, `compatibility` 500, `name` 64 — `bin/check_skill_conformance.py:60`); a missing `description`; a `name` outside the grammar |
 | R8 | a `name:` that does not equal the parent directory name |
 | R9 | a fan-out with no portability clause |
 | R13 | `~/.claude`, `.claude/`, `.claude-plugin`, `CLAUDE_*` env vars |
@@ -264,7 +264,7 @@ same thing inline at its report step ("Write the report. Do not commit it."), an
 `freya-status` only declares itself read-only — it still needs the paragraph. The reason is
 empirical: phase-6 validation watched an agent with broad tool permissions infer a `git commit`
 that no skill had asked for **and push a malformed message into the history of a repository it
-had only been asked to scan** (`skills/freya-codebase-security-scan/SKILL.md:814`). An agent
+had only been asked to scan** (`skills/freya-codebase-security-scan/SKILL.md:807`). An agent
 will fill in the step you left implicit, so leave none. No conformance rule can check this — prose is the only lever a
 skill has — which is why it is a checklist item below rather than something the gate catches
 for you.

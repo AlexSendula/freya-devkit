@@ -87,7 +87,7 @@ allowlist non-negotiable and the field evidence that it holds.
 
 The workers are pointed at a repository whose contents nobody here controls, and every skeptic
 call embeds text a previous worker wrote *after* reading that repository (`_skeptic` sends
-`Finding: {finding}` verbatim, `audit_engine.py:321`). What bounds a worker that has been
+`Finding: {finding}` verbatim, `audit_engine.py:398`). What bounds a worker that has been
 talked into something is therefore the argv, not the prompt.
 
 **[NEEDS CLARIFICATION]** — no comment or ADR states that prompt-embedding surface as a

@@ -108,7 +108,7 @@ been hit on the first run. A `# comment` inside a ` ```bash ` block is
 indistinguishable from an H1 by pattern alone. The precedent is exact rather
 than analogous: `_strip_jsonc` (`graph_ops.py:604`) had to be made string-aware
 because a naive regex read the `/*` inside the alias string `"@/*"` as a comment
-opener and broke tsconfig alias resolution (`test_graph_ops.py:76`).
+opener and broke tsconfig alias resolution (`test_graph_ops.py:92`).
 Structure-unaware text processing is one bug class, and it was caught by a
 regression test before shipping rather than in the field. Six of the chunker's
 tests are about fences alone.

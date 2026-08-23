@@ -144,7 +144,7 @@ first half as the rule — "cross-skill access is a subprocess call against the 
 Python import" — but the shipped tree contains four such imports, all intra-store and all
 resolved the same way, by a `_SPEC_SCRIPTS` (or `_RUNNER_SCRIPTS`) constant and a
 `sys.path.insert` beside it: `skills/freya-behavior-runner/scripts/run_behaviors.py`,
-`skills/freya-behavior-graph/scripts/behavior_graph.py:20` and `:28`, and
+`skills/freya-behavior-graph/scripts/behavior_graph.py:20` and `:37`, and
 `skills/freya-status/scripts/collect_status.py:20`. Three reuse `freya-spec-manager`'s
 frontmatter parser rather than duplicate it; the fourth reuses the runner's `load_behaviors`.
 
@@ -153,7 +153,7 @@ those twelve can be run as `python3 <file>`. The placement is load-bearing and w
 losing tests: in `bin/test_check_skill_conformance.py` the call once sat mid-file, so running
 the file directly executed it before the last class was defined and silently skipped five tests
 — every R10 case, including the regression guard for the defect R10 exists for. 86 reported, 91
-collected (`bin/test_check_skill_conformance.py:936`).
+collected (`bin/test_check_skill_conformance.py:1157`).
 
 ## conftest.py — what the session isolates
 
@@ -163,7 +163,7 @@ The repository root holds a single `conftest.py` (27 lines). It does one thing: 
 
 The reason is that `settings.load()` consults a machine-level default at
 `~/.freya/settings.json` — the graph backend the engineer chose once at install time
-(`skills/freya-code-graph/scripts/settings.py:87`, ADR-019). Backend selection reads it, and
+(`skills/freya-code-graph/scripts/settings.py:92`, ADR-019). Backend selection reads it, and
 every graph build reads backend selection. Without the sandbox, the answer to "does a project
 with no settings resolve to the floor?" depends on whose laptop is running the tests. A suite
 whose result depends on unversioned state outside the checkout is not a regression gate.
@@ -216,12 +216,12 @@ because the session-level sandbox has already set it.
 **A subprocess does not inherit an isolation you only applied in-process if you also pass a
 trimmed `env`.** Tests that shell out build it explicitly:
 `env=dict(os.environ, FREYA_HOME=self.home)`
-(`skills/freya-code-graph/scripts/test_graph_ops.py:1973`,
-`skills/freya-code-graph/scripts/test_graph_ops.py:2464`). The second of those carries the
+(`skills/freya-code-graph/scripts/test_graph_ops.py:1989`,
+`skills/freya-code-graph/scripts/test_graph_ops.py:2480`). The second of those carries the
 measurement that justifies it: on a machine that answered the install question with `graphify`,
 every fixture builds with a backend that reads `.java`, the census correctly reports nothing, and
 six assertions about twelve unmapped files fail — green here, red on a colleague's laptop
-(`skills/freya-code-graph/scripts/test_graph_ops.py:2451`).
+(`skills/freya-code-graph/scripts/test_graph_ops.py:2467`).
 
 Writing the isolation where the test is, rather than only in `conftest.py`, is also better
 documentation: a test asserting "with nothing configured" should say so at the point it asserts it.
@@ -247,7 +247,7 @@ execution arrives at the guard.
 
 - **The path-traversal check in the security scan**, and the worst of the six because it was the
   only test on it. `resolve_spec_reference` refuses a cited document that resolves outside the
-  project (`skills/freya-codebase-security-scan/scripts/audit_engine.py:160`); the test fed it
+  project (`skills/freya-codebase-security-scan/scripts/audit_engine.py:196`); the test fed it
   `../../../../../../etc/passwd`, which carries neither a prose suffix nor a `SPEC-NNN`-shaped
   token, so `_CITED_PATH` (`skills/freya-codebase-security-scan/scripts/audit_engine.py:125`)
   matched nothing and the containment check was never consulted. Measured: with the guard
@@ -305,16 +305,16 @@ prunes *before* it calls `_should_exclude`
 (`skills/freya-code-graph/scripts/graph_ops.py:2753`). An earlier version of
 `test_it_honours_the_build_s_own_exclusions` built its fixture under `node_modules/` and `dist/`.
 The assertion passed. It would also have passed with `_should_exclude` deleted, because no
-fixture file ever reached it (`skills/freya-code-graph/scripts/test_graph_ops.py:2059`). The fix
+fixture file ever reached it (`skills/freya-code-graph/scripts/test_graph_ops.py:2075`). The fix
 was to rebuild the fixture out of paths only `_should_exclude` rejects, and to add a separate
 test pinning that the prune list and the scope rule *both* apply
-(`skills/freya-code-graph/scripts/test_graph_ops.py:2075`).
+(`skills/freya-code-graph/scripts/test_graph_ops.py:2091`).
 
 Two older findings sit in the same three shapes:
 
 - The dotfile guard — shape 1. The fixture used `.env.local` and `.eslintrc.json`, whose
   extensions are in neither tier list, so every file was dropped by the extension check before
-  the guard ran (`skills/freya-code-graph/scripts/test_graph_ops.py:2098`).
+  the guard ran (`skills/freya-code-graph/scripts/test_graph_ops.py:2114`).
 - The graph contract's reverse-edge validator — shape 3, and the neighbour of the `mixes_in`
   case above: two `dependents` checks that could be deleted with the whole suite still green
   (`skills/freya-code-graph/scripts/test_substrate.py:331`).
@@ -322,7 +322,7 @@ Two older findings sit in the same three shapes:
 Worked, measured, on this checkout — this is the whole ritual:
 
 ```bash
-# delete the two-line dotfile guard at graph_ops.py:2723-2695, then:
+# delete the two-line dotfile guard at graph_ops.py:2755-2695, then:
 python3 -m pytest skills/freya-code-graph/scripts/test_graph_ops.py -q
 # → 1 failed, 163 passed      (at f407251 — the total moves as the file grows; the 1 does not)
 #   FAILED ...::TestUnmappedSourceWalk::test_dotfiles_and_extensionless_files_are_skipped
@@ -374,9 +374,9 @@ Injection is reserved for three cases, and each is argued rather than assumed:
 - **A cross-skill subprocess boundary.** `freya-behavior-graph`'s tests patch
   `_run_behavior_runner` and never execute a real test runner. That is only possible because the
   graph layer *executes* the runner through exactly one subprocess call
-  (`skills/freya-behavior-graph/scripts/behavior_graph.py:206`) — the seam ADR-004 exists to
+  (`skills/freya-behavior-graph/scripts/behavior_graph.py:215`) — the seam ADR-004 exists to
   preserve. It also imports `run_behaviors` directly for `load_behaviors`
-  (`skills/freya-behavior-graph/scripts/behavior_graph.py:29`), but that path only reads specs
+  (`skills/freya-behavior-graph/scripts/behavior_graph.py:38`), but that path only reads specs
   and runs no tests, so it is left unpatched.
 
 ## The conformance gate
@@ -396,7 +396,7 @@ whole pytest suite green". Measured at `f407251`: appending a `${CLAUDE_PLUGIN_R
 to `skills/freya-wrap-up/SKILL.md` and running `python3 -m pytest bin/ skills/ -q` gives
 `1 failed, 1434 passed` — `ShippedTreeTest::test_the_shipped_skill_layer_is_conformant`. The same
 happens for an R2 violation. `ShippedTreeTest` calls `csc.scan(root)` with no rule filter
-(`bin/check_skill_conformance.py:374`), so it catches everything the standalone gate catches.
+(`bin/check_skill_conformance.py:491`), so it catches everything the standalone gate catches.
 `ShippedTreeTest` and `ci.yml` were added by the same commit (`51bdadb`, 2026-08-18), so the
 comment was inaccurate when it was written.
 
@@ -471,7 +471,7 @@ Running is split from graphing (ADR-004): `freya-behavior-runner` executes accep
 emits coverage fingerprints on stdout; `freya-behavior-graph` owns `behavior.json`. Coverage
 provenance follows ADR-006 — `observed` at unit level from the runner's native coverage output,
 `static` import closure at integration level, merged in trust order `observed` > `static`
-(`skills/freya-behavior-graph/scripts/behavior_graph.py:37`), with `OBSERVED_CONFIDENCE = 0.8`
+(`skills/freya-behavior-graph/scripts/behavior_graph.py:46`), with `OBSERVED_CONFIDENCE = 0.8`
 against `STATIC_CONFIDENCE = 0.5` (`skills/freya-behavior-runner/scripts/run_behaviors.py`,
 the constants at the top of the module).
 ADR-006 names a third and higher tier, `explicit`, but marks it "reserved, unimplemented"

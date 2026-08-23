@@ -152,7 +152,7 @@ discharged by recording the fallback rather than by refusing to answer.
 `choose_backend` and `_run_or_degrade` are deliberate fail-open paths, not swallowed errors.
 Each one writes `degraded_from` and a reason into the artifact. Flag them only if a path is
 found that degrades *without* recording it — that is the actual defect class here, and it has
-occurred once (`graph_ops.py:3240`).
+occurred once (`graph_ops.py:3375`).
 
 ### The first build writes the machine's answer into the project's committed settings
 

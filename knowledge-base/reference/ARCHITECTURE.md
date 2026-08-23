@@ -75,11 +75,11 @@ installed backends against the repository (`backends.py:166`) — another backen
 person named it, not because a binary appeared on `PATH`. Precedence is project, then machine,
 then floor (`skills/freya-code-graph/scripts/settings.py:727`): the project's answer lives in
 the committed `knowledge-base/settings.json`, the machine's in `~/.freya/settings.json`,
-relocatable with `FREYA_HOME` (`settings.py:87`), which may carry only `substrate.backend` and
-`substrate.symbols` (`settings.py:97`). The machine question is asked once, at install or update
+relocatable with `FREYA_HOME` (`settings.py:92`), which may carry only `substrate.backend` and
+`substrate.symbols` (`settings.py:102`). The machine question is asked once, at install or update
 time (`bin/backend_setup.py:104`, called from `bin/installer.py:988` and `bin/updater.py:394`),
 because that is where a keyboard is — `code-graph` auto-enables non-interactive mode whenever
-stdin is not a TTY (`graph_ops.py:3301`), which is every agent-driven run. See
+stdin is not a TTY (`graph_ops.py:3436`), which is every agent-driven run. See
 [ADR-019](../decisions/ADR-019-the-floor-and-choosing-a-backend.md).
 
 A named backend that is not installed does not fail the build. It degrades to the floor with a
@@ -92,11 +92,11 @@ with the reason, instead of a narrower answer that would look authoritative
 **The contract persists the graph; a backend only produces it.** `build()` and `update()`
 return a `substrate.Result` — the graph, and what was done to produce it
 (`substrate.py:297`) — and one shared funnel, `_finalise`
-(`skills/freya-code-graph/scripts/graph_ops.py:2509`), owns everything after that: it derives
+(`skills/freya-code-graph/scripts/graph_ops.py:2541`), owns everything after that: it derives
 the `dependents` reverse index from scratch on every write (`substrate.py:335`), refuses to
-overwrite a populated graph with an empty one (`graph_ops.py:2546`), validates what the backend
-emitted (`graph_ops.py:2552`), takes the census described below (`graph_ops.py:2609`), and
-writes (`graph_ops.py:2592`). Validation **does not block**: a graph that fails is written
+overwrite a populated graph with an empty one (`graph_ops.py:2578`), validates what the backend
+emitted (`graph_ops.py:2584`), takes the census described below (`graph_ops.py:2609`), and
+writes (`graph_ops.py:2624`). Validation **does not block**: a graph that fails is written
 anyway with the errors recorded under `substrate.validation`, and no code in the toolkit
 branches on that field. It is a diagnostic for whoever opens the graph later, not a guarantee
 that a graph on disk is sound. See
@@ -104,12 +104,12 @@ that a graph on disk is sound. See
 
 Every build is written twice — the same payload to `knowledge-base/.graph/graph.json`, the
 active artifact every consumer reads, and to `knowledge-base/.graph/graph.<backend>.json`, named
-for the backend that produced it (`graph_ops.py:2490`, `:2503`; `substrate.py:288`). Switching
+for the backend that produced it (`graph_ops.py:2522`, `:2535`; `substrate.py:288`). Switching
 backends therefore leaves the previous one's graph intact at its own path, with the `timestamp`,
 `commit` and `substrate` block of the build that produced it still inside. **Nothing in the
 toolkit reads the per-backend copy.** There is no `compare` subcommand, and the incremental path
 does not warm-start from it either — a graph produced by a different backend forces a full
-rebuild (`graph_ops.py:2184`). What this buys is a preserved baseline on disk, not an automated
+rebuild (`graph_ops.py:2183`). What this buys is a preserved baseline on disk, not an automated
 comparison; the diff is run by hand. `--clear` removes the active graph and every `graph.*.json`
 beside it, and deliberately spares `classifications.json`, which holds human and model
 judgements a cache clear has no business discarding (`graph_ops.py:2469`). See
@@ -125,13 +125,13 @@ two, `extracted` or `inferred` (`substrate.py:63`). The artifact carries `versio
 (`substrate.py:94`); readers still accept the bare-string shape, and `upgrade_edges` rewrites it
 in memory on load without stamping the version, so a version-1 artifact is rebuilt rather than
 papered over (`substrate.py:237`). "Could not be resolved" is a prefix on the edge's *target* —
-`unresolved:<raw>`, alongside `external:` (`substrate.py:86`) — never a provenance value.
+`unresolved:<raw>`, alongside `external:` (`substrate.py:69`) — never a provenance value.
 
 The node queries stay in paths. `--impact`, `--dependents` and `--dependencies` answer with path
 strings, and only `--query` returns edges — the one query whose question is "tell me about this
 file". Two of the three consumers do set arithmetic on the answer the moment they get it
 (`skills/freya-spec-manager/scripts/drift.py:95`,
-`skills/freya-behavior-graph/scripts/behavior_graph.py:267`), where an edge object would raise
+`skills/freya-behavior-graph/scripts/behavior_graph.py:276`), where an edge object would raise
 `TypeError: unhashable type: 'dict'` in a skill that gains nothing from the extra fields; the
 third type-checks it and degrades (`run_behaviors.py:353`).
 
@@ -141,7 +141,7 @@ edge reaches blast radius indistinguishable from an extracted one. The tier is d
 unenforced. Counted on this repository's graphify artifact on 2026-08-21, 12 of its 120
 file-level edges are `inferred`. Symbol refinement — `from_symbol`, `to_symbol`, `line` — is an
 optional addition to the same edge and is off unless a project asks for it
-(`settings.py:153`); the graph in this checkout carries none. See
+(`settings.py:158`); the graph in this checkout carries none. See
 [ADR-021](../decisions/ADR-021-an-edge-is-an-object-with-kind-and-provenance.md) and
 [ADR-024](../decisions/ADR-024-symbols-refine-an-anchor-never-replace-it.md).
 
@@ -153,8 +153,8 @@ extension the backend does not handle is never enumerated at all, so `files_scan
 a denominator and is a numerator. Every build or update now runs one pruned walk over the
 project and records what it found at `graph["substrate"]["unmapped_source"]` — how many in-scope
 source files the running backend cannot read, which extensions they are, and which directories
-to search instead (`graph_ops.py:2610`). It is filtered by the build's own scope rule
-(`graph_ops.py:1368`), which is wider than the `Exclusions` recorded in the artifact, and by two
+to search instead (`graph_ops.py:2609`). It is filtered by the build's own scope rule
+(`graph_ops.py:1375`), which is wider than the `Exclusions` recorded in the artifact, and by two
 tiers of materiality: definite program source is reported unconditionally
 (`substrate.py:867`), while scripting and data-definition extensions are reported only when
 their count beats both the graphed file count and a floor of 2 (`substrate.py:894`,
@@ -168,7 +168,7 @@ carry it whole, including a prose `advice` sentence and a `readable_by` recommen
 (`graph_ops.py:3000`), because behavior-runner rejects any `--dependencies` answer that is not a
 list of strings and routes the behaviour to `coverage: unknown`
 (`run_behaviors.py:353`). In an *answer* the key is **absent**, not empty, when there is nothing
-to say (`graph_ops.py:2790`), so a repository the backend reads completely produces the same
+to say (`graph_ops.py:2693`), so a repository the backend reads completely produces the same
 output it did before this existed. The artifact is the exception: `_finalise` always writes the
 block, so a clean census is recorded there as `{"files": 0}` rather than omitted.
 
@@ -329,7 +329,7 @@ are a **parse cache** — rebuildable from source in seconds, large (124 KB on a
 81.5 KB and 51.4 KB for the two artifacts in this checkout), and not byte-stable across builds,
 since each records the wall-clock `timestamp` of the build that wrote it. (The edge arrays
 themselves *are* deterministic: both the specifier pass and the resolved-target pass sort before
-emitting, `graph_ops.py:1152` and `:2066`. Two consecutive builds of an unchanged tree, measured
+emitting, `graph_ops.py:1159` and `:2073`. Two consecutive builds of an unchanged tree, measured
 2026-08-21, differed in `timestamp` and in nothing else.) Committing them would put a diff in
 every build with zero code change. `graph.*.json` is the per-backend copy each substrate writes beside the
 active graph, so a backend swap can be diffed rather than destroying the baseline it should be
@@ -346,8 +346,8 @@ rewritten, and one containing anything else is treated as hand-edited and left a
 where a project records which backend it wants and which built-in exclusions it overrules, and both have to
 survive a clone and reach CI. The first build in a project that has not decided seeds it from
 the machine default rather than leaving the choice implicit, validating the name against the
-registry on the way (`graph_ops.py:3127`), and prints one line asking for it to be committed
-(`graph_ops.py:3135`). Nothing verifies that it was; that line is the entire mechanism. See
+registry on the way (`graph_ops.py:3262`), and prints one line asking for it to be committed
+(`graph_ops.py:3270`). Nothing verifies that it was; that line is the entire mechanism. See
 ADR-019 and ADR-022.
 
 **`behavior.json` is deliberately not ignored.** It is not a parse cache: its
@@ -438,8 +438,8 @@ Skills use tracking files to enable incremental updates:
 | `.security-last-scan` | security-scan | Last commit scanned for security |
 | `.intent-last-verified` | spec-manager | Baseline for the declared-intent gate (G1) |
 | `graph.json` → `commit` field | code-graph | Commit graph was built from |
-| `graph.json` → `substrate.backend` | code-graph | Which backend produced the artifact. A foreign one forces a full rebuild rather than splicing one resolver's edges into another's graph (`graph_ops.py:2184`) |
-| `graph.json` → `version` field | code-graph | Schema version on disk. A version-1 artifact forces a full rebuild ahead of the "nothing changed" short-circuit (`graph_ops.py:2189`) |
+| `graph.json` → `substrate.backend` | code-graph | Which backend produced the artifact. A foreign one forces a full rebuild rather than splicing one resolver's edges into another's graph (`graph_ops.py:2183`) |
+| `graph.json` → `version` field | code-graph | Schema version on disk. A version-1 artifact forces a full rebuild ahead of the "nothing changed" short-circuit (`graph_ops.py:2196`) |
 
 These enable "only process what changed" behavior. The last two are the exceptions that
 deliberately *defeat* it: both are conditions under which an incremental pass would produce a
@@ -461,8 +461,8 @@ artifact rather than only announced. Five paths end in "run the stdlib floor and
 | A named backend is not installed (`backends.py:139`) | yes, reason `not installed` |
 | The name is not a backend at all (same branch, deliberately a different message — telling someone to install a backend that does not exist sends them nowhere) | yes, reason `unknown backend` |
 | The selected backend fails the contract check (`graph_ops.py:3382`) | yes, with the conformance errors as the reason |
-| The backend throws during the build (`graph_ops.py:2652`) | yes, reason `failed during the build: …` |
-| Selection itself raises (`graph_ops.py:3262`) | **no** — stderr only |
+| The backend throws during the build (`graph_ops.py:2684`) | yes, reason `failed during the build: …` |
+| Selection itself raises (`graph_ops.py:3397`) | **no** — stderr only |
 
 The last row is the deliberate exception, and it is worth knowing about before trusting
 `degraded_from` as a complete record: selection is an optimisation over "run the floor", so when
@@ -570,8 +570,8 @@ already on the machine, or optional.
 | Dependency | Required | Used for |
 |---|---|---|
 | Python 3 | yes | Everything. `bin/freya` runs each target with `sys.executable`, so no SKILL.md names an interpreter |
-| `git` | for incremental work | The `commit` field a graph is built from (`graph_ops.py:536`) and the diff an update reads (`graph_ops.py:574`). `.gitignore` is also a scope input, but it is read as a plain file and needs no git |
-| `graphify` | no | The second substrate backend. Availability is `shutil.which('graphify')` and nothing more (`skills/freya-code-graph/scripts/backend_graphify.py:310`) |
+| `git` | for incremental work | The `commit` field a graph is built from (`graph_ops.py:536`) and the diff an update reads (`graph_ops.py:562`). `.gitignore` is also a scope input, but it is read as a plain file and needs no git |
+| `graphify` | no | The second substrate backend. Availability is `shutil.which('graphify')` and nothing more (`skills/freya-code-graph/scripts/backend_graphify.py:303`) |
 | an agent CLI (`claude` / `copilot`) | no | The security audit driver's worker processes. Without one it exits `1` and the skill falls back to an in-loop scan |
 | `pytest` | development only | The runner CONTRIBUTING tells contributors to use. The suites themselves are not written for it — all 29 test modules in this checkout import `unittest` and none imports `pytest` |
 

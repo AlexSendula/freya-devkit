@@ -21,7 +21,7 @@ A passing linked test proves the flagged pattern is the intended, working behavi
 
 The canonical case is a scan flagging "endpoint does not verify the user exists" against BEH-003's uniform anti-enumeration response. The finding is real as a pattern and wrong as a verdict, and the behavior's passing test is what settles it.
 
-**The bar is enforced by the query, not only by procedure.** `behavior-graph --covering <file>` filters to `state == "accepted"` before the agent ever judges relevance (`skills/freya-behavior-graph/scripts/behavior_graph.py:311`), so a `proposed` or `confirmed` behavior is never even a candidate for silencing. That places the trust boundary in deterministic code rather than in an instruction the agent could drift from.
+**The bar is enforced by the query, not only by procedure.** `behavior-graph --covering <file>` filters to `state == "accepted"` before the agent ever judges relevance (`skills/freya-behavior-graph/scripts/behavior_graph.py:320`), so a `proposed` or `confirmed` behavior is never even a candidate for silencing. That places the trust boundary in deterministic code rather than in an instruction the agent could drift from.
 
 **Safety comes from the shape of the downgrade: annotate and reclassify, never delete.** Every silencing stays in the report, auditable against a named behavior and its test, so a misjudgment is a visible, reversible annotation rather than a vanished finding. The `behavior_ref` field is part of the documented findings index schema (`skills/freya-codebase-security-scan/references/findings-schema.md`).
 

@@ -233,7 +233,7 @@ freya update --dry-run  # report what would happen; writes nothing
 ```
 
 **Which ref it follows: the current branch's own upstream, `@{u}`** — resolved at
-`bin/updater.py:152-155` and used for both the fetch and the merge (`:280-281`, `:318`). It is
+`bin/updater.py:196-155` and used for both the fetch and the merge (`:322-281`, `:360`). It is
 not hardcoded to `main`. For a default clone of this repository that resolves to
 `origin/main`; for a store parked on a feature branch it is that branch's upstream, and for
 a branch with no upstream `update` refuses and says how to set one (`:293-294`).

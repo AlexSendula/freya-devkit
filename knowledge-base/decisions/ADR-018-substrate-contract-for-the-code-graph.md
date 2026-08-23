@@ -22,7 +22,7 @@ implementations. It is structural rather than inherited — a backend supplies `
 here controls and a contract only the incumbent can satisfy is not a contract. It is checked at
 runtime, not by types: `choose_backend` calls `conformance_errors` on the backend it selected,
 and a backend that fails is refused before it runs, replaced by the floor, and recorded in the
-graph metadata as a degradation with the reason (`graph_ops.py:3206`). The check binds the call
+graph metadata as a degradation with the reason (`graph_ops.py:3341`). The check binds the call
 itself, not just the attribute names — `BUILD_KWARGS` and `UPDATE_KWARGS` (`substrate.py:606`)
 are bound against each method's signature, because "callable" is not a contract and a backend
 that passes an attribute check can still be uninvokable.
@@ -63,7 +63,7 @@ block (`substrate.py:433`), and until 2026-08-21 the only read in the repository
 did not, and both shipping backends declare `True` — so nothing had ever been in a position to
 notice. `run_update` now calls the backend's build path when `coverage().incremental` is false,
 and takes the same safe route when a backend cannot describe its coverage at all
-(`graph_ops.py:2675`). It is pinned by a test that fails under mutation of that branch.
+(`graph_ops.py:2707`). It is pinned by a test that fails under mutation of that branch.
 
 **`coverage.relations` is still declared and unenforced**, and this record says so rather than
 repeating the design's present tense: written on every build, consumed by no caller, so the
@@ -74,7 +74,7 @@ edge's `kind` checkable at all — see ADR-021.
 The store behind the project's exclusions is **not** `classifications.json`, which was the
 original plan. `classifications.json` stayed a gitignored derived cache (`graph_ops.py:245`);
 the committed store is `knowledge-base/settings.json` under a `directories` key
-(`settings.py:100`). That correction, and the arguable-defaults problem behind it, are ADR-022.
+(`settings.py:105`). That correction, and the arguable-defaults problem behind it, are ADR-022.
 
 ## Rationale
 

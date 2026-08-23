@@ -14,16 +14,16 @@ tags:
 
 ## Decision
 
-The directory name lists in `_get_exclusion_rules` (`graph_ops.py:1213`) are defaults, and a
+The directory name lists in `_get_exclusion_rules` (`graph_ops.py:1211`) are defaults, and a
 project can overrule any of them. A directory verdict outranks the lists in two tiers
 (`graph_ops.py:171`). A `user` verdict — which is what a directory declared in the committed
-`knowledge-base/settings.json` becomes (`graph_ops.py:1547`) — beats everything, including the
-artifact-tree names matched at any depth (`graph_ops.py:1208`) and `.gitignore`. An `ai` verdict
-beats the root convention names (`graph_ops.py:1264`) and `.gitignore`, and never an artifact
+`knowledge-base/settings.json` becomes (`graph_ops.py:1554`) — beats everything, including the
+artifact-tree names matched at any depth (`graph_ops.py:1215`) and `.gitignore`. An `ai` verdict
+beats the root convention names (`graph_ops.py:1271`) and `.gitignore`, and never an artifact
 tree. A `rule` or `gitignore` verdict overrides nothing: those are the lists' own output, so
 letting one override them would be circular. Precedence is stated once and implemented once — a
 stated verdict beats a derived one at any depth, and among equals the deepest wins
-(`_stated_verdict`, `graph_ops.py:1321`).
+(`_stated_verdict`, `graph_ops.py:1328`).
 
 Committed verdicts live in `knowledge-base/settings.json` under `directories`, alongside the
 backend choice ADR-019 put there:
@@ -34,13 +34,13 @@ backend choice ADR-019 put there:
 
 `knowledge-base/.graph/classifications.json` keeps only the derived and model-authored verdicts.
 It is gitignored regenerable cache (`CACHE_IGNORED`, `graph_ops.py:245`), and a settings-declared
-verdict is deliberately kept *out* of it (`_save_classifications`, `graph_ops.py:1596`). Keys on
+verdict is deliberately kept *out* of it (`_save_classifications`, `graph_ops.py:1603`). Keys on
 both paths are folded to one form, so `docs`, `docs/`, `./docs` and `docs\lit` name what the
-person meant (`normalise_dir_key`, `settings.py:164`; `_parse_directories`, `settings.py:769`).
+person meant (`normalise_dir_key`, `settings.py:169`; `_parse_directories`, `settings.py:769`).
 
 An override widens scope *at* the directory it names; it does not switch off what is excluded
 beneath it. The artifact-tree names are re-matched against the path below the override root, in
-the floor's file filter (`graph_ops.py:1425`) and in the `Exclusions` object the contract hands
+the floor's file filter (`graph_ops.py:1432`) and in the `Exclusions` object the contract hands
 to every backend (`_excluded_under_override`, `substrate.py:537`). So `{"packages": "source"}`
 admits `packages/app/src/` and still refuses `packages/app/node_modules/`.
 
@@ -68,9 +68,9 @@ floor beneath it was shipped and measured on a two-package npm-workspaces fixtur
 `{"directories": {"packages": "source"}}` pulled every `packages/*/node_modules/**` into the
 graph. Nothing could switch it back off, either, because the classifier does not descend into a
 directory whose ancestor already carries a stated verdict (`_inherits_a_stated_verdict`,
-`graph_ops.py:1347`), so no nested `exclude` is ever derived to catch it. The two filters now
+`graph_ops.py:1354`), so no nested `exclude` is ever derived to catch it. The two filters now
 agree on that case by test rather than by inspection
-(`test_graph_ops.py:2142`).
+(`test_graph_ops.py:2158`).
 
 The location is the other half of this decision, and it was settled before the override existed
 and then not applied to it. Three properties were needed at once: the verdict has to survive a
@@ -83,11 +83,11 @@ ADR-017 draws inside `.graph/` applies here — a decision and a parse cache are
 of file, and this one is a decision.
 
 Keeping the two stores separate needs enforcement in both directions. `_load_classifications`
-folds the committed verdicts over the cached ones so a build sees both (`graph_ops.py:1552`), and
+folds the committed verdicts over the cached ones so a build sees both (`graph_ops.py:1559`), and
 persisting that result baked them into the cache as ordinary `user` entries, where they outlived
 the file that declared them: deleting `"docs": "source"` from `settings.json` changed nothing,
 because the cached copy still outranked every rule, survived the `RULES_VERSION` discard and
-survived `--clear`, which deliberately keeps `classifications.json` (`graph_ops.py:2431`). The
+survived `--clear`, which deliberately keeps `classifications.json` (`graph_ops.py:2463`). The
 cache now never holds a settings-declared verdict.
 
 `RULES_VERSION` (`graph_ops.py:152`, currently `'2026-08-20b'`) is what lets the defaults change
@@ -99,7 +99,7 @@ no rule change invalidates, and they stay.
 **What the code does not do.** The `ai` tier is enforced in the floor's file filter and not in
 the `Exclusions` object the contract passes to other backends: `project_exclusions`
 (`graph_ops.py:449`) puts `user` and `ai` source verdicts into `overrides` alike, while
-`_override_root` (`graph_ops.py:1306`) recognises only `user`. Verified on 2026-08-21 with a
+`_override_root` (`graph_ops.py:1313`) recognises only `user`. Verified on 2026-08-21 with a
 cached `{"target": {"type": "source", "source": "ai"}}`: `_should_exclude('target/a.ts')` returns
 `True` and `Exclusions.excludes('target/a.ts')` returns `False`, so the same repository is scoped
 one way on the floor and another under graphify, which post-filters its output through that
@@ -113,7 +113,7 @@ code-graph --use` writes `substrate.backend` only (`bin/backend_setup.py:153`, m
 than replacing so it never discards a verdict), and `set_classification` has no CLI surface and
 writes to the cache, not to the committed file. The machine-level `~/.freya/settings.json`
 deliberately cannot carry `directories` at all, and says so on stderr when someone tries
-(`GLOBAL_KEYS`, `settings.py:97`).
+(`GLOBAL_KEYS`, `settings.py:102`).
 
 ## Rejected Alternatives
 

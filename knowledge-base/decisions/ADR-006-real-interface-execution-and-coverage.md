@@ -81,7 +81,7 @@ earlier fingerprint, while a red test would keep stale green edges and stay invi
 regression gate. The merge rule therefore reads: an incoming `unknown` with `reason: test-failed`
 invalidates stored edges, and an `unknown` with any other reason (`level-deferred`, `no-entry`,
 `entry-missing`, `no-coverage`, `no-graph`, `not-run`) preserves the prior fingerprint
-(`skills/freya-behavior-graph/scripts/behavior_graph.py:37`). The never-falsely-empty rule carries
+(`skills/freya-behavior-graph/scripts/behavior_graph.py:46`). The never-falsely-empty rule carries
 the highest cost of all: an empty `exercises` list reads to Direction A as "nothing to re-run",
 which is the one output that silently disables the regression gate. The dispatch that enforces
 this is `fingerprint_behavior` (`skills/freya-behavior-runner/scripts/run_behaviors.py:631`), which

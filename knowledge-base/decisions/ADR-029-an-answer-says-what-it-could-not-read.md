@@ -18,10 +18,10 @@ Every build or update that writes a graph runs one pruned tree walk over the
 project and records what it found at `graph["substrate"]["unmapped_source"]`:
 how many in-scope source files the running backend cannot read, which
 extensions they are, and which directories to search instead. The walk is
-performed in `_finalise` (`skills/freya-code-graph/scripts/graph_ops.py:2572`)
+performed in `_finalise` (`skills/freya-code-graph/scripts/graph_ops.py:2604`)
 — the single funnel every backend passes through, and the only point after
 `update()` has rebuilt `graph['substrate']` wholesale. It is filtered by the
-build's *own* scope rule, `CodeGraph._should_exclude` (`graph_ops.py:1363`)
+build's *own* scope rule, `CodeGraph._should_exclude` (`graph_ops.py:1370`)
 plus the caller's `Exclusions`, which are the two layers `build()` itself
 applies, and by a two-tier extension model (`substrate.py:863` and `:890`).
 
@@ -31,7 +31,7 @@ and a `readable_by` recommendation; the last two carry a structured digest of
 `files`, `extensions` and `directories`, plus truncation markers when they are
 true (`substrate.unmapped_digest`, `substrate.py:1050`). `--dependents` and
 `--dependencies` keep their bare arrays and say the same thing on stderr
-(`_announce_unmapped`, `graph_ops.py:3000`). The key is **absent** — not empty
+(`_announce_unmapped`, `graph_ops.py:2994`). The key is **absent** — not empty
 — when there is nothing to say, so a repository the backend reads completely
 produces byte-identical output to what it produced before this existed.
 `{"files": 0}` means the census ran and found nothing; `{"files": null,
@@ -57,7 +57,7 @@ with the reason that every file here is outside the graph's scope
 The floor backend reads 4 languages across 6 extensions; graphify reads 40
 across 93 and has to be installed separately (ADR-019). What made that gap
 dangerous is that it is not visible from the outside. `CodeGraph._scan_files`
-(`graph_ops.py:1955`) globs by `FILE_PATTERNS`, so a file whose extension the
+(`graph_ops.py:1950`) globs by `FILE_PATTERNS`, so a file whose extension the
 backend does not handle is never enumerated at Python level at all — it is not
 "skipped", it is invisible. `files_scanned` is then `len(graph['files'])`
 (`substrate.py:399`): it reads like a denominator and is a numerator. A
@@ -73,13 +73,13 @@ this repo is unread" are not the same sentence. The argument for fixing it in
 the payload was already written down in this codebase: `get_impact` returns
 `not_in_graph` in the JSON, with the comment that "the caller is usually
 another skill reading `--format json`, and stderr is not part of what it
-parses" (`graph_ops.py:2424-2396`). It had been applied to "the file you asked
+parses" (`graph_ops.py:2456-2396`). It had been applied to "the file you asked
 about is unmapped" and never generalised to "this answer is incomplete".
 
 The consumer is not a human. `non_interactive` auto-enables whenever stdin is
-not a TTY (`graph_ops.py:3290`), which is every agent-driven run and every
+not a TTY (`graph_ops.py:3425`), which is every agent-driven run and every
 wrap-up run, so a printed warning lands nowhere. Verified: the three
-programmatic callers — `behavior_graph.py:249`,
+programmatic callers — `behavior_graph.py:258`,
 `skills/freya-spec-manager/scripts/drift.py:89` and `run_behaviors.py:337` —
 all use `capture_output=True` and read only stdout on success. Stderr is dead
 skill-to-skill. It is alive agent-to-CLI, because `bin/freya_cli.py:173` is a
@@ -172,7 +172,7 @@ confident "nothing" is least earned.
   `isinstance(data, list)` (`run_behaviors.py:353`) and otherwise returns
   `graph-query-failed`, which routes every confirmed and every integration
   behaviour to `coverage: unknown`; `merge_fingerprint`
-  (`behavior_graph.py:34`) then freezes `behavior.json` where there is prior
+  (`behavior_graph.py:43`) then freezes `behavior.json` where there is prior
   history and writes empty `exercises` where there is not, and wrap-up's
   direction-A gate runs zero behaviours and exits 0. A repo-wide silent green
   is not a loud failure — it is ADR-005's defect arriving through the door the
@@ -180,8 +180,8 @@ confident "nothing" is least earned.
 
 - **Wrap `--dependents` only, since nothing parses it.** Genuinely free: the
   only non-test occurrences of the flag are its own argparse declaration
-  (`graph_ops.py:3270`) and the dispatch that reads `args.dependents`
-  (`graph_ops.py:3342`). It would have bought the payload signal on one of the
+  (`graph_ops.py:3405`) and the dispatch that reads `args.dependents`
+  (`graph_ops.py:3477`). It would have bought the payload signal on one of the
   two bare-array surfaces at no risk at all. Rejected because it buys a shape
   asymmetry inside a trio ADR-021 presents as answering alike, on a surface
   nothing parses; the stderr line gives it the same signal at no shape cost.
@@ -207,7 +207,7 @@ confident "nothing" is least earned.
   exists only to say "nothing to report" and make old artifacts
   self-identifying. Rejected on the second-order cost: `is_stale`
   (`substrate.py:267`) then forces a full rebuild on every machine
-  (`graph_ops.py:2184-2168`), and that rebuild changes the graph the
+  (`graph_ops.py:2191-2168`), and that rebuild changes the graph the
   `--dependencies` closures are computed against — closures that are written
   into the **committed** `behavior.json`. Thirty bytes in an untracked file
   make the same distinction with no forced rebuild and no fingerprint churn.
@@ -300,5 +300,5 @@ confident "nothing" is least earned.
   stderr channel for the bare-array surfaces is forced by that one validator
   and by the three callers that discard stderr; change either fact and the
   trio can become symmetric, which is what ADR-021 would prefer. Recheck
-  `run_behaviors.py:353`, `behavior_graph.py:249` and `drift.py:89` before
+  `run_behaviors.py:353`, `behavior_graph.py:258` and `drift.py:89` before
   assuming the split still has to exist.

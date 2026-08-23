@@ -312,15 +312,15 @@ compare, or compare content.
 `bin/check_skill_conformance.py:20` lists only `install`, `update`, `doctor`, `init`, `help`.
 `bin/freya_cli.py:26-27` also ships `uninstall`, and `bin/commands.json` does not list it
 either (it holds only manifest subcommands). The allowed set is built from the union of both at
-`check_skill_conformance.py:371`, so the first SKILL.md to write `freya uninstall` in a code
-span trips rule **R3** ("unknown freya command") at `:323`. That is a trap, not a rule — a
+`check_skill_conformance.py:488`, so the first SKILL.md to write `freya uninstall` in a code
+span trips rule **R3** ("unknown freya command") at `:394`. That is a trap, not a rule — a
 documented, working command fails the gate.
 
 ### 3. `mitigated` is an unreachable disposition
 
-`skills/freya-codebase-security-scan/SKILL.md:612` maps `mitigated` → MITIGATED in its
-disposition table, and `:576` lists it among the valid values. `disposition()` in
-`skills/freya-codebase-security-scan/scripts/audit_engine.py:199-246` only ever returns
+`skills/freya-codebase-security-scan/SKILL.md:605` maps `mitigated` → MITIGATED in its
+disposition table, and `:569` lists it among the valid values. `disposition()` in
+`skills/freya-codebase-security-scan/scripts/audit_engine.py:266-246` only ever returns
 `intentional-design`, `needs-review`, `confirmed`, or `drop`. Neither the original JS engine
 nor the Python port ever emitted `mitigated`. Either wire it up or remove it from the table and
 the value list.

@@ -255,7 +255,7 @@ the project is touched at all).
 saying it was kept in one place because three skills filter on it and a fourth prefix added
 without updating all of them would be counted as an internal edge. By the time the fourth prefix
 arrived there were three copies of the tuple: `substrate.py`, `graph_ops.py`, and a literal
-`("external:", "unresolved:")` in `skills/freya-spec-manager/scripts/project_shape.py`, at `:58`
+`("external:", "unresolved:")` in `skills/freya-spec-manager/scripts/project_shape.py`, at `:60`
 as of `52f4a11` — pinned to a commit for the reason `normalise_dir_key` pins its own
 measurement, because the line is about to move and a reader following it would otherwise land on
 the fix and be unable to see the claim. It had been justified in a docstring on the same

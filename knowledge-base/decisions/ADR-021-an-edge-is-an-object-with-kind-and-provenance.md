@@ -33,16 +33,16 @@ string era could express and the only honest reading of it. `upgrade_edges` deli
 stamp `version` (`substrate.py:253`): that field records what is on disk, and reading is how
 staleness is discovered. A version-1 artifact therefore forces a full rebuild inside
 `CodeGraph.update`, ahead of the "nothing changed" short-circuit that the steady-state workflow
-otherwise takes (`graph_ops.py:2184`).
+otherwise takes (`graph_ops.py:2191`).
 
 The node queries stay in paths. `--impact`, `--dependents` and `--dependencies` answer with path
-strings, projected off the edge objects by `edge_ends` (`graph_ops.py:2326`, `:2392`). Only
+strings, projected off the edge objects by `edge_ends` (`graph_ops.py:2358`, `:2456`). Only
 `--query` returns edges, because it is the one query whose question is "tell me about this file"
-(`graph_ops.py:2251`).
+(`graph_ops.py:2283`).
 
 **Provenance is recorded and read by nothing.** Every edge carries `extracted` or `inferred`
 faithfully: the homegrown resolver stamps `extracted` throughout, because it reads import
-statements out of source text and does nothing else (`graph_ops.py:2052`, `:2065`), and the
+statements out of source text and does nothing else (`graph_ops.py:2059`, `:2072`), and the
 graphify backend maps that backend's own `EXTRACTED`/`INFERRED` tag, defaulting an unrecognised
 confidence to `inferred` (`backend_graphify.py:144`, `:670`, `:699`). Past that, no production
 code consults the field. `edge_provenance` has exactly one caller, and it is the reverse-index
@@ -51,13 +51,13 @@ spec, in the working decision record and on the explainer pages — was that onl
 may gate `wrap-up` and `inferred` ones are advisory. No code implements that filter, so an
 inferred edge reaches blast radius indistinguishable from an extracted one. **The tier is
 designed and unenforced**, and the skill documentation says so out loud
-(`skills/freya-code-graph/SKILL.md:651`). Writing the filter, or striking the promise, is
+(`skills/freya-code-graph/SKILL.md:652`). Writing the filter, or striking the promise, is
 open defect 13 in `knowledge-base/roadmap.md` (§ *Per-edge provenance is recorded and
 enforced by nothing*).
 
 `unresolved` is not a provenance value and never was. "Could not be resolved" is a fact about
 where an edge points, not about how it was read, so it is a prefix on the target —
-`unresolved:<raw specifier>`, alongside `external:` (`substrate.py:86`). The edge is kept and
+`unresolved:<raw specifier>`, alongside `external:` (`substrate.py:69`). The edge is kept and
 visible rather than dropped, which is ADR-005's rule applied at edge granularity.
 
 ## Rationale
@@ -107,7 +107,7 @@ why this record states the field's real status instead of its intended one.
 Two boundaries were drawn at the same time and are load-bearing. Node queries answer in paths
 because their callers do set arithmetic on the answer: `set(data["all_affected"]) | set(changed)`
 in spec-manager's drift check (`drift.py:95`) and `paths & impact` in the behavior graph
-(`behavior_graph.py:267`). An edge object there raises `TypeError: unhashable type: 'dict'` in a
+(`behavior_graph.py:276`). An edge object there raises `TypeError: unhashable type: 'dict'` in a
 skill that gains nothing from the extra fields; the third consumer, behavior-runner, instead
 rejects any `--dependencies` answer that is not a list of strings and degrades that behaviour to
 coverage-unknown (`run_behaviors.py:353`). All three needed no change at all. The readers that
@@ -157,9 +157,9 @@ rather than load-bearing forever.
   `substrate` metadata block entirely, and that block cannot be reconstructed from the artifact —
   only a real build knows which backend ran and what it can see. Stamping the version would have
   frozen the graph permanently claiming no backend and no coverage. A rebuild, not a rewrite,
-  is what ships (`graph_ops.py:2184`), and the persistence path refuses to rewrite a stale
+  is what ships (`graph_ops.py:2191`), and the persistence path refuses to rewrite a stale
   artifact a backend wrongly reported as up to date, saying so on stderr instead
-  (`graph_ops.py:2562`).
+  (`graph_ops.py:2556`).
 
 - **Discard inferred edges entirely and run the second backend in its most conservative mode.**
   This was the first recommendation when the trust question was raised, and it would have removed
