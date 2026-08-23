@@ -47,7 +47,7 @@ install logic is in one Python file, which is why the two platforms cannot drift
 
 Use **one path or the other** on Claude Code. With both, every skill is registered twice —
 once namespaced by the plugin and once from the personal directory — and `freya doctor`
-warns about it (`bin/freya_cli.py:495-504`).
+warns about it (`bin/freya_cli.py:506-515`).
 
 ## The canonical store (ADR-014)
 
@@ -208,7 +208,7 @@ shows it is added by convention rather than discovered
 ([ADR-013:35](../decisions/ADR-013-single-freya-launcher.md)). It is undocumented host behaviour
 that nothing here tests. It *is* observable, though: doctor's `freya on PATH` row reports
 whichever launcher `shutil.which` resolves, from any store and without going through the
-launcher it is reporting on (`bin/freya_cli.py:333-345`), so running `doctor` from a second
+launcher it is reporting on (`bin/freya_cli.py:344-356`), so running `doctor` from a second
 checkout names the plugin-cache launcher when the convention is holding — measured that way on
 2026-08-21, see
 [TROUBLESHOOTING.md § `freya: command not found`](TROUBLESHOOTING.md#freya-command-not-found).
@@ -222,7 +222,7 @@ name.
 
 `freya doctor` detects a plugin install by reading
 `~/.claude/plugins/installed_plugins.json` and requiring an `installPath` that still exists
-(`bin/freya_cli.py:234-264`) — not by probing `plugins/marketplaces/`, which survives
+(`bin/freya_cli.py:245-275`) — not by probing `plugins/marketplaces/`, which survives
 `/plugin uninstall` and so warned at users who had only added the marketplace.
 
 ## `freya update`
@@ -273,7 +273,7 @@ already updated, so the message says which agent to retry, `:345-346`), `0` othe
 ### The staleness notice
 
 Any `freya` command except `help`, `update`, `install`, `uninstall` and `doctor`
-(`bin/freya_cli.py:21`, checked at `:524`) may first print one line to stderr:
+(`bin/freya_cli.py:21`, checked at `:535`) may first print one line to stderr:
 `freya: an update is available — run freya update` (`bin/updater.py:453`).
 
 - Notify-only. Nothing is ever downloaded or applied on its own.
@@ -295,7 +295,7 @@ Any `freya` command except `help`, `update`, `install`, `uninstall` and `doctor`
 ## `freya doctor`
 
 The health check. It prints one row per check and returns 1 if any row is `FAIL`; warnings do
-not fail it (`bin/freya_cli.py:508-514`).
+not fail it (`bin/freya_cli.py:519-525`).
 
 | Row | `ok` when | Notes |
 |---|---|---|
@@ -303,17 +303,17 @@ not fail it (`bin/freya_cli.py:508-514`).
 | `manifest` | `commands.json` loads and shadows no built-in | `fail` also when an entry's name is one `main` dispatches itself |
 | `scripts` | every manifest target exists | `warn` "not evaluated" when the manifest was unusable |
 | `python` | `>= 3.9` | prints the running version |
-| `freya on PATH` | `shutil.which("freya")` finds a launcher that resolves *under this store* | `warn` both when nothing is found (this is the `~/.local/bin` step) and when what is found is a different copy — finding *a* `freya` is not finding *this* one (`:333-345`) |
+| `freya on PATH` | `shutil.which("freya")` finds a launcher that resolves *under this store* | `warn` both when nothing is found (this is the `~/.local/bin` step) and when what is found is a different copy — finding *a* `freya` is not finding *this* one (`:344-356`) |
 | `store skills` | (only appears on failure) | the store's own `skills/` could not be listed |
 | `agent: <name>` | (only appears on failure) | the agent's directory could not be audited |
 | `agents` | at least one agent has `ok` entries | reports count and mode, e.g. `claude (10, symlink), copilot (10, copy)` |
-| `orphaned entries` | none | four distinct clauses with four distinct remedies: `stale-store`, `orphan-skill`, shadowing `foreign`, shadowing `occupied` (`:413-441`) |
-| `updates` | up to date, or ahead | run **unthrottled** — a diagnostic reporting a cached answer is not diagnosing anything (`:457-478`) |
-| `duplicate install` | not both plugin and personal | `:495-504` |
+| `orphaned entries` | none | four distinct clauses with four distinct remedies: `stale-store`, `orphan-skill`, shadowing `foreign`, shadowing `occupied` (`:424-452`) |
+| `updates` | up to date, or ahead | run **unthrottled** — a diagnostic reporting a cached answer is not diagnosing anything (`:468-489`) |
+| `duplicate install` | not both plugin and personal | `:506-515` |
 
 Every read `doctor` makes is one that can fail on exactly the broken installation it was run
-to explain, so each degrades to a row rather than a traceback (`:310-315`, `:352-357`,
-`:366-374`).
+to explain, so each degrades to a row rather than a traceback (`:321-326`, `:363-368`,
+`:377-385`).
 
 ## Continuous integration
 

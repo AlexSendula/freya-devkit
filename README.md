@@ -241,7 +241,7 @@ not by feature:
 | **[How it works](https://alexsendula.github.io/freya-devkit/how-it-works.html)** | Architecture, the graph substrate, the behavior layer, governance |
 | **[Extending it](https://alexsendula.github.io/freya-devkit/extending.html)** | Writing a skill, the launcher, testing and CI |
 | **[Reference](https://alexsendula.github.io/freya-devkit/reference.html)** | Where every command and artifact is documented |
-| **[Decisions](https://alexsendula.github.io/freya-devkit/decisions.html)** | The twenty-nine ADRs, and what each one rejected |
+| **[Decisions](https://alexsendula.github.io/freya-devkit/decisions.html)** | The thirty ADRs, and what each one rejected |
 | **[How it evolved](https://alexsendula.github.io/freya-devkit/evolution.html)** | The plans that turned out wrong, and what replaced them |
 
 The site is the human-facing narrative. The markdown in
@@ -253,7 +253,7 @@ and the site links to it rather than restating it:
 - [`reference/ARCHITECTURE.md`](knowledge-base/reference/ARCHITECTURE.md) — how they connect, data flow
 - [`reference/DEVELOPER.md`](knowledge-base/reference/DEVELOPER.md) — integration guidelines
 - [`reference/SKILL_REFERENCE.md`](knowledge-base/reference/SKILL_REFERENCE.md) — quick command reference
-- [`decisions/`](knowledge-base/decisions/) — twenty-nine ADRs: what was decided, why, and what was rejected
+- [`decisions/`](knowledge-base/decisions/) — thirty ADRs: what was decided, why, and what was rejected
 - [`roadmap.md`](knowledge-base/roadmap.md) — the single live backlog, Track B first
 - [`migrations/`](knowledge-base/migrations/) — one-time moves between versions
 

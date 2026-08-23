@@ -32,7 +32,7 @@ root, the manifest size, missing scripts, the interpreter version, whether `frey
 `PATH`, which agents the suite is installed for and in which mode (link or copy), orphaned
 entries, whether `freya update` can run, and whether
 a Claude marketplace install and a personal install are both present and shadowing each other
-(`bin/freya_cli.py:267`).
+(`bin/freya_cli.py:278`).
 
 ### Running the tests
 
@@ -188,21 +188,21 @@ All of it is in `bin/freya` and `bin/freya_cli.py`:
    of those names would be unreachable while `freya help` still advertised it under Commands,
    so a test asserts the two sets stay disjoint (`bin/test_freya_cli.py:552`).
 4. **Everything else is looked up in `bin/commands.json`** and joined onto `<root>/skills/`
-   (`bin/freya_cli.py:107`) — 17 commands as of commit `6252d3e`. The manifest is validated on
+   (`bin/freya_cli.py:118`) — 17 commands as of commit `6252d3e`. The manifest is validated on
    load rather than at the point of use: it must be a JSON object of string values, and each
    value must name a path *under* `skills/`. A POSIX-absolute path, a Windows drive or root,
    and a `..` in either spelling are all rejected, judged with both path flavours on every host
-   (`bin/freya_cli.py:55`, `bin/freya_cli.py:77`). It is repo-owned data, so this is a guard
+   (`bin/freya_cli.py:55`, `bin/freya_cli.py:88`). It is repo-owned data, so this is a guard
    rather than a fix, but the entry is joined onto the store and then executed.
 5. **The target runs under `sys.executable`**, never a bare `python` — which frequently is not
-   on modern systems (`bin/freya_cli.py:118`) — with the script's own directory prepended to the
+   on modern systems (`bin/freya_cli.py:129`) — with the script's own directory prepended to the
    child's `PYTHONPATH`, restoring the `sys.path` entry that `-P` / isolated mode removes
-   (`bin/freya_cli.py:127`).
+   (`bin/freya_cli.py:138`).
 
 Exit codes: the child's own code is propagated unchanged, except that a signal-terminated
 child (`-N` from `subprocess.call`) is reported as `128+N` rather than masked to `256-N`. An
 unknown command is 2. A registered-but-missing script is also 2, but with a message naming
-`freya doctor` instead of CPython's "can't open file" (`bin/freya_cli.py:147`).
+`freya doctor` instead of CPython's "can't open file" (`bin/freya_cli.py:158`).
 
 Three tests hold the manifest to its seams, and between them they are why a stale instruction
 in a SKILL.md fails in CI rather than in front of a user: every entry must point at a file

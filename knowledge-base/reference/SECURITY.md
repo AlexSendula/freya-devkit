@@ -17,7 +17,7 @@ itself for graphs and docs, not yet for a committed security report.
 
 There is no service, no daemon, no listening port, no database, no container and no
 credential store. A skill is a `SKILL.md` the agent reads plus stdlib Python the agent runs
-through one launcher, `freya <command>` (`bin/freya_cli.py:124`, which execs the target with
+through one launcher, `freya <command>` (`bin/freya_cli.py:135`, which execs the target with
 `sys.executable`). Two properties were measured on 2026-08-21 rather than assumed:
 
 - **No third-party runtime dependency, and no networking module.** An AST walk over every
@@ -35,7 +35,7 @@ What the toolkit does execute:
 
 | What | Where | Notes |
 |---|---|---|
-| A bundled script, under the current interpreter | `bin/freya_cli.py:124` | argv is `[sys.executable, <script from bin/commands.json>, *args]`; no `python` need be on `PATH` |
+| A bundled script, under the current interpreter | `bin/freya_cli.py:135` | argv is `[sys.executable, <script from bin/commands.json>, *args]`; no `python` need be on `PATH` |
 | `git`, read-only queries | `skills/freya-status/scripts/collect_status.py:33`, `skills/freya-code-graph/scripts/graph_ops.py:523`, `skills/freya-spec-manager/scripts/verify_intent.py:47` | `rev-parse`, `diff --name-only` and similar; the graph and status layers never write git state |
 | `git fetch` and `git merge --ff-only` | `bin/updater.py:228`, `:242` | Only during `freya update`, which fast-forwards the checkout to its tracked branch (`CONTRIBUTING.md:183`) |
 | An agent CLI as an audit worker | `skills/freya-codebase-security-scan/scripts/audit_adapter.py:45`, `:57` | The subject of most of this document |

@@ -49,12 +49,12 @@ genuine optional dependency here is an ADR rather than a bare `except`.
 ## Target CPython 3.9
 
 Four files declare the floor and none of them can import the others, so they are kept in
-step by a test rather than by a constant: `bin/freya:19`, `bin/freya_cli.py:227`,
+step by a test rather than by a constant: `bin/freya:19`, `bin/freya_cli.py:238`,
 `install.sh:17`, `install.ps1:20`, held together by `PythonFloorTest`
 (`bin/test_freya_cli.py:447`).
 
 The floor is 3.9 rather than 3.8 for one concrete reason, recorded where the constant lives
-(`bin/freya_cli.py:220`): `skills/freya-spec-manager/scripts/search_specs.py:116` annotates
+(`bin/freya_cli.py:231`): `skills/freya-spec-manager/scripts/search_specs.py:116` annotates
 `-> list[Spec]` with no `from __future__ import annotations`, and PEP 585 builtin generics
 are only subscriptable at runtime from 3.9, so `freya spec` is a `TypeError` on 3.8.
 
@@ -159,6 +159,7 @@ Supporting conventions, all with examples:
 | Class | `PascalCase`; a private test double gets `_PascalCase` | `_FakeBackend` | no |
 | Module constant | `UPPER_SNAKE` | `MIN_PYTHON` | no |
 | `namedtuple` alias | `PascalCase` — it names a type, not a constant | `LinkPlan` (`bin/installer.py:51`) | no |
+| Shared primitive | a `snake_case.py` module under `skills/freya-code-graph/scripts/`, imported by the `parents[2]` sibling pattern — never `bin/`, never a non-skill directory ([ADR-030](../decisions/ADR-030-shared-primitives-live-in-a-skill.md)) | `containment.py` | no |
 
 Conformance measured 2026-08-21 across `bin/*.py` and `skills/*/scripts/*.py`: 2288
 functions, 38 outside `snake_case` — all of them `setUp`/`tearDown`/`setUpClass`, imposed by
@@ -168,11 +169,12 @@ module's feature flag. All 10 skill directories carry the `freya-` prefix; all 1
 names are kebab-case; no module file is outside `snake_case`.
 
 **Tests live beside the code they cover**, which is also how the suite is discovered
-(`python3 -m pytest bin/ skills/ -q`). 29 of the 32 non-test modules have a sibling
-`test_<module>.py`. The three that do not are `backends.py` and `settings.py`, both
-exercised through `skills/freya-code-graph/scripts/test_substrate.py` and
-`test_graph_ops.py`, and `search_specs.py`, whose only appearance in any test file is one
-import in `skills/freya-spec-manager/scripts/test_verify_links.py:124`.
+(`python3 -m pytest bin/ skills/ -q`). Re-measured 2026-08-23: 34 of the 36 non-test modules
+have a sibling `test_<module>.py`. The two that do not are `backends.py` and `settings.py`,
+both exercised through `skills/freya-code-graph/scripts/test_substrate.py` and
+`test_graph_ops.py`. The count was 29 of 32 on 2026-08-21 and the third exception was
+`search_specs.py`, which has had `test_search_specs.py` beside it since; the census is
+hand-run, so it is a snapshot rather than a gate.
 
 **One hyphen changes the meaning.** `freya <command>` (space) is the CLI;
 `freya-<skill>` (hyphen) is a skill name. They are never interchangeable

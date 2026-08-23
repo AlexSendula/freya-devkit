@@ -261,7 +261,7 @@ execution arrives at the guard.
   puts the link target *in* the set, leaving `_is_code_path` the only thing that can keep it out.
 - **The `freya doctor` PATH row.** `test_path_check_is_warn_not_fail_when_absent` never mocked
   `shutil.which`, so it ran against the ambient PATH, found the installed launcher and never
-  entered the absent branch (`bin/freya_cli.py:335`). Turning that branch into a hard `fail` left
+  entered the absent branch (`bin/freya_cli.py:346`). Turning that branch into a hard `fail` left
   it green — and so did turning it into `ok`, because `statuses <= {"ok", "warn"}` cannot tell a
   warning from silent approval.
 

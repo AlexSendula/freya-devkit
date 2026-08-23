@@ -22,10 +22,10 @@ vendor's CLI; that is covered under [Credentials](#credentials).
 | Variable | Read at | Default | What changes when it is set |
 |---|---|---|---|
 | `FREYA_HOME` | `skills/freya-code-graph/scripts/settings.py:132`, `bin/updater.py:445` | `~/.freya` | Relocates the machine-level settings file and the update-check stamp. Nothing else. |
-| `FREYA_NO_UPDATE_CHECK` | `bin/updater.py:486`, reported by `bin/freya_cli.py:452` | unset | Suppresses the once-a-day staleness check entirely. |
+| `FREYA_NO_UPDATE_CHECK` | `bin/updater.py:486`, reported by `bin/freya_cli.py:463` | unset | Suppresses the once-a-day staleness check entirely. |
 | `FREYA_DEBUG` | `bin/updater.py:555` | unset | Prints the traceback from the update check, whose contract is to swallow every exception. |
 | `PATH` | `bin/installer.py:529`, plus every `shutil.which` below | — | Decides which external binaries are found, and whether the installer prints a "not on PATH" hint. |
-| `PYTHONPATH` | `bin/freya_cli.py:142` | unset | Read and *extended* — the launcher prepends the dispatched script's own directory before running it. |
+| `PYTHONPATH` | `bin/freya_cli.py:153` | unset | Read and *extended* — the launcher prepends the dispatched script's own directory before running it. |
 
 `HOME` (and `USERPROFILE` on Windows) is not read directly anywhere, but every path this
 toolkit writes outside a project derives from it. See
@@ -72,7 +72,7 @@ configured resolve to the floor?" does not depend on whose laptop is running the
 
 Every `freya` command *except* `help`, `install`, `uninstall`, `update` and `doctor` runs a
 throttled staleness check — those five are exempt by name (`bin/freya_cli.py:21`, gated at
-`freya_cli.py:524`), because they either act on the notice directly or ask the question
+`freya_cli.py:535`), because they either act on the notice directly or ask the question
 themselves. The check is at most one `git ls-remote` per 24 hours (`bin/updater.py:449`),
 notify-only, printed to stderr, with every exception swallowed (`bin/updater.py:524`). Setting
 this variable returns `None` before any of that happens (`bin/updater.py:486`).
@@ -83,9 +83,9 @@ including `FREYA_NO_UPDATE_CHECK=0`**. `README.md:88` and `CHANGELOG.md:140` bot
 
 `freya doctor` reports the variable rather than obeying it silently: it prints
 `[ok] updates: not checked (FREYA_NO_UPDATE_CHECK is set)` and skips the network
-(`bin/freya_cli.py:452`). When it is *not* set, doctor runs the same check unthrottled on
+(`bin/freya_cli.py:463`). When it is *not* set, doctor runs the same check unthrottled on
 purpose — a diagnostic reporting a cached answer is not diagnosing anything
-(`bin/freya_cli.py:458`).
+(`bin/freya_cli.py:469`).
 
 #### `FREYA_DEBUG`
 
@@ -113,8 +113,8 @@ This is the one variable the project *writes* as well as reads. `freya <command>
 a script under `skills/<skill>/scripts/`, and those scripts import their siblings by bare name.
 Under `PYTHONSAFEPATH` / `-P` / isolated mode CPython does not put the script's own directory on
 `sys.path`, so the launcher restores exactly that entry by prepending the script's directory to
-the child's `PYTHONPATH` (`bin/freya_cli.py:140`–`144`). The rest of the parent environment is
-copied through unchanged (`bin/freya_cli.py:140`), and that copy propagates to grandchildren —
+the child's `PYTHONPATH` (`bin/freya_cli.py:151`–`155`). The rest of the parent environment is
+copied through unchanged (`bin/freya_cli.py:151`), and that copy propagates to grandchildren —
 the agent CLIs the audit driver spawns inherit it too.
 
 ### Home-derived paths
@@ -126,7 +126,7 @@ on 2026-08-21 with the same three greps, they still hold:
 
 | Idiom | Count | Where |
 |---|---|---|
-| `Path.home()` | 6 | `bin/installer.py:37`, `installer.py:38`, `installer.py:521`, `installer.py:818`; `bin/freya_cli.py:247`; `bin/updater.py:448` |
+| `Path.home()` | 6 | `bin/installer.py:37`, `installer.py:38`, `installer.py:521`, `installer.py:818`; `bin/freya_cli.py:258`; `bin/updater.py:448` |
 | `expanduser` | 1 | `skills/freya-code-graph/scripts/settings.py:135` |
 | `os.environ['HOME']` / `.get('HOME')` | 0 | — |
 
@@ -141,7 +141,7 @@ it changes what happens: it is why the launcher resolves itself with `realpath` 
 [DEVELOPER.md § How the launcher resolves a command](DEVELOPER.md#how-the-launcher-resolves-a-command).
 Worth recording because it is the shape of a test gap: a regression here once got past the suite
 because the one test that sets `PYTHONSAFEPATH` only ran `freya help`, which never spawns a child
-(`bin/freya_cli.py:134`).
+(`bin/freya_cli.py:145`).
 
 ### Deliberately not read: `CLAUDE_*`
 
@@ -228,7 +228,7 @@ written by the run and is not committed on any branch here:
 | Binary | Required? | Looked up at | Run at | Absent ⇒ |
 |---|---|---|---|---|
 | `python3` / `python` (≥ 3.9) | **yes**, to install | `install.sh:16`, `install.ps1:12` | same | install.sh exits 1 with "no Python 3.9+ found on PATH" |
-| the running interpreter | **yes** | `sys.executable` | `bin/freya_cli.py:124` | n/a — never depends on a bare `python` being on PATH |
+| the running interpreter | **yes** | `sys.executable` | `bin/freya_cli.py:135` | n/a — never depends on a bare `python` being on PATH |
 | `git` | for update, and for accuracy elsewhere | `shutil.which`, `bin/updater.py:158` | nine sites, e.g. `bin/updater.py:60` | `freya update` refuses with a distinct message; graph/status/spec commands degrade |
 | `graphify` | **no** — opt-in | `shutil.which`, `skills/freya-code-graph/scripts/backend_graphify.py:309` | `skills/freya-code-graph/scripts/backend_graphify.py:419` | build degrades to the floor and records that it did |
 | `claude` / `copilot` | **no** — only `freya security` | `shutil.which`, `skills/freya-codebase-security-scan/scripts/audit_adapter.py:114` | `skills/freya-codebase-security-scan/scripts/audit.py:233` | driver exits 1 and names the fallback (`audit.py:371`) |

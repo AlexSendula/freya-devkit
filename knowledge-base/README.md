@@ -37,7 +37,7 @@ that reads the Agent Skills standard. Every bundled script is invoked through on
 | [reference/TROUBLESHOOTING.md](reference/TROUBLESHOOTING.md) | Real failure modes, how to confirm each one, and the fix | `docs-manager` |
 | [philosophy.md](philosophy.md) | Why skills exist, core concepts, the mental model | hand-written |
 | [patterns.md](patterns.md) | Reusable patterns — coordinator + workers, the two-commit rule, incremental updates | hand-written |
-| [decisions/](decisions/) | **Architecture Decision Records.** What was decided, why, and what was rejected. Twenty-nine records covering the behavior layer, the graph substrate and its backends, governance and portability. | hand-written |
+| [decisions/](decisions/) | **Architecture Decision Records.** What was decided, why, and what was rejected. Thirty records covering the behavior layer, the graph substrate and its backends, governance and portability. | hand-written |
 | [roadmap.md](roadmap.md) | **The single live backlog.** Next initiative, deferred capabilities, verified open defects. Nothing outstanding lives anywhere else. | hand-written |
 | [migrations/](migrations/) | Runnable recipes for projects adopting a new version. **Run these**, don't just read them. | hand-written |
 | [explanations/](explanations/) | Source of the published explainer site. Uploaded verbatim as the GitHub Pages site root, so anything added here is published; the seven page filenames — `index`, `using`, `how-it-works`, `extending`, `reference`, `decisions`, `evolution` — are pinned URLs. | hand-written |

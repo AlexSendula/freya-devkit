@@ -15,7 +15,7 @@ freya code-graph --build --dir . --format summary   # the graph, and what it cou
 ```
 
 `doctor` prints one row per check and exits 1 only if a row says `FAIL`; a `warn` row does not
-fail it (`bin/freya_cli.py:508`–`:514`). The full row table is in
+fail it (`bin/freya_cli.py:519`–`:525`). The full row table is in
 [DEPLOYMENT.md § `freya doctor`](DEPLOYMENT.md#freya-doctor).
 
 ## Common Issues
@@ -34,7 +34,7 @@ anything, because `freya <command>` is the only way any bundled script is invoke
 python3 <store>/bin/freya_cli.py doctor
 ```
 
-That route is supported — `bin/freya_cli.py:592`–`:602` exists so a user whose launcher is not
+That route is supported — `bin/freya_cli.py:603`–`:613` exists so a user whose launcher is not
 on `PATH` can still reach `doctor` (without the `__main__` guard it printed nothing and exited
 0, which reads as a clean bill of health).
 
@@ -51,7 +51,7 @@ on `PATH` can still reach `doctor` (without the `__main__` guard it printed noth
   nothing in this repo tests it. ADR-013 § Revisit Conditions still says `freya doctor`
   "structurally cannot check" it; that is stale — the `freya on PATH` row reports whichever
   launcher `shutil.which` resolves, from any store and without going through the launcher it
-  is reporting on (`bin/freya_cli.py:333`–`:345`). What no check covers is *why* the entry is
+  is reporting on (`bin/freya_cli.py:344`–`:356`). What no check covers is *why* the entry is
   there. Measured again in this checkout on 2026-08-21: `doctor` found
   `~/.claude/plugins/cache/freya-devkit/freya-devkit/0.2.0/bin/freya` on `PATH`, so the
   convention still holds here. If it ever stops, the remedy needs no new code — clone the repo
@@ -80,9 +80,9 @@ on `PATH` can still reach `doctor` (without the `__main__` guard it printed noth
 ```
 
 **Why it matters.** `shutil.which("freya")` finding *a* launcher is not the same as it finding
-*this* one (`bin/freya_cli.py:333`). In a healthy install the `PATH` entry is a symlink into the
+*this* one (`bin/freya_cli.py:344`). In a healthy install the `PATH` entry is a symlink into the
 store, so its realpath is under the store root; when it is not, every other row doctor printed
-describes a tree the shell will not execute (`bin/freya_cli.py:340`–`:345`). This row was added
+describes a tree the shell will not execute (`bin/freya_cli.py:351`–`:356`). This row was added
 after running `./bin/freya doctor` from a checkout while the released plugin was on `PATH`
 reported green.
 
@@ -90,7 +90,7 @@ reported green.
 
 **Fix.** Decide which store is authoritative. Run the one you mean explicitly (`./bin/freya …`
 from the checkout), or reinstall from it. If both a plugin install and a personal install are
-present, doctor says so separately (`bin/freya_cli.py:486`–`:504`) — and it compares presence
+present, doctor says so separately (`bin/freya_cli.py:497`–`:515`) — and it compares presence
 only, never versions. Two different checkouts registered at once is how a SKILL.md from one
 comes to invoke a `freya` command the other's `bin/commands.json` does not have; the only
 symptom is `freya: unknown command`.
@@ -107,7 +107,7 @@ because `-h` and `--help` are aliases of `help`.
 
 **Fix.** Usually nothing is broken: `wrap-up` is a *skill*, not a CLI command, and the launcher
 says so rather than leaving you to guess — it looks the name up as `freya-<name>` in the store
-and points you at your agent (`bin/freya_cli.py:570`–`:582`). If the name genuinely is a
+and points you at your agent (`bin/freya_cli.py:581`–`:593`). If the name genuinely is a
 manifest command, you are running a different store than the SKILL.md came from; see the
 previous entry.
 
@@ -118,7 +118,7 @@ previous entry.
 **Confirm.** `freya doctor` — the `scripts` row lists every manifest target that does not exist.
 
 **Fix.** This is the shape a half-applied update or a pruned `--copy` install leaves
-(`bin/freya_cli.py:152`–`:161`). Re-run `freya update`, or `install.sh --force` from the store.
+(`bin/freya_cli.py:163`–`:172`). Re-run `freya update`, or `install.sh --force` from the store.
 Without this branch you would see CPython's own "can't open file" error, which never mentions
 freya and exits 2 — the same code as an unknown command.
 
@@ -148,7 +148,7 @@ after repairing an orphaned install.
 
 **Why.** `install.sh --force` without `--copy` replaces copy directories with links. That is
 what the flags ask for, but the remedy string that sends people there — "the checkout moved;
-re-run `freya install --force`" (`bin/freya_cli.py:403`–`:442`) — carries no mode warning, and
+re-run `freya install --force`" (`bin/freya_cli.py:414`–`:453`) — carries no mode warning, and
 `--copy` is the *normal* mode on Windows. Roadmap item 5.
 
 **Fix, and the trap in it.** Re-running `install.sh --copy --force` does **not** convert back. A
@@ -565,7 +565,7 @@ isolate itself rather than relying on the session net; see
 **Symptom.** An install or a command dies inside a bundled script with a syntax error.
 
 **Confirm.** `python3 --version`. The floor for the whole suite is **3.9**
-(`bin/freya_cli.py:227`), not "any Python 3": `search_specs.py` uses PEP 585 builtin generics in
+(`bin/freya_cli.py:238`), not "any Python 3": `search_specs.py` uses PEP 585 builtin generics in
 evaluated annotations, which are only subscriptable at runtime from 3.9.
 
 **Fix.** Use a newer interpreter. `install.sh` gates on the same number and refuses with a plain

@@ -345,7 +345,7 @@ with a phase and an example, or remove them from the table.
 
 `install.sh --force` without `--copy` replaces copy directories with links. That is what the
 flags ask for, but the orphan remedy that sends users there —
-`bin/freya_cli.py:384-390`, "the checkout moved; re-run `freya install --force`" — carries no
+`bin/freya_cli.py:395-401`, "the checkout moved; re-run `freya install --force`" — carries no
 mode warning, so a Windows user repairing an orphaned install flips modes without noticing.
 `doctor` reports the mode, which makes it discoverable *after* the fact; a clause in the remedy
 would make it discoverable before.
@@ -353,7 +353,7 @@ would make it discoverable before.
 ### 6. Two `doctor` lines read oddly together
 
 A moved checkout produces `agents: the suite is not installed for any agent`
-(`bin/freya_cli.py:370`) beside `orphaned entries: 20 …` (`:386-390`). Each line is accurate —
+(`bin/freya_cli.py:381`) beside `orphaned entries: 20 …` (`:397-401`). Each line is accurate —
 no entry points at *this* store — but the pair invites the reading "nothing is installed, and
 also twenty things are". The orphan line carries the remedy, so this is wording, not behaviour.
 

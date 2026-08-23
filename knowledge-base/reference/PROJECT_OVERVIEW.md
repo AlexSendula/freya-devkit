@@ -211,5 +211,5 @@ CI runs the suite, three static gates and an end-to-end install → launcher →
   writes
 - [DEVELOPER.md](DEVELOPER.md) — the conventions a new skill has to fit
 - [patterns.md](../patterns.md) — the two-commit pattern, certainty scoring, resolve-to-proceed
-- [decisions/](../decisions/) — twenty-nine ADRs, each with the alternative it beat
+- [decisions/](../decisions/) — thirty ADRs, each with the alternative it beat
 - [roadmap.md](../roadmap.md) — the single live backlog, including open defects

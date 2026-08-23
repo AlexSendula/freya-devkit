@@ -211,7 +211,7 @@ Read these before making structural changes. They describe the system **as it is
 - [`knowledge-base/reference/DEVELOPER.md`](knowledge-base/reference/DEVELOPER.md) — integration guidelines
 - [`knowledge-base/reference/SKILL_REFERENCE.md`](knowledge-base/reference/SKILL_REFERENCE.md) — every skill's commands, at a glance
 
-Separately, [`knowledge-base/decisions/`](knowledge-base/decisions/) holds the twenty-nine **Architecture Decision
+Separately, [`knowledge-base/decisions/`](knowledge-base/decisions/) holds the thirty **Architecture Decision
 Records** — what was decided, why, and what was rejected. The rejected alternatives are the
 point: they say what the system could have been and why it isn't, so a settled question
 doesn't get re-litigated. An ADR records the decision, not the implementation.
