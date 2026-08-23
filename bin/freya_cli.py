@@ -66,6 +66,17 @@ def _escapes(rel):
 
     So: reject a POSIX-absolute path, a Windows drive (`C:x` is drive-relative
     and still not ours), a Windows root, and any `..` in either spelling.
+
+    This is the second and last body of that rule. The canonical one is
+    `skills/freya-code-graph/scripts/containment.py:escapes`, and everything
+    else in the tree imports it from there. The launcher deliberately does not:
+    `doctor` and `update` are the commands that diagnose and repair a skill
+    tree, so they have to run when that tree is missing, half-installed or
+    broken — and `load_manifest` is reached by `doctor_checks` on nearly every
+    `freya` invocation, which would make the bootstrap depend on the payload it
+    installs. ADR-030 records the exception; the two bodies are held together by
+    `bin/test_freya_cli.py::ContainmentParityTest`, which errors rather than
+    skips if the canonical module cannot be imported.
     """
     win, posix = PureWindowsPath(rel), PurePosixPath(rel)
     return bool(

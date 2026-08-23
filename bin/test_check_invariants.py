@@ -5,6 +5,14 @@ Both rules exist because the defect they name is invisible where it is
 committed: an `import yaml` works on the machine that has yaml, and a bare
 `subprocess.run(["git", ...])` works everywhere except a Windows box whose
 working directory is a repository someone else wrote.
+
+**`check_invariants.is_absolute` is deliberately not tested here.** It is one of
+the two bootstrap copies ADR-030 permits, and the only thing worth asserting
+about it is that it still agrees with the canonical
+`skills/freya-code-graph/scripts/containment.py:is_anchored`. That is a parity
+claim about two modules, so it lives with the other one:
+`bin/test_freya_cli.py:ContainmentParityTest`. Running only this file after
+editing `is_absolute` will report green — run that class too.
 """
 
 import ast

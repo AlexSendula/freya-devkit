@@ -30,9 +30,16 @@ import ast
 import json
 import os
 import sys
-from pathlib import Path, PurePosixPath, PureWindowsPath
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# The containment rule is owned by freya-code-graph and imported, not copied
+# (ADR-030). This file used to carry its own body with a docstring claiming the
+# two were "deliberately identical" — nothing held them to it, and a
+# hand-maintained duplicate of a security predicate is the thing ADR-002 forbids.
+_GRAPH_SCRIPTS = Path(__file__).resolve().parents[2] / "freya-code-graph" / "scripts"
+sys.path.insert(0, str(_GRAPH_SCRIPTS))
+from containment import escapes as _escapes  # noqa: E402
 from search_specs import load_all_specs, find_specs_dir  # noqa: E402
 from adapters import (  # noqa: E402
     parse_locator,
@@ -49,27 +56,6 @@ SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", "knowledge-
 
 def _err(spec_id, behavior_id, kind, message):
     return {"spec_id": spec_id, "behavior_id": behavior_id, "kind": kind, "message": message}
-
-
-def _escapes(rel):
-    """Could this spec-supplied path name anything but a file under the project?
-
-    Deliberately identical to `bin/freya_cli.py:_escapes` — one containment rule
-    for the repo, not two that disagree at the margin (ADR-002). Both path
-    flavours are judged on every host because a spec is checked-in data read on
-    all of them: `os.path.isabs` alone is not enough, as Python 3.13 changed
-    `ntpath.isabs` so a rooted path with no drive is no longer absolute on
-    Windows, and the first Windows CI run caught it there.
-
-    `..` is rejected outright even when it would normalise back inside. No
-    honest locator needs it, and a rule you can state in one sentence is worth
-    more than the handful of paths it turns away.
-    """
-    win, posix = PureWindowsPath(rel), PurePosixPath(rel)
-    return bool(
-        posix.is_absolute() or win.drive or win.root
-        or ".." in win.parts or ".." in posix.parts
-    )
 
 
 def _py_symbols(path: Path):

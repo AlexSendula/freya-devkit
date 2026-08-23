@@ -337,14 +337,33 @@ def resolve_binary(node, constants):
 
 
 def is_absolute(text):
-    """Absolute under either platform's rules.
+    """Absolute under either platform's rules — and under either interpreter's.
 
     `os.path.isabs` answers for the platform the *checker* runs on, and CI runs
     this on Linux and on Windows. `C:\\tools\\git.exe` reads as relative to
     posixpath, so one source file would be a violation on one leg of the matrix
     and clean on the other, for a reason nothing in the output would explain.
+
+    `posixpath.isabs(text) or ntpath.isabs(text)` was the fix for that, and it
+    only got half of it: CI also runs 3.9 and 3.13, and `ntpath.isabs` changed
+    in 3.13 so a rooted path with no drive stopped being absolute. Measured over
+    an eleven-case table on 3.9.6, 3.12.5 and 3.13.5, the union answers True for
+    `\\tools\\git.exe` on the first two and False on the third — the same file,
+    clean on one interpreter and a violation on the next, which is the property
+    this docstring already claimed the function did not have.
+
+    So the two unambiguous shapes are judged directly instead: a POSIX absolute
+    path, or a Windows path carrying both a drive (or a UNC share) and a root.
+    That form gave identical answers on all three interpreters for all eleven
+    cases. It is the same predicate as
+    `skills/freya-code-graph/scripts/containment.py:is_anchored`, written out
+    again rather than imported for the reason `bin/freya_cli.py:_escapes` gives:
+    this checker has to run against a skill tree it may be about to condemn.
     """
-    return posixpath.isabs(text) or ntpath.isabs(text)
+    if posixpath.isabs(text):
+        return True
+    drive, rest = ntpath.splitdrive(text)
+    return bool(drive) and rest[:1] in ("\\", "/")
 
 
 def is_resolved(node, constants):
