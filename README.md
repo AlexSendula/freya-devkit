@@ -10,10 +10,44 @@ An integrated, AI-assisted development toolkit for <strong>any coding agent</str
 
 > 📖 **New here? Read the explainer → [alexsendula.github.io/freya-devkit](https://alexsendula.github.io/freya-devkit/)** — a no-install webapp: the problem it solves, how to install and use it, how it works, and how it evolved.
 
-> ⚠️ **Upgrading from 0.1.0?** Every skill was renamed: `/freya-devkit:wrap-up` is now
-> `/freya-devkit:freya-wrap-up`, and so on for all ten. See
-> [`knowledge-base/migrations/skill-rename.md`](knowledge-base/migrations/skill-rename.md) and the
-> [CHANGELOG](CHANGELOG.md).
+## What's new in 0.3.0 — the graph reads your language
+
+Everything here stands on the dependency graph, and until this release it was one
+hand-written resolver that read four languages. Pointed at a Java project it found nothing,
+printed *"Built dependency graph: 0 files scanned"*, and exited 0 — and the shape detector,
+which decides whether a project is new by counting internal edges, then classified a
+decade-old codebase as an empty scaffold.
+
+The graph is now produced through a **contract with interchangeable backends**:
+
+| Backend | Reads | Needs |
+|---|---|---|
+| `homegrown` | 4 languages, 6 extensions | nothing — ships with the toolkit |
+| `graphify` | **40 languages, 93 extensions**, plus `calls` / `inherits` / `references` | its binary on `PATH` |
+
+`homegrown` is the **floor**: it always runs unless something else is named, so a locked-down
+machine where you cannot install anything still gets a graph. `graphify` is opt-in.
+
+**Choosing one is a person's decision, never an automatic one.** `freya install` asks once and
+records your answer; the first build in a project writes it into that project's committed
+`knowledge-base/settings.json`, so a clone and CI resolve the same backend you do. Installing a
+binary somewhere on `PATH` must not silently change every blast radius on the machine.
+
+And every answer now says **what the backend could not read** — as a caveat to the agent
+asking, never as a refusal. See [ADR-018 …
+ADR-029](knowledge-base/decisions/) and the [CHANGELOG](CHANGELOG.md).
+
+<details>
+<summary><strong>Upgrading from 0.1.0 or 0.2.0</strong></summary>
+
+**From 0.2.0** — nothing to do. A project that says nothing gets `homegrown`, which is the
+resolver it already had.
+
+**From 0.1.0** — every skill was renamed: `/freya-devkit:wrap-up` is now
+`/freya-devkit:freya-wrap-up`, and so on for all ten. See
+[`knowledge-base/migrations/skill-rename.md`](knowledge-base/migrations/skill-rename.md).
+
+</details>
 
 ## Installation
 
@@ -133,7 +167,7 @@ Reload the session afterwards, or the old names keep being offered and then fail
 
 | Skill | Purpose | Example |
 |-------|---------|---------|
-| `freya-code-graph` | Dependency graphs, impact analysis, blast radius | `freya-code-graph impact src/auth.ts` |
+| `freya-code-graph` | Dependency graphs, impact analysis, blast radius — through a backend contract, so it reads 4 languages or 40 depending on which you chose | `freya-code-graph impact src/auth.ts` |
 | `freya-docs-manager` | Standardized project documentation | `freya-docs-manager update` |
 | `freya-spec-manager` | Feature specs + intentional design decisions, ADRs, principles, and the behavior lifecycle | `freya-spec-manager scan` |
 | `freya-behavior-graph` | Behavior graph: intended behavior as first-class records; blast radius code→behavior and behavior→code | `freya-behavior-graph --affected src/auth.ts` |
