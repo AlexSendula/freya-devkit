@@ -188,7 +188,7 @@ CI runs the suite, three static gates and an end-to-end install → launcher →
 
 ## Project status
 
-- **Version:** 0.2.0 (`.claude-plugin/plugin.json`). `freya update` consumers do not see
+- **Version:** 0.3.0 (`.claude-plugin/plugin.json`). `freya update` consumers do not see
   versions at all — that path fast-forwards the checkout, so every pushed commit is live for
   them.
 - **First commit:** 2026-06-19.

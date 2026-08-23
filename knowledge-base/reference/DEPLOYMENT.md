@@ -179,7 +179,7 @@ ways to fail quietly.
 
 Two files, both at the repo root under `.claude-plugin/`:
 
-- `plugin.json` — `name: freya-devkit`, `version: 0.2.0` (`plugin.json:2-3`), description, author
+- `plugin.json` — `name: freya-devkit`, `version: 0.3.0` (`plugin.json:2-3`), description, author
   `github@alexsendula.com`, MIT, keywords. There is no `skills` key; the plugin relies on the
   host loading the repository's `skills/` directory by convention.
 - `marketplace.json` — one plugin entry whose `"source": "."` (`marketplace.json:11`) makes the repository
@@ -368,13 +368,16 @@ and triggers a deploy on its own. Last successful deploy: run `32155951130`,
 
 ## Versioning and release
 
-**The current version is `0.2.0`** (`.claude-plugin/plugin.json:3`).
+**The current version is `0.3.0`** (`.claude-plugin/plugin.json:3`).
 
-**It does not match the newest CHANGELOG heading.** The newest heading on this branch is
-`## Unreleased — the polyglot substrate (2026-08-21)` (`CHANGELOG.md:9`); the newest
-*released* heading is `## 0.2.0 — portability (2026-08-18)` (`:97`), which is what `0.2.0`
-corresponds to. So the polyglot substrate work is currently unversioned: it is described in
-the changelog, it is not yet a marketplace release, and it is not on `main`.
+**It matches the newest CHANGELOG heading**, `## 0.3.0 — the polyglot substrate, and the
+toolkit run on itself (2026-08-23)` (`CHANGELOG.md:9`). The previous release heading,
+`## 0.2.0 — portability (2026-08-18)`, is the one below it.
+
+Until 2026-08-23 those two disagreed: the version stayed at `0.2.0` while the changelog carried
+an `Unreleased` heading, so the polyglot substrate was described but unversioned. That gap is
+worth naming rather than deleting, because it is easy to re-open — the version is bumped by
+hand and nothing checks that it moved when the changelog gained a section.
 
 The release procedure for both consumer paths — versioned marketplace, unversioned
 `freya update` — is [CONTRIBUTING.md § Releasing updates](../../CONTRIBUTING.md#releasing-updates)

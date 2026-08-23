@@ -6,7 +6,7 @@ at all** — that path fast-forwards the checkout to the tracked branch's head, 
 pushed commit is live for them the moment they run it. See
 [CONTRIBUTING.md § Releasing updates](CONTRIBUTING.md#releasing-updates).
 
-## Unreleased — the polyglot substrate (2026-08-21)
+## 0.3.0 — the polyglot substrate, and the toolkit run on itself (2026-08-23)
 
 The code graph everything else stands on was one hand-written resolver reading four languages.
 Point it at a Java project and it found nothing, printed *"Built dependency graph: 0 files
@@ -93,6 +93,52 @@ Also: `**/.graph/` is gone from this repo's `.gitignore`. `code-graph` writes it
 `behavior.json` stays committable (ADR-017) — but git never descends into a directory an
 ancestor ignored, so the root rule silently won. Any adopting project that added `**/.graph/`
 by hand has the same problem.
+
+### The toolkit was run against itself, and found what it is for
+
+The hand-written `docs/` tree became `knowledge-base/` — the same layout freya creates in any
+adopting project — so the toolkit could finally read its own documentation. The full flow then
+ran end to end for the first time: code graph, docs graph, a brownfield scan producing **30
+specs and 149 proposed behaviors**, and a security scan.
+
+Everything reported clean. Three things were not.
+
+- **`freya verify-links` printed "all behavior links pass" while 17 of 149 were broken.** A
+  locator is `path#Class.method`; `parse_locator` returns both halves and the caller bound the
+  second to a discard, so for every non-Gherkin adapter the entire check was "does the file
+  exist". `adapter: manual` skipped the check altogether rather than skipping the runner.
+  Proven by renaming all 132 locator targets out of existence: exit 0, suite green. Both holes
+  are closed and the fragment now resolves by AST.
+- **The behavior-runner could not execute a Python test.** It had an executor for vitest and
+  none for Python, so of 132 unittest behaviors, 106 were never run, 26 got a static guess, and
+  zero executed. `accepted` was unreachable. A pytest adapter now exists, degrading cleanly
+  when `coverage.py` is absent rather than reporting empty coverage.
+- **`freya status` reported 57 coverage gaps where 24 were real** — it was counting its own
+  test files, `conftest.py` and three non-Python files, and `BACKLOG.md` carried the wrong
+  number to the user.
+
+The security scan raised 22 findings against the toolkit. The two most severe are the same
+defect twice: workers are invoked by the bare name `claude` with the *scanned* repository as
+their working directory, so on Windows that repository can supply its own `claude.exe` and have
+it run as the operator. The read-only allowlist is expressed in argv, and argv only binds the
+program you meant to start. Filed, not yet fixed.
+
+### Three gates that did not exist
+
+- `bin/check_doc_citations.py` resolves every `path:line` citation in the tracked prose — 1,311
+  of them. It found 55 broken on landing, all repaired by reconstructing each file at the commit
+  its document was authored against rather than moving numbers to the nearest non-blank line.
+- `bin/check_invariants.py` reads the AST for two whole-tree properties: every import is stdlib
+  or a sibling, and no `subprocess` call takes a bare-name `argv[0]`. The stdlib rule was the
+  repo's most load-bearing convention and was checked by nothing; its violation is invisible on
+  the machine that commits it.
+- Both run in CI beside the suite and the conformance gate.
+
+Suite 1,435 → 1,759 tests, 52 → 1,012 subtests. The subtest jump is the real change: registries
+were tested by naming a few members by hand — `RELATIONS` declared 32 relation kinds and named
+twelve — and are now driven off the registry itself, so a member added later is covered the day
+it lands. Six tests were found green and vacuous, each proven so by mutation before repair; one
+was the only guard on a path traversal in the security scan's own disposition path.
 
 ## 0.2.0 — portability (2026-08-18)
 
