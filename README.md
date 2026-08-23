@@ -8,11 +8,11 @@
 An integrated, AI-assisted development toolkit for <strong>any coding agent</strong> — Claude Code, GitHub Copilot, and the ~30 others that read the Agent Skills standard. Ten skills that work together to keep your dependency graph, documentation, feature specs, intended behavior, and security posture in sync as you build — plus a one-command wrap-up workflow that runs them all.
 </p>
 
-> 📖 **New here? Read the visual explainers → [alexsendula.github.io/freya-devkit](https://alexsendula.github.io/freya-devkit/)** — no-install webapps covering the whole plugin, the behavior layer, governance, and the portability track.
+> 📖 **New here? Read the explainer → [alexsendula.github.io/freya-devkit](https://alexsendula.github.io/freya-devkit/)** — a no-install webapp: the problem it solves, how to install and use it, how it works, and how it evolved.
 
 > ⚠️ **Upgrading from 0.1.0?** Every skill was renamed: `/freya-devkit:wrap-up` is now
 > `/freya-devkit:freya-wrap-up`, and so on for all ten. See
-> [`docs/migrations/skill-rename.md`](docs/migrations/skill-rename.md) and the
+> [`knowledge-base/migrations/skill-rename.md`](knowledge-base/migrations/skill-rename.md) and the
 > [CHANGELOG](CHANGELOG.md).
 
 ## Installation
@@ -117,7 +117,7 @@ the store ships `bin/freya` without an extension, and only the installer writes 
 `freya.cmd` shim that Windows needs to run it by name.
 
 **Upgrading from 0.1.0 on this path,** `/plugin marketplace update freya-devkit`
-renames all ten skills — see [`docs/migrations/skill-rename.md`](docs/migrations/skill-rename.md).
+renames all ten skills — see [`knowledge-base/migrations/skill-rename.md`](knowledge-base/migrations/skill-rename.md).
 Reload the session afterwards, or the old names keep being offered and then fail.
 
 > Use one path or the other. With both, Claude registers every skill twice —
@@ -196,22 +196,36 @@ the plan first (the skill runs `freya security audit --dry-run`, which spends no
 
 ## Documentation
 
-**Visual explainers** — no-install webapps hosted on GitHub Pages (source in [`docs/explanations/`](docs/explanations/)):
+**[The explainer site](https://alexsendula.github.io/freya-devkit/)** — a no-install webapp on
+GitHub Pages (source in [`knowledge-base/explanations/`](knowledge-base/explanations/)). Organised by what you want,
+not by feature:
 
-- **[The whole plugin](https://alexsendula.github.io/freya-devkit/plugin/)** — philosophy, architecture, all ten skills, patterns, the behavior layer, governance, and adoption. Start here.
-- **[The behavior layer](https://alexsendula.github.io/freya-devkit/behavior-layer-explainer/)** — intended behavior as a first-class, executable, blast-radius-aware artifact (five-page deep dive).
-- **[Governance](https://alexsendula.github.io/freya-devkit/governance-explainer/)** — block-on-facts vs resolve-to-proceed, and the wrap-up checkpoints.
-- **[Portability](https://alexsendula.github.io/freya-devkit/portability-explainer/)** — how a Claude Code plugin became an any-agent toolkit: the launcher, the installer, the audit driver, and what was validated live on each agent.
+| Page | For |
+|---|---|
+| **[Home](https://alexsendula.github.io/freya-devkit/)** | The problem, the one idea, and whether this is for you |
+| **[Using it](https://alexsendula.github.io/freya-devkit/using.html)** | Install, first run, the ten skills, what it writes and where |
+| **[How it works](https://alexsendula.github.io/freya-devkit/how-it-works.html)** | Architecture, the graph substrate, the behavior layer, governance |
+| **[Extending it](https://alexsendula.github.io/freya-devkit/extending.html)** | Writing a skill, the launcher, testing and CI |
+| **[Reference](https://alexsendula.github.io/freya-devkit/reference.html)** | Where every command and artifact is documented |
+| **[Decisions](https://alexsendula.github.io/freya-devkit/decisions.html)** | The twenty-nine ADRs, and what each one rejected |
+| **[How it evolved](https://alexsendula.github.io/freya-devkit/evolution.html)** | The plans that turned out wrong, and what replaced them |
 
-Design rationale and architecture live in [`docs/`](docs/):
+The site is the human-facing narrative. The markdown in
+[`knowledge-base/`](knowledge-base/) is the agent-facing source of truth for lookup material,
+and the site links to it rather than restating it:
 
-- [`philosophy.md`](docs/philosophy.md) — why these skills exist
-- [`architecture.md`](docs/architecture.md) — how they connect, data flow
-- [`patterns.md`](docs/patterns.md) — reusable patterns across skills
-- [`conventions.md`](docs/conventions.md) — integration guidelines
-- [`skill-reference.md`](docs/skill-reference.md) — quick command reference
-- [`migrations/`](docs/migrations/) — one-time moves between versions
-- [`design/portability/`](docs/design/portability/) — the dated design record for this track, corrections appended in place
+- [`philosophy.md`](knowledge-base/philosophy.md) — why these skills exist
+- [`patterns.md`](knowledge-base/patterns.md) — reusable patterns across skills
+- [`reference/ARCHITECTURE.md`](knowledge-base/reference/ARCHITECTURE.md) — how they connect, data flow
+- [`reference/DEVELOPER.md`](knowledge-base/reference/DEVELOPER.md) — integration guidelines
+- [`reference/SKILL_REFERENCE.md`](knowledge-base/reference/SKILL_REFERENCE.md) — quick command reference
+- [`decisions/`](knowledge-base/decisions/) — twenty-nine ADRs: what was decided, why, and what was rejected
+- [`roadmap.md`](knowledge-base/roadmap.md) — the single live backlog, Track B first
+- [`migrations/`](knowledge-base/migrations/) — one-time moves between versions
+
+`knowledge-base/` is the layout freya-devkit creates in any project it runs against, and this
+repo now uses it on itself: `reference/` and `README.md` are written by `docs-manager`, the
+rest is hand-authored.
 
 Release history: [CHANGELOG.md](CHANGELOG.md).
 

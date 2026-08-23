@@ -1,6 +1,6 @@
 {
   "name": "freya-devkit",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "An integrated AI-assisted development toolkit: dependency graphs, documentation, feature specs, a behavior layer (intended behavior + a behavior graph), security scanning/resolution, project status, and a post-implementation wrap-up workflow that keeps them all in sync.",
   "author": {
     "name": "Alex",

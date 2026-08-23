@@ -1,0 +1,177 @@
+{
+  "version": 1,
+  "scanned_commit": "11cad13",
+  "report": "knowledge-base/security/codebase-security/2026-08-21.md",
+  "findings": [
+    {
+      "id": "SEC-001",
+      "title": "Repo-controlled intent baseline is interpolated into git diff argv, giving arbitrary file truncation and a silent Tier-1 gate bypass",
+      "severity": "high",
+      "status": "open",
+      "file": "skills/freya-spec-manager/scripts/verify_intent.py",
+      "line": 74
+    },
+    {
+      "id": "SEC-002",
+      "title": "A scanned repository's own settings.json arms a backend whose binary is then resolved from that repository's directory (Windows)",
+      "severity": "high",
+      "status": "open",
+      "file": "skills/freya-code-graph/scripts/backend_graphify.py",
+      "line": 309
+    },
+    {
+      "id": "SEC-003",
+      "title": "Agent-CLI worker binary is resolved with the scanned repository's own directory ahead of PATH (Windows)",
+      "severity": "high",
+      "status": "open",
+      "file": "skills/freya-codebase-security-scan/scripts/audit_adapter.py",
+      "line": 114
+    },
+    {
+      "id": "SEC-004",
+      "title": "Skeptic verdicts are never bound to the lens they were requested for, so any worker can cast the spec-intentional veto",
+      "severity": "medium",
+      "status": "open",
+      "file": "skills/freya-codebase-security-scan/scripts/audit_engine.py",
+      "line": 231
+    },
+    {
+      "id": "SEC-005",
+      "title": "Spec-citation corroboration accepts any identifier-shaped token, not the SPEC-/ADR-/BEH- namespace its own spec documents",
+      "severity": "medium",
+      "status": "open",
+      "file": "skills/freya-codebase-security-scan/scripts/audit_engine.py",
+      "line": 165
+    },
+    {
+      "id": "SEC-006",
+      "title": "--covering trusts a hand-editable, repo-committed behavior.json as verified test-backed evidence",
+      "severity": "medium",
+      "status": "open",
+      "file": "skills/freya-behavior-graph/scripts/behavior_graph.py",
+      "line": 418
+    },
+    {
+      "id": "SEC-007",
+      "title": "The status census silently reports zero open findings for any findings.json status outside its vocabulary, with no note",
+      "severity": "medium",
+      "status": "open",
+      "file": "skills/freya-status/scripts/collect_status.py",
+      "line": 150
+    },
+    {
+      "id": "SEC-008",
+      "title": "detect_infrastructure globs and reads every YAML in the scanned tree, following directory symlinks out of the project",
+      "severity": "medium",
+      "status": "open",
+      "file": "skills/freya-docs-manager/scripts/detect_project.py",
+      "line": 324
+    },
+    {
+      "id": "SEC-009",
+      "title": "The security report template reproduces a discovered plaintext secret verbatim in a git-tracked artifact",
+      "severity": "medium",
+      "status": "open",
+      "file": "skills/freya-codebase-security-scan/SKILL.md",
+      "line": 864
+    },
+    {
+      "id": "SEC-010",
+      "title": "Cached graph's commit field is interpolated into a git revision argument unvalidated",
+      "severity": "low",
+      "status": "open",
+      "file": "skills/freya-code-graph/scripts/graph_ops.py",
+      "line": 562
+    },
+    {
+      "id": "SEC-011",
+      "title": "verify-intent --advance rewrites the G1 baseline without re-running the gate, permanently clearing an unauthorized accepted-test edit",
+      "severity": "low",
+      "status": "open",
+      "file": "skills/freya-spec-manager/scripts/verify_intent.py",
+      "line": 264
+    },
+    {
+      "id": "SEC-012",
+      "title": "Untrusted behavior titles and paths are written unescaped into the generated BACKLOG.md tables",
+      "severity": "low",
+      "status": "open",
+      "file": "skills/freya-status/scripts/collect_status.py",
+      "line": 194
+    },
+    {
+      "id": "SEC-013",
+      "title": "An absolute locator or entry in spec frontmatter discards the project root, so the Tier-1 gate stats and reads files outside the project",
+      "severity": "low",
+      "status": "open",
+      "file": "skills/freya-spec-manager/scripts/verify_links.py",
+      "line": 123
+    },
+    {
+      "id": "SEC-014",
+      "title": "Import resolver's containment check is lexical, so a .. in a tsconfig paths target or a workspace subpath resolves outside the project root",
+      "severity": "low",
+      "status": "open",
+      "file": "skills/freya-code-graph/scripts/graph_ops.py",
+      "line": 692
+    },
+    {
+      "id": "SEC-015",
+      "title": "graphify source_file becomes a graph key with no project-containment check, producing an out-of-project node that validates clean",
+      "severity": "low",
+      "status": "open",
+      "file": "skills/freya-code-graph/scripts/backend_graphify.py",
+      "line": 572
+    },
+    {
+      "id": "SEC-016",
+      "title": "Skeptic prompts interpolate the entire finding dict, including any credential in codeSnippet, into a subprocess argv element",
+      "severity": "low",
+      "status": "open",
+      "file": "skills/freya-codebase-security-scan/scripts/audit_engine.py",
+      "line": 324
+    },
+    {
+      "id": "SEC-017",
+      "title": "The docs-manager ENVIRONMENT worker has no rule forbidding real secret values in the committed environment doc",
+      "severity": "low",
+      "status": "open",
+      "file": "skills/freya-docs-manager/SKILL.md",
+      "line": 291
+    },
+    {
+      "id": "SEC-018",
+      "title": "Pages deploy workflow holds pages:write and id-token:write while depending on four mutable action tags",
+      "severity": "low",
+      "status": "open",
+      "file": ".github/workflows/pages.yml",
+      "line": 37
+    },
+    {
+      "id": "SEC-019",
+      "title": "Committed project settings pin the toolkit's own repo to an unpinned optional third-party binary",
+      "severity": "low",
+      "status": "intentional",
+      "file": "knowledge-base/settings.json",
+      "line": 3,
+      "spec_ref": "SPEC-007"
+    },
+    {
+      "id": "SEC-020",
+      "title": "Git-reported filenames passed as bare positional args to the code-graph child CLI",
+      "severity": "info",
+      "status": "open",
+      "file": "skills/freya-spec-manager/scripts/drift.py",
+      "line": 90
+    },
+    {
+      "id": "SEC-021",
+      "title": "uninstall_agent removes any symlink pointing into the store's skills/, including names the installer never created",
+      "severity": "info",
+      "status": "intentional",
+      "file": "bin/installer.py",
+      "line": 469,
+      "spec_ref": "ADR-014"
+    }
+  ]
+}

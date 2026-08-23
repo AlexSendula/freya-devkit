@@ -56,7 +56,9 @@ def behavior_census(project_dir):
                 try:
                     with open(os.path.join(root, name), encoding="utf-8") as f:
                         fm, _body = frontmatter.parse_frontmatter(f.read())
-                except (FrontmatterError, OSError):
+                except (FrontmatterError, UnicodeDecodeError, OSError):
+                    # UnicodeDecodeError is not an OSError. Strict decoding made one spec
+                    # with a stray byte raise out of the whole status walk.
                     continue
                 behaviors = fm.get("behaviors")
                 if not isinstance(behaviors, list):

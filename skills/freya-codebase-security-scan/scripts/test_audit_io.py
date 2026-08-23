@@ -206,5 +206,199 @@ class ConstantsTest(unittest.TestCase):
                          ["exploitability", "compensating-controls", "spec-intentional"])
 
 
+#: The triage order every consumer reads off SEVERITIES' *position*: what the
+#: report leads with, what `freya status` counts as open first, where the
+#: `--max-calls` budget goes. Declared as literals on purpose — deriving these
+#: from audit_io.SEVERITIES would adapt to a reordering of it and prove
+#: nothing, the "literals, not the constants under test" rule this suite states
+#: at test_audit_engine.py:180. A severity added to the registry with no entry
+#: here is a severity nobody has decided how to triage, and the table below
+#: says so by name.
+TRIAGE_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3, "info": 4}
+
+#: Severities agent CLIs actually emit that this vocabulary does not contain —
+#: wrong case, a neighbouring taxonomy, a ticket priority, an empty field. Each
+#: must be rejected *loudly*. An unrecognised severity that silently sorts to
+#: the middle, or silently counts as zero, is the collect_status.py:150 /
+#: ADR-005 failure: a real finding that the report never leads with and that
+#: nothing tells the operator was dropped.
+OUT_OF_VOCABULARY = ["apocalyptic", "CRITICAL", "High", "Critical", "sev1",
+                     "moderate", "severe", "warning", "none", "P0", "unknown", ""]
+
+
+def _report_order(findings):
+    """Rank findings the way a consumer of the vocabulary has to: by the
+    registry's *position*. Report lead, `freya status` and the scan budget all
+    read severity this way, which is what makes the order of SEVERITIES
+    behaviour rather than decoration."""
+    return sorted(findings, key=lambda f: audit_io.SEVERITIES.index(f["severity"]))
+
+
+class SeverityVocabularyTest(unittest.TestCase):
+    """Driven off audit_io.SEVERITIES, so a severity added tomorrow is
+    exercised the moment it is added rather than covered by nothing."""
+
+    def test_every_severity_has_a_declared_triage_rank(self):
+        """The gate that makes the rest of this class self-extending: a new
+        member of the registry cannot land without someone deciding where it
+        triages, and the failure names the member."""
+        for severity in audit_io.SEVERITIES:
+            with self.subTest(severity=severity):
+                self.assertIn(severity, TRIAGE_RANK,
+                              f"{severity!r} is declared but has no triage rank")
+
+    def test_every_triaged_severity_is_still_declared(self):
+        """The other direction, and the reason it is here: every table in this
+        class iterates the registry, so an emptied or shrunken SEVERITIES makes
+        all of them vacuously green — measured, by emptying it. This row is
+        driven off the literals instead, so a severity dropped from the
+        vocabulary goes red by name rather than quietly ceasing to be tested."""
+        for severity in TRIAGE_RANK:
+            with self.subTest(severity=severity):
+                self.assertIn(severity, audit_io.SEVERITIES)
+
+    def test_each_severity_outranks_the_next(self):
+        """The ordering itself, pair by pair, against literals. Membership
+        cannot see an ordering bug: swapping two members leaves the set
+        identical while the report starts leading with the wrong finding."""
+        for higher, lower in zip(audit_io.SEVERITIES, audit_io.SEVERITIES[1:]):
+            with self.subTest(above=higher, below=lower):
+                self.assertLess(TRIAGE_RANK[higher], TRIAGE_RANK[lower],
+                                f"{higher} must triage above {lower}")
+
+    def test_no_severity_is_declared_twice(self):
+        """Position is the rank, so a duplicate gives one severity two ranks
+        and `.index` silently returns the first."""
+        self.assertEqual(len(set(audit_io.SEVERITIES)), len(audit_io.SEVERITIES))
+
+    def test_a_mixed_report_leads_with_the_worst(self):
+        """The consequence of the order, end to end. The input is built from
+        the registry (reversed, so the sort has real work) and the expected
+        result is a literal — a reordered registry produces a differently
+        ordered report and this goes red. Alphabetical ranking, the likeliest
+        wrong key, would put info second."""
+        scrambled = [finding(severity=s, title=s)
+                     for s in reversed(audit_io.SEVERITIES)]
+        self.assertEqual([f["title"] for f in _report_order(scrambled)],
+                         ["critical", "high", "medium", "low", "info"])
+
+    def test_every_severity_validates_through_the_finder_schema(self):
+        """Each declared severity is one a worker may actually return. A
+        severity in the registry that the schema rejects is a finding the
+        driver throws away as malformed."""
+        for severity in audit_io.SEVERITIES:
+            with self.subTest(severity=severity):
+                audit_io.validate({"findings": [finding(severity=severity)]},
+                                  audit_io.FINDER_SCHEMA)
+
+    def test_a_finding_at_any_severity_outranks_an_empty_example(self):
+        """The TwoObjectsTest shape, per severity: selection is schema-driven,
+        so a severity the schema does not accept loses to the worker's own
+        `{"findings": []}` example and the finding vanishes into a clean
+        report — silently, because the example is itself valid."""
+        for severity in audit_io.SEVERITIES:
+            with self.subTest(severity=severity):
+                answer = {"findings": [finding(severity=severity)]}
+                text = ('If I had found nothing I would return '
+                        '{"findings": []}. Here is what I found:\n'
+                        + json.dumps(answer))
+                self.assertEqual(
+                    audit_io.extract_json(text, audit_io.FINDER_SCHEMA), answer)
+
+
+class OutOfVocabularySeverityTest(unittest.TestCase):
+    """What happens to a severity the registry does not declare. Silence is
+    the failure mode: the schema is the only thing standing between an
+    unrecognised severity and a ranker that would place it by guesswork."""
+
+    def test_the_fixture_stays_out_of_vocabulary(self):
+        """Guards the table below against the registry growing into it."""
+        for severity in OUT_OF_VOCABULARY:
+            with self.subTest(severity=severity):
+                self.assertNotIn(severity, audit_io.SEVERITIES)
+
+    def test_an_unknown_severity_is_rejected_not_absorbed(self):
+        for severity in OUT_OF_VOCABULARY:
+            with self.subTest(severity=severity):
+                with self.assertRaises(audit_io.SchemaError):
+                    audit_io.validate({"findings": [finding(severity=severity)]},
+                                      audit_io.FINDER_SCHEMA)
+
+    def test_the_rejection_names_the_field_the_value_and_the_vocabulary(self):
+        """`ask` reports this string to the operator. "invalid payload" is the
+        note that never gets acted on; the path, the offending value and the
+        accepted set are what makes a dropped finding visible."""
+        for severity in OUT_OF_VOCABULARY:
+            with self.subTest(severity=severity):
+                with self.assertRaises(audit_io.SchemaError) as ctx:
+                    audit_io.validate({"findings": [finding(severity=severity)]},
+                                      audit_io.FINDER_SCHEMA)
+                self.assertEqual(ctx.exception.path, "findings[0].severity")
+                message = str(ctx.exception)
+                self.assertIn(repr(severity), message)
+                self.assertIn("critical", message)
+
+    def test_an_unknown_severity_never_wins_selection(self):
+        """The extraction-level consequence, and the reason rejection has to be
+        loud at all: if an out-of-vocabulary finding validated, it would be the
+        last valid candidate and would be handed back as the answer."""
+        for severity in OUT_OF_VOCABULARY:
+            with self.subTest(severity=severity):
+                text = (json.dumps({"findings": []})
+                        + "\n\nOn reflection:\n"
+                        + json.dumps({"findings": [finding(severity=severity)]}))
+                self.assertEqual(
+                    audit_io.extract_json(text, audit_io.FINDER_SCHEMA),
+                    {"findings": []})
+
+    def test_a_numeric_severity_is_not_a_severity(self):
+        """Ordinal severities (1..5) are a real neighbouring convention; the
+        type check has to catch them before the enum check would."""
+        with self.assertRaises(audit_io.SchemaError) as ctx:
+            audit_io.validate({"findings": [finding(severity=1)]},
+                              audit_io.FINDER_SCHEMA)
+        self.assertEqual(ctx.exception.path, "findings[0].severity")
+
+
+class CategoryVocabularyTest(unittest.TestCase):
+    """ConstantsTest pins the membership of CATEGORIES and SKEPTICS against the
+    retired workflow. These pin what each member *does*, so a seventh category
+    is exercised rather than merely listed."""
+
+    def test_every_category_validates_through_the_finder_schema(self):
+        for category in audit_io.CATEGORIES:
+            with self.subTest(category=category):
+                audit_io.validate({"findings": [finding(category=category)]},
+                                  audit_io.FINDER_SCHEMA)
+
+    def test_a_finding_in_any_category_outranks_an_empty_example(self):
+        for category in audit_io.CATEGORIES:
+            with self.subTest(category=category):
+                answer = {"findings": [finding(category=category)]}
+                text = ('Output format: {"findings": []}\nMy answer:\n'
+                        + json.dumps(answer))
+                self.assertEqual(
+                    audit_io.extract_json(text, audit_io.FINDER_SCHEMA), answer)
+
+    def test_every_skeptic_lens_validates_through_the_verdict_schema(self):
+        """A lens the verdict schema rejects is a skeptic whose verdict is
+        discarded — which the aggregator counts as an unresolved claim."""
+        for lens in audit_io.SKEPTICS:
+            with self.subTest(lens=lens):
+                audit_io.validate({"lens": lens, "verdict": "upheld", "reason": "r"},
+                                  audit_io.VERDICT_SCHEMA)
+
+    def test_every_skeptic_lens_can_both_uphold_and_refute(self):
+        for lens in audit_io.SKEPTICS:
+            for verdict in ["upheld", "refuted"]:
+                with self.subTest(lens=lens, verdict=verdict):
+                    answer = {"lens": lens, "verdict": verdict, "reason": "r"}
+                    text = ('An example verdict is {"lens": "exploitability", '
+                            '"verdict": "upheld", "reason": "example"}. Mine:\n'
+                            + json.dumps(answer))
+                    self.assertEqual(
+                        audit_io.extract_json(text, audit_io.VERDICT_SCHEMA), answer)
+
+
 if __name__ == "__main__":
     unittest.main()

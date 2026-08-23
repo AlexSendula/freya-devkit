@@ -5,8 +5,11 @@ Run:  python test_adapters.py
 """
 
 import os
+import shutil
 import sys
+import tempfile
 import unittest
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from adapters import (  # noqa: E402
@@ -20,8 +23,11 @@ from adapters import (  # noqa: E402
     scenario_blocks,
     scenario_block_for,
     parse_locator,
+    GHERKIN_ADAPTERS,
     SCAFFOLD_MARKER,
 )
+from frontmatter import KNOWN_ADAPTERS, validate_behaviors  # noqa: E402
+from verify_links import verify  # noqa: E402
 
 
 class TestSlugAndLocator(unittest.TestCase):
@@ -136,6 +142,151 @@ class TestScenarioScoping(unittest.TestCase):
 
     def test_unknown_behavior_returns_none(self):
         self.assertIsNone(scenario_block_for(self.MIXED, "BEH-999"))
+
+
+LOCATOR = "features/auth/login.feature#successful-login"
+
+# No tags at all. For a Gherkin adapter both reverse links are missing; for a
+# native adapter the same file is just an opaque test artifact.
+FEATURE_UNTAGGED = (
+    "Feature: Login\n"
+    "\n"
+    "  Scenario: Successful login\n"
+    "    Given a registered user\n"
+    "    When they authenticate\n"
+    "    Then they are logged in\n"
+)
+# Fully tagged, so the only thing left to object to is the unfilled marker.
+FEATURE_SCAFFOLD = (
+    "@SPEC-001\n"
+    "Feature: Login\n"
+    "\n"
+    "  @BEH-001\n"
+    "  Scenario: Successful login\n"
+    f"    # {SCAFFOLD_MARKER}: replace with real steps. Step definitions are not generated.\n"
+    "    Given <initial state>\n"
+    "    When <action>\n"
+    "    Then <expected outcome>\n"
+)
+
+
+def _spec_text(adapter, state, locator=LOCATOR):
+    return (
+        "---\n"
+        "id: SPEC-001\n"
+        "title: Login\n"
+        "category: auth\n"
+        "status: implemented\n"
+        "certainty: 90\n"
+        "created: 2026-06-24\n"
+        "updated: 2026-06-24\n"
+        "related_code:\n"
+        "  - src/x.ts\n"
+        "behaviors:\n"
+        "  - behavior_id: BEH-001\n"
+        "    title: Successful login\n"
+        f"    state: {state}\n"
+        f"    adapter: {adapter}\n"
+        f"    locator: {locator}\n"
+        "---\n\n"
+        "# SPEC-001\n"
+    )
+
+
+class GherkinAdapterRegistryTest(unittest.TestCase):
+    """Table over `GHERKIN_ADAPTERS` — 3 declared, 0 of them named until now.
+
+    Membership is not decoration: it is what makes `verify_links` demand the
+    `@SPEC-NNN` / `@BEH-NNN` reverse tags and refuse an `accepted` behavior that
+    is still sitting on a `TODO(scaffold)` marker. A fourth adapter added to the
+    tuple tomorrow is exercised by these rows the moment it lands.
+
+    Every row uses the *same* fixture and varies only the adapter name, so a
+    green row is membership doing the work and nothing else — the native control
+    below runs the identical bytes and comes back clean.
+
+    `GHERKIN_ADAPTERS` is imported by value above on purpose. That leaves the
+    rows driven by the real tuple while a mutation run can empty the copy the
+    consumer reads (`verify_links.GHERKIN_ADAPTERS`) and watch every row go red
+    by name, instead of silently iterating an empty registry.
+    """
+
+    NATIVE_ADAPTER = "vitest"  # known, deliberately not a Gherkin adapter
+
+    def _project(self, adapter, feature_text, state="accepted"):
+        """Build a one-spec, one-feature project and return verify()'s errors."""
+        root = Path(tempfile.mkdtemp())
+        self.addCleanup(lambda: shutil.rmtree(root, ignore_errors=True))
+        spec = root / "knowledge-base/specs/auth/SPEC-001-login.md"
+        spec.parent.mkdir(parents=True, exist_ok=True)
+        spec.write_text(_spec_text(adapter, state), encoding="utf-8")
+        feature = root / "features/auth/login.feature"
+        feature.parent.mkdir(parents=True, exist_ok=True)
+        feature.write_text(feature_text, encoding="utf-8")
+        return verify(str(root / "knowledge-base" / "specs"))
+
+    @staticmethod
+    def _kinds(errors):
+        return {e["kind"] for e in errors}
+
+    def test_the_registry_is_not_empty(self):
+        """Non-vacuity guard. Emptying the tuple would leave every table below
+        looping over nothing and passing, which is the failure mode these tables
+        exist to remove."""
+        self.assertTrue(GHERKIN_ADAPTERS,
+                        "GHERKIN_ADAPTERS is empty — the tables below assert nothing")
+
+    def test_every_member_gets_reverse_tag_checking(self):
+        for adapter in GHERKIN_ADAPTERS:
+            with self.subTest(adapter=adapter):
+                kinds = self._kinds(self._project(adapter, FEATURE_UNTAGGED))
+                self.assertIn("missing-reverse-tag", kinds)
+                self.assertIn("missing-spec-tag", kinds)
+
+    def test_every_member_blocks_an_accepted_behavior_still_on_a_scaffold(self):
+        for adapter in GHERKIN_ADAPTERS:
+            with self.subTest(adapter=adapter):
+                self.assertIn(
+                    "accepted-but-scaffold",
+                    self._kinds(self._project(adapter, FEATURE_SCAFFOLD, state="accepted")),
+                )
+
+    def test_every_member_leaves_a_proposed_scaffold_alone(self):
+        """The other half of the rule: a scaffold is what `proposed` is supposed
+        to look like, so the marker is only an error once the behavior claims to
+        be authoritative."""
+        for adapter in GHERKIN_ADAPTERS:
+            with self.subTest(adapter=adapter):
+                errors = self._project(adapter, FEATURE_SCAFFOLD, state="proposed")
+                self.assertEqual(errors, [], f"expected clean, got {errors}")
+
+    def test_every_member_is_an_adapter_frontmatter_will_accept(self):
+        """A Gherkin adapter that `frontmatter` does not know is a spec that
+        cannot validate and a behavior that still gets the Gherkin treatment —
+        two registries disagreeing about the same word."""
+        for adapter in GHERKIN_ADAPTERS:
+            with self.subTest(adapter=adapter):
+                errors = validate_behaviors([{
+                    "behavior_id": "BEH-001",
+                    "title": "Successful login",
+                    "state": "accepted",
+                    "adapter": adapter,
+                    "locator": LOCATOR,
+                }])
+                self.assertEqual(errors, [], f"expected clean, got {errors}")
+
+    def test_a_native_adapter_gets_none_of_the_gherkin_treatment(self):
+        """The control that makes the rows above mean something: byte-identical
+        fixture, non-member adapter, no complaint. A native adapter links a test
+        in place — it never promised the file was tagged."""
+        self.assertNotIn(self.NATIVE_ADAPTER, GHERKIN_ADAPTERS)
+        self.assertIn(self.NATIVE_ADAPTER, KNOWN_ADAPTERS)
+        errors = self._project(self.NATIVE_ADAPTER, FEATURE_UNTAGGED)
+        self.assertEqual(errors, [], f"expected clean, got {errors}")
+
+    def test_a_native_adapter_is_not_blocked_by_a_scaffold_marker(self):
+        errors = self._project(self.NATIVE_ADAPTER, FEATURE_SCAFFOLD, state="accepted")
+        self.assertNotIn("accepted-but-scaffold", self._kinds(errors))
 
 
 if __name__ == "__main__":

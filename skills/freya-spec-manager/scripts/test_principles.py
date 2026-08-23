@@ -57,10 +57,24 @@ class ListCase(unittest.TestCase):
         self.assertIn("Authenticated by default", out)
         self.assertNotIn("intro prose", out)  # only the ## Principles section
 
-    def test_absent_file_is_empty_and_safe(self):
+    def test_absent_file_says_so_rather_than_printing_nothing(self):
+        """Found by running `freya principles list` on freya-devkit itself.
+
+        A blank line and exit 0 reads as "checked, all clear" when the truth is
+        "there is nothing here to check". ADR-005's rule about never returning a
+        confidently-empty result applies to the CLI surface too.
+        """
         root = self._root()
-        self.assertEqual(cmd_list(str(root), "text"), "")
+        out = cmd_list(str(root), "text")
+        self.assertIn("No principles", out)
+        self.assertIn("knowledge-base/principles.md", out)
         self.assertEqual(cmd_list(str(root), "json"), "[]")
+
+    def test_a_file_declaring_no_principles_is_distinguished_from_an_absent_one(self):
+        root = self._root()
+        _write(root / "knowledge-base/principles.md", "# Principles\n\n## Principles\n")
+        out = cmd_list(str(root), "text")
+        self.assertIn("exists but declares none", out)
 
 
 class ResolutionsCase(unittest.TestCase):

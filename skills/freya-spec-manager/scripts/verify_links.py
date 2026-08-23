@@ -26,10 +26,11 @@ Usage:
 """
 
 import argparse
+import ast
 import json
 import os
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from search_specs import load_all_specs, find_specs_dir  # noqa: E402
@@ -48,6 +49,65 @@ SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", "knowledge-
 
 def _err(spec_id, behavior_id, kind, message):
     return {"spec_id": spec_id, "behavior_id": behavior_id, "kind": kind, "message": message}
+
+
+def _escapes(rel):
+    """Could this spec-supplied path name anything but a file under the project?
+
+    Deliberately identical to `bin/freya_cli.py:_escapes` — one containment rule
+    for the repo, not two that disagree at the margin (ADR-002). Both path
+    flavours are judged on every host because a spec is checked-in data read on
+    all of them: `os.path.isabs` alone is not enough, as Python 3.13 changed
+    `ntpath.isabs` so a rooted path with no drive is no longer absolute on
+    Windows, and the first Windows CI run caught it there.
+
+    `..` is rejected outright even when it would normalise back inside. No
+    honest locator needs it, and a rule you can state in one sentence is worth
+    more than the handful of paths it turns away.
+    """
+    win, posix = PureWindowsPath(rel), PurePosixPath(rel)
+    return bool(
+        posix.is_absolute() or win.drive or win.root
+        or ".." in win.parts or ".." in posix.parts
+    )
+
+
+def _py_symbols(path: Path):
+    """Every addressable name in a Python file: `func`, `Class`, `Class.method`.
+
+    Returns None when the file cannot be parsed — which is NOT the same as "the
+    symbol is missing". A syntax error tells us nothing about the link, and
+    reporting `locator-symbol-unresolved` there would be a confidently-wrong
+    answer of exactly the kind ADR-005 exists to prevent.
+
+    Nesting stops at one level. `Class.method` is the deepest form any runner
+    selects: pytest addresses `file::Class::method`, and a closure inside a
+    method is not a node either runner can reach.
+    """
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+    except (SyntaxError, ValueError, OSError):
+        return None
+    names = set()
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            names.add(node.name)
+        elif isinstance(node, ast.ClassDef):
+            names.add(node.name)
+            for sub in node.body:
+                if isinstance(sub, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    names.add(f"{node.name}.{sub.name}")
+    return names
+
+
+def _symbol_candidates(fragment):
+    """The spellings of `fragment` that name the same node.
+
+    A locator is written `Class.method` by hand and `Class::method` by anyone
+    copying a pytest node id. Both mean one thing, so both are accepted rather
+    than making the author remember which half of the grammar they are in.
+    """
+    return {fragment, fragment.replace("::", ".")}
 
 
 def _project_root(specs_dir: str) -> Path:
@@ -101,30 +161,54 @@ def verify(specs_dir: str = None) -> list:
             # (a non-resolving entry yields a silently-degraded fingerprint at run
             # time, so we fail loud here at Tier-1).
             entry = b.get("entry")
-            if entry and not (root / entry).exists():
-                errors.append(_err(s.id, bid, "entry-unresolved",
-                                   f"entry path does not exist: {entry}"))
-
-            if adapter == "manual":
-                continue
+            if entry:
+                if _escapes(entry):
+                    errors.append(_err(s.id, bid, "entry-escapes-project",
+                                       f"entry names a path outside the project: {entry}"))
+                elif not (root / entry).exists():
+                    errors.append(_err(s.id, bid, "entry-unresolved",
+                                       f"entry path does not exist: {entry}"))
 
             # Only `accepted` asserts a real linked test, so only accepted
             # *requires* a locator. `proposed`/`confirmed` are pre-test (intent
             # confirmed, test owed — design 03 §3): a missing locator is fine. A
             # locator that IS present is resolved whatever the state, so a typo
             # fails loud.
+            #
+            # `manual` used to `continue` above this, exempting it from the whole
+            # check rather than from the runner. Measured when that was found:
+            # 17 manual behaviors here carried a locator, 11 named a method that
+            # was not there and 6 named a file that had never existed, and this
+            # command printed OK. Manual means nothing drives it; the address is
+            # still a claim, and a claim gets checked.
             if not locator:
-                if state == "accepted":
+                if state == "accepted" and adapter != "manual":
                     errors.append(_err(s.id, bid, "missing-locator",
                                        f"{bid} has adapter '{adapter}' but no locator"))
                 continue
 
-            rel_path, _frag = parse_locator(locator)
+            rel_path, frag = parse_locator(locator)
+            if _escapes(rel_path):
+                errors.append(_err(s.id, bid, "locator-escapes-project",
+                                   f"locator names a path outside the project: {rel_path}"))
+                continue
             abs_path = root / rel_path
             if not abs_path.exists():
                 errors.append(_err(s.id, bid, "locator-unresolved",
                                    f"locator path does not exist: {rel_path}"))
                 continue
+
+            # A Python fragment names a node we can resolve, so resolve it. Every
+            # other language's fragment is a runner selector we have no parser
+            # for, and guessing at one would fail loud on links that are fine.
+            if frag and rel_path.endswith(".py"):
+                symbols = _py_symbols(abs_path)
+                if symbols is None:
+                    errors.append(_err(s.id, bid, "locator-unparseable",
+                                       f"could not parse {rel_path} to resolve '{frag}'"))
+                elif not (_symbol_candidates(frag) & symbols):
+                    errors.append(_err(s.id, bid, "locator-symbol-unresolved",
+                                       f"{rel_path} has no '{frag}'"))
 
             if adapter in GHERKIN_ADAPTERS:
                 text = abs_path.read_text(encoding="utf-8", errors="replace")

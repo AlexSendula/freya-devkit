@@ -4,6 +4,7 @@
   "behavior-runner": "freya-behavior-runner/scripts/run_behaviors.py",
   "status": "freya-status/scripts/collect_status.py",
   "detect-project": "freya-docs-manager/scripts/detect_project.py",
+  "docs-graph": "freya-docs-manager/scripts/docs_graph.py",
   "spec": "freya-spec-manager/scripts/search_specs.py",
   "adapters": "freya-spec-manager/scripts/adapters.py",
   "adr": "freya-spec-manager/scripts/adr.py",

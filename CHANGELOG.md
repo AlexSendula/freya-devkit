@@ -6,6 +6,140 @@ at all** — that path fast-forwards the checkout to the tracked branch's head, 
 pushed commit is live for them the moment they run it. See
 [CONTRIBUTING.md § Releasing updates](CONTRIBUTING.md#releasing-updates).
 
+## 0.3.0 — the polyglot substrate, and the toolkit run on itself (2026-08-23)
+
+The code graph everything else stands on was one hand-written resolver reading four languages.
+Point it at a Java project and it found nothing, printed *"Built dependency graph: 0 files
+scanned"*, and exited 0 — and the shape detector, which decides whether a project is new by
+counting internal edges, then classified a decade-old codebase as an empty scaffold. That was
+the wall, hit on the first attempt to use the toolkit on a work laptop.
+
+**The graph is now produced through a contract with interchangeable backends.**
+
+- `homegrown` ships with the toolkit, needs nothing but Python, reads 4 languages across 6
+  extensions, and is the floor — it always runs unless something else is named. The driving
+  case is a locked-down machine where a package install is blocked, and the floor is what
+  guarantees the toolkit degrades to *something* everywhere rather than to nothing.
+- `graphify` is opt-in, needs its binary on `PATH`, and reads **40 languages across 93
+  extensions** plus `calls`/`inherits`/`references` relations the floor has no notion of.
+
+**Choosing one is a person's decision.** `freya install` asks once and records the answer as
+your machine default; the first build in a project writes it into that project's committed
+`knowledge-base/settings.json`, so a clone and CI resolve the same backend you do. It is never
+scored automatically — installing a binary anywhere on `PATH` must not silently change every
+blast radius on the machine.
+
+```bash
+uv tool install "graphifyy[sql,terraform]"
+freya code-graph --use graphify --global
+```
+
+**Every answer now says what it could not read.** `build`, `update`, `query` and `impact` may
+carry an `unmapped_source` block naming the in-scope source the backend could not parse and the
+directories to grep instead; `dependents`/`dependencies` keep their bare arrays and say it on
+stderr. The key is absent when there is nothing to say, so its presence means the answer above
+it is computed over an incomplete graph.
+
+**Also in this change**
+
+- An edge is an object carrying `kind` and `provenance` behind a versioned schema, instead of a
+  bare path string. Measured: the old shape could express 2,102 of graphify's 5,027 connections.
+- Optional symbol refinement on edges — which symbol an edge leaves and arrives at — off by
+  default, and never replacing the file anchor.
+- Every built-in exclusion is now a default a project can overrule, in two tiers.
+- Each backend writes its own `graph.<backend>.json` beside the active graph, so a substrate
+  swap can be diffed rather than destroying the baseline it should be measured against.
+- Fixed: `--update` silently no-opped whenever the project sat below the git root, freezing the
+  graph while reporting success. Fixed: transitive traversal was recursive and raised
+  `RecursionError` on repositories past roughly 1,200 connected files.
+
+**Migration:** none. Existing graphs are read and brought forward; a project that names no
+backend gets the floor, which is what it already had.
+
+**Decisions:** ADR-018 through ADR-029.
+
+### freya-devkit now runs on itself
+
+The toolkit had never been pointed at its own repository, because its documentation lived in a
+hand-maintained `docs/` and the skills read and write `knowledge-base/`. That tree has moved:
+
+| Was | Is |
+|---|---|
+| `docs/architecture.md` | `knowledge-base/reference/ARCHITECTURE.md` |
+| `docs/conventions.md` | `knowledge-base/reference/DEVELOPER.md` |
+| `docs/skill-reference.md` | `knowledge-base/reference/SKILL_REFERENCE.md` |
+| `docs/backlog.md` | `knowledge-base/roadmap.md` |
+| everything else under `docs/` | the same path under `knowledge-base/` |
+
+This affects anyone who linked to a file in this repo's `docs/` — including the explainer site,
+which now points at the new paths. `backlog.md` is `roadmap.md` because `freya status` writes
+`knowledge-base/BACKLOG.md` by full overwrite, and a hand-written backlog parked there would be
+destroyed on the first run.
+
+**Three defects surfaced the moment it ran on itself**, all of them in the shipped tool rather
+than in this repo:
+
+- `docs-manager` could not see its own output. Its stack detector looked only for `docs/`, so
+  on any project that had already adopted `knowledge-base/` it reported no documentation at all
+  and planned a from-scratch create instead of a reverse-sync.
+- `freya principles list` printed a blank line and exited 0 for a project with no
+  `principles.md` — indistinguishable from a file that exists and declares nothing.
+- `freya doctor` reported a `freya` on `PATH` as healthy without checking it was the same tree
+  it had just inspected, so running it from a checkout while a released copy was installed gave
+  a green row for a binary the shell would never run.
+
+Also: `**/.graph/` is gone from this repo's `.gitignore`. `code-graph` writes its own
+`.gitignore` inside `knowledge-base/.graph/` naming the regenerable files individually so
+`behavior.json` stays committable (ADR-017) — but git never descends into a directory an
+ancestor ignored, so the root rule silently won. Any adopting project that added `**/.graph/`
+by hand has the same problem.
+
+### The toolkit was run against itself, and found what it is for
+
+The hand-written `docs/` tree became `knowledge-base/` — the same layout freya creates in any
+adopting project — so the toolkit could finally read its own documentation. The full flow then
+ran end to end for the first time: code graph, docs graph, a brownfield scan producing **30
+specs and 149 proposed behaviors**, and a security scan.
+
+Everything reported clean. Three things were not.
+
+- **`freya verify-links` printed "all behavior links pass" while 17 of 149 were broken.** A
+  locator is `path#Class.method`; `parse_locator` returns both halves and the caller bound the
+  second to a discard, so for every non-Gherkin adapter the entire check was "does the file
+  exist". `adapter: manual` skipped the check altogether rather than skipping the runner.
+  Proven by renaming all 132 locator targets out of existence: exit 0, suite green. Both holes
+  are closed and the fragment now resolves by AST.
+- **The behavior-runner could not execute a Python test.** It had an executor for vitest and
+  none for Python, so of 132 unittest behaviors, 106 were never run, 26 got a static guess, and
+  zero executed. `accepted` was unreachable. A pytest adapter now exists, degrading cleanly
+  when `coverage.py` is absent rather than reporting empty coverage.
+- **`freya status` reported 57 coverage gaps where 24 were real** — it was counting its own
+  test files, `conftest.py` and three non-Python files, and `BACKLOG.md` carried the wrong
+  number to the user.
+
+The security scan raised 22 findings against the toolkit. The two most severe are the same
+defect twice: workers are invoked by the bare name `claude` with the *scanned* repository as
+their working directory, so on Windows that repository can supply its own `claude.exe` and have
+it run as the operator. The read-only allowlist is expressed in argv, and argv only binds the
+program you meant to start. Filed, not yet fixed.
+
+### Three gates that did not exist
+
+- `bin/check_doc_citations.py` resolves every `path:line` citation in the tracked prose — 1,311
+  of them. It found 55 broken on landing, all repaired by reconstructing each file at the commit
+  its document was authored against rather than moving numbers to the nearest non-blank line.
+- `bin/check_invariants.py` reads the AST for two whole-tree properties: every import is stdlib
+  or a sibling, and no `subprocess` call takes a bare-name `argv[0]`. The stdlib rule was the
+  repo's most load-bearing convention and was checked by nothing; its violation is invisible on
+  the machine that commits it.
+- Both run in CI beside the suite and the conformance gate.
+
+Suite 1,435 → 1,759 tests, 52 → 1,012 subtests. The subtest jump is the real change: registries
+were tested by naming a few members by hand — `RELATIONS` declared 32 relation kinds and named
+twelve — and are now driven off the registry itself, so a member added later is covered the day
+it lands. Six tests were found green and vacuous, each proven so by mutation before repair; one
+was the only guard on a path traversal in the security scan's own disposition path.
+
 ## 0.2.0 — portability (2026-08-18)
 
 The toolkit stops being a Claude Code plugin that happens to be portable and becomes an
@@ -36,7 +170,7 @@ There is no alias and no deprecation period: the old names are directory names t
 longer exist. Anything that referenced one — a saved prompt, a team runbook, a project's
 `AGENTS.md`, a `CLAUDE.md` — needs the new name. Full migration notes, including the
 non-Claude install paths:
-[`docs/migrations/skill-rename.md`](docs/migrations/skill-rename.md).
+[`knowledge-base/migrations/skill-rename.md`](knowledge-base/migrations/skill-rename.md).
 
 ### Added
 

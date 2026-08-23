@@ -19,6 +19,78 @@ def _write_graph(project_dir, files):
         json.dump({"version": 1, "files": files}, f)
 
 
+class BlindBackendIsNotGreenfieldTest(unittest.TestCase):
+    """Zero internal edges means one of two very different things.
+
+    Either the project genuinely has no wiring yet, or the backend that built the graph cannot
+    read the language it is written in. Calling both *greenfield* is what made a Java repo —
+    and, until the resolver was repaired, freya-devkit itself — look like an empty scaffold to
+    its own tooling. The `substrate` block added in Track B Phase 1 is what makes the two
+    distinguishable.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.proj = self.tmp.name
+
+    def _files(self, *rels):
+        for rel in rels:
+            p = os.path.join(self.proj, rel)
+            os.makedirs(os.path.dirname(p), exist_ok=True)
+            with open(p, "w", encoding="utf-8") as f:
+                f.write("x\n")
+
+    def _graph(self, files, extensions=(".ts", ".tsx")):
+        d = os.path.join(self.proj, "knowledge-base", ".graph")
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "graph.json"), "w", encoding="utf-8") as f:
+            json.dump({
+                "version": 1,
+                "substrate": {
+                    "backend": "homegrown",
+                    "coverage": {"languages": ["typescript"], "extensions": list(extensions),
+                                 "relations": ["imports"], "incremental": True},
+                },
+                "files": files,
+            }, f)
+
+    def test_a_java_repo_the_backend_cannot_read_is_not_greenfield(self):
+        self._files("src/Main.java", "src/Service.java", "src/Repo.java")
+        self._graph({})
+        result = project_shape.classify(self.proj)
+        self.assertEqual(result["recommendation"], "unknown")
+        self.assertIn(".java", result["reason"])
+        self.assertEqual(result["evidence"]["blind_spots"], {".java": 3})
+
+    def test_a_genuinely_empty_scaffold_is_still_greenfield(self):
+        """The capability that must survive: no wiring, and nothing unread."""
+        self._files("src/index.ts")
+        self._graph({"src/index.ts": {"imports": []}})
+        result = project_shape.classify(self.proj)
+        self.assertEqual(result["recommendation"], "greenfield")
+
+    def test_wiring_beats_blind_spots(self):
+        """Real edges mean brownfield even if some files went unread."""
+        self._files("src/a.ts", "src/b.ts", "Main.java")
+        self._graph({"src/a.ts": {"imports": ["src/b.ts"]}, "src/b.ts": {"imports": []}})
+        self.assertEqual(project_shape.classify(self.proj)["recommendation"], "brownfield")
+
+    def test_a_graph_without_a_substrate_block_keeps_the_old_answer(self):
+        """Graphs built before Phase 1 must not start reporting unknown."""
+        self._files("src/Main.java")
+        d = os.path.join(self.proj, "knowledge-base", ".graph")
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "graph.json"), "w", encoding="utf-8") as f:
+            json.dump({"version": 1, "files": {}}, f)
+        self.assertEqual(project_shape.classify(self.proj)["recommendation"], "greenfield")
+
+    def test_dependency_trees_do_not_count_as_blind_spots(self):
+        self._files("node_modules/pkg/Main.java", "src/index.ts")
+        self._graph({"src/index.ts": {"imports": []}})
+        self.assertEqual(project_shape.classify(self.proj)["recommendation"], "greenfield")
+
+
 class CountGraphTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -35,6 +107,30 @@ class CountGraphTest(unittest.TestCase):
             "lib/b.ts": {"imports": []},
         })
         self.assertEqual(project_shape.count_graph(self.proj), (2, 1, True))
+
+    def test_counts_object_shaped_edges(self):
+        """The shape code-graph writes since 2026-08-20."""
+        _write_graph(self.proj, {
+            "lib/a.ts": {"imports": [
+                {"to": "lib/b.ts", "kind": "imports", "provenance": "extracted"},
+                {"to": "external:react", "kind": "imports", "provenance": "extracted"},
+            ]},
+            "lib/b.ts": {"imports": []},
+        })
+        self.assertEqual(project_shape.count_graph(self.proj), (2, 1, True))
+
+    def test_object_edges_still_reach_the_brownfield_verdict(self):
+        """The consequence, not just the count. Misreading the new shape would report a
+        wired codebase as greenfield — the exact wrong answer this module exists to
+        prevent, and the one that drives bootstrap over a real codebase."""
+        _write_graph(self.proj, {
+            "lib/a.ts": {"imports": [
+                {"to": "lib/b.ts", "kind": "imports", "provenance": "extracted"}]},
+            "lib/b.ts": {"imports": []},
+        })
+        with mock.patch.object(project_shape, "run_detect_project", return_value={}):
+            self.assertEqual(
+                project_shape.classify(self.proj)["recommendation"], "brownfield")
 
     def test_malformed_graph_returns_not_present(self):
         d = os.path.join(self.proj, "knowledge-base", ".graph")
@@ -75,7 +171,301 @@ class ClassifyTest(unittest.TestCase):
         with mock.patch.object(project_shape, "run_detect_project", return_value={}):
             r = project_shape.classify(self.proj)
         for k in ("source_files", "internal_edges", "stack", "graph_present"):
-            self.assertIn(k, r["evidence"])
+            with self.subTest(key=k):
+                self.assertIn(k, r["evidence"])
+
+
+class CensusedGraphTest(unittest.TestCase):
+    """ADR-029 — the census in the artifact, preferred over a fresh disk walk.
+
+    The walk consults a hardcoded skip list that knows nothing about `.gitignore` or this
+    project's directory classifications; measured on freya-devkit it reports 96 unread files
+    of which 68 are deliberately out of scope. The census applies the build's own scope rule,
+    so it is both cheaper and right. The walk stays only for graphs written before it existed.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.proj = self.tmp.name
+        patcher = mock.patch.object(project_shape, "run_detect_project", return_value={})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def _files(self, *rels):
+        for rel in rels:
+            p = os.path.join(self.proj, rel)
+            os.makedirs(os.path.dirname(p) or self.proj, exist_ok=True)
+            with open(p, "w", encoding="utf-8") as f:
+                f.write("x\n")
+
+    def _graph(self, files, unmapped):
+        d = os.path.join(self.proj, "knowledge-base", ".graph")
+        os.makedirs(d, exist_ok=True)
+        substrate = {"backend": "homegrown",
+                     "coverage": {"languages": ["typescript"], "extensions": [".ts"],
+                                  "relations": ["imports"], "incremental": True}}
+        if unmapped is not None:
+            substrate["unmapped_source"] = unmapped
+        with open(os.path.join(d, "graph.json"), "w", encoding="utf-8") as f:
+            json.dump({"version": 1, "substrate": substrate, "files": files}, f)
+
+    def test_the_artifact_is_preferred_over_the_disk_walk(self):
+        """The graph claims 12 .java; the disk holds none. A walk would return {}."""
+        self._graph({}, {"files": 12, "extensions": {".java": 12}})
+        r = project_shape.classify(self.proj)
+        self.assertEqual(r["evidence"]["blind_spots"], {".java": 12})
+
+    def test_blind_spots_are_reported_on_the_brownfield_branch(self):
+        """The exact hole. Two TypeScript imports used to buy silence about 400 unread Java
+        files, and the evidence block would report `runtime: jvm` and `source_files: 3` side
+        by side without ever noticing the two were in tension."""
+        self._graph({"a.ts": {"imports": ["b.ts"]}, "b.ts": {"imports": []}},
+                    {"files": 12, "extensions": {".java": 12}})
+        r = project_shape.classify(self.proj)
+        self.assertEqual(r["recommendation"], "brownfield")
+        self.assertEqual(r["evidence"]["blind_spots"], {".java": 12})
+        self.assertIn("existing codebase", r["reason"])
+
+    def test_format_text_says_what_is_not_graphed(self):
+        """`--format text` is what spec-manager's bootstrap invokes, and it had no
+        blind-spot branch at all — so even the path that did compute them was invisible."""
+        self._graph({"a.ts": {"imports": ["b.ts"]}, "b.ts": {"imports": []}},
+                    {"files": 12, "extensions": {".java": 12}})
+        text = project_shape._format_text(project_shape.classify(self.proj))
+        self.assertIn("not graphed:", text)
+        self.assertIn("12 .java", text)
+
+    def test_format_text_omits_the_line_when_there_is_nothing_to_say(self):
+        self._graph({"a.ts": {"imports": ["b.ts"]}, "b.ts": {"imports": []}}, {"files": 0})
+        text = project_shape._format_text(project_shape.classify(self.proj))
+        self.assertNotIn("not graphed:", text)
+
+    def test_a_censused_clean_graph_is_authoritative(self):
+        """The census says the backend read everything in scope; the walk must not
+        second-guess it with files the build deliberately excluded."""
+        self._files("vendor/Main.java", "vendor/Other.java")
+        self._graph({}, {"files": 0})
+        self.assertEqual(project_shape.classify(self.proj)["recommendation"], "greenfield")
+
+    def test_a_pre_census_graph_still_walks_the_disk(self):
+        """The compatibility guarantee: deleting the walk would regress every graph written
+        before ADR-029 to "no blind spots at all" — the confidently-empty answer it guards."""
+        self._files("src/Main.java", "src/Other.java", "src/Third.java")
+        self._graph({}, None)
+        r = project_shape.classify(self.proj)
+        self.assertEqual(r["recommendation"], "unknown")
+        self.assertEqual(r["evidence"]["blind_spots"], {".java": 3})
+
+    def test_verdict_pin_a_a_powershell_repo_stays_unknown(self):
+        """MUST NOT CHANGE. `.ps1` is absent from `_NOT_SOURCE`, so this is `unknown` today;
+        an allowlist that dropped it would have flipped a real codebase to `greenfield`."""
+        self._graph({}, {"files": 12, "extensions": {".ps1": 12}})
+        self.assertEqual(project_shape.classify(self.proj)["recommendation"], "unknown")
+
+    def test_verdict_pin_b_a_shell_repo_becomes_unknown(self):
+        """A DELIBERATE CHANGE. Today this is `greenfield`, because `.sh` is in `_NOT_SOURCE`
+        — a repository made of shell scripts told its own tooling it was an empty scaffold.
+        Recorded in ADR-029 so the new value is a decision rather than a surprise."""
+        self._graph({}, {"files": 40, "extensions": {".sh": 40}})
+        self.assertEqual(project_shape.classify(self.proj)["recommendation"], "unknown")
+
+    def test_a_repo_the_scope_rule_excluded_entirely_is_not_greenfield(self):
+        """THE REGRESSION PIN. Measured on a real 40-file deployment repository whose whole
+        codebase is shell scripts under `scripts/` — a built-in top-level exclusion. The census
+        correctly reports nothing unread (they are out of scope, not unreadable), and this path
+        then called it `greenfield`: ADR-005's confidently-empty answer, reintroduced by the
+        mechanism written to remove it, and via the same `scripts/` rule that once stopped
+        freya graphing itself."""
+        self._files("scripts/deploy.sh", "scripts/setup.sh", "README.md")
+        self._graph({}, {"files": 0})
+        r = project_shape.classify(self.proj)
+        self.assertEqual(r["recommendation"], "unknown")
+        self.assertIn("outside the graph's scope", r["reason"])
+
+    def test_a_census_error_falls_back_to_the_walk_rather_than_reading_as_clean(self):
+        """`{"files": null, "error": ...}` is written precisely so a census that could not run
+        is never confused with a clean one. Reading it as censused-and-clean turned that
+        explicit I-don't-know back into a silent zero AND suppressed the fallback walk."""
+        self._files("src/Main.java", "src/Other.java")
+        self._graph({}, {"files": None, "error": "PermissionError"})
+        r = project_shape.classify(self.proj)
+        self.assertEqual(r["recommendation"], "unknown")
+        self.assertEqual(r["evidence"]["blind_spots"], {".java": 2})
+
+    def test_an_empty_censused_graph_still_walks_for_languages_off_the_tier_lists(self):
+        """The census is closed-world; the walk is open-world. Preferring the census
+        unconditionally made every language in neither tier list — .ipynb, .graphql, .nix,
+        .hx — silent, which is the original defect for those languages exactly."""
+        self._files("nb/analysis.ipynb", "nb/model.ipynb")
+        self._graph({}, {"files": 0})
+        r = project_shape.classify(self.proj)
+        self.assertEqual(r["recommendation"], "unknown")
+        self.assertEqual(r["evidence"]["blind_spots"], {".ipynb": 2})
+
+    def test_verdict_pin_c_a_scaffold_with_an_installer_becomes_greenfield(self):
+        """A DELIBERATE CHANGE, the other way. Today one `.ps1` installer beside three real
+        source files yields `unknown`; the materiality rule removes that false alarm."""
+        self._graph({"a.ts": {"imports": []}, "b.ts": {"imports": []},
+                     "c.ts": {"imports": []}}, {"files": 0})
+        self.assertEqual(project_shape.classify(self.proj)["recommendation"], "greenfield")
+
+
+# Read off the constants themselves, so a member added tomorrow is exercised on the next
+# run without anyone remembering to name it. Bound here, at import, rather than inside each
+# test on purpose: it lets a mutation run empty `project_shape._NOT_SOURCE` (or drop a single
+# member from it) and watch the affected rows go red by name, instead of the table quietly
+# iterating an empty registry and reporting green — which is how a table over an exclusion
+# list becomes worse than the one test it replaced.
+_NOT_SOURCE_MEMBERS = tuple(sorted(project_shape._NOT_SOURCE))
+_CENSUS_SKIP_MEMBERS = tuple(sorted(project_shape._CENSUS_SKIP))
+
+# Not in `_NOT_SOURCE`, and a language the graph in these fixtures cannot read — so it is
+# what a blind spot looks like when nothing suppresses it.
+_SOURCE_EXT = ".java"
+
+
+class _ShapeFixture(unittest.TestCase):
+    """A project whose graph reads `.ts` and nothing else, so any other extension on
+    disk is unread — and the only question left is whether it *counts*."""
+
+    def setUp(self):
+        patcher = mock.patch.object(project_shape, "run_detect_project", return_value={})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self._fresh_project()
+
+    def _fresh_project(self):
+        """A brand-new empty project. Each table row gets one, so a row that fails
+        cannot leave its fixture behind and take the rows after it down with it."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.proj = tmp.name
+        return self.proj
+
+    def _write(self, rel):
+        p = os.path.join(self.proj, rel)
+        os.makedirs(os.path.dirname(p) or self.proj, exist_ok=True)
+        with open(p, "w", encoding="utf-8") as f:
+            f.write("x\n")
+
+    def _graph(self):
+        """A substrate-aware graph with no census block, so `_blind_spots` falls through
+        to the disk walk — the path `_NOT_SOURCE` and `_CENSUS_SKIP` actually gate."""
+        d = os.path.join(self.proj, "knowledge-base", ".graph")
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, "graph.json"), "w", encoding="utf-8") as f:
+            json.dump({
+                "version": 1,
+                "substrate": {
+                    "backend": "homegrown",
+                    "coverage": {"languages": ["typescript"], "extensions": [".ts"],
+                                 "relations": ["imports"], "incremental": True},
+                },
+                "files": {},
+            }, f)
+
+    def _classify(self, *rels):
+        for rel in rels:
+            self._write(rel)
+        self._graph()
+        return project_shape.classify(self.proj)
+
+
+class NotSourceRegistryTest(_ShapeFixture):
+    """Table over `_NOT_SOURCE` — 35 declared, 1 of them ever named until now.
+
+    This list decides what does *not* count as source when the graph is empty, which is
+    the difference between `greenfield` (bootstrap treats the repo as new) and `unknown`
+    (bootstrap stops and asks). Every member is a claim that a repo carrying only that
+    file type has shown no evidence of being an existing codebase, and every member is one
+    edit away from being the thing that hides a real one — `.sh` already was, and ADR-029
+    records the correction.
+
+    Each row plants exactly one file of one extension and asserts the *verdict*, not the
+    membership: `assertIn(ext, _NOT_SOURCE)` would re-state the constant and would pass
+    with the filter deleted. `test_the_fixtures_really_reach_the_exclusion_list` below is
+    the standing proof that these fixtures are gated here and not thrown away earlier by
+    the dotfile or skip-directory rules, which would make every row green for free.
+    """
+
+    def test_the_registry_is_not_empty(self):
+        """Non-vacuity guard: an emptied `_NOT_SOURCE` must fail here rather than leave
+        the table below looping over nothing."""
+        self.assertTrue(project_shape._NOT_SOURCE,
+                        "_NOT_SOURCE is empty — the table below asserts nothing")
+
+    def test_no_member_of_not_source_makes_a_repo_look_like_an_existing_codebase(self):
+        for ext in _NOT_SOURCE_MEMBERS:
+            with self.subTest(extension=ext):
+                self._fresh_project()
+                r = self._classify(f"src/sample{ext}")
+                self.assertEqual(r["recommendation"], "greenfield")
+                self.assertNotIn("blind_spots", r["evidence"])
+
+    def test_an_extension_off_the_list_is_a_blind_spot(self):
+        """The control that keeps the rows above honest: same fixture, same single file,
+        an extension the list does not carry — and the verdict flips."""
+        self.assertNotIn(_SOURCE_EXT, project_shape._NOT_SOURCE)
+        r = self._classify(f"src/Sample{_SOURCE_EXT}")
+        self.assertEqual(r["recommendation"], "unknown")
+        self.assertEqual(r["evidence"]["blind_spots"], {_SOURCE_EXT: 1})
+
+    def test_the_fixtures_really_reach_the_exclusion_list(self):
+        """The vacuity canary. `unreadable_files` drops dotfiles and prunes directories
+        before `_NOT_SOURCE` is ever consulted, so a fixture planted under the wrong name
+        would be filtered upstream and pass for the wrong reason. Empty the list and the
+        same fixture must flip — which proves the rows above are gated *here*."""
+        self._write("src/sample.md")
+        self._graph()
+        with mock.patch.object(project_shape, "_NOT_SOURCE", set()):
+            r = project_shape.classify(self.proj)
+        self.assertEqual(r["recommendation"], "unknown")
+        self.assertEqual(r["evidence"]["blind_spots"], {".md": 1})
+
+
+class CensusSkipRegistryTest(_ShapeFixture):
+    """Table over `_CENSUS_SKIP` — 14 declared, 2 of them named until now.
+
+    These are the directories the disk walk refuses to descend into. A member that stopped
+    pruning would report a vendored dependency tree as this project's unread source, and
+    `graphify-out` is in the list precisely because a backend counting its own output as
+    files it failed to read gave every project a blind spot in its own graph directory.
+
+    Each row plants a real blind-spot extension *inside* the directory and asserts the
+    verdict stays clean. Note that `.git`, `.next` and `.venv` are also caught by the
+    walk's separate dot-directory rule, so those three rows are belt-and-braces: measured
+    by emptying `_CENSUS_SKIP`, eleven rows go red and those three stay green. They pin the
+    directory names, not the pruning — the pruning is proven by the other eleven.
+    """
+
+    def test_the_registry_is_not_empty(self):
+        self.assertTrue(project_shape._CENSUS_SKIP,
+                        "_CENSUS_SKIP is empty — the table below asserts nothing")
+
+    def test_no_skipped_directory_contributes_a_blind_spot(self):
+        for name in _CENSUS_SKIP_MEMBERS:
+            with self.subTest(directory=name):
+                self._fresh_project()
+                r = self._classify(f"{name}/pkg/Sample{_SOURCE_EXT}")
+                self.assertEqual(r["recommendation"], "greenfield")
+                self.assertNotIn("blind_spots", r["evidence"])
+
+    def test_the_same_file_outside_a_skipped_directory_is_a_blind_spot(self):
+        """The control: it is the directory doing the work, not the file being invisible."""
+        r = self._classify(f"src/pkg/Sample{_SOURCE_EXT}")
+        self.assertEqual(r["recommendation"], "unknown")
+        self.assertEqual(r["evidence"]["blind_spots"], {_SOURCE_EXT: 1})
+
+    def test_the_fixtures_really_reach_the_skip_list(self):
+        """The vacuity canary, for a member with no dot prefix to hide behind."""
+        self.assertIn("node_modules", project_shape._CENSUS_SKIP)
+        self._write(f"node_modules/pkg/Sample{_SOURCE_EXT}")
+        self._graph()
+        with mock.patch.object(project_shape, "_CENSUS_SKIP", set()):
+            r = project_shape.classify(self.proj)
+        self.assertEqual(r["recommendation"], "unknown")
+        self.assertEqual(r["evidence"]["blind_spots"], {_SOURCE_EXT: 1})
 
 
 class RunDetectProjectTest(unittest.TestCase):

@@ -1,0 +1,379 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>freya-devkit — a knowledge base that stays in sync with your code</title>
+  <meta name="description" content="Ten composable skills that keep your dependency graph, docs, specs, behaviors and security posture in sync — on any coding agent that runs skills.">
+  <link rel="stylesheet" href="assets/styles.css">
+  <script src="assets/site.js"></script>
+</head>
+<body>
+  <div id="site-header"></div>
+
+  <main class="wrap">
+
+    <!-- ============================== HERO ============================== -->
+    <section class="hero">
+      <span class="eyebrow">Ten skills · one launcher · any agent</span>
+      <h1>A knowledge base that stays <em>in sync</em> with your code.</h1>
+      <p class="lead">
+        <strong>freya-devkit</strong> is a suite of <strong>ten composable skills</strong>. Each keeps
+        one kind of artifact — your dependency graph, docs, feature specs, intended behaviors, and
+        security findings — coherent with the code as it changes. They cooperate through one shared,
+        version-controlled <code>knowledge-base/</code> folder, and one command runs the whole team.
+        It began as a Claude Code plugin; it now runs on any agent that loads the Agent Skills
+        standard. Claude Code and GitHub Copilot are both validated live.
+      </p>
+      <div class="hero-actions">
+        <a class="btn btn-primary" href="using.html">Install and run it →</a>
+        <a class="btn btn-ghost" href="how-it-works.html">How it fits together</a>
+      </div>
+
+      <div class="hero-stats">
+        <div class="stat">
+          <div class="num">0</div>
+          <div class="lbl">host-specific references in the skill layer</div>
+        </div>
+      </div>
+      <p class="center muted small prose-center">
+        That is the only number on this page, because it is the only one that is <em>measured</em>
+        rather than asserted. <code>bin/check_skill_conformance.py</code> enforces thirteen rules with
+        zero exemptions and exits clean on the tree today — so "the port is finished" is a claim you
+        can check in one command rather than take on trust.
+      </p>
+    </section>
+
+    <!-- ============================ THE PROBLEM ========================= -->
+    <section class="section">
+      <h2 class="center" id="the-problem">The problem it solves</h2>
+      <p class="lead center prose-center">
+        As code changes, the things <em>around</em> the code rot: docs go stale, design intent is
+        forgotten, security findings drift, and tests quietly start mirroring what the code
+        <em>does</em> instead of what it <em>should</em> do. Doing that upkeep by hand, in the right
+        order, every time — nobody does.
+      </p>
+
+      <div class="card-grid">
+        <div class="card problem">
+          <div class="ico" aria-hidden="true">📉</div>
+          <h3>Artifacts drift from code</h3>
+          <p>A README written in March describes March. Docs, specs and security reports fall out of
+          date the moment code changes, and nobody remembers to update all of them, in order. Each
+          skill re-syncs its own artifact incrementally, from the commit it last processed.</p>
+        </div>
+        <div class="card problem">
+          <div class="ico" aria-hidden="true">💥</div>
+          <h3>Change-impact blindness</h3>
+          <p>You edit a file and nothing tells you what else that touches. Updating only the files you
+          literally changed misses the <em>blast radius</em> — the dependent files the change actually
+          reaches. A dependency graph turns "changed" into "affected".</p>
+        </div>
+        <div class="card problem">
+          <div class="ico" aria-hidden="true">🔧</div>
+          <h3>Intentional design gets "fixed"</h3>
+          <p>A scanner flags the missing password fallback on your login route. A human removed it on
+          purpose, as a phishing vector. Nothing recorded that, so the finding comes back every scan
+          and someone eventually "fixes" it. Specs record the decision so the scan leaves it alone.</p>
+        </div>
+        <div class="card problem">
+          <div class="ico" aria-hidden="true">🎯</div>
+          <h3>AI output is treated as certain</h3>
+          <p>Generated content arrives with the same confident tone whether it was read off the code
+          or inferred from a filename. Without a confidence signal you cannot tell which to trust and
+          which to review. Inferred specs carry a <strong>0–100 certainty</strong>, out loud.</p>
+        </div>
+        <div class="card problem">
+          <div class="ico" aria-hidden="true">🔒</div>
+          <h3>Tooling is locked to one host</h3>
+          <p>Write your workflow for one agent and it is worthless on the next. This toolkit had that
+          problem itself: on Copilot the suite did not install, and the parts that did install would
+          not run. Everything deterministic was already portable Python — it was the layer telling an
+          agent <em>how to use</em> those scripts that had been written for one host.</p>
+        </div>
+        <div class="card problem">
+          <div class="ico" aria-hidden="true">🫥</div>
+          <h3>Your tests prove what your code <em>does</em>. Nothing proves what it's <em>supposed to do</em>.</h3>
+          <p>Behavior can drift while a green, high-coverage suite stays green. The behavior layer
+          makes intended behavior a first-class, executable, gated artifact — so a change that alters
+          it has to be classified rather than merged quietly.</p>
+        </div>
+      </div>
+
+      <div class="callout callout--why prose-center">
+        <span class="callout-label">Why the last card is the sharp one</span>
+        <p>A green suite at high coverage is perfectly consistent with the system doing the wrong
+        thing. Ordinary tests are written <em>from the code</em>, so they mirror the implementation
+        rather than the intent — and a test that mirrors the implementation cannot notice the
+        implementation being wrong. Coverage measures how much code you executed, never whether the
+        code was supposed to do that.</p>
+      </div>
+
+      <p class="center muted small prose-center">
+        There is a seventh problem — the monolithic prompt that bloats context and cannot be mixed
+        and matched — argued at length in
+        <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/philosophy.md">knowledge-base/philosophy.md</a>,
+        so it is not repeated here.
+      </p>
+    </section>
+
+    <!-- ============================ THE ONE IDEA ======================== -->
+    <section class="section">
+      <h2 class="center" id="the-one-idea">The one idea</h2>
+      <p class="lead center prose-center">
+        Derive one shared source of truth from the code — a dependency graph — then let
+        <strong>single-purpose skills</strong> each keep one artifact coherent by reasoning about
+        <em>blast radius</em> instead of just changed files, scoring their own confidence, and
+        degrading gracefully when a sibling skill is absent.
+      </p>
+
+      <figure class="diagram">
+        <div class="flow">
+          <div class="node code">Your code<span class="sub">changes</span></div>
+          <span class="arrow">→</span>
+          <div class="node intent">code-graph<span class="sub">blast radius</span></div>
+          <span class="arrow">→</span>
+          <div class="node beh">docs · specs · behaviors<span class="sub">re-synced</span></div>
+          <span class="arrow">→</span>
+          <div class="node test">security scan<span class="sub">spec-aware</span></div>
+          <span class="arrow">→</span>
+          <div class="node" style="border-color:var(--violet);background:color-mix(in srgb,var(--violet) 12%,transparent);color:var(--violet-ink)">wrap-up<span class="sub">two commits</span></div>
+        </div>
+        <figcaption>Skills compose through the shared knowledge base and by asking the foundation
+        skill for blast radius — never by embedding one another's logic. <code>wrap-up</code> runs them
+        in dependency order; <code>status</code> is its read-only mirror, the same census with no
+        mutation, which is what makes "where do I stand?" a safe question to ask at any time.</figcaption>
+      </figure>
+
+      <div class="grid-2">
+        <div>
+          <h3>One command that finds itself</h3>
+          <p>Instead of instructions containing a path only one vendor defines, everything runs
+          through a single launcher. It works out where it lives from its own location on disk, looks
+          the requested job up in a registry, and runs it with the interpreter already running. That
+          is the piece every other decision assumes.</p>
+        </div>
+        <div>
+          <h3>Instruction files that name no assistant</h3>
+          <p>The skills describe commands, not filesystem paths, and mention no vendor. A checker runs
+          over them in CI and fails the build if a host-specific construct reappears. Every one of its
+          rules was added because something real had violated it — none speculatively.</p>
+        </div>
+        <div>
+          <h3>An installer built on symlinks</h3>
+          <p>One command installs the toolkit for whichever agents you have, by linking their skills
+          directory at your checkout rather than copying into it. Because they are links, updating is
+          close to just pulling: there is one copy of each file, and it is the one you edited.</p>
+        </div>
+        <div>
+          <h3>And where prose was not enough, code</h3>
+          <p>Asking an agent to fan work out is a request it may decline while reporting success. So
+          the security scan drives its own worker processes. Nothing is delegated, so nothing can be
+          quietly declined — the difference between hoping and knowing.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================ THE ROSTER ========================== -->
+    <section class="section">
+      <h2 class="center" id="the-ten-skills">The ten skills</h2>
+      <p class="center muted prose-center">
+        Five ship a real, stdlib-only <strong>Python engine</strong> that does deterministic work.
+        Three are <strong>pure prose</strong> the agent follows, with no binary at all. One sits
+        between — prose for the report, a Python driver for the fan-out — and one is prose with a
+        single detection helper. Which kind a skill is changes what you can expect of it.
+      </p>
+
+      <div class="roster">
+        <a class="tile" href="using.html#code-graph">
+          <div class="top"><span class="nm">code-graph</span><span class="tier-badge tier-1">Foundation</span></div>
+          <div class="ds">The dependency graph + blast radius every other skill queries.</div>
+        </a>
+        <a class="tile" href="using.html#docs-manager">
+          <div class="top"><span class="nm">docs-manager</span><span class="tier-badge tier-2">Knowledge</span></div>
+          <div class="ds">Standardized project docs, impact-aware, in <code>knowledge-base/reference/</code>.</div>
+        </a>
+        <a class="tile" href="using.html#spec-manager">
+          <div class="top"><span class="nm">spec-manager</span><span class="tier-badge tier-2">Knowledge</span></div>
+          <div class="ds">Specs, intentional-design decisions, the behavior lifecycle, and governance.</div>
+        </a>
+        <a class="tile" href="using.html#behavior-graph">
+          <div class="top"><span class="nm">behavior-graph</span><span class="tier-badge tier-2">Knowledge</span></div>
+          <div class="ds">Owns <code>behavior.json</code>; answers both blast-radius directions.</div>
+        </a>
+        <a class="tile" href="using.html#behavior-runner">
+          <div class="top"><span class="nm">behavior-runner</span><span class="tier-badge tier-2">Knowledge</span></div>
+          <div class="ds">Runs accepted behaviors; emits observed coverage fingerprints.</div>
+        </a>
+        <a class="tile" href="using.html#codebase-security-scan">
+          <div class="top"><span class="nm">codebase-security-scan</span><span class="tier-badge tier-3">Analysis</span></div>
+          <div class="ds">Six parallel finders + adversarial verification; specs cut false positives.</div>
+        </a>
+        <a class="tile" href="using.html#dependency-vulnerability-check">
+          <div class="top"><span class="nm">dependency-vulnerability-check</span><span class="tier-badge tier-3">Analysis</span></div>
+          <div class="ds">Supply-chain CVE audit for Node projects.</div>
+        </a>
+        <a class="tile" href="using.html#codebase-security-resolver">
+          <div class="top"><span class="nm">codebase-security-resolver</span><span class="tier-badge tier-5">Resolution</span></div>
+          <div class="ds">Interactive fixer; routes every finding to a terminal state.</div>
+        </a>
+        <a class="tile" href="using.html#wrap-up">
+          <div class="top"><span class="nm">wrap-up</span><span class="tier-badge tier-4">Orchestration</span></div>
+          <div class="ds">Runs the whole team in order under a two-commit pattern.</div>
+        </a>
+        <a class="tile" href="using.html#status">
+          <div class="top"><span class="nm">status</span><span class="tier-badge tier-4">Orchestration</span></div>
+          <div class="ds">Read-only backlog: what intent, tests, and findings are outstanding.</div>
+        </a>
+      </div>
+
+      <div class="callout callout--info prose-center">
+        <span class="callout-label">In the markdown</span>
+        <p>The exact command surface of every skill — each subcommand, its arguments, and what it
+        writes — is reference material and lives in the repo, where an agent can read it. Reach for
+        these when you need the precise invocation rather than the idea behind it.</p>
+        <ul class="md-links">
+          <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/reference/SKILL_REFERENCE.md">knowledge-base/reference/SKILL_REFERENCE.md</a></li>
+          <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/philosophy.md">knowledge-base/philosophy.md</a></li>
+          <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/README.md">knowledge-base/README.md</a></li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- ================== WHAT IT IS NOT / NOT PROVEN =================== -->
+    <section class="section">
+      <h2 class="center" id="what-it-is-not">What it is <em>not</em> — and what is not proven</h2>
+
+      <div class="callout callout--why prose-center">
+        <span class="callout-label">Coherence, not enforcement</span>
+        <p>The patterns and conventions are <strong>guidelines, not rules</strong>. Skills adapt them
+        where they fit; nothing is forced. The toolkit is not prescriptive, not complete, and not
+        perfect — and its certainty scores say so out loud rather than rounding to confident.</p>
+        <p>There are exactly two exceptions, and both are deliberate. The
+        <strong>behavior and governance layer</strong> is one: deterministic facts — a broken test
+        link, a regressed accepted behavior — hard-block a change, and model judgment ("does this
+        violate a stated principle?") must be resolved before you can proceed. The
+        <strong>agent-neutrality gate in CI</strong> is the other: it has no exemptions and fails the
+        build on a single leftover host-specific reference, because that class of mistake is invisible
+        where it is made and only surfaces on someone else's agent.</p>
+      </div>
+
+      <h3 class="center" id="not-proven">What has never been proven</h3>
+      <p class="center muted prose-center">Listed as risk, not reassurance.</p>
+
+      <div class="card-grid cols-2">
+        <div class="card">
+          <div class="tag-row"><span class="badge badge--proposed">never run</span></div>
+          <h4>No agent CLI has ever run on Windows</h4>
+          <p class="muted">CI installs the toolkit on Windows and runs its tests there, and they pass.
+          It does not drive an agent: no agent CLI is installed on that runner, so nobody has watched a
+          real scan happen on the platform — only the toolkit around it.</p>
+        </div>
+        <div class="card">
+          <div class="tag-row"><span class="badge badge--proposed">uncovered</span></div>
+          <h4>Two install modes, one platform each</h4>
+          <p class="muted">CI exercises symlink mode on Linux and <code>--copy</code> mode on Windows,
+          which mirrors how each is actually used — and therefore leaves the opposite diagonal
+          untested on both.</p>
+        </div>
+        <div class="card">
+          <div class="tag-row"><span class="badge badge--proposed">unknown</span></div>
+          <h4>Whether Copilot delegates at scale</h4>
+          <p class="muted">Every measurement was taken on a small fixture, and Copilot's own policy
+          against splitting work up is itself conditioned on small scope. What it does on a large
+          codebase has not been tried.</p>
+        </div>
+        <div class="card">
+          <div class="tag-row"><span class="badge badge--proposed">unverified</span></div>
+          <h4>The ~7× token-cost figure</h4>
+          <p class="muted">A roughly sevenfold token cost for parallel work appears in the
+          documentation. It came from landscape research, not from measuring this toolkit, and nothing
+          here has confirmed it.</p>
+        </div>
+      </div>
+
+      <p class="center muted small prose-center">
+        This list is a snapshot. The live version — re-verified against shipped code, and the file
+        that actually gets updated — is
+        <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/roadmap.md">knowledge-base/roadmap.md</a>.
+      </p>
+    </section>
+
+    <!-- ========================= DON'T TAKE ON TRUST ==================== -->
+    <section class="section">
+      <h2 class="center" id="dont-take-this-on-trust">Don't take this on trust</h2>
+      <p class="lead center prose-center">
+        Five things, in increasing order of effort, none of which requires you to believe a page.
+      </p>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th scope="col">To check…</th><th scope="col">Do this</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>That the tests really pass, and really are free</td>
+              <td>Run the suite. Every agent call in it is an injected callable, so nothing reaches the
+              network and nothing costs money.</td>
+            </tr>
+            <tr>
+              <td>That no host-specific construct survives</td>
+              <td>Run <code>bin/check_skill_conformance.py</code>. It scans every skill file and exits
+              clean only if all thirteen rules pass.</td>
+            </tr>
+            <tr>
+              <td>What actually happened during live testing</td>
+              <td>Read the validation record, including the runs whose results had to be thrown away
+              and why. <a href="evolution.html">How it evolved →</a></td>
+            </tr>
+            <tr>
+              <td>That it really is checked on both platforms</td>
+              <td>The CI runs are public. Every push runs tests and a real install on Linux and
+              Windows, and the results are attached to the change.
+              <a href="https://github.com/AlexSendula/freya-devkit/actions">The workflow runs →</a></td>
+            </tr>
+            <tr>
+              <td>That the reasoning holds up</td>
+              <td>Every load-bearing decision is written down as an ADR with the alternative it beat,
+              and the places the plan turned out to be wrong are recorded rather than quietly dropped.
+              <a href="decisions.html">The decisions →</a> · <a href="evolution.html">The reversals →</a></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="code-block prose-center">
+        <div class="code-head"><span class="dot"></span><span class="dot"></span><span class="dot"></span>&nbsp; the first two rows, in full</div>
+        <pre class="code"><code><span class="tok-c"># no network, no agent, no cost — every agent call is an injected callable</span>
+python -m pytest bin/ skills/ -q
+
+<span class="tok-c"># thirteen rules, zero exemptions; a non-zero exit is a host-specific leak</span>
+python bin/check_skill_conformance.py</code></pre>
+      </div>
+
+      <div class="callout callout--warn prose-center">
+        <span class="callout-label">One thing you cannot click</span>
+        <p>The very first CI run is no longer retrievable. It failed twenty-nine times — nothing had
+        broken, it was simply the first time the tests had ever executed on Windows, and the problems
+        had been sitting there the whole time. Two were faults in the toolkit rather than in the
+        tests, and one of those returned an empty answer with no error at all, which is the worst way
+        for something to be wrong. All of that is written down rather than linkable, and that is worth
+        knowing before you weigh anything else on this page.</p>
+      </div>
+    </section>
+
+  </main>
+
+  <div id="site-footer"></div>
+
+  <script>
+    (function () {
+      "use strict";
+      // Home carries no interactive widgets: the roster tiles are plain links, so
+      // they work with JavaScript disabled, and the shell handles nav, footer and
+      // theme. This IIFE is kept as the structural exemplar the other pages copy.
+    })();
+  </script>
+</body>
+</html>

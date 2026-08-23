@@ -2,16 +2,42 @@
 __pycache__/
 *.py[cod]
 
+# pytest's cache. Ignored here rather than relying on the .gitignore pytest writes
+# inside each cache dir: that marker is written only when the cache is first created
+# and is never restored if it is removed, so the cache becomes committable.
+# CONTRIBUTING tells every contributor to run pytest, and it leaves a cache in each
+# directory it is run from.
+**/.pytest_cache/
+
 # macOS
 .DS_Store
 
-# Generated code-graph cache (should never be committed)
-docs/.code-graph/
+# Generated dependency-graph caches. `.graph/` is deliberately NOT ignored here:
+# code-graph writes `knowledge-base/.graph/.gitignore` itself, naming the regenerable
+# files individually (graph.json, graph.*.json, classifications.json, docs.json) and
+# leaving `behavior.json` committable — ADR-017. A `**/.graph/` rule at this level
+# would win, because git never descends into an ignored directory to read the
+# .gitignore inside it, and the clone would lose its blast radius.
+#
+# .code-graph/ is the pre-0.2.0 name, which no version writes a marker into; it stays
+# ignored here so an un-migrated clone is still clean.
 **/.code-graph/
 
 # Plugin runtime marker (created when this repo is symlinked as a local-dev plugin install)
 .in_use/
 
+# Brainstorming/planning scratch. The superpowers brainstorming and writing-plans
+# skills write here by hardcoded path — under `docs/`, which this repo otherwise no
+# longer has. It is working material for whoever is at the keyboard, not part of the
+# product. Kept narrow rather than ignoring `docs/` wholesale: anything else that
+# shows up there is a mistake, and a mistake you can see beats one git hides.
+# Decisions that come out of it belong in knowledge-base/decisions/ as an ADR,
+# outstanding work in knowledge-base/roadmap.md.
+docs/superpowers/
+
 # Local agent settings: contains absolute paths from whoever ran it.
 # Ignored globally on the author's machine; pinned here so a fresh clone is safe too.
 .claude/settings.local.json
+
+# graphify backend output (Track B spike). Regenerable; never committed.
+graphify-out/

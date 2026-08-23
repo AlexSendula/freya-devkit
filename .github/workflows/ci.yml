@@ -53,8 +53,8 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-        # 3.9 is the floor the code actually has, not the 3.8 that
-        # freya_cli.MIN_PYTHON reports: skills/freya-spec-manager/scripts/search_specs.py
+        # 3.9 is the floor the code actually has, and the one
+        # freya_cli.MIN_PYTHON declares: skills/freya-spec-manager/scripts/search_specs.py
         # annotates `-> list[Spec]` and carries no `from __future__ import
         # annotations`, and PEP 585 builtin generics only became subscriptable
         # at runtime in 3.9 — so importing it is a TypeError on 3.8. 3.13 is
@@ -81,10 +81,50 @@ jobs:
       - name: Test suite
         run: python -m pytest bin/ skills/ -q
 
-      # Independent of the suite above, which passes with an R1 violation live
-      # in a shipped SKILL.md. Exit 1 here is the entire gate.
+      # Not redundant with the suite above, though it overlaps it: ShippedTreeTest
+      # (bin/test_check_skill_conformance.py:928) runs the same scan over the same
+      # tree, so a shipped violation already fails pytest — verified by mutation on
+      # 2026-08-21, planting an R1 violation in a SKILL.md and watching that test
+      # fail. This step is kept because it names the violating file and rule on its
+      # own line, and because it is the command CONTRIBUTING tells contributors to
+      # run. This comment previously claimed the suite passes with a shipped R1
+      # violation live; it does not, and has not since ShippedTreeTest landed.
       - name: Skill conformance gate
         run: python bin/check_skill_conformance.py
+
+      # The other half of the markdown. The conformance gate above hardcodes
+      # `(root / "skills")`, which reaches 18 of the 101 tracked .md files; the
+      # other 83 — every ADR, spec and reference page under knowledge-base/ and
+      # at the repo root — had no gate of any kind, and their `path.py:NNN`
+      # citations rotted unobserved: 953 resolve to a file in the tree, and 21
+      # of those land on a blank line. Five commits running fixed such
+      # citations by hand.
+      #
+      # Same shape as the step above and the same overlap: ThisRepositoryTest
+      # (bin/test_check_doc_citations.py) fails pytest on a citation naming a
+      # path that is not in the tree, while this step is what prints every
+      # broken citation with the document and line that wrote it.
+      - name: Doc citation gate
+        run: python bin/check_doc_citations.py
+
+      # The two gates above read text; this one reads the AST, and it is the
+      # first thing in this repository to enforce either invariant.
+      #
+      # INV-1 (stdlib only) was a sentence in STYLE_GUIDE.md and a census run by
+      # hand — the failure it prevents is invisible on the machine that commits
+      # it, because `import yaml` works there. INV-2 (no bare-name argv[0]) is
+      # the shape of two HIGH findings on this repo, SEC-002 and SEC-003; the
+      # eleven sites that exist today are carried in an explicit allowlist in
+      # bin/check_invariants.py, which is a debt marker and not an approval, and
+      # this step goes red the moment a twelfth appears. `--no-allowlist` prints
+      # the whole census.
+      #
+      # Same overlap as the steps above: ShippedTreeTest in
+      # bin/test_check_invariants.py runs the same scan, so a violation already
+      # fails pytest. This step is kept because it names the file, line and rule
+      # on their own line.
+      - name: Tree invariant gate
+        run: python bin/check_invariants.py
 
   install:
     # Deliberately a separate job, not more steps on `test`: a failing test
@@ -180,8 +220,8 @@ jobs:
           # Resolve the launcher the way a Windows user does: by name, off PATH,
           # through PATHEXT. An extensionless `bin/freya` is not executable on
           # Windows at all, so this step is what proves the .cmd shim exists
-          # and runs. (The shim is landing in the same wave as this file; until
-          # it does, this step failing is the finding, not a broken job.)
+          # and runs. `installer.link_launcher` writes it at install time from
+          # `cmd_shim_text`; it is never shipped in the store.
           $env:PATH = "$root\bin;$env:PATH"
           Get-Command freya -ErrorAction SilentlyContinue | Format-List Name, Source
           freya help

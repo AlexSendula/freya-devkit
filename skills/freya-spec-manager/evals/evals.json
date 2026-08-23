@@ -3,7 +3,7 @@
   "evals": [
     {
       "id": 1,
-      "prompt": "Initialize the specs structure in my project at /Users/main/Documents/projects/my-saas-app",
+      "prompt": "Initialize the specs structure in my project at /Users/you/Documents/projects/my-saas-app",
       "expected_output": "Creates /docs/specs/ directory structure with category subdirectories (auth/, api/, data/, features/, infra/, integration/, ui/) and README.md index",
       "files": []
     },
@@ -15,7 +15,7 @@
     },
     {
       "id": 3,
-      "prompt": "I have a project at /Users/main/Documents/projects/api-gateway. Can you scan the codebase and generate specs for all the features? I want to understand what intentional design decisions exist.",
+      "prompt": "I have a project at /Users/you/Documents/projects/api-gateway. Can you scan the codebase and generate specs for all the features? I want to understand what intentional design decisions exist.",
       "expected_output": "Scans codebase using a coordinator + five independent discovery tasks (run in parallel if the agent supports subagents, else one at a time), generates candidate specs with certainty scores for different areas (auth, api, data, features, infra), identifies intentional design decisions, and presents low-certainty specs for user clarification",
       "files": []
     }

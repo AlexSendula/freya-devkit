@@ -36,6 +36,22 @@ def suite_root():
     return Path(__file__).resolve().parents[1]
 
 
+def _under(candidate, root):
+    """Does `candidate` resolve to something inside `root`?
+
+    Both sides are resolved before comparing, because the healthy install *is* a
+    symlink: the PATH entry points into the canonical store, and only following it
+    shows that the two are the same tree. Never raises — this is used by `doctor`,
+    which has to survive being run against the broken installation it was called to
+    explain, so an unreadable path is "not under", not a traceback.
+    """
+    try:
+        Path(candidate).resolve().relative_to(Path(root).resolve())
+    except (OSError, ValueError):
+        return False
+    return True
+
+
 def _escapes(rel):
     """Could this manifest value name anything but a path under `skills/`?
 
@@ -307,12 +323,26 @@ def doctor_checks(root=None, targets=None, run=None):
     py_ok = sys.version_info >= MIN_PYTHON
     checks.append(("python", "ok" if py_ok else "fail", sys.version.split()[0]))
 
+    # `which` finding *a* freya is not the same as it finding *this* one. In a healthy
+    # install the PATH entry is a symlink into the store, so its realpath is under `root`;
+    # so is the marketplace plugin's own bin/. When it is not, the `freya` a person types
+    # runs a different copy than the tree doctor just inspected — every other row above is
+    # then describing something the shell will not execute. Reporting that as "ok" was
+    # found by running `./bin/freya doctor` from a checkout while the released plugin was
+    # on PATH: the single most confusing state doctor exists to explain, and it was green.
     found = shutil.which("freya")
-    checks.append((
-        "freya on PATH",
-        "ok" if found else "warn",
-        found or "not found — run the installer or add bin/ to PATH",
-    ))
+    if not found:
+        checks.append(("freya on PATH", "warn",
+                       "not found — run the installer or add bin/ to PATH"))
+    elif _under(found, root):
+        checks.append(("freya on PATH", "ok", found))
+    else:
+        checks.append((
+            "freya on PATH", "warn",
+            f"{found} — a different copy than the suite above ({root}). "
+            f"`freya <cmd>` in a shell runs that one; this checkout only runs "
+            f"via its own ./bin/freya.",
+        ))
 
     import installer
     import updater

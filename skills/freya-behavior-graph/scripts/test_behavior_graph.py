@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import tempfile
 import unittest
 import unittest.mock as mock
@@ -113,6 +114,63 @@ class MergeFingerprintTest(unittest.TestCase):
         self.assertEqual(out, {"coverage": "unknown", "exercises": [], "reason": "no-entry"})
 
 
+class LoadBehaviorJsonTest(unittest.TestCase):
+    def setUp(self):
+        self.proj = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.proj, True)
+        os.makedirs(os.path.join(self.proj, "knowledge-base", ".graph"))
+
+    def _path(self):
+        return os.path.join(self.proj, "knowledge-base", ".graph", "behavior.json")
+
+    def _write(self, text):
+        with open(self._path(), "w", encoding="utf-8") as f:
+            f.write(text)
+
+    def test_an_unreadable_file_is_not_silently_an_empty_graph(self):
+        """BEH-110 is FALSE. This pins what the code actually does, not what the spec claims.
+
+        SPEC-022 states BEH-110 as "A behavior.json that cannot be read says so instead of
+        answering as an empty graph", records it `proposed` with `adapter: manual`, and names
+        this exact method as where its test should live. The code does the opposite:
+        `load_behavior_json` catches `json.JSONDecodeError` and `OSError` and returns `{}` —
+        byte for byte the answer a project that has never built a graph gets. SPEC-022's own
+        certainty note (80) leaves open "whether BEH-110's silent `{}` is a deliberate
+        degradation or the gap it looks like". Measured here: it is the gap, on both the
+        corrupt-content path and the cannot-open path.
+
+        The consequence is why it matters and is asserted below. With a half-written
+        behavior.json `regression_check` computes no affected behaviors, never starts the
+        runner, and exits 0 — so an interrupted build or a badly resolved merge conflict turns
+        the Direction-A gate green rather than red, which is the confidently-empty answer
+        ADR-005 exists to forbid.
+
+        When the degradation is fixed this test goes red on the assertions below. That is the
+        signal to rewrite it as the claim BEH-110 makes and promote the behavior — not to
+        delete it, and not to loosen it.
+        """
+        a_fix_landed = "the silent-{} degradation changed; BEH-110 may now hold — read the docstring"
+
+        self._write('{"version": 1, "behavi')                      # truncated write
+        self.assertEqual(behavior_graph.load_behavior_json(self.proj), {}, a_fix_landed)
+
+        os.remove(self._path())
+        os.makedirs(self._path())                                  # open() raises OSError
+        self.assertEqual(behavior_graph.load_behavior_json(self.proj), {}, a_fix_landed)
+
+        os.rmdir(self._path())
+        self._write('{"version": 1, "behavi')
+        with mock.patch.object(behavior_graph, "_changed_files", return_value=["lib/webauthn.ts"]), \
+             mock.patch.object(behavior_graph, "_code_graph_impact", return_value={"lib/webauthn.ts"}), \
+             mock.patch.object(behavior_graph, "_run_behavior_runner",
+                               return_value={"version": 1, "commit": "new",
+                                             "fingerprints": {}}) as run:
+            report, code = behavior_graph.regression_check(self.proj, "base")
+        self.assertEqual(code, 0, a_fix_landed)
+        self.assertEqual(report["affected"], [], a_fix_landed)
+        run.assert_not_called()
+
+
 class BuildTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -172,24 +230,124 @@ class WriteBehaviorJsonGitignoreTest(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def test_creates_gitignore_on_fresh_graph_dir(self):
-        behavior_graph.write_behavior_json(self.proj, {"version": 1, "behaviors": {}})
-        gitignore = os.path.join(self.proj, "knowledge-base", ".graph", ".gitignore")
-        self.assertTrue(os.path.exists(gitignore))
-        with open(gitignore, encoding="utf-8") as f:
-            contents = f.read()
-        self.assertEqual(contents.strip(), "*")
+    def _gitignore(self):
+        return os.path.join(self.proj, "knowledge-base", ".graph", ".gitignore")
 
-    def test_does_not_overwrite_existing_gitignore(self):
+    def _write_gitignore(self, text):
         graph_dir = os.path.join(self.proj, "knowledge-base", ".graph")
-        os.makedirs(graph_dir)
-        gitignore = os.path.join(graph_dir, ".gitignore")
-        with open(gitignore, "w", encoding="utf-8") as f:
-            f.write("existing\n")
+        os.makedirs(graph_dir, exist_ok=True)
+        with open(self._gitignore(), "w", encoding="utf-8") as f:
+            f.write(text)
+
+    def test_creates_gitignore_on_fresh_graph_dir(self):
+        """The cache ignores the two regenerable files by name, never behavior.json.
+
+        A blanket `*` would sweep up behavior.json, whose observed coverage comes
+        from running the test suite and cannot be rebuilt by re-reading source.
+        """
         behavior_graph.write_behavior_json(self.proj, {"version": 1, "behaviors": {}})
-        with open(gitignore, encoding="utf-8") as f:
+        self.assertTrue(os.path.exists(self._gitignore()))
+        with open(self._gitignore(), encoding="utf-8") as f:
+            lines = [ln.strip() for ln in f if ln.strip() and not ln.startswith("#")]
+        self.assertEqual(lines, ["graph.json", "graph.*.json", "classifications.json", "docs.json"])
+        self.assertNotIn("*", lines)
+
+    def test_replaces_a_legacy_blanket_ignore(self):
+        """Existing projects carry the old `*`; the writer must upgrade it in place.
+
+        Both writers only wrote when the file was absent, so without this an
+        already-onboarded project would keep ignoring behavior.json forever.
+        """
+        self._write_gitignore("*\n")
+        behavior_graph.write_behavior_json(self.proj, {"version": 1, "behaviors": {}})
+        with open(self._gitignore(), encoding="utf-8") as f:
+            lines = [ln.strip() for ln in f if ln.strip() and not ln.startswith("#")]
+        self.assertEqual(lines, ["graph.json", "graph.*.json", "classifications.json", "docs.json"])
+
+    def test_replaces_the_legacy_commented_blanket_ignore(self):
+        """code-graph's variant of the same legacy file, comment and all."""
+        self._write_gitignore("# Generated code-graph cache — do not commit\n*\n")
+        behavior_graph.write_behavior_json(self.proj, {"version": 1, "behaviors": {}})
+        with open(self._gitignore(), encoding="utf-8") as f:
+            lines = [ln.strip() for ln in f if ln.strip() and not ln.startswith("#")]
+        self.assertEqual(lines, ["graph.json", "graph.*.json", "classifications.json", "docs.json"])
+
+    def test_does_not_overwrite_a_customised_gitignore(self):
+        """Anything that is not a recognised legacy blanket is the user's file."""
+        self._write_gitignore("existing\n")
+        behavior_graph.write_behavior_json(self.proj, {"version": 1, "behaviors": {}})
+        with open(self._gitignore(), encoding="utf-8") as f:
             contents = f.read()
         self.assertEqual(contents, "existing\n")
+
+    def test_exercises_are_sorted_by_path(self):
+        """behavior.json is committed, so it must be byte-stable across rebuilds.
+
+        code-graph's import closure comes out of a set, so its order varies run to
+        run (proven: two builds of identical input differ only in ordering). Left
+        unsorted, every rebuild would produce a spurious diff.
+        """
+        data = {"version": 1, "behaviors": {"BEH-001": {"coverage": "static", "exercises": [
+            {"path": "lib/z.ts", "source": "static"},
+            {"path": "lib/a.ts", "source": "static"},
+            {"path": "lib/m.ts", "source": "static"},
+        ]}}}
+        behavior_graph.write_behavior_json(self.proj, data)
+        with open(behavior_graph._behavior_json_path(self.proj), encoding="utf-8") as f:
+            written = json.load(f)
+        paths = [e["path"] for e in written["behaviors"]["BEH-001"]["exercises"]]
+        self.assertEqual(paths, ["lib/a.ts", "lib/m.ts", "lib/z.ts"])
+
+    def test_the_behaviors_mapping_is_sorted_by_id(self):
+        """The exercises were sorted and the keys they sit under were not.
+
+        `project_behaviors` fills this mapping in `os.walk` dirent order — directory order
+        on APFS, hash order on ext4 — so identical specs produced a different key order on
+        a colleague's machine or in CI. On a tracked artifact whose diffs are read as
+        behaviour drift, that is a whole-file false alarm.
+        """
+        data = {"version": 1, "behaviors": {
+            "BEH-003": {"coverage": "unknown", "exercises": []},
+            "BEH-001": {"coverage": "unknown", "exercises": []},
+            "BEH-002": {"coverage": "unknown", "exercises": []},
+        }}
+        behavior_graph.write_behavior_json(self.proj, data)
+        with open(behavior_graph._behavior_json_path(self.proj), encoding="utf-8") as f:
+            written = json.load(f)
+        self.assertEqual(list(written["behaviors"]), ["BEH-001", "BEH-002", "BEH-003"])
+
+    def test_key_order_does_not_change_the_file(self):
+        first = None
+        for order in (["BEH-002", "BEH-001"], ["BEH-001", "BEH-002"]):
+            behavior_graph.write_behavior_json(self.proj, {
+                "version": 1,
+                "behaviors": {bid: {"coverage": "unknown", "exercises": []}
+                              for bid in order},
+            })
+            with open(behavior_graph._behavior_json_path(self.proj), encoding="utf-8") as f:
+                text = f.read()
+            if first is None:
+                first = text
+            self.assertEqual(text, first, "key order leaked into the committed file")
+
+    def test_two_writes_of_the_same_content_are_byte_identical(self):
+        """The property that matters: rebuild with no change produces no diff."""
+        import random
+        exercises = [{"path": p, "source": "static"} for p in
+                     ["lib/a.ts", "lib/b.ts", "lib/c.ts", "lib/d.ts"]]
+        first = None
+        for _ in range(4):
+            shuffled = exercises[:]
+            random.shuffle(shuffled)
+            behavior_graph.write_behavior_json(
+                self.proj,
+                {"version": 1, "behaviors": {"BEH-001": {"coverage": "static",
+                                                         "exercises": shuffled}}})
+            with open(behavior_graph._behavior_json_path(self.proj), encoding="utf-8") as f:
+                text = f.read()
+            if first is None:
+                first = text
+            self.assertEqual(text, first, "same content produced a different file")
 
 
 class DirectionBTest(unittest.TestCase):
@@ -482,6 +640,24 @@ behaviors:
         self.assertEqual(r["gaps"], [])
         self.assertEqual(r["total"], 0)
 
+    def test_a_manifest_node_is_not_a_gap(self):
+        """"Graph node" and "source file" were the same set under the homegrown backend,
+        which only ever indexed source. A polyglot backend indexes manifests too, and every
+        `package.json` and `pom.xml` then arrived in the gap report as source with no
+        behaviour — into a tracked BACKLOG.md, and into wrap-up asking someone to write a
+        behaviour for `package.json`."""
+        path = os.path.join(self.proj, "knowledge-base", ".graph", "graph.json")
+        with open(path, encoding="utf-8") as f:
+            graph = json.load(f)
+        graph["files"]["package.json"] = {"imports": [], "dependents": [],
+                                          "exports": [], "language": "json"}
+        graph["files"]["pom.xml"] = {"imports": [], "dependents": [],
+                                     "exports": [], "language": "xml"}
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(graph, f)
+        r = behavior_graph.gaps(self.proj)
+        self.assertEqual(r["gaps"], ["lib/util.ts"])
+
     def test_covering_returns_accepted_behavior_for_file(self):
         r = behavior_graph.covering(self.proj, "lib/webauthn.ts")
         self.assertEqual(r["file"], "lib/webauthn.ts")
@@ -504,6 +680,110 @@ behaviors:
         r = behavior_graph.covering(self.proj, "lib/webauthn.ts")
         self.assertEqual(r["file"], "lib/webauthn.ts")
         self.assertEqual(r["covering"], [])
+
+
+class GapsCoverablePredicateTest(unittest.TestCase):
+    """The census counts only files a behavior could ever name in its exercised code.
+
+    Measured on freya-devkit itself on 2026-08-21, before this predicate existed: `--gaps`
+    reported 57 files and the git-tracked `knowledge-base/BACKLOG.md` carried that 57 to the
+    reader. 29 of them were `test_*.py`, one was `conftest.py`, and three were not Python at
+    all (`bin/freya`, `install.sh`, `install.ps1`) — 33 of 57, so the headline was 2.4x the 24
+    files anyone could act on, and the generated worklist was asking people to write behaviors
+    covering their own test files. The same command reports 24 with the predicate in place.
+    """
+
+    # One row per kind that was inflating the census. The third column is the language the
+    # code graph recorded for the node, which is what the language rule keys on; None is a
+    # node the backend indexed without identifying (`bin/freya` is one on this repo).
+    NOT_COVERABLE = (
+        ("a pytest-style test module", "src/test_login.py", "python"),
+        ("a suffix-style test module", "src/login_test.py", "python"),
+        ("a Go-style test module", "src/login_test.go", "go"),
+        ("the pytest conftest", "src/conftest.py", "python"),
+        ("a colocated JS/TS test", "lib/webauthn.test.ts", "typescript"),
+        ("a colocated JS/TS spec", "lib/webauthn.spec.tsx", "typescript"),
+        ("an extensionless executable", "cli/freya", None),
+        ("a shell script", "install.sh", "shell"),
+        ("a PowerShell script", "install.ps1", "powershell"),
+    )
+
+    COVERABLE = (
+        ("a Python module", "src/login.py", "python"),
+        ("a TypeScript module", "lib/webauthn.ts", "typescript"),
+        ("a module the backend gave no language", "lib/util.ts", None),
+        ("a name that merely contains 'test'", "src/contest.py", "python"),
+    )
+
+    def setUp(self):
+        self.proj = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.proj, True)
+        os.makedirs(os.path.join(self.proj, "knowledge-base", "specs"))
+        os.makedirs(os.path.join(self.proj, "knowledge-base", ".graph"))
+
+    def _write_graph(self, rows):
+        files = {}
+        for _label, rel, language in rows:
+            info = {"imports": [], "dependents": [], "exports": []}
+            if language is not None:
+                info["language"] = language
+            files[rel] = info
+        path = os.path.join(self.proj, "knowledge-base", ".graph", "graph.json")
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"version": 1, "files": files}, f)
+
+    def test_the_census_omits_every_file_kind_no_behavior_could_name(self):
+        """A behavior's exercised code is the production code its test reached, so none of
+        these can ever appear there however much of the repo they make up."""
+        self._write_graph(self.NOT_COVERABLE + (("real source", "src/login.py", "python"),))
+        r = behavior_graph.gaps(self.proj)
+        self.assertEqual(r["gaps"], ["src/login.py"])
+        self.assertEqual(r["total"], 1)
+        for label, rel, _language in self.NOT_COVERABLE:
+            with self.subTest(label):
+                self.assertNotIn(rel, r["gaps"])
+
+    def test_real_source_is_still_counted_whatever_language_it_is_written_in(self):
+        """The tempting predicate — "a `.py` file that is not a test" — reads correctly on
+        this repository and reports zero gaps on every TS, Go or C# project the polyglot
+        backend exists to serve. Trading 33 noisy entries for a confidently-empty census is
+        the trade ADR-005 forbids, so each row here is a language the fix must not silence."""
+        self._write_graph(self.COVERABLE)
+        r = behavior_graph.gaps(self.proj)
+        self.assertEqual(r["gaps"], ["lib/util.ts", "lib/webauthn.ts",
+                                     "src/contest.py", "src/login.py"])
+        self.assertEqual(r["total"], 4)
+        for label, rel, _language in self.COVERABLE:
+            with self.subTest(label):
+                self.assertIn(rel, r["gaps"])
+
+    def test_a_filename_that_merely_contains_test_is_still_a_gap(self):
+        """The test-name match is anchored, not a substring.
+
+        The unanchored version of this same idea already shipped once in the graph's
+        exclusion rules, where a `.next` entry excluded every path containing `next`
+        (`graph_ops.py:214`). Here it would drop `contest.py` and `latest.ts` from the
+        census — real uncovered source hidden, which is strictly worse than the noise the
+        exclusions were added to remove.
+        """
+        self._write_graph((("contains test", "src/contest.py", "python"),
+                           ("contains test", "lib/latest.ts", "typescript")))
+        r = behavior_graph.gaps(self.proj)
+        self.assertEqual(r["gaps"], ["lib/latest.ts", "src/contest.py"])
+
+    def test_a_covered_file_is_still_discharged_from_the_census(self):
+        """The new predicate narrows the candidate set; it must not replace the coverage
+        subtraction that was already there."""
+        self._write_graph((("covered", "src/login.py", "python"),
+                           ("uncovered", "src/signup.py", "python")))
+        behavior_graph.write_behavior_json(self.proj, {
+            "version": 1, "commit": "base",
+            "behaviors": {"BEH-002": {"spec_id": "SPEC-100", "state": "accepted",
+                                      "coverage": "observed",
+                                      "exercises": [{"path": "src/login.py"}]}},
+        })
+        r = behavior_graph.gaps(self.proj)
+        self.assertEqual(r["gaps"], ["src/signup.py"])
 
 
 if __name__ == "__main__":

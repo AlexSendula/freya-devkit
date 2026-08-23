@@ -69,7 +69,10 @@ def project_behaviors(specs_dir):
             try:
                 with open(os.path.join(root, name), encoding="utf-8") as f:
                     fm, _body = frontmatter.parse_frontmatter(f.read())
-            except FrontmatterError:
+            except (FrontmatterError, UnicodeDecodeError, OSError):
+                # A read failure is not a frontmatter failure. Strict UTF-8 decoding means
+                # one spec with a stray byte raised out of this walk entirely, taking the
+                # whole behaviour projection with it — one bad file must cost one file.
                 continue
             for b in fm.get("behaviors") or []:
                 # accepted (authoritative) + confirmed (advisory, test owed) both
@@ -103,16 +106,101 @@ def load_behavior_json(project_dir):
         return {}
 
 
+# Kept byte identical to graph_ops.py's copy — whichever skill runs first writes
+# the file, so a drift between the two would make its contents depend on run order.
+CACHE_IGNORED = ("graph.json", "graph.*.json", "classifications.json", "docs.json")
+
+CACHE_GITIGNORE = (
+    "# Generated code-graph cache — do not commit.\n"
+    "#\n"
+    "# behavior.json is deliberately NOT listed. Its observed coverage is captured\n"
+    "# by running the test suite, so it cannot be rebuilt by re-reading source the\n"
+    "# way these can — committing it is what gives a fresh clone a blast radius.\n"
+    "#\n"
+    "# graph.*.json is the per-backend artifact (ADR-028): each substrate writes its own,\n"
+    "# so a swap can be diffed instead of destroying the baseline it should be measured\n"
+    "# against. graph.json stays the active graph that other skills read.\n"
+    "#\n"
+    "# docs.json is the doc-section -> code edge set. Parsed from the markdown that is\n"
+    "# already committed, so it is regenerable in the same sense the graph is.\n"
+    + "\n".join(CACHE_IGNORED) + "\n"
+)
+
+
+# Every entry this file has ever contained. A file listing only these was written by us and
+# can be upgraded in place; one containing anything else was edited by hand and is left alone.
+#
+# Without this history the upgrade only fired on the legacy `*`, so a project that had run a
+# single build kept its list forever — and every artifact added afterwards arrived un-ignored
+# and committable. ADR-028's graph.<backend>.json did exactly that: `git add -A` staged it.
+_EVER_IGNORED = frozenset({"*", "graph.json", "graph.*.json",
+                          "classifications.json", "docs.json"})
+
+
+def _is_ours(text):
+    """Did we write this file? True for any version of it we have ever produced."""
+    lines = [ln.strip() for ln in text.splitlines()
+             if ln.strip() and not ln.lstrip().startswith("#")]
+    return bool(lines) and all(line in _EVER_IGNORED for line in lines)
+
+
+def _is_legacy_blanket_ignore(text):
+    """True for the pre-0.2.1 `*` file, whichever skill wrote it."""
+    lines = [ln.strip() for ln in text.splitlines()
+             if ln.strip() and not ln.lstrip().startswith("#")]
+    return lines == ["*"]
+
+
+def _write_cache_gitignore(path):
+    """Write the cache .gitignore, upgrading a legacy blanket but never a custom one."""
+    try:
+        if os.path.exists(path):
+            with open(path, encoding="utf-8", errors="replace") as f:
+                if not _is_ours(f.read()):
+                    return
+    except OSError:
+        return
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(CACHE_GITIGNORE)
+
+
+def _stable(data):
+    """Return `data` with the behaviors mapping and every exercise list in a fixed order.
+
+    behavior.json is committed, so it has to be byte-stable: two builds of
+    unchanged input must produce an identical file or every rebuild shows a
+    spurious diff. The static edges come from code-graph's import closure, which
+    is assembled from a set — proven to vary run to run in ordering while being
+    identical in content. Sorting here is the single choke point that fixes it
+    for every producer.
+
+    The *keys* needed the same treatment and did not get it. `project_behaviors` fills the
+    mapping in `os.walk` dirent order, which is directory order on APFS and hash order on
+    ext4 — so the same specs produced a different key order on a colleague's machine or in
+    CI, and `json.dump(..., indent=2)` preserved it. That is a whole-file diff on a tracked
+    artifact whose diffs are supposed to *mean* something: behaviour drift is what a change
+    to this file is read as.
+    """
+    behaviors = data.get("behaviors")
+    if not isinstance(behaviors, dict):
+        return data
+    for entry in behaviors.values():
+        ex = entry.get("exercises") if isinstance(entry, dict) else None
+        if isinstance(ex, list):
+            entry["exercises"] = sorted(
+                ex, key=lambda e: e.get("path", "") if isinstance(e, dict) else str(e))
+    data = dict(data)
+    data["behaviors"] = {bid: behaviors[bid] for bid in sorted(behaviors)}
+    return data
+
+
 def write_behavior_json(project_dir, data):
     path = _behavior_json_path(project_dir)
     graph_dir = os.path.dirname(path)
     os.makedirs(graph_dir, exist_ok=True)
-    gitignore = os.path.join(graph_dir, ".gitignore")
-    if not os.path.exists(gitignore):
-        with open(gitignore, "w", encoding="utf-8") as f:
-            f.write("*\n")
+    _write_cache_gitignore(os.path.join(graph_dir, ".gitignore"))
     with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
+        json.dump(_stable(data), f, indent=2)
 
 
 def _run_behavior_runner(project_dir, only=None):
@@ -186,16 +274,115 @@ def direction_a(behaviors, changed_files, project_dir):
     return _affected_from_impact(behaviors, _code_graph_impact(changed_files, project_dir))
 
 
+# Graph nodes that are not code a behaviour could ever exercise. The homegrown backend only
+# ever indexed source, so "graph node" and "source file" were the same set and this
+# distinction did not exist. A polyglot backend indexes manifests and project files too —
+# `package.json`, `pom.xml`, `app.csproj`, a solution file — and every one of them then
+# appeared in `--gaps` as source with no behaviour, and from there into a tracked BACKLOG.md
+# and into wrap-up's "write a behavior for this" prompt. Asking someone to write a behaviour
+# for `package.json` is noise, and noise in a gap report is how the report stops being read.
+#
+# Keyed on the language the graph itself recorded, not on a guess from the extension: the
+# backend already decided what each file is, and re-deciding it here is how two copies of one
+# idea drift apart.
+_NON_SOURCE_LANGUAGES = frozenset({"json", "xml", "msbuild"})
+
+
 def _graph_files(project_dir):
-    """Project-relative source files code-graph tracks (graph.json keys); empty if absent."""
+    """Project-relative source files code-graph tracks, mapped to the language the backend
+    recorded for each (None when it recorded none); empty if there is no graph.
+
+    A mapping rather than a set because `gaps` needs the language to decide what is
+    behavior-coverable, and reading `graph.json` a second time to get it is how two copies of
+    one answer drift apart. `surface` only ever asks this for membership and truthiness, both
+    of which read the same on a dict as on the set this replaced.
+    """
     path = os.path.join(project_dir, "knowledge-base", ".graph", "graph.json")
     if not os.path.exists(path):
-        return set()
+        return {}
     try:
         with open(path, encoding="utf-8") as f:
-            return set(json.load(f).get("files", {}).keys())
+            files = json.load(f).get("files", {})
     except (json.JSONDecodeError, OSError):
-        return set()
+        return {}
+    out = {}
+    for rel, info in files.items():
+        language = info.get("language") if isinstance(info, dict) else None
+        if language in _NON_SOURCE_LANGUAGES:
+            continue
+        out[rel] = language
+    return out
+
+
+# A graph node can be a file without being something a behavior could ever cover. Coverage is
+# `exercises[].path` — the production code a test's import closure reached — union the `entry:`
+# values specs declare. A file no import statement can name enters neither set, ever, so it is a
+# permanent line in a git-tracked BACKLOG.md and in wrap-up's "write a behavior for this" prompt.
+#
+# Measured on freya-devkit itself, 2026-08-21: `--gaps` reported 57 files, of which 33 were of
+# that kind — 29 `test_*.py`, `conftest.py`, the extensionless `bin/freya`, and `install.sh` /
+# `install.ps1`. 24 were real source. A worklist that is 58% unactionable is a worklist people
+# stop reading, which is the same failure mode as a check that cries wolf.
+#
+# The predicate is deliberately NOT "a `.py` file that is not a test". That reads correctly on
+# this repository and is wrong on every other one: the graph is polyglot (ADR-018, ADR-019), so
+# `lib/webauthn.ts` is exactly the kind of file this census exists to name, and an extension
+# allowlist would report zero gaps on any TS, Go or C# project — trading 33 false entries for a
+# confidently-empty answer, which ADR-005 rules out outright.
+#
+# Three narrower rules instead, each a claim about what a *file* is and never about which
+# directory it sits in. Directory-name judgement is ADR-022's two-tier override territory and is
+# not re-litigated here; the census also never sees a directory the graph already excluded.
+#
+# Where the rules are uncertain they under-exclude: a missing exclusion costs one noisy line,
+# a wrong one hides real uncovered code, which is the failure the report exists to prevent.
+# That is why `*Test.java` / `*Tests.cs` (camelCase, no separator to anchor on) and Django's
+# bare `tests.py` are absent — add them when a project measures them, not on speculation.
+
+# Names that mean "this file is a test" outright, regardless of the conventions below.
+_TEST_BASENAMES = frozenset({"conftest.py"})
+
+# Languages the graph indexes whose files are *invoked*, never imported: no import closure can
+# reach a shell or PowerShell script, so no fingerprint can name one. Distinct from
+# _NON_SOURCE_LANGUAGES, which is about nodes that are not code at all — these are code, and
+# are still outside what this mechanism can measure. Keyed on the recorded language for the
+# same reason that list is: the backend already decided what each file is.
+_UNIMPORTABLE_LANGUAGES = frozenset({"shell", "powershell", "batch"})
+
+
+def _is_test_file(name):
+    """True for the test-file naming conventions, matched anchored rather than as substrings.
+
+    `test_x.py` / `x_test.py` / `x_test.go` on the separator conventions, `x.test.ts` /
+    `x.spec.tsx` on the colocated ones. Anchored because the unanchored version of this idea
+    already shipped once in the exclusion rules and made `contest.py` look like a test.
+    """
+    if name in _TEST_BASENAMES:
+        return True
+    parts = name.split(".")
+    if len(parts) < 2:
+        return False
+    stem, middles = parts[0], parts[1:-1]
+    if stem.startswith("test_") or stem.endswith("_test"):
+        return True
+    return any(part in ("test", "spec") for part in middles)
+
+
+def _is_coverable(rel, language):
+    """Could a behavior's exercised code ever name this file?
+
+    Applied by `gaps` only. `surface`'s `recall_gaps` is the same shape of question over a
+    single change and has the same noise, but its answer is advisory per-change rather than a
+    tracked census, and narrowing it belongs with its own spec row and its own tests.
+    """
+    name = rel.replace("\\", "/").rsplit("/", 1)[-1]
+    if _is_test_file(name):
+        return False
+    if "." not in name:
+        # No extension: a script or an executable (`bin/freya`, `Makefile`), not a module any
+        # language's import system can address, so nothing can depend on it in the graph.
+        return False
+    return language not in _UNIMPORTABLE_LANGUAGES
 
 
 def _covered(behaviors, specs_behaviors):
@@ -280,7 +467,12 @@ def surface(project_dir, base):
 
 
 def gaps(project_dir):
-    """Whole-repo uncovered audit: graph source files no behavior covers (read-only)."""
+    """Whole-repo uncovered audit: behavior-coverable graph files no behavior covers (read-only).
+
+    Counts only what `_is_coverable` admits — test files, extensionless scripts and shell/
+    PowerShell nodes can never appear in an `exercises` list, so listing them asks for a
+    behavior nobody can write.
+    """
     specs_dir = os.path.join(project_dir, "knowledge-base", "specs")
     result = {"version": 1, "gaps": [], "total": 0}
     graph_files = _graph_files(project_dir)
@@ -292,7 +484,8 @@ def gaps(project_dir):
     specs_behaviors = run_behaviors.load_behaviors(
         specs_dir, states=("proposed", "confirmed", "accepted"))
     covered = _covered(behaviors, specs_behaviors)
-    uncovered = sorted(f for f in graph_files if f not in covered)
+    uncovered = sorted(f for f, language in graph_files.items()
+                       if f not in covered and _is_coverable(f, language))
     result["gaps"] = uncovered
     result["total"] = len(uncovered)
     return result

@@ -64,7 +64,8 @@ freya behavior-runner \
     "BEH-002": {
       "coverage": "observed",
       "exercises": [
-        { "path": "lib/webauthn.ts", "source": "observed", "confidence": 0.8, "freshness": "<commit>" }
+        { "path": "lib/webauthn.ts", "source": "observed", "confidence": 0.8, "freshness": "<commit>",
+          "symbols": ["verifyChallenge"] }
       ]
     }
   }
@@ -73,6 +74,21 @@ freya behavior-runner \
 
 A behavior with no usable coverage is emitted with `coverage: "unknown"` and an
 empty `exercises` list — never falsely attributed.
+
+**`symbols` is optional** (added 2026-08-20, Track B Phase 3). It lists the *named* functions
+in that file that the test actually entered, read from the coverage report's `fnMap`/`f` — so
+it is measured, not inferred. Two things it deliberately is not:
+
+- **not a replacement for `path`.** The file anchor is the floor; symbols refine it (spec §5).
+  Everything that intersects `exercises[].path` against a blast radius is unchanged.
+- **not one entry per symbol.** One entry per file, with a list. Splitting the entry would
+  change the cardinality of that intersection and every count derived from it.
+
+Anonymous functions are excluded: istanbul names them `(anonymous_N)` with a positional
+counter per file, so inserting one function renumbers every later one — and behavior.json is
+committed (ADR-017), so those names would churn the tracked diff on edits that changed nothing
+about what ran. An entry with no named functions omits the key entirely and is byte-identical
+to one written before this existed.
 
 The `coverage` field is one of `observed | static | unknown`:
 - `observed` — captured at runtime from runner-native V8 coverage (unit/component).
@@ -91,3 +107,9 @@ An `unknown` result may carry a `reason` field that discriminates the cause:
 | `no-entry` | Integration behavior has no `entry` field declared |
 | `entry-missing` | Integration behavior declares an `entry` that does not exist on disk |
 | `no-graph` | No built code-graph cache at this project (run `code-graph build` first) |
+| `graph-query-failed: <detail>` | The graph exists and the closure query failed — a missing node, an unreadable artifact, an unexpected output shape. Distinct from `no-graph` **and** from an empty closure: treating a failed query as "no dependencies" produced a one-file fingerprint at full confidence, written into a committed artifact. `<detail>` is the tool's own message with machine-specific paths stripped, because this string is committed |
+| `coverage-outside-project` | The test passed and produced coverage, but none of it maps inside `--project` — a sibling package in a monorepo, or a reporter emitting paths that cannot be resolved. Distinct from `no-coverage`, where nothing was written at all |
+
+Every `unknown` carries a reason. That is the point of the field: an unlabelled `unknown` is
+the one value the merge reads as "no news", so it preserves the previous fingerprint
+indefinitely and nothing ever says the measurement stopped landing.

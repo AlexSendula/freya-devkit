@@ -438,8 +438,11 @@ When the dependency-graph skill (`freya-code-graph` — registered as `freya-dev
 **Enhanced update workflow:**
 1. Get changed files from git diff
 2. Call `freya-code-graph impact <changed-files>` to get blast radius
-3. Only regenerate docs for affected areas
-4. Update architecture diagrams if dependencies changed
+3. Call `freya docs-graph --impact <file>` for each affected file — this returns the **doc
+   sections that actually cite it**, so which documents to revisit is looked up rather than
+   guessed
+4. Only regenerate docs for affected areas
+5. Update architecture diagrams if dependencies changed
 
 **Fallback behavior:**
 If the dependency-graph skill (`freya-code-graph`) is not available or no cached graph exists, fall back to simple git diff analysis.
@@ -447,6 +450,39 @@ If the dependency-graph skill (`freya-code-graph`) is not available or no cached
 **When code-graph is used:**
 - `freya-docs-manager update` - Uses impact analysis to determine which docs need updating
 - `freya-docs-manager sync` - Uses code-graph to understand module relationships for architecture docs
+
+### Docs Graph
+
+`docs.json` records which **doc section** cites which code file, parsed from what is already
+written: `path:line` citations in prose, relative markdown links, and `related_code:`
+frontmatter. Nothing is inferred.
+
+```bash
+freya docs-graph --build                                    # parse docs -> docs.json
+freya docs-graph --impact skills/x/scripts/thing.py         # which sections cite it
+```
+
+```
+knowledge-base/reference/ARCHITECTURE.md#output-artifacts
+knowledge-base/roadmap.md#the-wall (cites line 30)
+```
+
+**Why it exists.** Staleness used to be decided by the agent judging which docs corresponded
+to the changed files — a judgement re-made every run, inconsistent between runs and impossible
+to verify. And the reverse question had no answer at all: *"I changed this file, which docs now
+lie?"* On this repo that is not hypothetical — a change to how one cache file is written
+invalidated claims in two documents, both of which cited the source in prose no tool read, and
+both were found by grep.
+
+**Anchored at section, not line.** A line number shifts the moment anyone inserts a paragraph.
+The heading is stable, and it matches the actual question: *which section is now wrong*. The
+cited line is kept inside the edge as evidence.
+
+**Limits, so the output is not over-read.** A bare filename resolves only when exactly one file
+in the graph has that name; anything ambiguous is listed under `ambiguous_citations` rather than
+guessed. With no code graph present every citation is discarded, because there is nothing to
+check a path against. A document whose fences are unbalanced is reported in `warnings` rather
+than silently under-sectioned.
 
 ### `freya-docs-manager help`
 

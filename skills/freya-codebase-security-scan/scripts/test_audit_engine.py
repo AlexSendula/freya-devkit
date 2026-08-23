@@ -740,12 +740,33 @@ class SpecCitationTest(unittest.TestCase):
         self.assertEqual((d, ref), ("confirmed", None))
 
     def test_a_citation_may_not_escape_the_project(self):
-        """`../../etc/passwd` exists on every POSIX box. Existence outside the
-        project proves nothing about the project's intent."""
+        """A document outside the tree says nothing about *this* project's
+        intent, and `os.path.join(root, '../x.md')` walks straight out to one.
+
+        Pinned against a real neighbouring file rather than `../../etc/passwd`:
+        that string carries neither a prose suffix nor a `SPEC-NNN`-shaped
+        token, so it matched no citation pattern and the containment check was
+        never consulted. Measured 2026-08-21 — with the `commonpath` guard
+        replaced by `if False:`, all nine tests in this class still passed,
+        and that guard is the only thing between a skeptic and downgrading a
+        real finding on a spec belonging to somebody else's repository.
+        """
+        outside = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, outside, ignore_errors=True)
+        with open(os.path.join(outside, "SPEC-001-elsewhere.md"), "w",
+                  encoding="utf-8") as handle:
+            handle.write("SPEC-001: another project's design decision.\n")
+        escaping = "../%s/SPEC-001-elsewhere.md" % os.path.basename(outside)
+        # The fixture is only a test if the escape lands on something real —
+        # otherwise `isfile` refuses it and containment is never the reason.
+        self.assertTrue(
+            os.path.isfile(os.path.join(os.path.realpath(self.project), escaping)),
+            "fixture must resolve to a file that exists outside the project")
+
         d, ref, _ = audit_engine.disposition(
             verdicts(("exploitability", "upheld"),
                      ("compensating-controls", "upheld"))
-            + [cited("../../../../../../etc/passwd")],
+            + [cited(escaping)],
             project=self.project)
         self.assertEqual((d, ref), ("confirmed", None))
 

@@ -1,0 +1,16 @@
+# Generated code-graph cache — do not commit.
+#
+# behavior.json is deliberately NOT listed. Its observed coverage is captured
+# by running the test suite, so it cannot be rebuilt by re-reading source the
+# way these can — committing it is what gives a fresh clone a blast radius.
+#
+# graph.*.json is the per-backend artifact (ADR-028): each substrate writes its own,
+# so a swap can be diffed instead of destroying the baseline it should be measured
+# against. graph.json stays the active graph that other skills read.
+#
+# docs.json is the doc-section -> code edge set. Parsed from the markdown that is
+# already committed, so it is regenerable in the same sense the graph is.
+graph.json
+graph.*.json
+classifications.json
+docs.json
