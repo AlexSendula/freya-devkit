@@ -239,6 +239,8 @@
           <table>
             <thead><tr><th scope="col">Reason</th><th scope="col">What it means for you</th></tr></thead>
             <tbody>
+              <tr><td><code>toolchain-missing: &lt;program&gt;</code></td><td>The runner could not start the test at all — no <code>pytest</code> in this interpreter, or no <code>pnpm</code> on <code>PATH</code>. <strong>Not a red test</strong>, so it preserves what was already known. Install the toolchain and re-run; nothing is claimed about the code in the meantime.</td></tr>
+              <tr><td><code>locator-selected-nothing</code></td><td>The locator addressed no test — usually a renamed test method. Resolving locators is <code>verify-links</code>' job, so this is a stale link rather than a result.</td></tr>
               <tr><td><code>level-deferred</code></td><td>The behavior's level or adapter is not implemented yet. Not a failure.</td></tr>
               <tr><td><code>test-failed</code></td><td>The test ran and was red. <strong>The only reason that invalidates a prior edge</strong> — every other reason leaves what was already known standing.</td></tr>
               <tr><td><code>no-coverage</code></td><td>The test passed but produced no coverage file. The reporter is misconfigured.</td></tr>

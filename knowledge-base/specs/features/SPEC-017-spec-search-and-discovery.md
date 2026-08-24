@@ -158,10 +158,22 @@ by putting every fully-certain spec back into it.
 
 **Decision**: the discriminator is the frontmatter block, not the `id`.
 `parse_spec_file` returns `None` — silently — when `parse_frontmatter` gives back
-an empty mapping, which is what a file that never opens a `---` fence looks like,
-and `load_specs` also skips any `README.md` by name. A file that *does* open a
+an empty mapping AND no `---` fence appears in the first three lines, and
+`load_specs` also skips any `README.md` by name. A file that *does* open a
 fence and then carries no `id:`, or whose frontmatter is outside the grammar, or
 whose `certainty:` is not a number, raises `SpecCorpusError` instead.
+
+**The three-line grace is the load-bearing half, and it was added second.**
+`parse_frontmatter` returns an empty mapping unless line 1 is *exactly* `---`, so
+"gives back an empty mapping" answers "does this file OPEN with a fence", not
+"does it have one". Written that way, a spec with a single blank line inserted at
+the top — or behind the UTF-8 BOM a Windows editor writes by default, which
+`str.strip()` does not remove — took the silent branch and left the corpus with
+both Tier-1 gates reporting a clean run over a file they never read. Inserting a
+blank line is a whitespace-only diff, quieter than deleting the `id:` line this
+decision was originally written for. So a fence *near* the top now means "a record
+that failed to parse"; no fence at all still means prose, because the tree really
+does hold prose and alarming on it is how the channel gets ignored.
 
 **Rationale**: the specs tree legitimately holds non-records — the index README, a
 prose note, a template — and alarming on each of them on every query would train
@@ -220,3 +232,4 @@ simply never been asked the question?
 |------|--------|--------|
 | 2026-08-21 | Initial spec (inferred) | Brownfield scan of `skills/freya-spec-manager/scripts/search_specs.py` |
 | 2026-08-24 | Answered the third decision's `[NEEDS CLARIFICATION]` and rewrote the decision around the answer: the discriminator is the frontmatter block rather than the `id`, and an unreadable record is an alarm rather than a warning. Added the `load_all_specs` raises/`load_specs` reports split as a fourth decision, and rewrote the Discovery paragraph to match. | A security finding against `parse_spec_file`'s silent-drop path. A dropped spec is a spec whose `accepted` behaviors both Tier-1 gates certify without reading — measured by deleting one `id:` line and watching `verify_intent`, `verify_links` and `--advance` all report success. |
+| 2026-08-24 | The silent branch now also requires that no `---` fence appears in the first three lines. | The discriminator was "does line 1 read `---`", not "is there frontmatter", so one leading blank line or a UTF-8 BOM dropped a real spec out of the corpus and both Tier-1 gates certified its `accepted` behaviors without reading them. The `id:` arm above was written for a deleted line; this is the quieter keystroke next to it. |

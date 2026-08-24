@@ -614,6 +614,27 @@ The `mitigated` disposition appears in the skill's status mapping (`skills/freya
 code path emits it**: `grep -rn mitigated skills/ --include='*.py'` outside tests returns
 nothing. It is a known dead branch (ADR-015 § Revisit Conditions).
 
+## The CI workflows are SHA-pinned, and the gate that keeps them so over-reports
+
+Every `uses:` in `.github/workflows/` names a 40-hex commit rather than a moving tag, and
+`actions/checkout` runs with `persist-credentials: false` — its default is true, which writes
+the job's `GITHUB_TOKEN` into `.git/config` where every later step in the job can read it
+(SEC-018). `bin/test_workflow_pins.py` is what keeps both true: it parses the workflows as
+text, because a YAML parser is not standard library and a dependency is an ADR.
+
+Reading YAML as text means the parser meets spellings it cannot handle, and **every one of
+those is answered by over-reporting rather than by passing.** A `uses:` line it cannot read is
+a failure naming the line; a `permissions:` block it cannot parse is treated as granting write;
+and a workflow with **no `permissions:` key at all** is treated the same way — because absent is
+not "grants nothing". GitHub falls back to the repository default, which can be read-and-write,
+so the effective grant is one this parser has no way to see.
+
+That last case was the gate's own version of the defect it exists to catch. A workflow with no
+block simply produced no permission sites, `any([])` was False, and the persisted-token rule
+silently did not apply to the whole file — reachable by the ordinary next edit, which is adding
+a workflow. The cost of the over-report is that a genuinely read-only workflow has to say so,
+which is a line worth writing in a repository that publishes a site.
+
 ## Open questions
 
 The verified gaps in this document's subject — the unprobed read-only guard, the owed escape

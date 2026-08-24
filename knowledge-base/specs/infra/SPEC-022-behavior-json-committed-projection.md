@@ -143,6 +143,14 @@ contain secrets, and a scanner that finds one there has found a real problem in 
 **Decision**: when a run returns `coverage: unknown` for any reason other than `test-failed`,
 the merge writes the prior fingerprint back out. The freshly-measured "nothing" is discarded.
 
+`test-failed` is therefore the only reason that destroys, which makes the *boundary* of that
+token this rule's real content: every reason the runner can emit is either on the preserving
+side or is this one. SPEC-024 §"What an unmeasurable run says" holds the list, and two of its
+entries — `locator-selected-nothing` and `toolchain-missing: …` — exist only to keep a renamed
+test method and an uninstalled toolchain off the destroying side. The second was added on
+2026-08-24, after a missing pytest had been reported as `test-failed` and had emptied the
+committed edges on a fresh clone.
+
 **Rationale**: ADR-006 §"the `reason` discriminator was added mid-flight, and it is
 load-bearing" gives the full argument, including the two opposite silent failures. What is
 worth adding at this file's level: the preserved value is written with the *new* commit in
