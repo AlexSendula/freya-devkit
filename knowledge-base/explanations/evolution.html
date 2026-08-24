@@ -133,6 +133,10 @@
                 <td><a href="#the-remediation-was-wrong">Discovery was the hard part; applying the fix is bookkeeping</a></td>
                 <td>The top finding took five fixes, and four remediations would have made things worse</td>
               </tr>
+              <tr>
+                <td><a href="#the-fixes-were-the-unscanned-part">Twenty-three findings closed, so the security work is done</a></td>
+                <td>Two thousand lines of new code had never been scanned — and one of them was the previous fix, applied to one path of two</td>
+              </tr>
             </tbody>
           </table>
         </div>
@@ -881,8 +885,8 @@
         <h3 id="the-remediation-was-wrong">18 · The report told us how to fix it, and the instructions were wrong</h3>
         <p>
           <strong>The belief.</strong> Three days later the twenty-one filed findings were worked
-          through (a twenty-second, SEC-022, was found and fixed during that work rather than by
-          the scan).
+          through (two more, SEC-022 and SEC-023, were found during that work rather than by the
+          scan).
           Each one arrived with a <em>Remediation</em> paragraph written by the same adversarially
           verified pipeline that found it — specific, plausible, citing the line. The belief was that
           the expensive part was over: discovery had been done, and what remained was application.
@@ -979,6 +983,63 @@
           most expensive kind of documentation there is — and so is a confident argument that the
           gap behind it can never be closed.</p>
         </div>
+      </section>
+
+      <section class="entry">
+        <h3 id="the-fixes-were-the-unscanned-part">19 · Then we scanned the fixes</h3>
+        <p>
+          <strong>The belief.</strong> Twenty-three findings closed, every gate green, the toolkit
+          run on itself. The work was the fixes; the fixes were the product. What remained was
+          paperwork.
+        </p>
+        <p>
+          <strong>Two thousand lines had been written and never scanned.</strong> Closing the
+          findings had meant new code — path containment, a binary resolver, a redaction helper, a
+          declaration mechanism, a hardened gate — and no scan had ever seen any of it. Running one
+          over that surface returned twenty-four candidates. Five did not survive refutation.
+          Nineteen did.
+        </p>
+        <p>
+          <strong>The most severe was the previous fix, half-applied.</strong> SEC-023 — a symlink
+          committed inside a project, pointing outside it, followed and read with nothing declared —
+          had been fixed in discovery. The incremental path never got the guard. So the symlink was
+          refused on a cold <code>--build</code> and read on every <code>--update</code> after it,
+          and <code>--update</code> is the one wrap-up runs. The cold start was fixed and the steady
+          state was not. Worse than the hole it reopened, three ways: the build path printed a
+          warning and recorded the refusal where the update path did neither; the key it produced
+          <em>is</em> project-relative, so the contract validator passed the artefact clean; and the
+          regression class written to prevent exactly this proved its claim on five cases, none of
+          them incremental.
+        </p>
+        <p>
+          <strong>One of them destroyed a tracked file.</strong> <code>test-failed</code> is the
+          runner's word for any non-zero exit, and the merge treats that reason — and only that
+          reason — as invalidating. On a machine with no toolchain installed,
+          <code>python -m pytest</code> exits non-zero. So a fresh clone with nothing installed
+          blocked the commit <em>and</em> rewrote the committed behaviour graph to an empty
+          exercise set, after which the downgrade path it feeds answered empty for good. The
+          argument for not doing this was already in the file, ten lines above the bug, written for
+          the neighbouring case: calling a renamed test method <code>test-failed</code> "would wipe
+          committed edges and block a commit over a rename". The reasoning was right and had not
+          been carried one case sideways.
+        </p>
+        <p>
+          <strong>And the pass whose entire job was accuracy wrote three false safety claims of its
+          own.</strong> That <em>validate_graph</em> "rejects" a non-project-relative key — it
+          reports one, and the graph is written anyway. That <em>every</em> containment question
+          goes through one module — one deliberately does not, and its docstring says why. That
+          <em>no</em> symlink crosses the root on its own — one did, which is how SEC-023 was found
+          at all. Each was true on the path its author checked.
+        </p>
+        <p>
+          The recurring shape of this project is a confidently empty answer. This entry is its
+          reflexive form: <strong>the newest work is the unexamined work, and the pass that just
+          finished is the least likely thing to be checked.</strong> It applies to a fix, to a
+          correction of a fix, and to a scan of the corrections. Each round here found fewer and
+          smaller things — twenty-one, then nineteen, then a handful of stale sentences — but no
+          round found nothing. The branch stopped on judgement, not on a clean result, and saying
+          so is the honest version of "done".
+        </p>
       </section>
 
       <!-- ==================== META ==================== -->
