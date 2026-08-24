@@ -74,8 +74,8 @@ invariant gate uses on every run.
   On 3.12+ the opt-out removes the working-directory entry outright and the real binary on PATH
   is found normally.
 - **The resolver is imported under a guard in two places, and the guard is a decision.**
-  `freya_cli` imports `updater` inside `doctor_checks` (`bin/freya_cli.py:359`) and inside the
-  `update` branch (`:592`), and neither import is wrapped — only `notify`'s is (`:560`). An
+  `freya_cli` imports `updater` inside `doctor_checks` (`bin/freya_cli.py:369`) and inside the
+  `update` branch (`:602`), and neither import is wrapped — only `notify`'s is (`:570`). An
   unguarded `import exec_path` in `updater` therefore turns a missing skill tree into a
   `ModuleNotFoundError` raised out of `freya doctor` and `freya update`: a traceback from the two
   commands whose whole job is to diagnose and repair that state, which is the same argument this
@@ -89,7 +89,7 @@ invariant gate uses on every run.
   slip.** The state being guarded against is "the store's skill tree is damaged", and *absent*
   is only its tidiest spelling. A truncated `exec_path.py` — an interrupted checkout, a partial
   download, a bad merge — raises `SyntaxError`, which is not an `ImportError` and which
-  `bin/freya_cli.py:618` does not catch either, so the narrow form let the traceback straight
+  `bin/freya_cli.py:628` does not catch either, so the narrow form let the traceback straight
   back out of `doctor` and `update`. Measured both halves on a scratch store on 2026-08-23:
   deleted file, and a one-line invalid `exec_path.py`. `bin/backend_setup.py:77` is the
   precedent and already reads this way. The `sys.path` insert in front of it is guarded on
@@ -124,7 +124,7 @@ invariant gate uses on every run.
   rather than a bare `except`; this bullet is that ADR, and it covers both sites. Neither is an
   optional *dependency* — `exec_path.py` is first-party and ships in the same commit — both are
   bootstrap guards for a damaged store. That is also why INV-1 grows no carve-out for the shape:
-  all four guarded imports in the tree (`bin/freya_cli.py:195`, `bin/updater.py:77`,
+  all four guarded imports in the tree (`bin/freya_cli.py:205`, `bin/updater.py:77`,
   `audit_adapter.py:55`, `run_behaviors.py:271`) wrap a first-party module, so the syntax is not
   evidence of an optional dependency and a rule keyed on it would exempt a future
   `try: import yaml` for free.
@@ -141,7 +141,7 @@ invariant gate uses on every run.
   does; if that migration does not happen, delete it rather than let it drift from the sites it
   was measured against.
 
-**`bin/` keeps exactly two copies, and both are gated.** `bin/freya_cli.py:55` keeps its own
+**`bin/` keeps exactly two copies, and both are gated.** `bin/freya_cli.py:56` keeps its own
 `_escapes`, and `bin/check_invariants.py:364` keeps its own `is_absolute`, which is
 `containment.is_anchored` under another name. Neither may import from the skill tree, because
 both are the code that has to work when that tree is missing, half-installed or condemned:
@@ -298,7 +298,7 @@ next bare name in that file, dressed as a record of a debt that no longer exists
 
 ## Rejected Alternatives
 
-- **Canonical in `bin/`, imported by skills.** The obvious default: `bin/freya_cli.py:55` is where
+- **Canonical in `bin/`, imported by skills.** The obvious default: `bin/freya_cli.py:56` is where
   the rule was first written, `bin/` is where the launcher and installer already live, and it
   would need no new import pattern for the two `bin/` copies. Rejected on the measurement above —
   under `--copy` the skill tree has no `bin/` sibling, so every skill that imported from it would

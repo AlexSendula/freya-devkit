@@ -49,24 +49,24 @@ The name is answered **once per machine, at install time**. `freya install` and 
 both call the prompt (`bin/backend_setup.py:104`, from `bin/installer.py:988` and
 `bin/updater.py:394`); it asks only at a terminal, only when the machine has never answered, and
 only when more than one backend is available. The answer goes to `~/.freya/settings.json`,
-relocatable with `FREYA_HOME` (`settings.py:92`, `settings.py:569`) — its own directory rather
+relocatable with `FREYA_HOME` (`settings.py:92`, `settings.py:583`) — its own directory rather
 than any one agent's, because the suite installs for several hosts and the answer is the same on
 all of them. The machine file may carry only `substrate.backend` and `substrate.symbols`
-(`settings.py:102`); anything else in it is dropped *and reported* (`settings.py:628`).
+(`settings.py:102`); anything else in it is dropped *and reported* (`settings.py:642`).
 `freya code-graph --use <name> [--global]` is the same decision made later,
 and it validates the name against the registry at the moment somebody is present to be told they
 typed it wrong (`graph_ops.py:3429`). At machine scope, `--use auto` is not an answer — it
 clears the default, which is the only way to un-answer the install question
-(`settings.py:927`).
+(`settings.py:941`).
 
-Precedence is **project, then machine, then floor** (`settings.py:739`). An explicit name in a
+Precedence is **project, then machine, then floor** (`settings.py:753`). An explicit name in a
 project's `knowledge-base/settings.json` — including `homegrown` — wins, and is how one
 repository opts out without touching the others; `auto` in a project file means *defer to the
 machine*; a project that has said nothing at all follows the machine, and the floor answers when
 the machine has not been asked. "Absent" and "explicitly `auto`" are deliberately different
-states (`settings.py:753`, `settings.py:763`). The first `--build` or `--update` in a project
+states (`settings.py:767`, `settings.py:777`). The first `--build` or `--update` in a project
 that has not decided copies the machine's answer into that project's own committed
-`knowledge-base/settings.json` (`graph_ops.py:3587` → `settings.py:980`), validating it against
+`knowledge-base/settings.json` (`graph_ops.py:3587` → `settings.py:994`), validating it against
 the registry on the way so a typo in one person's home directory does not become a repository's
 permanent setting. A headless run with nothing configured writes nothing: "not yet asked" is a
 state the system keeps rather than resolves. The same precedence and the same seeding apply to

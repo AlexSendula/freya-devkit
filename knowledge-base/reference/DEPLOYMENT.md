@@ -47,7 +47,7 @@ install logic is in one Python file, which is why the two platforms cannot drift
 
 Use **one path or the other** on Claude Code. With both, every skill is registered twice —
 once namespaced by the plugin and once from the personal directory — and `freya doctor`
-warns about it (`bin/freya_cli.py:529-515`).
+warns about it (`bin/freya_cli.py:539-515`).
 
 ## The canonical store (ADR-014)
 
@@ -208,7 +208,7 @@ shows it is added by convention rather than discovered
 ([ADR-013:35](../decisions/ADR-013-single-freya-launcher.md)). It is undocumented host behaviour
 that nothing here tests. It *is* observable, though: doctor's `freya on PATH` row reports
 whichever launcher `shutil.which` resolves, from any store and without going through the
-launcher it is reporting on (`bin/freya_cli.py:344-356`), so running `doctor` from a second
+launcher it is reporting on (`bin/freya_cli.py:354-356`), so running `doctor` from a second
 checkout names the plugin-cache launcher when the convention is holding — measured that way on
 2026-08-21, see
 [TROUBLESHOOTING.md § `freya: command not found`](TROUBLESHOOTING.md#freya-command-not-found).
@@ -222,7 +222,7 @@ name.
 
 `freya doctor` detects a plugin install by reading
 `~/.claude/plugins/installed_plugins.json` and requiring an `installPath` that still exists
-(`bin/freya_cli.py:245-275`) — not by probing `plugins/marketplaces/`, which survives
+(`bin/freya_cli.py:255-275`) — not by probing `plugins/marketplaces/`, which survives
 `/plugin uninstall` and so warned at users who had only added the marketplace.
 
 ## `freya update`
@@ -273,7 +273,7 @@ already updated, so the message says which agent to retry, `:463-464`), `0` othe
 ### The staleness notice
 
 Any `freya` command except `help`, `update`, `install`, `uninstall` and `doctor`
-(`bin/freya_cli.py:21`, checked at `:558`) may first print one line to stderr:
+(`bin/freya_cli.py:22`, checked at `:558`) may first print one line to stderr:
 `freya: an update is available — run freya update` (`bin/updater.py:571`).
 
 - Notify-only. Nothing is ever downloaded or applied on its own.
@@ -295,7 +295,7 @@ Any `freya` command except `help`, `update`, `install`, `uninstall` and `doctor`
 ## `freya doctor`
 
 The health check. It prints one row per check and returns 1 if any row is `FAIL`; warnings do
-not fail it (`bin/freya_cli.py:542-525`).
+not fail it (`bin/freya_cli.py:552-525`).
 
 | Row | `ok` when | Notes |
 |---|---|---|

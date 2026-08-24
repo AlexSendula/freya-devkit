@@ -76,11 +76,11 @@ in review and that the same commit means the same thing everywhere. The bound on
 declaration *does* is the grant below, not this.
 
 A declared root that resolves inside the project — lexically, or through a symlink — is refused
-and sent to `directories` (`skills/freya-code-graph/scripts/settings.py:505`), because one file
+and sent to `directories` (`skills/freya-code-graph/scripts/settings.py:519`), because one file
 must never have two spellings. A root that *contains* the project is refused
-(`skills/freya-code-graph/scripts/settings.py:510`): an ancestor is not a scope, and the honest
+(`skills/freya-code-graph/scripts/settings.py:524`): an ancestor is not a scope, and the honest
 answer to wanting one is to point freya at that directory instead. A root that names nothing is
-refused too (`skills/freya-code-graph/scripts/settings.py:496`), and — the part that matters —
+refused too (`skills/freya-code-graph/scripts/settings.py:510`), and — the part that matters —
 it is **reported**, not silently inert. Every root in force is resolved once, at parse time,
 with `realpath`; containment against it is `containment.within`, which resolves both sides.
 
@@ -103,7 +103,7 @@ first `/`.
 
 **"The same string in every clone" is a promise about the aliases as a set, so two rules make it
 true rather than merely intended.** Two roots may not share an alias
-(`skills/freya-code-graph/scripts/settings.py:521`): JSON cannot spell a duplicate key, so this
+(`skills/freya-code-graph/scripts/settings.py:535`): JSON cannot spell a duplicate key, so this
 only fires on two spellings `strip()` folds together, which is exactly the typo `_ALIAS_CHARS`
 refuses whitespace to keep out of a diff — and left unchecked both entries reached the report and
 the crossing was counted once and stamped on both. And where two roots nest — `../packages` and
@@ -141,7 +141,7 @@ elsewhere — back into the project, or at `/etc` — is not contained and the c
 A declared root that is *itself* a symlink is the other case and gets the other answer: it is
 honoured, because nothing was crossed implicitly and refusing it would turn away an ordinary
 `../packages -> ...` layout, and it is **named on stderr**
-(`skills/freya-code-graph/scripts/settings.py:539`). The reason is the sentence two paragraphs
+(`skills/freya-code-graph/scripts/settings.py:553`). The reason is the sentence two paragraphs
 up: absolutes are refused so the destination stays legible in review, and `../packages/ui` is
 only a sentence anyone can check while every component of it is what it looks like. Without the
 warning neither the committed file nor `graph.json` ever names where the build actually looked,

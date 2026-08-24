@@ -73,7 +73,7 @@ if the floor alone is unusable while another backend is not, selection promotes 
 backend (`backends.py:138`, `:166`). `auto` resolves to the floor and does not rank the
 installed backends against the repository (`backends.py:166`) — another backend runs because a
 person named it, not because a binary appeared on `PATH`. Precedence is project, then machine,
-then floor (`skills/freya-code-graph/scripts/settings.py:739`): the project's answer lives in
+then floor (`skills/freya-code-graph/scripts/settings.py:753`): the project's answer lives in
 the committed `knowledge-base/settings.json`, the machine's in `~/.freya/settings.json`,
 relocatable with `FREYA_HOME` (`settings.py:92`), which may carry only `substrate.backend` and
 `substrate.symbols` (`settings.py:102`). The machine question is asked once, at install or update

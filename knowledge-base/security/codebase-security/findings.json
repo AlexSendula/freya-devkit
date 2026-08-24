@@ -204,6 +204,14 @@
       "status": "open",
       "file": "skills/freya-spec-manager/scripts/drift.py",
       "line": 119
+    },
+    {
+      "id": "SEC-026",
+      "title": "escapes asked pathlib for the drive and the consumers asked ntpath, so a declared key escaped the project on Python 3.9-3.11",
+      "severity": "medium",
+      "status": "resolved",
+      "file": "skills/freya-code-graph/scripts/containment.py",
+      "line": 41
     }
   ]
 }

@@ -14,7 +14,7 @@ tags:
 
 ## Decision
 
-Every SKILL.md invokes `freya <command> <args>`. The launcher lives at `bin/freya` in the canonical store, resolves the suite root from `Path(__file__).resolve()` (`bin/freya_cli.py:36`), dispatches via `bin/commands.json`, and executes target scripts with `sys.executable` (`bin/freya_cli.py:119`). One SKILL.md set serves every agent, Claude included — no per-agent variant, no per-agent path variable, no MCP server.
+Every SKILL.md invokes `freya <command> <args>`. The launcher lives at `bin/freya` in the canonical store, resolves the suite root from `Path(__file__).resolve()` (`bin/freya_cli.py:37`), dispatches via `bin/commands.json`, and executes target scripts with `sys.executable` (`bin/freya_cli.py:129`). One SKILL.md set serves every agent, Claude included — no per-agent variant, no per-agent path variable, no MCP server.
 
 ## Rationale
 
@@ -41,7 +41,7 @@ Verified shipped: zero `${CLAUDE_PLUGIN_ROOT}` occurrences remain in any SKILL.m
 > **Correction, 2026-08-21.** The condition above originally added "and that `freya doctor`
 > structurally cannot check, because doctor only ever runs *through* the launcher it would be
 > checking for." That is too strong. `doctor`'s `freya on PATH` row calls `shutil.which("freya")`
-> (`bin/freya_cli.py:344`), which reads the *current process's* `PATH` — so run inside a Claude
+> (`bin/freya_cli.py:354`), which reads the *current process's* `PATH` — so run inside a Claude
 > Code plugin session it does observe whether the host added the plugin's `bin/`, regardless of
 > how doctor itself was invoked. What is true is narrower: nothing runs that check automatically,
 > and no test asserts it. Measured on 2026-08-21, `./bin/freya doctor` from a checkout reported

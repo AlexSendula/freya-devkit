@@ -45,7 +45,7 @@ The supervising human is a first-class constraint, not an afterthought:
   refuses rather than defaulting to yes (`audit.py:452`).
 - Which graph backend to use is a person's answer: asked once per machine at install
   (`bin/backend_setup.py:104`), resolved project-then-machine-then-floor
-  (`skills/freya-code-graph/scripts/settings.py:739`), and never scored automatically —
+  (`skills/freya-code-graph/scripts/settings.py:753`), and never scored automatically —
   `auto` means the floor and nothing else (`skills/freya-code-graph/scripts/backends.py:166`,
   [ADR-019](../decisions/ADR-019-the-floor-and-choosing-a-backend.md)).
 - Model-judgment checks are *resolve-to-proceed* procedures, not script exit codes; only
@@ -140,7 +140,7 @@ Counted on 2026-08-21, on the working tree of `test/dogfood-polyglot`:
 | Measure | Value | How it was measured |
 |---|---|---|
 | Skills | 10 | `ls skills/` |
-| Launcher commands | 17 in the manifest, plus 6 built into the launcher (`help`, `doctor`, `init`, `install`, `update`, `uninstall`) | `bin/commands.json`; `bin/freya_cli.py:26` |
+| Launcher commands | 17 in the manifest, plus 6 built into the launcher (`help`, `doctor`, `init`, `install`, `update`, `uninstall`) | `bin/commands.json`; `bin/freya_cli.py:27` |
 | Non-test Python | 16,423 lines | `git ls-files '*.py'` minus `test_`/`conftest`, `wc -l` |
 | Test Python | 22,200 lines | the same list, `test_`/`conftest` only |
 | SKILL.md prose | 5,540 lines across ten files | `git ls-files 'skills/*/SKILL.md' \| xargs wc -l` |

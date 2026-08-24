@@ -22,11 +22,11 @@ vendor's CLI; that is covered under [Credentials](#credentials).
 
 | Variable | Read at | Default | What changes when it is set |
 |---|---|---|---|
-| `FREYA_HOME` | `skills/freya-code-graph/scripts/settings.py:571`, `bin/updater.py:563` | `~/.freya` | Relocates the machine-level settings file and the update-check stamp. Nothing else. |
-| `FREYA_NO_UPDATE_CHECK` | `bin/updater.py:604`, reported by `bin/freya_cli.py:478` | unset | Suppresses the once-a-day staleness check entirely. |
+| `FREYA_HOME` | `skills/freya-code-graph/scripts/settings.py:585`, `bin/updater.py:563` | `~/.freya` | Relocates the machine-level settings file and the update-check stamp. Nothing else. |
+| `FREYA_NO_UPDATE_CHECK` | `bin/updater.py:604`, reported by `bin/freya_cli.py:488` | unset | Suppresses the once-a-day staleness check entirely. |
 | `FREYA_DEBUG` | `bin/updater.py:673` | unset | Prints the traceback from the update check, whose contract is to swallow every exception. |
 | `PATH` | `bin/installer.py:529`, plus every `shutil.which` below | — | Decides which external binaries are found, and whether the installer prints a "not on PATH" hint. |
-| `PYTHONPATH` | `bin/freya_cli.py:153` | unset | Read and *extended* — the launcher prepends the dispatched script's own directory before running it. |
+| `PYTHONPATH` | `bin/freya_cli.py:163` | unset | Read and *extended* — the launcher prepends the dispatched script's own directory before running it. |
 
 `HOME` (and `USERPROFILE` on Windows) is not read directly anywhere, but every path this
 toolkit writes outside a project derives from it. See
@@ -44,9 +44,9 @@ holding this machine's answer to "which parser should freya use":
 ```
 
 Both definitions read the variable the same way and fall back to `~/.freya`
-(`skills/freya-code-graph/scripts/settings.py:571`, `bin/updater.py:563`). A value that is
+(`skills/freya-code-graph/scripts/settings.py:585`, `bin/updater.py:563`). A value that is
 empty or whitespace-only is ignored and the default applies
-(`skills/freya-code-graph/scripts/settings.py:572`, `bin/updater.py:564`). The two definitions
+(`skills/freya-code-graph/scripts/settings.py:586`, `bin/updater.py:564`). The two definitions
 are deliberately kept in step by a test — `test_the_machine_level_home_has_one_definition`,
 `bin/test_backend_setup.py:161` — because a variable that relocated one and not the other would
 isolate a test run's configuration while still writing a throttle stamp into the real home
@@ -72,8 +72,8 @@ configured resolve to the floor?" does not depend on whose laptop is running the
 #### `FREYA_NO_UPDATE_CHECK`
 
 Every `freya` command *except* `help`, `install`, `uninstall`, `update` and `doctor` runs a
-throttled staleness check — those five are exempt by name (`bin/freya_cli.py:21`, gated at
-`freya_cli.py:558`), because they either act on the notice directly or ask the question
+throttled staleness check — those five are exempt by name (`bin/freya_cli.py:22`, gated at
+`freya_cli.py:568`), because they either act on the notice directly or ask the question
 themselves. The check is at most one `git ls-remote` per 24 hours (`bin/updater.py:567`),
 notify-only, printed to stderr, with every exception swallowed (`bin/updater.py:642`). Setting
 this variable returns `None` before any of that happens (`bin/updater.py:604`).
@@ -84,9 +84,9 @@ including `FREYA_NO_UPDATE_CHECK=0`**. `README.md:198` and `CHANGELOG.md:186` bo
 
 `freya doctor` reports the variable rather than obeying it silently: it prints
 `[ok] updates: not checked (FREYA_NO_UPDATE_CHECK is set)` and skips the network
-(`bin/freya_cli.py:478`). When it is *not* set, doctor runs the same check unthrottled on
+(`bin/freya_cli.py:488`). When it is *not* set, doctor runs the same check unthrottled on
 purpose — a diagnostic reporting a cached answer is not diagnosing anything
-(`bin/freya_cli.py:492`).
+(`bin/freya_cli.py:502`).
 
 #### `FREYA_DEBUG`
 
@@ -126,8 +126,8 @@ This is the one variable the project *writes* as well as reads. `freya <command>
 a script under `skills/<skill>/scripts/`, and those scripts import their siblings by bare name.
 Under `PYTHONSAFEPATH` / `-P` / isolated mode CPython does not put the script's own directory on
 `sys.path`, so the launcher restores exactly that entry by prepending the script's directory to
-the child's `PYTHONPATH` (`bin/freya_cli.py:151`–`155`). The rest of the parent environment is
-copied through unchanged (`bin/freya_cli.py:151`), and that copy propagates to grandchildren —
+the child's `PYTHONPATH` (`bin/freya_cli.py:161`–`155`). The rest of the parent environment is
+copied through unchanged (`bin/freya_cli.py:161`), and that copy propagates to grandchildren —
 the agent CLIs the audit driver spawns inherit it too.
 
 ### Home-derived paths
@@ -139,8 +139,8 @@ on 2026-08-24 with the same three greps, all three still hold:
 
 | Idiom | Count | Where |
 |---|---|---|
-| `Path.home()` | 6 | `bin/installer.py:37`, `installer.py:38`, `installer.py:521`, `installer.py:818`; `bin/freya_cli.py:258`; `bin/updater.py:566` |
-| `expanduser` | 1 | `skills/freya-code-graph/scripts/settings.py:574` |
+| `Path.home()` | 6 | `bin/installer.py:37`, `installer.py:38`, `installer.py:521`, `installer.py:818`; `bin/freya_cli.py:268`; `bin/updater.py:566` |
+| `expanduser` | 1 | `skills/freya-code-graph/scripts/settings.py:588` |
 | `os.environ['HOME']` / `.get('HOME')` | 0 | — |
 
 The single `expanduser` is the machine-level default's home, and it is the one that
@@ -154,7 +154,7 @@ it changes what happens: it is why the launcher resolves itself with `realpath` 
 [DEVELOPER.md § How the launcher resolves a command](DEVELOPER.md#how-the-launcher-resolves-a-command).
 Worth recording because it is the shape of a test gap: a regression here once got past the suite
 because the one test that sets `PYTHONSAFEPATH` only ran `freya help`, which never spawns a child
-(`bin/freya_cli.py:145`).
+(`bin/freya_cli.py:155`).
 
 ### Deliberately not read: `CLAUDE_*`
 
@@ -194,7 +194,7 @@ directory under one is enumerated, so a crossing appears in the graph as an
 
 Both files are optional. Absent, unreadable or malformed all yield defaults rather than an
 error, on the principle that a build must not fail because configuration is missing
-(`skills/freya-code-graph/scripts/settings.py:857`, `settings.py:589`). The defaults are
+(`skills/freya-code-graph/scripts/settings.py:871`, `settings.py:603`). The defaults are
 `substrate.backend: "auto"`, `substrate.symbols: false`, and empty `directories` and `outside`
 maps (`skills/freya-code-graph/scripts/settings.py:148`–`:166`). `outside` is present in
 `DEFAULTS` rather than absent so `load()` type-checks the section and warns on a non-object
@@ -205,10 +205,10 @@ Precedence and what a degrade records are
 [ARCHITECTURE.md § The graph substrate](ARCHITECTURE.md#the-graph-substrate). One distinction
 belongs here because it is a property of the *file*: "absent" and "explicitly `auto`" are
 different states, and an explicit `auto` in a project file means *defer to the machine*
-(`skills/freya-code-graph/scripts/settings.py:753`, `settings.py:763`).
+(`skills/freya-code-graph/scripts/settings.py:767`, `settings.py:777`).
 
 Keys outside the two allowed at machine level are dropped **and reported on stderr**, not
-silently honoured (`skills/freya-code-graph/scripts/settings.py:631`). `directories` is
+silently honoured (`skills/freya-code-graph/scripts/settings.py:645`). `directories` is
 excluded there on purpose: a global `docs: source` would apply to repositories nobody has
 looked at, and a global `node_modules: source` is a 50,000-file graph on every project on the
 machine (`skills/freya-code-graph/scripts/settings.py:98`–`:101`). `outside` is excluded by the
@@ -226,7 +226,7 @@ freya code-graph --use auto --global        # clears the machine default
 
 At machine scope `auto` is not an answer but the absence of one, so `--use auto --global`
 deletes the key rather than writing it — the only way to un-answer the install-time question
-(`skills/freya-code-graph/scripts/settings.py:927`, `settings.py:948`).
+(`skills/freya-code-graph/scripts/settings.py:941`, `settings.py:962`).
 
 The name is validated against the registry at the moment somebody is present to be told they
 typed it wrong (`skills/freya-code-graph/scripts/graph_ops.py:3437`), and the project-scope
@@ -238,7 +238,7 @@ careful about what it promises: a project already carrying its own answer keeps 
 The first `--build` or `--update` in a project that has not decided copies the machine's answer
 into that project's own committed settings
 (`skills/freya-code-graph/scripts/graph_ops.py:3598` → `graph_ops.py:3390` →
-`skills/freya-code-graph/scripts/settings.py:980`), validating it against the registry on the
+`skills/freya-code-graph/scripts/settings.py:994`), validating it against the registry on the
 way. A headless run with nothing configured writes nothing. Nothing verifies that the seeded
 file is actually committed — the build prints one line asking for it
 (`skills/freya-code-graph/scripts/graph_ops.py:3414`) and that is the entire mechanism; ADR-019
@@ -260,7 +260,7 @@ Read on this worktree on 2026-08-24, `knowledge-base/settings.json` is tracked (
 | Binary | Required? | How it is located | Run at | Absent or refused ⇒ |
 |---|---|---|---|---|
 | `python3` / `python` (≥ 3.9) | **yes**, to install | `install.sh:16`, `install.ps1:12` | same | install.sh exits 1 with "no Python 3.9+ found on PATH" |
-| the running interpreter | **yes** | `sys.executable` | `bin/freya_cli.py:135` | n/a — never depends on a bare `python` being on PATH |
+| the running interpreter | **yes** | `sys.executable` | `bin/freya_cli.py:145` | n/a — never depends on a bare `python` being on PATH |
 | `git`, new enough to know `--end-of-options` | for update, and for accuracy elsewhere; the G1 intent gate **stops running** without it, see below | two sites resolve it (`exec_path.resolve`, `bin/updater.py:139` and `skills/freya-code-graph/scripts/backend_graphify.py:739`); eight still spawn a bare `"git"` — the census below | `bin/updater.py:170`, `backend_graphify.py:743`, plus the eight | `freya update` refuses with a distinct message (`bin/updater.py:277`); graph/status/spec commands degrade |
 | `graphify` | **no** — opt-in | `exec_path.resolve`, `skills/freya-code-graph/scripts/backend_graphify.py:318` (probe) and `:430` (spawn) | `skills/freya-code-graph/scripts/backend_graphify.py:434` | build degrades to the floor and records that it did |
 | `claude` / `copilot` | **no** — only `freya security` | `exec_path.resolve` through `program_for`, `skills/freya-codebase-security-scan/scripts/audit_adapter.py:210`; `detect` asks it (`audit_adapter.py:222`) and `main()` resolves once (`skills/freya-codebase-security-scan/scripts/audit.py:403`) | `skills/freya-codebase-security-scan/scripts/audit.py:240` | driver exits 1 (`EXIT_NOTHING_TO_DO`), prints the per-CLI reason and names the in-loop fallback (`audit.py:389`–`:394`) |

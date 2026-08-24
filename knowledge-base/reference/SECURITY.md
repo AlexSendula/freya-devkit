@@ -22,7 +22,7 @@ disagree, the report is dated and this page is not, so this page is the one to f
 
 There is no service, no daemon, no listening port, no database, no container and no
 credential store. A skill is a `SKILL.md` the agent reads plus stdlib Python the agent runs
-through one launcher, `freya <command>` (`bin/freya_cli.py:135`, which execs the target with
+through one launcher, `freya <command>` (`bin/freya_cli.py:145`, which execs the target with
 `sys.executable`). Three properties were re-measured on 2026-08-24 rather than assumed:
 
 - **No third-party runtime dependency, and no networking module.** An AST walk over every
@@ -56,7 +56,7 @@ What the toolkit does execute:
 
 | What | Where | Notes |
 |---|---|---|
-| A bundled script, under the current interpreter | `bin/freya_cli.py:135` | argv is `[sys.executable, <script from bin/commands.json>, *args]`; no `python` need be on `PATH` |
+| A bundled script, under the current interpreter | `bin/freya_cli.py:145` | argv is `[sys.executable, <script from bin/commands.json>, *args]`; no `python` need be on `PATH` |
 | `git`, read-only queries | `skills/freya-status/scripts/collect_status.py:33`, `skills/freya-code-graph/scripts/graph_ops.py:551`, `skills/freya-spec-manager/scripts/verify_intent.py:87` | `rev-parse`, `diff --name-only` and similar; the graph and status layers never write git state. These are bare-`git` sites; the two resolved ones are `bin/updater.py:170` and `skills/freya-code-graph/scripts/backend_graphify.py:743` |
 | `git fetch` and `git merge --ff-only` | `bin/updater.py:346`, `:360` | Only during `freya update`, which fast-forwards the checkout to its tracked branch (`CONTRIBUTING.md:222`) |
 | An agent CLI as an audit worker | `skills/freya-codebase-security-scan/scripts/audit_adapter.py:123`, `:139` | The subject of most of this document. argv[0] is an absolute path or the worker does not start |
@@ -240,9 +240,9 @@ what a wrong answer costs; **choose by the question, never by the shape of the a
 | Predicate | The question | Symlinks |
 |---|---|---|
 | `escapes(value)` (`containment.py:41`) | a value **declared** in checked-in data — a directory key, a spec locator, a tsconfig target | not consulted; purely lexical, judged in both path flavours, `..` refused outright |
-| `rel_within(root, cand)` (`containment.py:67`) | a resolved filesystem candidate that has to become a **graph key** | preserved, because the key is what three artifacts join on (ADR-025) |
-| `within(root, cand)` (`containment.py:101`) | a **security decision** about a path that exists | followed, because the question is which file will actually be opened or executed |
-| `is_anchored(text)` (`containment.py:145`) | is this string already absolute, on any host and any supported interpreter | n/a; not the negation of `escapes` — `C:x` both escapes and is not anchored |
+| `rel_within(root, cand)` (`containment.py:88`) | a resolved filesystem candidate that has to become a **graph key** | preserved, because the key is what three artifacts join on (ADR-025) |
+| `within(root, cand)` (`containment.py:122`) | a **security decision** about a path that exists | followed, because the question is which file will actually be opened or executed |
+| `is_anchored(text)` (`containment.py:166`) | is this string already absolute, on any host and any supported interpreter | n/a; not the negation of `escapes` — `C:x` both escapes and is not anchored |
 
 There is exactly one other body of the `escapes` rule, `bin/freya_cli.py:_escapes`, and it is a
 deliberate exception: the launcher has to diagnose a skill tree that is missing or broken, so it
@@ -298,7 +298,7 @@ remember.
 against a declared root resolves both sides, so a symlink planted under one that points
 elsewhere is not contained and the crossing is refused. A declared root that is *itself* a
 symlink is the other case and is honoured — nothing was crossed implicitly — and named on
-stderr (`skills/freya-code-graph/scripts/settings.py:539`).
+stderr (`skills/freya-code-graph/scripts/settings.py:553`).
 
 **The trust argument is not inherited from ADR-019 and the ADR says so.** The declaration comes
 from the scanned repository's own committed settings, so the repository grants itself the power

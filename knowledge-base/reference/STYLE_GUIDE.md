@@ -11,9 +11,9 @@ not exist.
 | Convention | Enforced by | What happens if you break it |
 |---|---|---|
 | Standard library only | Nothing automated | Silent: it works on your machine, and the zero-install promise is gone |
-| CPython 3.9 floor | `bin/test_freya_cli.py:473` (`PythonFloorTest`) | Red test if the four declarations drift apart; a `SyntaxError` in front of a user if the syntax itself is too new |
+| CPython 3.9 floor | `bin/test_freya_cli.py:483` (`PythonFloorTest`) | Red test if the four declarations drift apart; a `SyntaxError` in front of a user if the syntax itself is too new |
 | No host-specific construct under `skills/` | `bin/check_skill_conformance.py`, run by CI | Exit 1, one `path:line: RULE: excerpt` per violation |
-| Every bundled script reachable as `freya <command>` | R3, plus `bin/test_freya_cli.py:40` and `:50` | Red test, or an instruction that fails in front of a user |
+| Every bundled script reachable as `freya <command>` | R3, plus `bin/test_freya_cli.py:41` and `:50` | Red test, or an instruction that fails in front of a user |
 | One pinned spec for the one third-party install the toolkit ever prints | `bin/test_backend_setup.py:203` | Red test if the prompt prints an unpinned, extras-free or second install line |
 | Comments explain why | Nothing automated | Nothing — which is why it is a review matter |
 | Naming | R8/R12 for skills; nothing for Python | Skill: exit 1. Python: nothing |
@@ -49,11 +49,11 @@ guarded-import shape.**
 
 The reason it grows none is not that the shape is absent. Measured 2026-08-24 with the AST,
 twelve `try` blocks in the tree open with an import, eleven of them in shipped code, and **every
-one of them names a module of this checkout** — `installer` (`bin/freya_cli.py:189`), `settings`
+one of them names a module of this checkout** — `installer` (`bin/freya_cli.py:199`), `settings`
 and `backends`
 (`bin/backend_setup.py:72`), `backend_setup` (`bin/installer.py:985`, `bin/updater.py:391`),
 `backends` four times in `skills/freya-code-graph/scripts/graph_ops.py`, `updater`
-(`bin/freya_cli.py:559`), and the two shared-primitive bootstrap guards ADR-030 argues for,
+(`bin/freya_cli.py:569`), and the two shared-primitive bootstrap guards ADR-030 argues for,
 `exec_path` (`bin/updater.py:75`) and `containment` + `exec_path`
 (`skills/freya-codebase-security-scan/scripts/audit_adapter.py:52`). The twelfth is in a test and
 is not a guard at all — `bin/test_freya_cli.py:1365` pairs `try: import containment` with a
@@ -76,12 +76,12 @@ wrong; they answer different questions, and only this one is a count of the synt
 ## Target CPython 3.9
 
 Four files declare the floor and none of them can import the others, so they are kept in
-step by a test rather than by a constant: `bin/freya:19`, `bin/freya_cli.py:238`,
+step by a test rather than by a constant: `bin/freya:19`, `bin/freya_cli.py:248`,
 `install.sh:17`, `install.ps1:20`, held together by `PythonFloorTest`
-(`bin/test_freya_cli.py:473`).
+(`bin/test_freya_cli.py:483`).
 
 The floor is 3.9 rather than 3.8 for one concrete reason, recorded where the constant lives
-(`bin/freya_cli.py:231`): `skills/freya-spec-manager/scripts/search_specs.py:116` annotates
+(`bin/freya_cli.py:241`): `skills/freya-spec-manager/scripts/search_specs.py:116` annotates
 `-> list[Spec]` with no `from __future__ import annotations`, and PEP 585 builtin generics
 are only subscriptable at runtime from 3.9, so `freya spec` is a `TypeError` on 3.8.
 
@@ -162,11 +162,11 @@ Supporting conventions, all with examples:
   name that follows it — `bin/installer.py:50`,
   `bin/updater.py:100` (three paragraphs on why an update prints a reload hint, ending with
   why both agents are named).
-- **Docstrings carry the same load as comments.** `bin/freya_cli.py:56` explains why a
+- **Docstrings carry the same load as comments.** `bin/freya_cli.py:57` explains why a
   manifest path is judged with both `PureWindowsPath` and `PurePosixPath`, and cites the
   CI run where 3.13's `ntpath.isabs` change let `/etc/passwd` through on Windows while 3.9
   rejected it.
-- **A test's docstring says what the test is protecting.** `bin/test_freya_cli.py:473` and
+- **A test's docstring says what the test is protecting.** `bin/test_freya_cli.py:483` and
   the module docstring of [`conftest.py`](../../conftest.py) both do this; the latter calls
   itself "a safety net, not the mechanism" and records the ten tests that failed when pytest
   was run from inside `skills/`.

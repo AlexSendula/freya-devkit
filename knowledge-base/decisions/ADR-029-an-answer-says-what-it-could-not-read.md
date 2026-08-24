@@ -82,7 +82,7 @@ wrap-up run, so a printed warning lands nowhere. Verified: the three
 programmatic callers — `behavior_graph.py:279`,
 `skills/freya-spec-manager/scripts/drift.py:94` and `run_behaviors.py:351` —
 all use `capture_output=True` and read only stdout on success. Stderr is dead
-skill-to-skill. It is alive agent-to-CLI, because `bin/freya_cli.py:173` is a
+skill-to-skill. It is alive agent-to-CLI, because `bin/freya_cli.py:183` is a
 plain `subprocess.call` with inherited streams. That asymmetry is what makes
 the split between payload and stderr a design and not a compromise: the
 surfaces whose shape cannot change get the channel an agent at a terminal

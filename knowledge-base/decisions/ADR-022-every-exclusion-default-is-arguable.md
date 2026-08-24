@@ -36,7 +36,7 @@ backend choice ADR-019 put there:
 It is gitignored regenerable cache (`CACHE_IGNORED`, `graph_ops.py:245`), and a settings-declared
 verdict is deliberately kept *out* of it (`_save_classifications`, `graph_ops.py:1644`). Keys on
 both paths are folded to one form, so `docs`, `docs/`, `./docs` and `docs\lit` name what the
-person meant (`normalise_dir_key`, `settings.py:169`; `_parse_directories`, `settings.py:781`).
+person meant (`normalise_dir_key`, `settings.py:169`; `_parse_directories`, `settings.py:795`).
 
 An override widens scope *at* the directory it names; it does not switch off what is excluded
 beneath it. The artifact-tree names are re-matched against the path below the override root, in

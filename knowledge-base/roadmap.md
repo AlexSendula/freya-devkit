@@ -310,7 +310,7 @@ compare, or compare content.
 ### 2. `uninstall` is missing from the conformance checker's `BUILTIN_COMMANDS`
 
 `bin/check_skill_conformance.py:20` lists only `install`, `update`, `doctor`, `init`, `help`.
-`bin/freya_cli.py:26-27` also ships `uninstall`, and `bin/commands.json` does not list it
+`bin/freya_cli.py:27-27` also ships `uninstall`, and `bin/commands.json` does not list it
 either (it holds only manifest subcommands). The allowed set is built from the union of both at
 `check_skill_conformance.py:488`, so the first SKILL.md to write `freya uninstall` in a code
 span trips rule **R3** ("unknown freya command") at `:394`. That is a trap, not a rule — a
@@ -356,7 +356,7 @@ with a phase and an example, or remove them from the table.
 
 `install.sh --force` without `--copy` replaces copy directories with links. That is what the
 flags ask for, but the orphan remedy that sends users there —
-`bin/freya_cli.py:427-431`, "the checkout moved; re-run `freya install --force`" at `:430` —
+`bin/freya_cli.py:437-431`, "the checkout moved; re-run `freya install --force`" at `:430` —
 carries no mode warning, so a Windows user repairing an orphaned install flips modes without
 noticing.
 `doctor` reports the mode, which makes it discoverable *after* the fact; a clause in the remedy
@@ -365,7 +365,7 @@ would make it discoverable before.
 ### 6. Two `doctor` lines read oddly together
 
 A moved checkout produces `agents: the suite is not installed for any agent`
-(`bin/freya_cli.py:411`) beside `orphaned entries: 20 …` (`:453`). Each line is accurate —
+(`bin/freya_cli.py:421`) beside `orphaned entries: 20 …` (`:453`). Each line is accurate —
 no entry points at *this* store — but the pair invites the reading "nothing is installed, and
 also twenty things are". The orphan line carries the remedy, so this is wording, not behaviour.
 
