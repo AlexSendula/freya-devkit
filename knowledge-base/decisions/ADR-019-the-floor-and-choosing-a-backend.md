@@ -32,6 +32,19 @@ absent from the machine, `unknown backend` when the name is not a backend at all
 same way (`graph_ops.py:2662`). Every one of those fallbacks records `degraded_from` and its
 reason in the graph's own metadata, not only on stderr.
 
+> **Note, 2026-08-24 (SEC-002). This clause was challenged and stands unchanged.** SEC-002
+> reported that a scanned repository could get its own `graphify.exe` executed, because Windows
+> `CreateProcess` searches the current directory before `PATH` and the toolkit runs its
+> subprocesses with `cwd` set to the scanned project. The reading that a committed
+> `settings.json` naming a backend is itself the hole was considered and rejected: naming a
+> backend is the opt-in this record exists to define, and a project that commits a name has
+> decided. What was wrong was not *who may name a program* but *how a named program is turned
+> into an argv[0]*, and that is where the whole fix went — `exec_path.resolve`
+> (`skills/freya-code-graph/scripts/exec_path.py:84`) refuses a `which()` result that is not
+> already absolute and refuses one that resolves inside the project being scanned, and
+> `backend_graphify` spawns through it (`backend_graphify.py:430`, and `:318` for the presence
+> check). Nothing about selection, precedence or the opt-in changed.
+
 The name is answered **once per machine, at install time**. `freya install` and `freya update`
 both call the prompt (`bin/backend_setup.py:104`, from `bin/installer.py:988` and
 `bin/updater.py:394`); it asks only at a terminal, only when the machine has never answered, and

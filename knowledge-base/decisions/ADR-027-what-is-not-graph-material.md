@@ -55,6 +55,22 @@ are graphed as isolated nodes when graphify runs with the extra, and named as un
 floor once they dominate. That is the honest answer the clause was reaching for, arrived at by a
 different mechanism.
 
+> **Correction, 2026-08-24.** `substrate.py:69` in the paragraph above named the tuple of target
+> prefixes when this record was written and names a comment line today. The tuple is
+> `IMPORT_SIGNALS` at `substrate.py:86`, and it gained a third member on 2026-08-23:
+> `outside:<alias>/<path>`, for a specifier resolved under a root the project declared outside
+> itself (ADR-031, `OUTSIDE_PREFIX`, `substrate.py:79`). `is_internal` enumerates the four target
+> forms at `substrate.py:102`.
+>
+> This record's conclusion is unchanged and the new prefix is not a way in for config. A declared
+> root buys resolution and not traversal — no file under one is opened, and no directory under one
+> is discovered by walking it (ADR-031 states the exact residue: one cached `listdir` of the
+> directory a resolved reference already landed in). So a declaration produces edge targets, never
+> nodes, and it says nothing about which *extensions* a backend parses, which is the whole of what
+> this record turns on. The reasoning above is stated against `unresolved:` specifically and stays
+> correct: there is still no node for a "current schema" to hang on, and `outside:` does not
+> supply one.
+
 ## Rationale
 
 A graph earns its place on transitive closure. Config relationships are one hop and do not

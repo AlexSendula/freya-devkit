@@ -129,6 +129,10 @@
                 <td><a href="#the-gate-that-checked-the-file">The link gate said every behavior link passed</a></td>
                 <td>It had never looked at the half of the link that names the test</td>
               </tr>
+              <tr>
+                <td><a href="#the-remediation-was-wrong">Discovery was the hard part; applying the fix is bookkeeping</a></td>
+                <td>The top finding took five fixes, and four remediations would have made things worse</td>
+              </tr>
             </tbody>
           </table>
         </div>
@@ -838,8 +842,8 @@
 
         <p>
           <strong>The same day, the security scan found the shape in the code as well as in the
-          gate.</strong> It raised twenty-two findings against the toolkit; the two most severe were
-          the same defect twice. <code>audit.py</code> runs every scan worker with
+          gate.</strong> It raised twenty-two findings against the toolkit, two of which merged into
+          one, so twenty-one were filed; the two most severe were the same defect twice. <code>audit.py</code> runs every scan worker with
           <code>cwd=&lt;the scanned project&gt;</code> and invokes it by the bare name
           <code>claude</code>. On Windows, <code>CreateProcess</code> searches the working directory
           first — so a repository you scan can supply its own <code>claude.exe</code> and have it
@@ -872,6 +876,96 @@
           capability. It was the discovery that three things declared everywhere were enforced
           nowhere, which is the exact defect class the toolkit exists to find in other people's
           repositories.</p>
+        </div>
+
+        <h3 id="the-remediation-was-wrong">18 · The report told us how to fix it, and the instructions were wrong</h3>
+        <p>
+          <strong>The belief.</strong> Three days later the twenty-one filed findings were worked
+          through (a twenty-second, SEC-022, was found and fixed during that work rather than by
+          the scan).
+          Each one arrived with a <em>Remediation</em> paragraph written by the same adversarially
+          verified pipeline that found it — specific, plausible, citing the line. The belief was that
+          the expensive part was over: discovery had been done, and what remained was application.
+        </p>
+
+        <div class="callout callout--danger">
+          <span class="callout-label">The highest-severity finding took five fixes, and each one passed the fix before it</span>
+          <p>SEC-001 is a hash the scanned repository commits to a marker file, interpolated into
+          <code>git diff</code>'s argv by the gate that decides whether an accepted test was edited
+          without authorisation. Every round below was found by <em>running the attack against the
+          previous fix</em>, never by reading it:</p>
+          <ol>
+            <li><code>--output=/tmp/victim</code> — <code>git diff</code> accepts it, and truncates
+            the file. Closed by validating the value as a hash.</li>
+            <li><strong>Forty zeros.</strong> Valid hex, so the new validation passes it; git then
+            fails <code>rc=128</code> and the empty output was read as "nothing changed". Closed by
+            telling a git failure apart from an empty diff and labelling it a skip.</li>
+            <li><strong>A committed file named <code>deadbeef</code>.</strong> Pure hex, so it walks
+            through the regex — and git resolves it as a <em>pathspec</em>, at <code>rc=0</code>.
+            Closed by <code>--</code>, which forces the revision reading. (A <code>--</code>
+            <em>before</em> the argument makes it a path; after it, the opposite. Getting that
+            backwards is what left this open a round longer.)</li>
+            <li><strong>A tree hash</strong> from <code>git rev-parse HEAD:knowledge-base</code>.
+            Forty hex characters, a real object, and not a commit — it walks past the regex, past
+            <code>--end-of-options</code> and past <code>--</code> alike. Closed by peeling
+            <code>^{commit}</code>.</li>
+            <li><strong>A marker holding <code>commit:</code> with no value</strong>, or no
+            <code>commit:</code> line, or zero bytes. Each returned a bare <code>None</code> — which
+            is the exact fingerprint of a repository that has never run the gate, so
+            <code>--advance</code> exited 0 and erased the finding it should have reported.</li>
+          </ol>
+          <p>The argv that survives all five is
+          <code>git diff --name-status -M --end-of-options &lt;baseline&gt;^{commit} --</code>.</p>
+        </div>
+
+        <div class="callout callout--warn">
+          <span class="callout-label">Four remediations that would have made things worse</span>
+          <p>Applying the report literally was tested rather than assumed, and four of its
+          instructions failed:</p>
+          <ul>
+            <li><strong>"Resolve the binary to an absolute path"</strong> is the fix backwards. On
+            Windows <code>shutil.which</code> returns the working-directory hit first, so
+            <code>abspath</code>-ing it hands <code>CreateProcess</code> a fully-qualified path to the
+            attacker's binary, spelled more convincingly. The rule has to be <strong>refuse</strong>,
+            not absolutise.</li>
+            <li><strong>"Add <code>--end-of-options</code> before the revision"</strong> in the
+            code-graph's incremental diff produces <em>"fatal: option '--name-only' must come before
+            non-option arguments"</em>. Every <code>--update</code> would have degraded to a full
+            rebuild, permanently and quietly.</li>
+            <li><strong>"Replace the bare <code>except:</code> with <code>except OSError</code>"</strong>
+            does not catch <code>UnicodeDecodeError</code>, which is a <code>ValueError</code> — so
+            one non-UTF-8 byte in one YAML file would have converted a swallowed error into an
+            uncaught traceback out of the whole detector. The fix was to read bytes.</li>
+            <li><strong>"Narrowing the pattern can only make the guard stricter"</strong> — true, and
+            not enough. After narrowing, a made-up <code>SPEC-999</code> still corroborated itself on
+            this repository, because the corroboration search included the scanner's own report
+            directory and found the sentence in it describing the test that says it must not.</li>
+          </ul>
+        </div>
+
+        <div class="callout callout--why">
+          <span class="callout-label">Why it was not caught by reading</span>
+          <p>Each of those instructions is <em>locally reasonable</em>. They are the sentences a
+          careful reviewer writes, and three of the four cite the right line. What separates them
+          from correct is one command: reproduce the attack against the proposed fix, on a real
+          repository, before believing it. Discovery had been adversarially verified three ways;
+          the remediation had been verified not at all, and nothing in the pipeline was shaped to
+          notice the difference.</p>
+        </div>
+
+        <div class="callout callout--danger">
+          <span class="callout-label">And one finding could not be fixed at all</span>
+          <p>SEC-006 is the mechanism that lets an <code>accepted</code> behavior silence a security
+          finding. The record authorising it said the behavior's <em>passing test</em> is
+          <em>"verified evidence rather than a prose claim"</em>. No test is run, and none can be:
+          both artifacts the query reads are committed by the repository under audit, and the only
+          evidence that would not be is executing that repository's test suite — a security tool
+          running hostile code. Re-deriving the state from a second committed file moves the forgery;
+          it does not remove it. So the finding is <strong>mitigated and deliberately left open</strong>:
+          the query now returns a sentence saying exactly what it trusted, and the skill that consumes
+          it is told never to write <em>"verified by passing test"</em>. A false safety invariant that
+          reads as true is the most expensive kind of documentation there is, and the honest repair
+          was to delete the claim rather than to manufacture the proof.</p>
         </div>
       </section>
 

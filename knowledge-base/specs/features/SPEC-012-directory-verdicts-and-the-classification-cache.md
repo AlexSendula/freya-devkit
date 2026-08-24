@@ -6,17 +6,19 @@ tags: [code-graph, settings, classification, cache, configuration, non-interacti
 status: implemented
 certainty: 80
 created: 2026-08-21
-updated: 2026-08-21
+updated: 2026-08-24
 related_code:
   - skills/freya-code-graph/scripts/settings.py
   - skills/freya-code-graph/scripts/graph_ops.py
   - skills/freya-code-graph/scripts/test_graph_ops.py
+  - skills/freya-code-graph/scripts/test_settings.py
 intentional_decisions:
   - "A verdict declared in settings.json is deliberately never written into the classification cache"
   - "`--clear` keeps classifications.json; RULES_VERSION is the invalidation mechanism instead"
   - "A build with no TTY never prompts and defaults an unrecognised directory to source"
   - "The machine-level ~/.freya/settings.json cannot carry `directories`, and says so on stderr"
   - "Malformed settings degrade to defaults with a warning rather than failing the build"
+  - "A `directories` key that names anything outside the project is dropped; naming an out-of-tree directory is the `outside` section's job"
 behaviors:
   - behavior_id: BEH-056
     title: A verdict committed in settings.json still applies with the gitignored cache deleted
@@ -48,6 +50,30 @@ behaviors:
     level: unit
     adapter: unittest
     locator: skills/freya-code-graph/scripts/test_graph_ops.py#TestNonInteractiveBuild.test_ambiguous_dir_included_without_stdin
+  - behavior_id: BEH-150
+    title: A root declared in settings.json resolves a crossing and names it by its alias
+    state: proposed
+    level: unit
+    adapter: unittest
+    locator: skills/freya-code-graph/scripts/test_settings.py#OutsideRootsTest.test_a_relative_declaration_resolves_and_a_crossing_is_named_by_alias
+  - behavior_id: BEH-151
+    title: Two declared roots that nest name a file the same way in either key order
+    state: proposed
+    level: unit
+    adapter: unittest
+    locator: skills/freya-code-graph/scripts/test_settings.py#OutsideRootsTest.test_two_roots_that_nest_name_a_file_the_same_way_in_either_order
+  - behavior_id: BEH-152
+    title: A declared root is resolved into and never walked
+    state: proposed
+    level: unit
+    adapter: unittest
+    locator: skills/freya-code-graph/scripts/test_graph_ops.py#TestCrossingTheRootIsADeclaredAct.test_the_declared_root_is_resolved_into_and_never_walked
+  - behavior_id: BEH-153
+    title: Changing a declaration after a build re-resolves every edge on the next update
+    state: proposed
+    level: unit
+    adapter: unittest
+    locator: skills/freya-code-graph/scripts/test_graph_ops.py#TestCrossingTheRootIsADeclaredAct.test_a_declaration_changed_after_a_build_reaches_every_edge
 ---
 
 # Where a Directory Verdict Lives, and What Invalidates the Cache
@@ -70,10 +96,46 @@ Keys are folded to one form on both paths (`normalise_dir_key`,
 `_load_classifications`), so `docs`, `docs/`, `./docs`, `/docs/` and `docs\lit` name
 what the person meant instead of silently naming nothing.
 
+**Folding is not the whole rule: a key that folds to somewhere outside the project is
+dropped.** `normalise_dir_key` returns `''` for it (`settings.py:169`), judged by
+`containment.escapes` on the folded text (`settings.py:240`) and therefore in both
+POSIX and Windows spellings, so a committed key means the same thing on every host.
+Measured on this tree: `../shared`, `..`, `.` and `D:/secrets` all fold to nothing,
+while `a/../b` folds to `b`. Every consumer joins a `directories` key onto the project
+root or matches it as the prefix of a project-relative path, so a key that escapes has
+no reading at all — before the refusal the build did not fail on one, it succeeded
+wrongly. `normalise_dir_key`'s own docstring carries that measurement, pinned to
+`abd1de3`: a committed `{"directories": {"../shared": "source"}}` graphed the sibling
+tree, read its file contents, and re-entered the project through `..` so every
+in-project file gained a second node, with `validate_graph` clean. A key that
+simply matches nothing is left alone: that is a dead entry, not an escape, and refusing
+it would start telling projects their settings file is wrong.
+
+Naming a directory *outside* the project is therefore not something `directories` can
+do, and that is not a gap. It is a different power with a different section, `outside`,
+in the same committed file — it buys resolution of an import into a declared root and
+nothing else: no file under one is opened, and no directory under one is discovered by
+walking it. That is
+[ADR-031](../../decisions/ADR-031-crossing-the-root-is-a-declared-act.md)'s decision
+rather than this spec's; what belongs here is that the two sections live side by side
+in one file, and that `..` in `directories` is a refusal rather than a shorthand for
+the other one.
+
 Cache invalidation is a `RULES_VERSION` stamp rather than a deletion: on a mismatch
 the cached `rule` and `gitignore` verdicts are discarded and re-derived, while `user`
 and `ai` verdicts stay. `--clear` removes the graph artifacts and deliberately keeps
 this file.
+
+The `outside` section is invalidated on the same principle by a second mechanism. A
+declaration is not a per-file change, so per-file incrementality cannot see it:
+`CodeGraph.update` compares the roots declared when the artifact was written against
+the roots declared now and forces a full rebuild when they differ
+(`graph_ops.py:2213`). Without that, an `--update` triggered by any unrelated file
+leaves every unchanged file holding edges resolved under the old declarations while
+the report is stamped from the new ones — reachable in both directions, and both
+artifacts lie. The comparison is over the declarations and not over what they resolve
+to: a root whose target is replaced on disk between two runs keeps the same signature
+and does not force a rebuild, because git cannot see outside the project.
 
 Unknown directories are classified rules → model → human. When there is no terminal
 — `--non-interactive`, or `stdin` is not a TTY, which is how wrap-up and CI invoke
@@ -134,6 +196,20 @@ The steps belong to each test; this table only links them.
 | BEH-058 Every spelling of a directory key names the same directory | proposed | `test_graph_ops.py#TestAnOverrideSurvivesAClone.test_the_spellings_people_actually_type_all_resolve` (unittest) |
 | BEH-059 A rules-version change re-derives a stale cached `rule` verdict | proposed | `test_graph_ops.py#TestStaleRuleClassificationsAreRefreshed.test_a_stale_rule_verdict_is_rediscarded_and_the_dir_is_graphed` (unittest) |
 | BEH-060 A build with no terminal classifies an unrecognised directory instead of blocking on it | proposed | `test_graph_ops.py#TestNonInteractiveBuild.test_ambiguous_dir_included_without_stdin` (unittest) |
+| BEH-150 A root declared in `settings.json` resolves a crossing and names it by its alias | proposed | `test_settings.py#OutsideRootsTest.test_a_relative_declaration_resolves_and_a_crossing_is_named_by_alias` (unittest) |
+| BEH-151 Two declared roots that nest name a file the same way in either key order | proposed | `test_settings.py#OutsideRootsTest.test_two_roots_that_nest_name_a_file_the_same_way_in_either_order` (unittest) |
+| BEH-152 A declared root is resolved into and never walked | proposed | `test_graph_ops.py#TestCrossingTheRootIsADeclaredAct.test_the_declared_root_is_resolved_into_and_never_walked` (unittest) |
+| BEH-153 Changing a declaration after a build re-resolves every edge on the next update | proposed | `test_graph_ops.py#TestCrossingTheRootIsADeclaredAct.test_a_declaration_changed_after_a_build_reaches_every_edge` (unittest) |
+
+Four of the nine are the `outside` section, and they are the four this spec can honestly
+claim: the token a declaration produces (BEH-150), that it is a function of the
+declarations rather than of their key order (BEH-151), that the grant stops at
+resolution (BEH-152), and that changing a declaration invalidates the cached graph
+(BEH-153) — which is this spec's own subject and the reason the set is recorded here
+rather than only under ADR-031. The rest of the feature's suite — the containment
+question answered in both path flavours, the fail-closed property an untaught consumer
+gets, and the `files`-key rule staying unconditional — is ADR-031's and
+`SPEC-008`'s ground, and is deliberately not duplicated into this table.
 
 ## Intentional Design Decisions
 
@@ -223,15 +299,38 @@ intentional fail-open behaviour for a *read-only analysis* tool, and each path e
 warning. The write path is deliberately fail-closed: freya will refuse to replace a
 settings file it cannot understand rather than discard hand-written content.
 
+### A `directories` key that escapes the project is dropped, not honoured
+
+**Decision**: `normalise_dir_key` folds a key and then refuses it outright when the
+folded text could name anything but a path under the project root — `..` in either
+spelling, a POSIX-absolute path that survives the leading-slash fold, a Windows drive
+or root. The entry beside it still takes effect; only the escaping key is dropped.
+
+**Rationale**: the keys of `directories` are project-relative by construction, because
+every consumer either joins one onto the project root or matches it as the prefix of a
+project-relative path. A key that escapes has no such reading, and the build did not
+fail on one — it succeeded wrongly. Naming an out-of-tree directory is a real need and
+it has its own answer, `outside`, which grants resolution only; conflating the two
+would have made a scope verdict into a licence to read.
+
+**Security Scan Note**: this is a refusal, not a third verdict, and it is
+non-overridable — no tier in SPEC-011 or ADR-022 reaches it. One acknowledged cost,
+stated in the code rather than hidden: the Windows-drive rule is judged on every host,
+so a POSIX project with a top-level directory literally named `x:` or `a:b` is told
+that key does not name a directory inside the project. The boundary is exactly one
+character before the colon, so `docs:v2` and `src/C:x` survive.
+
 ## Related Specs
 
 - [SPEC-010: Default Graph Scope](./SPEC-010-default-graph-scope.md)
 - [SPEC-011: A Project Can Overrule Any Exclusion Default](./SPEC-011-two-tier-exclusion-override.md)
 - ADR-022 — every built-in exclusion default is arguable, in two tiers (owns the store decision)
 - ADR-019 — the floor and choosing a backend (why `knowledge-base/` is the home for a project decision)
+- ADR-031 — crossing the project root is a declared act (owns the `outside` section this file now also carries)
 
 ## Change History
 
 | Date | Change | Reason |
 |------|--------|--------|
 | 2026-08-21 | Initial spec, inferred from code during brownfield scan | Candidate behaviors recorded as `proposed` for lazy review (ADR-007) |
+| 2026-08-24 | Recorded the escaping-key refusal in `normalise_dir_key`, added the `outside` section as the committed file's second half, and added the declared-roots comparison as a second cache-invalidation trigger. Four behaviors added (BEH-150…BEH-153). | SEC-021 closed the escaping-key hole, and ADR-031 put a second section in the file this spec is about. The *What* section documented key folding without saying that `..` is refused there and belongs in `outside`, which reads as an unstated gap rather than a boundary. |

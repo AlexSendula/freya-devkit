@@ -1,6 +1,6 @@
 # Troubleshooting
 
-> Last updated: 2026-08-21
+> Last updated: 2026-08-24
 
 Every entry below is traced to an error path in the code or to a defect recorded in
 [`roadmap.md`](../roadmap.md). Nothing here is a hypothetical failure: if a symptom could not be
@@ -127,10 +127,29 @@ freya and exits 2 — the same code as an unknown command.
 **Symptom.** One line beginning `freya update:` and nothing merged.
 
 **Confirm.** The message names the precondition. All of them are checked before anything is
-fetched (`bin/updater.py:316`–`:320`): git not on `PATH`, the store is not a git checkout, the
+fetched (`bin/updater.py:316`–`:320`): git cannot be run, the store is not a git checkout, the
 branch has no upstream or tracks a local branch, or the tree is dirty. After the fetch there are
 two more: the remote could not be reached (`bin/updater.py:346`–`:350`) and the store has
 diverged, since update only fast-forwards (`bin/updater.py:354`–`:358`).
+
+**"git cannot be run" now has three spellings, and two of them are new.** The precondition asks
+`git_program()` — the same body `git()` spawns from and `doctor` prints from, so a precondition
+cannot pass on a git the spawn would then refuse (`bin/updater.py:275`). On the common path the
+message is byte-identical to the old one, `git is not on PATH`. The two others are a resolution
+that is not absolute, and:
+
+```
+freya update: the store is incomplete: skills/freya-code-graph/scripts/exec_path.py could not
+be loaded, and it is what decides which git is safe to run. Re-clone the repository, or restore
+the file with `git checkout -- skills/`
+```
+
+That last one is the guard against a damaged skill tree (`bin/updater.py:86`), and it is
+deliberately a refusal rather than a fallback: there is no degraded resolver and no bare-`"git"`
+path, because a damaged tree is exactly when "just search `PATH`" looks like graceful
+degradation. It says "could not be loaded" rather than "is missing" on purpose — the guard
+catches a *corrupt* `exec_path.py` as well as an absent one, and telling someone a file is
+missing when they can see it sends them to look for the wrong problem.
 
 **Fix.** Reconcile the store with git yourself and run it again — a merge commit or a rebase in
 your toolkit checkout is a surprise the updater will not create for you. `freya update
@@ -240,8 +259,10 @@ PY
   fault (ADR-029). The block names the extensions and, more usefully, the directories to grep
   instead; `rollup_directories` collapses each tree to one search target rather than four.
 - **`unmapped_source` is `{"files": 0, …}`.** The census ran and found nothing material. That is
-  what this repository publishes on both backends — measured 2026-08-21, `graph.homegrown.json`
-  (62 files) and `graph.graphify.json` (65 files) both carry `{"files": 0}`.
+  what this repository published on both backends when it was last measured — 2026-08-21,
+  `graph.homegrown.json` (62 files) and `graph.graphify.json` (65 files) both carrying
+  `{"files": 0}`. Both artifacts are gitignored and absent from a fresh clone, so rebuild before
+  comparing your own figure against those.
 - **`unmapped_source` is `{"files": null, "error": …}`.** The census itself failed. It is never
   reported as a zero, because a silent zero is indistinguishable from "this backend read
   everything" (`skills/freya-code-graph/scripts/substrate.py:994`–`:997`).
@@ -303,10 +324,38 @@ coverage` — and `substrate.degraded_from` set in the artifact
 
 | `degraded_reason` | What it means | Fix |
 |---|---|---|
-| `not installed` | The name is a real backend that did not report itself usable — for `graphify`, `shutil.which('graphify')` found nothing | Install it, or accept the floor |
+| `not installed` | The name is a real backend that did not report itself **usable**. For `graphify` that is now `exec_path.resolve('graphify', project_dir)` returning no path (`skills/freya-code-graph/scripts/backend_graphify.py:318`), which covers three different situations — see below | Install it, accept the floor, or read the next paragraph |
 | `unknown backend` | The name is not a backend at all. `--use` refuses unknown names, so this only reaches a hand-edited `settings.json` | Correct the file |
 | `does not satisfy the substrate contract: …` | A registered backend failed the structural check and was not used (`graph_ops.py:3369`–`:3387`) | Report it; the floor ran instead |
 | `failed during the build: …` | The backend was selected, then threw (`graph_ops.py:2668`–`:2693`) | Usually the wrapped tool was upgraded |
+
+**`not installed` no longer means only "not on `PATH`".** Since the binary is resolved rather
+than searched, the same reason string covers three states, and the third is the one that will
+surprise you:
+
+1. `shutil.which` found nothing — the ordinary case, and the fix is to install it.
+2. The resolution is **not an absolute path**. On Windows CPython's `shutil.which` inserts the
+   working directory at the head of the search path, so a `graphify.exe` in the repository you
+   pointed freya at is found first and then refused. That is the intended outcome, not a
+   malfunction: the binary the *operator* installed is not the one that was found. On Windows
+   with Python 3.9–3.11 the opt-out that would remove the working directory from the search is
+   ignored, so this is the only control on that leg —
+   [SECURITY.md § The one accepted regression](SECURITY.md#the-one-accepted-regression-windows-on-python-39-311).
+3. The resolution is **inside the project being analysed**. Same reasoning, on every platform:
+   `containment.within` resolves both sides, so a `bin/graphify` symlink inside the repository
+   that points at another file inside it is still the repository's binary
+   (`skills/freya-code-graph/scripts/exec_path.py:95`). A symlink pointing *out* of the
+   repository is deliberately not refused — that file is one the machine already had.
+
+To tell them apart, ask the resolver directly rather than guessing:
+
+```bash
+python3 -c "import sys; sys.path.insert(0, 'skills/freya-code-graph/scripts'); \
+import exec_path; print(exec_path.resolve('graphify', '.'))"
+```
+
+A `Resolution(path=None, reason=…)` prints the sentence the refusal would have used. The same
+call with `'claude'` or `'copilot'` answers the audit driver's version of this question.
 
 **Fix.** A degraded graph is not just thinner — it makes `behavior-runner` refuse to compute a
 static closure at all, returning `unknown` with the reason rather than committing a narrower
@@ -410,6 +459,62 @@ positive, −389 `external:` edges (42 distinct `external:` nodes, none of which
 nothing on a Python repo; what they bought was correct resolution of imports crossing a
 `sys.path` boundary.
 
+#### An `outside` declaration has no effect, or is reported as refused
+
+**Symptom.** A `knowledge-base/settings.json` carrying `{"outside": {"ui": "../packages/ui"}}`
+either does nothing, or the build prints a line on stderr beginning
+`knowledge-base/settings.json: outside.ui: '…'` and ending `; ignored`.
+
+**Confirm.** Read that line — it carries the value it turned away and the reason. Every per-alias
+refusal is emitted through one helper (`skills/freya-code-graph/scripts/settings.py:466`), drawing
+its reason either from the value grammar (`settings.py:364`) or from the checks around it
+(`settings.py:472`–`:512`). The table below is the whole list as of 2026-08-24, in the order the
+code applies them; it is deliberately not preceded by a count, because a reason added later would
+falsify the number and not the table:
+
+| Reason ends with | Means |
+|---|---|
+| `is not usable as an alias — …` | the key, after `strip()`, is empty or holds a character outside letters, digits, `.`, `_`, `-` (`settings.py:127`) |
+| `is not a directory path` | the value is not a non-empty string |
+| `starts with ~, …` | `~` names a different directory for every reader, and this file is committed |
+| the not-relative message (`_NOT_RELATIVE`, `settings.py:360`) | an absolute path, judged with `containment.escapes` and therefore in **both** path flavours — so `C:\shared` is refused on Linux too |
+| `names a directory inside this project; …` | the value has no leading `..` at all, so it never leaves the root — `{"ui": "packages/ui"}`. The code's own note says this clause carries most refusals by count (`settings.py:392`–`:393`) |
+| `does not name a directory that exists` | reported rather than silently inert, because a declaration that buys nothing is a typo or a leftover |
+| `resolves inside this project; …` | it *does* start with `..` but lands back inside — `../<this repo>/sub`, or a symlink that returns. Put it in `directories` instead: one file must never have two spellings |
+| `contains this project, …` | an ancestor is not a scope; point freya at that directory instead |
+| `repeats an alias already declared …` | two spellings `strip()` folded together, e.g. `"ui"` and `" ui "` |
+
+Two more lines come from the same section and are *not* in that table, because neither is a
+per-alias refusal: `"outside" must be an object; ignoring it` discards the whole section at once
+(`settings.py:458`), and the `reaches … through a symlink` line is a notice on a declaration that
+was **honoured** (`settings.py:527`).
+
+**A declaration that is in force and still shows `crossings: 0` is not broken.** Two separate
+sentences are reported and they answer different questions: a declaration being in force, and
+an edge actually crossing. A total of zero says the roots were **not reached**
+(`skills/freya-code-graph/scripts/graph_ops.py:2890`) — which is the true statement and the one
+that reads as an invitation to check the declaration. Where two roots nest, `../packages` and
+`../packages/ui`, the **most specific** one names the file, decided by resolved path length, so
+an outer root can honestly report zero while an inner one covers everything it would have.
+
+**On the `graphify` backend a zero is not even a measurement.** Only the floor's own resolver
+consults declarations; graphify never looks at them (`graph_ops.py:2900`), so `crossings: 0`
+there means the question was never asked. If you have declared a root and want the crossings
+recorded, build on `homegrown` — `freya code-graph --use homegrown` — or read the zero as
+"unknown" rather than "none".
+
+**And a declared root reached through a symlink is honoured, not refused** — it is named on
+stderr instead (`skills/freya-code-graph/scripts/settings.py:527`), because nothing was crossed
+implicitly and `../packages -> …` is an ordinary layout. A symlink planted *under* a declared
+root that points elsewhere is the other case and is refused.
+
+**Fix.** Correct the value, or accept the refusal. Note that changing the declarations discards
+the cached graph and forces a full rebuild on the next `--update`
+(`skills/freya-code-graph/scripts/graph_ops.py:2211`), so a declaration edited between two
+`freya-wrap-up` runs costs a full build rather than an incremental one. That is deliberate: the
+report is recomputed from the settings file while `--update` re-resolves only what git says
+moved, and without the rebuild the artifact contradicts itself in both directions.
+
 #### A stale `classifications.json`
 
 **Symptom.** A directory keeps being treated as source (or excluded) after you changed the rules,
@@ -472,29 +577,39 @@ it was designed and never built (roadmap.md § The semantic pass for the docs gr
 whose documentation cites no code paths gets a document list with zero edges and no remedy short
 of adding citations. This repository is unusually citation-heavy because its own conventions
 demand `path:line` provenance: measured 2026-08-21, 48 documents, 1,010 edges, and 5 documents
-with no edges at all.
+with no edges at all. That figure has not been re-measured since — `docs.json` is gitignored and
+this branch has not rebuilt it — and the citation gate alone now reads well over 1,800
+citations, so treat 1,010 as a floor rather than a current count.
 
 **A third cause worth knowing.** Because edges are filtered against the code graph's file set, a
 citation to a file the *backend cannot read* is silently discarded. On a repository where
 `unmapped_source` is non-empty, missing doc edges and missing code edges have the same root
 cause.
 
-#### `coverage gaps` is a large number that never goes down
+#### `coverage gaps` is a large number that never goes down — fixed, and here is what it means now
 
-**Symptom.** `freya status` and the generated `BACKLOG.md` report a coverage-gap count that
-includes files no behaviour could ever cover.
+**Symptom, historical.** `freya status` and the generated `BACKLOG.md` used to report a
+coverage-gap count padded with files no behaviour could ever cover. Measured on this repository
+on 2026-08-21: 65 reported against 32 actually behaviour-coverable, the other 33 being
+test-infrastructure files and shell scripts. `gaps()` subtracted covered files from *every* file
+in the code graph, and a behaviour's `exercises` names production code, so a `test_*.py` could
+never appear there — every one was a permanent, unactionable entry.
 
-**Confirm.** Measured on this repository on 2026-08-21: **65 reported, 32 actually
-behaviour-coverable.** The other 33 are 30 test-infrastructure files (29 `test_*.py` plus
-`conftest.py`) and 3 shell scripts (`bin/freya`, `install.sh`, `install.ps1`). `gaps()` subtracts
-covered files from *every* file in the code graph
-(`skills/freya-behavior-graph/scripts/behavior_graph.py:411`), and a behaviour's `exercises`
-names production code, so a `test_*.py` will never appear there — every one is a permanent,
-unactionable entry.
+**Resolved.** `gaps()` now filters through `_is_coverable`
+(`skills/freya-behavior-graph/scripts/behavior_graph.py:380`, applied at
+`behavior_graph.py:497`), which drops three classes a behavior can never name: test files
+matched by anchored convention rather than by substring
+(`skills/freya-behavior-graph/scripts/behavior_graph.py:362` — the unanchored version of that
+idea already shipped once and made `contest.py` look like a test), extensionless scripts and
+executables such as `bin/freya` or a `Makefile`, and languages no import system can address.
+Roadmap item 15 is struck as resolved by item 18.
 
-**Fix.** None today; roadmap item 15. The fix is a semantic choice rather than a bug fix —
-excluding by filename convention is exactly the built-in judgement ADR-022 says should be a
-project-overridable default. Read the number as an upper bound, not a worklist.
+**What is still true, and is not a defect.** The filter is applied by `gaps` only.
+`surface`'s per-change `recall_gaps` asks the same shape of question with the same noise and is
+deliberately left alone, because its answer is advisory per change rather than a tracked census
+(`behavior_graph.py:383`). So a wrap-up's validate-on-hit prompt can still name a file the
+whole-repo census would not. Read the census as the worklist and the per-change prompt as a
+nudge.
 
 #### `BACKLOG.md` lost hand-written content
 
@@ -513,18 +628,34 @@ name: on a case-insensitive filesystem `backlog.md` is the same path the generat
 
 #### `freya security scan` exits 1 without scanning
 
-**Symptom.**
+**Symptom**, quoted from the current message
+(`skills/freya-codebase-security-scan/scripts/audit.py:391`–`:394`):
 
 ```
-scan needs an agent CLI on PATH (claude or copilot) and none was found.
+scan needs an agent CLI on PATH (claude or copilot) and none was usable.
+  claude is not on PATH
+  copilot is not on PATH
 There is no other binary to run: the portable fallback is the freya-codebase-security-scan
 skill's own in-loop scan, which the agent performs itself and which is what wrap-up uses.
 ```
 
+**"none was usable", not "none was found", and the two indented lines are the point.** They are
+per-CLI reasons from `program_for`, printed because "not on PATH" is no longer the only way to
+reach this branch: a CLI that resolves inside the repository being audited is refused, and an
+operator who can see `claude` on their `PATH` has to be told that rather than told it is missing
+(`skills/freya-codebase-security-scan/scripts/audit.py:389`). Read the indented line before
+reaching for an installer — if it says the resolution is inside the project, or is not an
+absolute path, the fix is not to install anything. See the `not installed` breakdown under
+[The build used `homegrown`](#the-build-used-homegrown-when-settingsjson-says-graphify), which
+is the same resolver answering the same question.
+
 **Confirm.** `command -v claude`, `command -v copilot`. The driver fans out over the six
 categories on its own thread pool (`audit.py:303`), each worker shelling out to the agent CLI,
-so it needs a headless one; without it the driver exits
-`EXIT_NOTHING_TO_DO` (`skills/freya-codebase-security-scan/scripts/audit.py:371`–`:406`).
+so it needs a headless one; without a usable one the driver exits `EXIT_NOTHING_TO_DO`
+(`skills/freya-codebase-security-scan/scripts/audit.py:395`). `--agent claude` does not skip
+this: it skips *detection*, and `main()` still resolves the named adapter once before the cost
+plan prints, so a refusal costs nothing and arrives explained
+(`skills/freya-codebase-security-scan/scripts/audit.py:403`–`:406`).
 
 **Fix.** Nothing to install from this repo. Fall back to the skill's in-loop scan, which is what
 `wrap-up` uses anyway.
@@ -610,8 +741,11 @@ simultaneously.
 ## Getting Help
 
 If the symptom is not above, check [`roadmap.md` § Open defects](../roadmap.md#open-defects) —
-sixteen numbered entries, each verified against shipped code, and several are the cause of a
-symptom rather than a coincidence. Then run `freya doctor` and include its full output in any
+eighteen numbered entries as of 2026-08-24, numbered 1–18, of which four are struck rather than
+deleted so the reasoning survives (7, 9, 15 and 18), leaving fourteen open. Each is verified
+against shipped code, and several are the cause of a symptom rather than a coincidence; recount
+with `grep -cE '^### (~~)?[0-9]+\.' knowledge-base/roadmap.md` rather than trusting this
+sentence. Then run `freya doctor` and include its full output in any
 report at [github.com/AlexSendula/freya-devkit](https://github.com/AlexSendula/freya-devkit); it
 is the only thing that distinguishes a broken install from a broken repository.
 
@@ -623,6 +757,8 @@ is the only thing that distinguishes a broken install from a broken repository.
   and the verified known gaps
 - [ARCHITECTURE.md](ARCHITECTURE.md) — the substrate, the shape of an edge, and which paths are
   tool-owned
+- [SECURITY.md](SECURITY.md) — why a binary can be refused rather than found, the containment
+  predicates, and the one accepted regression on Windows with Python 3.9-3.11
 - [DEVELOPER.md](DEVELOPER.md) — the conformance gate, test conventions, and how the launcher
   resolves a command
 - [roadmap.md](../roadmap.md) — the single live backlog; every open defect cited above
@@ -634,3 +770,7 @@ is the only thing that distinguishes a broken install from a broken repository.
   baseline on disk
 - [ADR-029](../decisions/ADR-029-an-answer-says-what-it-could-not-read.md) — the census, and why
   it is never a refusal
+- [ADR-030](../decisions/ADR-030-shared-primitives-live-in-a-skill.md) — where the containment
+  and program-resolution primitives live, and why a damaged store refuses instead of searching
+- [ADR-031](../decisions/ADR-031-crossing-the-root-is-a-declared-act.md) — the `outside`
+  section, what a declaration grants, and what it deliberately does not

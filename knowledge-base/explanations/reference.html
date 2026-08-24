@@ -100,7 +100,7 @@
               </tr>
               <tr>
                 <td><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/README.md">knowledge-base/decisions/README.md</a></td>
-                <td>Thirty ADRs — what was decided, why, and what was rejected.</td>
+                <td>Thirty-one ADRs — what was decided, why, and what was rejected.</td>
                 <td>A question is about to be re-litigated. The navigable version is on this site's
                 <a href="decisions.html">Decisions</a> page; the records themselves are the authority.</td>
               </tr>
@@ -136,8 +136,8 @@
               </tr>
               <tr>
                 <td><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/bin/check_skill_conformance.py">bin/check_skill_conformance.py</a></td>
-                <td>Thirteen rules, R1–R13, each carrying its own failure message at the top of the
-                file.</td>
+                <td>Fourteen rules, R1–R14, each carrying its own failure message at the top of the
+                file. Thirteen are portability; R14 is a secrets rule.</td>
                 <td>The gate failed and you want to know what R9 actually objects to. The messages are
                 the documentation.</td>
               </tr>
@@ -169,7 +169,8 @@
 
         <dl class="dl">
           <div><dt>Blast radius</dt><dd>A file plus everything that transitively depends on it. What a change reaches, not what you edited.</dd></div>
-          <div><dt>Internal edge</dt><dd>An import that resolved to a real project file, rather than to an <code>external:</code> or <code>unresolved:</code> tag. Zero internal edges on a large repo means the resolver failed, not that the code is unwired.</dd></div>
+          <div><dt>Internal edge</dt><dd>An import that resolved to a real project file, rather than to an <code>external:</code>, <code>unresolved:</code> or <code>outside:</code> tag. Zero internal edges on a large repo means the resolver failed, not that the code is unwired.</dd></div>
+          <div><dt><code>outside:&lt;alias&gt;/&lt;path&gt;</code></dt><dd>An import that resolved under a directory this project <em>declared</em> outside its own root, in <code>knowledge-base/settings.json</code>. It resolved and is still not a node: the declaration buys resolution only — nothing under a declared root is scanned, walked or globbed and the declaration causes no file under one to be read, the whole reach being a <code>realpath</code>, one <code>is_file()</code> and one cached <code>listdir</code> of the named file's own directory — and an untaught consumer joining the token onto any root gets a path that names nothing. Undeclared, no <em>import</em> reaches outside the root — an <code>..</code> or absolute import comes back <code>unresolved:</code>. A file symlink committed inside the project and pointing outside is a known exception: it is still followed and read (SEC-023). Only the built-in <code>homegrown</code> resolver emits this tag; <code>graphify</code> does not consult declarations, so on that backend a declared root reports <code>crossings: 0</code> whether or not anything crossed it.</dd></div>
           <div><dt>BEH-NNN</dt><dd>A behavior record: one intended, observable fact about the system, numbered stably and never renumbered.</dd></div>
           <div><dt>Lifecycle state</dt><dd><code>proposed → confirmed → accepted</code>, with <code>quarantined</code> and <code>deprecated</code> off to the side. Trust <em>is</em> the state; only accepted gates.</dd></div>
           <div><dt>Adapter</dt><dd>How a behavior reaches its test — a Gherkin scaffold, a native link to a test that already exists, or <code>manual</code>.</dd></div>
@@ -181,7 +182,7 @@
           <div><dt>Direction A / B</dt><dd>A: a code change → the behaviors it affects (regression). B: a behavior → the code that implements it (planning).</dd></div>
           <div><dt>Generated projection</dt><dd>A read-only view derived from one source of truth. Allowed. A hand-maintained second copy of the same facts is not.</dd></div>
           <div><dt>Certainty score</dt><dd>0–100 on an <em>inferred</em> spec. A review heuristic for prose, not the trust signal for executable behavior — that is the lifecycle state.</dd></div>
-          <div><dt><code>spec_ref</code> / <code>behavior_ref</code></dt><dd>Both mark a security finding intentional. A <code>spec_ref</code> is a prose claim; a <code>behavior_ref</code> is an accepted, test-backed guarantee. The second is the stronger one, and the difference is not cosmetic.</dd></div>
+          <div><dt><code>spec_ref</code> / <code>behavior_ref</code></dt><dd>Both mark a security finding intentional. A <code>spec_ref</code> names a spec that says so in prose; a <code>behavior_ref</code> names an <code>accepted</code> behavior whose declared locator resolves to a file in the project. The second is the stronger of the two and the difference is not cosmetic — but <strong>no test is run to produce it</strong>. Both sides of a <code>behavior_ref</code> are supplied by the repository being scanned, so it is a claim checked for shape, not for truth. <code>--covering</code> returns an <code>evidence</code> string saying exactly what it trusted, and the scan is required to copy that string into the report verbatim.</dd></div>
           <div><dt>INTENT-NNN</dt><dd>A declared-intent record — behaviors touched, rationale, approver. The only legitimate reason to change an accepted behavior's test.</dd></div>
           <div><dt>ADR</dt><dd>A cross-cutting architecture decision in <code>decisions/</code>. It records the decision, not the implementation.</dd></div>
           <div><dt>Principle</dt><dd>A project-wide rule in <code>principles.md</code> — the constitution.</dd></div>
@@ -191,7 +192,7 @@
           <div><dt>Two-commit pattern</dt><dd>Code changes in one commit, generated artifacts in a second. Clean history, stable references.</dd></div>
           <div><dt>The store</dt><dd>The git checkout the skills are symlinked <em>from</em>. There is no second installed copy, so <code>freya update</code> fast-forwards the files you were editing.</dd></div>
           <div><dt>The launcher</dt><dd><code>bin/freya</code>. It works out where the suite lives from its own location on disk and runs the target with the interpreter already running — so no <code>SKILL.md</code> names a path or a Python.</dd></div>
-          <div><dt>Conformance rule</dt><dd>One of R1–R13, checked over the shipped skill layer. A <code>SKILL.md</code> can break most of them with the entire test suite green.</dd></div>
+          <div><dt>Conformance rule</dt><dd>One of R1–R14, checked over the shipped skill layer. A <code>SKILL.md</code> can break most of them with the entire test suite green. R1–R13 are portability; R14 requires a skill that sends a worker at secret-bearing material to state the redaction rule, and to restate it in the slot where source gets copied.</dd></div>
           <div><dt>Driver-owned fan-out</dt><dd>Parallel work scheduled by a Python worker pool instead of requested of the agent in prose. Whether the fan-out happened is then a fact, not a claim.</dd></div>
           <div><dt>Validate-on-hit</dt><dd>wrap-up surfacing the proposed and confirmed behaviors a change touched, plus touched code no behavior covers. Advisory, and skippable in one action.</dd></div>
           <div><dt>Cold tail</dt><dd>The behaviors no change ever touches, so validate-on-hit never surfaces them. <code>freya status</code> worklists grind them down one at a time; without that, an inferred corpus never drains.</dd></div>
@@ -313,7 +314,8 @@
           <code>behavior.json</code> lives in the same directory and must be committed: its observed
           coverage comes from running the test suite and cannot be rebuilt by re-reading source.
           <code>knowledge-base/settings.json</code>, one level up, is committed too — it holds the
-          backend choice and any exclusion overrides, both of which have to reach CI.
+          backend choice, any exclusion overrides, and any <code>outside</code> declarations, all of
+          which have to reach CI.
           <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-017-behavior-json-is-committed.md">ADR-017</a></p>
         </div>
 

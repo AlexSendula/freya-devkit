@@ -161,11 +161,21 @@
 
         <p>The load-bearing detail sits one level down, in <code>graph_ops.py</code>'s
         <code>_classify_import</code> and its <code>IMPORT_SIGNALS</code> constant. Every import edge is
-        tagged exactly one of three ways: <strong>internal</strong> (no prefix — it resolved to a real
+        tagged exactly one of four ways: <strong>internal</strong> (no prefix — it resolved to a real
         file in your project), <strong><code>external:&lt;pkg&gt;</code></strong> (a third-party
-        package, recorded as a leaf and never traversed), or
+        package, recorded as a leaf and never traversed),
         <strong><code>unresolved:&lt;import&gt;</code></strong> (it looked internal but could not be
-        mapped to a real file). An edge counts as internal <em>only when it carries neither prefix</em>
+        mapped to a real file), or — new since 0.3.0 —
+        <strong><code>outside:&lt;alias&gt;/&lt;path&gt;</code></strong> (it resolved to a real file
+        under a directory the project <em>declared</em> outside its own root; see
+        <a href="decisions.html">ADR-031</a>). That fourth one is the interesting case, because it
+        <em>did</em> resolve and is still not a node: a declaration buys resolution, never a place in
+        the graph's key space — nothing under a declared root is scanned, walked or globbed, and the
+        declaration causes no file under one to be read. Only the built-in <code>homegrown</code> resolver
+        emits that tag: <code>graphify</code> does not consult declarations, so on that backend a
+        declared root reports <code>crossings: 0</code> whether or not anything crossed it, and the
+        zero means "never looked" rather than "nothing there".
+        An edge counts as internal <em>only when it carries none of the three prefixes</em>
         — a single predicate, reused well beyond the graph. <code>spec-manager</code>'s onboarding
         detector uses it to tell a real codebase from a boilerplate scaffold by counting internal edges
         rather than files. And an import that cannot be resolved is <strong>surfaced, not silently
@@ -1218,30 +1228,53 @@ freya behavior-graph --check --base "$BASE" --project .</code></pre>
       <section>
         <h2 id="when-a-behavior-meets-a-security-finding">When a behavior meets a security finding</h2>
         <p>This is the cross-skill payoff that justifies the apparatus. Once a behavior is
-        <code>accepted</code>, its passing test is the <strong>strongest possible "this is
-        intentional" evidence a security scan can cite</strong> — a verified guarantee rather than a
-        prose claim.</p>
+        <code>accepted</code>, it is the <strong>strongest "this is intentional" evidence a security
+        scan can cite</strong> — stronger than a spec, because somebody has said not just that the
+        behaviour is on purpose but that a named test pins it.</p>
 
         <p>Concretely: a scan flags "this endpoint doesn't verify the user exists" as SEC-001.
-        <code>BEH-003</code>'s passing test proves the uniform response <em>is</em> the intended
-        anti-enumeration guarantee, so the finding is downgraded to <code>intentional</code> with
-        <code>behavior_ref: BEH-003</code> — <strong>annotated, never deleted</strong>, and dropped from
+        <code>BEH-003</code> is accepted, its locator names a test file that exists, and its
+        exercised paths include the flagged file — so the finding is downgraded to
+        <code>intentional</code> with <code>behavior_ref: BEH-003</code> —
+        <strong>annotated, never deleted</strong>, and dropped from
         the outstanding count while staying fully visible in the report. SEC-002, which no accepted
         behavior covers, stays open. And a merely <code>confirmed</code> behavior at most adds an
-        advisory note; the finding stays open until a test actually verifies it.</p>
+        advisory note; the finding stays open.</p>
+
+        <div class="callout callout--warn">
+          <span class="callout-label">Read this before you trust a <code>behavior_ref</code></span>
+          <p><strong>No test is run.</strong> This page said otherwise until 2026-08-24, and so did
+          ADR-012, and the sentence was wrong in the direction that matters. <code>--covering</code>
+          reads two artifacts and both are supplied by the repository being scanned: the behavior's
+          state and locator out of <code>knowledge-base/specs/</code>, and its exercised paths out of
+          the committed <code>knowledge-base/.graph/behavior.json</code>. It checks that the state is
+          <code>accepted</code> and that a declared locator resolves to a file inside the project. It
+          does not execute anything, so what licenses the downgrade is a <em>claim</em> that a passing
+          test exists — checked for shape, never for truth.</p>
+          <p>That gap is not closed, and closing it properly is worse than leaving it open: the only
+          evidence that would not come from the repository under audit is running that repository's
+          test suite, which is a security tool executing hostile code. So the query labels instead of
+          claiming. It returns an <code>evidence</code> string stating exactly what was trusted, and
+          the scan is instructed to copy that string into the report verbatim and never to write
+          <em>"verified by passing test"</em>. The label a human reads is the whole of the
+          mitigation.</p>
+        </div>
 
         <div class="callout callout--why">
           <span class="callout-label">The distinction that carries the weight</span>
           <p>A finding marked intentional can be backed by either of two references, and they are not
           equivalent. <code>spec_ref</code> is a <strong>prose claim</strong> — somebody wrote down that
-          this is on purpose. <code>behavior_ref</code> is a <strong>test-backed guarantee</strong> —
-          something runs, and it passed. Where both explain a finding, the behavior reference wins.</p>
+          this is on purpose. <code>behavior_ref</code> is <strong>a claim with a named test and a
+          resolving locator behind it</strong> — narrower, harder to write by accident, and checked by
+          deterministic code rather than by an agent's judgement. Where both explain a finding, the
+          behavior reference wins. Neither is a verification.</p>
         </div>
 
         <div class="callout callout--info prose-center">
           <span class="callout-label">In the markdown</span>
-          <p>Why only an accepted, test-backed behavior may downgrade a finding, and why a downgrade
-          annotates rather than deletes.</p>
+          <p>Why only an <code>accepted</code> behavior may downgrade a finding, why a downgrade
+          annotates rather than deletes, and — in the dated correction at the top of ADR-012 — what
+          the record originally got wrong about the word "test-backed".</p>
           <ul class="md-links">
             <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-012-accepted-behavior-downgrades-findings.md">knowledge-base/decisions/ADR-012-accepted-behavior-downgrades-findings.md</a></li>
             <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/reference/SKILL_REFERENCE.md">knowledge-base/reference/SKILL_REFERENCE.md</a></li>
@@ -1682,12 +1715,12 @@ freya behavior-graph --check --base "$BASE" --project .</code></pre>
           cmp: "behavior locators and <code>@SPEC</code>/<code>@BEH</code> tags vs the files and specs they point at",
           guards: "traceability of executable behaviors",
           kind: "deterministic", block: true,
-          note: "Cheap and certain: an unresolved locator, a missing reverse tag, an accepted-but-still-scaffold, a duplicate BEH-NNN, an orphan tag." },
+          note: "Cheap and certain: an unresolved locator, a missing reverse tag, an accepted-but-still-scaffold, a duplicate BEH-NNN, an orphan tag. It also refuses a locator or an <code>entry</code> that escapes the project root — an absolute path or a <code>..</code> in spec frontmatter used to make this gate stat and read files outside the project it was pointed at; that refusal shipped in 0.3.0, and what is new since is that the rule is now the shared <code>containment.escapes</code> instead of a hand-maintained copy, and that a locator with no path part at all (<code>#scenario-only</code>) or one naming a directory is refused here too." },
         { id: "G1 intent",
           cmp: "an edit to an accepted behavior's test vs an <code>INTENT-NNN</code> record naming it",
           guards: "changes to an accepted behavior's guarantee",
           kind: "deterministic", block: true,
-          note: "Plugs the edit-both-and-stay-green hole. The gate's own question is a fact, which is what earns it the right to block. Scoped temporally: the record must be new in the change-set." },
+          note: "Plugs the edit-both-and-stay-green hole. The gate's own question is a fact, which is what earns it the right to block. Scoped temporally: the record must be new in the change-set. <strong>Read <code>skipped</code> before you trust exit 0</strong>: the baseline is a hash the repository commits, and a marker that is absent, empty, malformed or unresolvable makes the gate fail open — always saying so, <code>skipped: true</code> with a note, never as a quiet pass. New since 0.3.0, <code>--advance</code> also refuses to move the baseline when the gate skipped because a marker was <em>unusable</em> — empty, malformed or unresolvable — which is what stops a hostile marker from erasing the edit it was supposed to report. <strong>The fourth skip, no marker at all, still advances</strong>, because writing the first marker is how a fresh repository stops being fresh (BEH-090) — so deleting the committed marker is still a way to baseline an unauthorized edit away, and that deletion is what review has to catch." },
         { id: "G2 principles",
           cmp: "the code diff vs <code>principles.md</code>",
           guards: "project-wide principles — the constitution",

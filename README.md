@@ -10,6 +10,82 @@ An integrated, AI-assisted development toolkit for <strong>any coding agent</str
 
 > 📖 **New here? Read the explainer → [alexsendula.github.io/freya-devkit](https://alexsendula.github.io/freya-devkit/)** — a no-install webapp: the problem it solves, how to install and use it, how it works, and how it evolved.
 
+## What's new since 0.3.0 — declaring a directory outside the repo
+
+**None of this is in a numbered release yet.**
+[`.claude-plugin/plugin.json`](.claude-plugin/plugin.json) still reads `0.3.0`, and that file is
+the version a Claude marketplace install sees — so everything below reaches marketplace users at
+the next version bump, not before. `freya update` consumers see no version at all: that path
+fast-forwards the checkout to its tracked branch, so this is live for them the moment it is
+pushed.
+
+**One new capability.** Inside the project root, discovery is automatic and needs no
+configuration — that has not changed. What is new is that a project can name a directory
+*outside* its root, in its committed `knowledge-base/settings.json`:
+
+```json
+{ "outside": { "ui": "../packages/ui" } }
+```
+
+An import in your code that resolves under a declared root becomes the edge target
+`outside:ui/src/Button.tsx` — a fourth kind of answer beside `external:` (a package) and
+`unresolved:` (a gap) — so a system split across sibling checkouts can finally tell *"ours,
+over there"* from *"npm"*.
+
+**A declaration buys resolution and nothing else.** Nothing under a declared root is scanned,
+walked or globbed, and a declaration causes no file under one to be read — the whole filesystem
+reach it grants is a `realpath` on the candidate an in-project import named, one `is_file()`,
+and one cached `listdir` of that file's own directory. No file under a declared root ever
+becomes a node in the graph. Crossing by *import* is never implicit either: an import's `..`,
+a tsconfig `paths` escape and an absolute import all come back `unresolved:` rather than
+reaching out. One gap is open and stated rather than glossed: a **file symlink committed inside
+the project** that points outside is still followed and read by the scanner, with nothing
+declared (SEC-023). The declaration is the only door for imports; it is not yet the only door
+for symlinks. Only relative paths are
+accepted — `~` and absolute paths are refused by name, because that file is committed and both
+of those mean a different directory for every reader. It is a per-project setting and never a
+machine-wide one.
+
+**Only the built-in `homegrown` resolver honours declarations.** Every build that has one prints
+what it declared and how far each root got, zero crossings included — but on the `graphify`
+backend that block always reads `crossings: 0`, not because nothing crossed, but because that
+backend never consults the declarations. Read a zero there as "not looked at", not as "nothing
+crossed". See
+[ADR-031](knowledge-base/decisions/ADR-031-crossing-the-root-is-a-declared-act.md), which
+records this as a known limit.
+
+**Everything else here is a security pass** and changes nothing you type. The toolkit was
+audited against itself; of the nineteen open findings, eighteen are fixed and one more was
+found and fixed on the way. Two of them mattered on Windows, where `CreateProcess` searches
+the working directory before `PATH`: a scanned repository that committed a `graphify.exe` or a
+`claude.exe` at its root could get its own binary run as you. Both are closed the same way —
+`graphify` and the agent CLIs are resolved to an absolute path before they are spawned, or
+refused. That is narrower than "no bare names remain", which is not true: eight read-only `git`
+spawns still use a bare name and are carried in an explicit allowlist CI turns red on a ninth,
+and the project's own test command (`pnpm vitest`) is neither resolved nor allowlisted, because
+running a project's tests executes that project's code anyway. Three behaviour changes worth
+knowing:
+
+- On **Windows with Python 3.9–3.11 only**, the toolkit now *refuses to run the program at
+  all* when a scanned repository has a binary of that name at its root — the legitimate one
+  further down `PATH` is never reached, and the command degrades with a stated reason. Those
+  interpreters ignore the `NoDefaultCurrentDirectoryInExePath` opt-out (3.12+ honours it), so
+  refusing is the only control left there. A denial of service traded for arbitrary code
+  execution, deliberately. On 3.12+, and on every other platform, the real binary is found and
+  nothing changes.
+- The docs-manager's infrastructure detector no longer follows directory symlinks out of the
+  project, so **a manifest reachable only through a symlinked directory is no longer detected**.
+  It also stops at a file and byte cap rather than reading the whole tree.
+- The `graphifyy` install line `freya install` prints is now **version-pinned**, and says out
+  loud that the package is `graphifyy` with two y's while the command it installs is `graphify`
+  with one.
+
+Every GitHub Action this repo runs is SHA-pinned, with Dependabot to move the pins. One finding
+is **mitigated rather than closed** and is deliberately still listed as open:
+`--covering` now *labels* the evidence behind an accepted behavior instead of calling it a
+verified guarantee, because the only evidence that would not come from the scanned repository
+itself is running that repository's tests, which is worse than the problem.
+
 ## What's new in 0.3.0 — the graph reads your language
 
 Everything here stands on the dependency graph, and until this release it was one
@@ -241,7 +317,7 @@ not by feature:
 | **[How it works](https://alexsendula.github.io/freya-devkit/how-it-works.html)** | Architecture, the graph substrate, the behavior layer, governance |
 | **[Extending it](https://alexsendula.github.io/freya-devkit/extending.html)** | Writing a skill, the launcher, testing and CI |
 | **[Reference](https://alexsendula.github.io/freya-devkit/reference.html)** | Where every command and artifact is documented |
-| **[Decisions](https://alexsendula.github.io/freya-devkit/decisions.html)** | The thirty ADRs, and what each one rejected |
+| **[Decisions](https://alexsendula.github.io/freya-devkit/decisions.html)** | The thirty-one ADRs, and what each one rejected |
 | **[How it evolved](https://alexsendula.github.io/freya-devkit/evolution.html)** | The plans that turned out wrong, and what replaced them |
 
 The site is the human-facing narrative. The markdown in
@@ -253,7 +329,7 @@ and the site links to it rather than restating it:
 - [`reference/ARCHITECTURE.md`](knowledge-base/reference/ARCHITECTURE.md) — how they connect, data flow
 - [`reference/DEVELOPER.md`](knowledge-base/reference/DEVELOPER.md) — integration guidelines
 - [`reference/SKILL_REFERENCE.md`](knowledge-base/reference/SKILL_REFERENCE.md) — quick command reference
-- [`decisions/`](knowledge-base/decisions/) — thirty ADRs: what was decided, why, and what was rejected
+- [`decisions/`](knowledge-base/decisions/) — thirty-one ADRs: what was decided, why, and what was rejected
 - [`roadmap.md`](knowledge-base/roadmap.md) — the single live backlog, Track B first
 - [`migrations/`](knowledge-base/migrations/) — one-time moves between versions
 

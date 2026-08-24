@@ -1,10 +1,19 @@
 # Spec Corpus Index
 
-**30 specs · 149 behaviors · all behaviors `proposed`**
+**30 specs · 160 behaviors · all behaviors `proposed`**
 
 This corpus was **inferred by a brownfield scan on 2026-08-21**, not authored by
 hand. Ten parallel workers read the code and its tests and wrote down what the
 suite already guarantees; nothing here changed a line of implementation.
+
+Eleven records are not the scan's. BEH-150…BEH-160 were written by hand on
+2026-08-24 for work that landed after it — the declared out-of-tree roots
+(SPEC-012), the bounded project walk (SPEC-013), the unrecognised-status alarm
+(SPEC-028) and the census notes reaching the backlog (SPEC-029). They are
+`proposed` like the rest, for the same reason: nobody has confirmed them yet.
+The section counts below were **re-measured** over the frontmatter on that date
+rather than adjusted; the two they replace were wrong before this change, by ten
+behaviors in each direction, and the total they summed to was right.
 
 Read it with four things in mind:
 
@@ -13,7 +22,7 @@ Read it with four things in mind:
    the lowest-trust lifecycle state — see
    [ADR-007](../decisions/ADR-007-bootstrap-proposed-drain-lazily.md). `proposed`
    is advisory: it blocks nothing, and only `accepted` is authoritative.
-2. **Nothing needs review now.** The 149-record queue is not a task list to sit
+2. **Nothing needs review now.** The 160-record queue is not a task list to sit
    down and grind through. It drains **lazily, on hit**: when wrap-up touches
    code a behavior covers, that behavior — and only that one — comes up for
    confirmation. The undrained tail is published in
@@ -23,12 +32,12 @@ Read it with four things in mind:
    and ADRs. 100 is reserved for a spec a human wrote or confirmed. Every score
    below is a standing invitation to correct it. The range here is 70–85.
 4. **A `manual` adapter means the test is owed, not that the check is manual.**
-   17 of the 149 behaviors are real, observable guarantees with no test
+   17 of the 160 behaviors are real, observable guarantees with no test
    anywhere. Their `locator:` names the address where the test *should* live, so
    it deliberately points at a file, class or method that does not exist yet.
    `verify-links` skips `manual` records for exactly this reason.
 
-## features (20 specs, 89 behaviors)
+## features (20 specs, 110 behaviors)
 
 | Spec | Title | Status | Certainty | Behaviors | No test |
 |------|-------|--------|-----------|-----------|---------|
@@ -37,8 +46,8 @@ Read it with four things in mind:
 | [SPEC-006](./features/SPEC-006-code-graph-traversal-and-cache-clear.md) | Transitive traversal and clearing the graph cache | implemented | 72 | 2 | — |
 | [SPEC-010](./features/SPEC-010-default-graph-scope.md) | Default Graph Scope — What a Build Reads Before Anyone Configures Anything | implemented | 85 | 5 | — |
 | [SPEC-011](./features/SPEC-011-two-tier-exclusion-override.md) | A Project Can Overrule Any Exclusion Default, in Two Tiers | implemented | 80 | 5 | — |
-| [SPEC-012](./features/SPEC-012-directory-verdicts-and-the-classification-cache.md) | Where a Directory Verdict Lives, and What Invalidates the Cache | implemented | 80 | 5 | — |
-| [SPEC-013](./features/SPEC-013-project-stack-detection.md) | Project Stack Detection | implemented | 80 | 6 | 1 |
+| [SPEC-012](./features/SPEC-012-directory-verdicts-and-the-classification-cache.md) | Where a Directory Verdict Lives, and What Invalidates the Cache | implemented | 80 | 9 | — |
+| [SPEC-013](./features/SPEC-013-project-stack-detection.md) | Project Stack Detection | implemented | 80 | 11 | 1 |
 | [SPEC-014](./features/SPEC-014-existing-docs-detection.md) | Existing Documentation Detection | implemented | 85 | 2 | — |
 | [SPEC-015](./features/SPEC-015-docs-graph.md) | The Docs Graph — Which Documentation Section Cites Which Code | implemented | 82 | 7 | 1 |
 | [SPEC-016](./features/SPEC-016-adr-record-integrity.md) | ADR record integrity and index | implemented | 85 | 6 | 1 |
@@ -49,15 +58,15 @@ Read it with four things in mind:
 | [SPEC-021](./features/SPEC-021-declarative-drift-scope.md) | Declarative-drift scope and the gaps view (P4b) | implemented | 80 | 5 | — |
 | [SPEC-023](./features/SPEC-023-behavior-blast-radius-and-audits.md) | Blast radius in both directions, and the uncovered-code audit | implemented | 75 | 5 | — |
 | [SPEC-024](./features/SPEC-024-behavior-execution-dispatch.md) | What the behavior layer runs, and what it refuses to invent | implemented | 80 | 5 | — |
-| [SPEC-028](./features/SPEC-028-the-status-census.md) | The Status Census | implemented | 80 | 10 | 2 |
-| [SPEC-029](./features/SPEC-029-the-generated-backlog.md) | The Generated Backlog | implemented | 75 | 4 | 2 |
+| [SPEC-028](./features/SPEC-028-the-status-census.md) | The Status Census | implemented | 80 | 11 | 2 |
+| [SPEC-029](./features/SPEC-029-the-generated-backlog.md) | The Generated Backlog | implemented | 75 | 5 | 2 |
 | [SPEC-030](./features/SPEC-030-wrap-up-orchestration.md) | Wrap-Up Orchestration | implemented | 70 | 0 | — |
 
 `SPEC-030` is **declarative**: wrap-up is `SKILL.md` alone, with no engine, no
 tests and no manifest entry, so it has intent to record but no behavior it could
 honestly claim to pin.
 
-## infra (10 specs, 60 behaviors)
+## infra (10 specs, 50 behaviors)
 
 | Spec | Title | Status | Certainty | Behaviors | No test |
 |------|-------|--------|-----------|-----------|---------|
@@ -74,14 +83,15 @@ honestly claim to pin.
 
 ## Id allocation
 
-`SPEC-001` … `SPEC-030` and `BEH-001` … `BEH-149` are all in use, with no gaps
-and no duplicates. `BEH-150` was reserved for the scan and never spent, so it is
-the next free behavior id; `SPEC-031` is the next free spec id.
+`SPEC-001` … `SPEC-030` and `BEH-001` … `BEH-160` are all in use, with no gaps
+and no duplicates — re-measured 2026-08-24 over the frontmatter rather than
+taken from this file. `BEH-161` is the next free behavior id; `SPEC-031` is the
+next free spec id.
 
 ## Where the coverage gaps are
 
 The 17 `manual` behaviors are the scan's honest ledger of intent that nothing
-executes. Two areas carry most of it:
+executes. All 17 are the scan's; every behavior added since carries a real test. Two areas carry most of it:
 
 - **`SPEC-017` (all 5).** `search_specs.py` is the only script in
   `skills/freya-spec-manager/scripts/` with no `test_*.py` sibling — and it is

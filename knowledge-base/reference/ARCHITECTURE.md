@@ -125,7 +125,19 @@ two, `extracted` or `inferred` (`substrate.py:63`). The artifact carries `versio
 (`substrate.py:94`); readers still accept the bare-string shape, and `upgrade_edges` rewrites it
 in memory on load without stamping the version, so a version-1 artifact is rebuilt rather than
 papered over (`substrate.py:237`). "Could not be resolved" is a prefix on the edge's *target* —
-`unresolved:<raw>`, alongside `external:` (`substrate.py:69`) — never a provenance value.
+never a provenance value.
+
+**There are three such prefixes, not two** (`substrate.py:86`). `external:` is a package,
+`unresolved:` is something that could not be resolved, and `outside:<alias>/<rel>` — added
+2026-08-23 with ADR-031 (`substrate.py:79`) — resolved to a real file under a directory this
+project **declared** outside its own root. The third is the one worth stating, because unlike
+the other two it *did* resolve and is still not a node: `is_internal` is false for it
+(`substrate.py:102`), so `link_dependents` builds no reverse edge and `validate_graph` demands
+none, and the key space stays exactly what ADR-025 says it is. The tuple lives in one place
+because three skills filter on it independently and a fourth prefix added without updating all
+of them would be counted as an internal edge — which is not hypothetical: when the fourth
+arrived, `graph_ops` and spec-manager's `project_shape` had each grown their own copy. All
+three read this definition now.
 
 The node queries stay in paths. `--impact`, `--dependents` and `--dependencies` answer with path
 strings, and only `--query` returns edges — the one query whose question is "tell me about this
@@ -138,10 +150,13 @@ third type-checks it and degrades (`run_behaviors.py:353`).
 **Provenance is recorded and read by nothing.** The design was that only `extracted` edges may
 gate `wrap-up` and `inferred` ones are advisory; no code implements that filter, so an inferred
 edge reaches blast radius indistinguishable from an extracted one. The tier is designed and
-unenforced. Counted on this repository's graphify artifact on 2026-08-21, 12 of its 120
-file-level edges are `inferred`. Symbol refinement — `from_symbol`, `to_symbol`, `line` — is an
+unenforced. Recounted 2026-08-24 on `knowledge-base/.graph/graph.graphify.json` as it stands in
+this worktree (built by graphify at commit `9b7a3bc`): 17 of its 161 file-level `imports` edges
+are `inferred`. The artifact is gitignored, so a fresh clone has no graph to count and the figure
+has to be rebuilt rather than read — an earlier build of a smaller tree read 12 of 120. Symbol
+refinement — `from_symbol`, `to_symbol`, `line` — is an
 optional addition to the same edge and is off unless a project asks for it
-(`settings.py:158`); the graph in this checkout carries none. See
+(`settings.py:158`); measured the same day, no edge in this checkout's graph carries any. See
 [ADR-021](../decisions/ADR-021-an-edge-is-an-object-with-kind-and-provenance.md) and
 [ADR-024](../decisions/ADR-024-symbols-refine-an-anchor-never-replace-it.md).
 
@@ -168,9 +183,15 @@ carry it whole, including a prose `advice` sentence and a `readable_by` recommen
 (`graph_ops.py:3000`), because behavior-runner rejects any `--dependencies` answer that is not a
 list of strings and routes the behaviour to `coverage: unknown`
 (`run_behaviors.py:353`). In an *answer* the key is **absent**, not empty, when there is nothing
-to say (`graph_ops.py:2693`), so a repository the backend reads completely produces the same
-output it did before this existed. The artifact is the exception: `_finalise` always writes the
-block, so a clean census is recorded there as `{"files": 0}` rather than omitted.
+to say (`graph_ops.py:2812`–`:2823`), so a repository the backend reads completely produces the
+same output it did before this existed. The artifact is the exception: `_finalise` always writes
+the block, so a clean census is recorded there as `{"files": 0}` rather than omitted.
+
+`_answer_caveats` is now the one place that discipline is enforced for **two** caveats rather
+than one: ADR-031's `outside_roots` block rides the same funnel and obeys the same absent-not-
+empty rule (`graph_ops.py:2824`). That is deliberate — a second caveat added at four surfaces
+independently is four chances to get the empty case wrong, and the split was in fact inverted on
+exactly the surface a person reads before it was centralised.
 
 It is never a refusal. Nothing changes an exit code or takes a gate red because of it, and the
 rule is written into the code beside the `degraded_from` refusal it must not join
@@ -199,7 +220,15 @@ These skills maintain structured knowledge about the codebase. `behavior-graph` 
 | `codebase-security-scan` | Security auditing | code-graph, spec-manager, behavior-graph |
 | `dependency-vulnerability-check` | Supply chain security | None |
 
-Security analysis benefits from impact awareness (code-graph) and from understanding intentional design — both declarative specs and **accepted, test-backed behaviors** (the strongest "intentional" evidence).
+Security analysis benefits from impact awareness (code-graph) and from understanding intentional
+design — both declarative specs and **accepted behaviors**, which are the strongest
+"intentional" evidence on offer. That is not the same thing as a verified guarantee, and this
+line used to say "test-backed", which is the claim SEC-006 falsified: `--covering` re-derives
+state and locator from the project's committed specs and reads its `exercises` out of the
+project's committed `behavior.json`, and it runs no test. It labels its own evidence instead
+(`skills/freya-behavior-graph/scripts/behavior_graph.py:599`), and the skill copies that label
+into the report verbatim. See
+[SECURITY.md § A finding may be downgraded, never deleted](SECURITY.md#a-finding-may-be-downgraded-never-deleted).
 
 #### The audit driver
 
@@ -273,19 +302,23 @@ Codebase Files
 ```
 
 The active graph and the copy the same build wrote are byte-identical; they diverge only when a
-project switches backend. In this checkout, on 2026-08-21, `graph.json` and
-`graph.graphify.json` are identical (51,387 bytes, 65 indexed files) and `graph.homegrown.json`
-is the floor's build kept from before the switch (81,467 bytes, 62 indexed files) — measured
-with `cmp` and by counting the `files` object in each artifact.
+project switches backend. Still true on this worktree on 2026-08-24: `graph.json` and
+`graph.graphify.json` are the same 65,547 bytes with the same MD5 and the same 77 indexed files,
+both stamped commit `9b7a3bc`. There is no `graph.homegrown.json` here to compare against — an
+earlier checkout on 2026-08-21 kept one from before the switch, at which point the pair read
+51,387 bytes / 65 files and the floor's build 81,467 bytes / 62 files. All three names are
+gitignored, so a fresh clone has none of them and the byte and file counts are properties of
+whatever a rebuild produces, not of the repository. Rebuild before quoting any of these figures.
 
 ### Output Artifacts
 
 **Everything under `knowledge-base/` is designed to be committed except the four generated cache
 files inside `.graph/`** — `.graph/` itself is not ignored, and neither its `.gitignore` nor
 `behavior.json` nor `settings.json` is. The tree below marks each line so you never have to
-infer it. Three lines read `committable — untracked here`: this repository adopted the
-`knowledge-base/` layout on 2026-08-21 and has not committed them yet, so `git ls-files` returns
-nothing for them while `git check-ignore` also declines them.
+infer it. Re-checked with `git ls-files` and `git check-ignore` on 2026-08-24: the three lines
+that were `committable — untracked here` when this page was written are now **tracked**, all
+three committed at `2deb4ef` — `knowledge-base/settings.json`, `knowledge-base/.graph/.gitignore`
+and `knowledge-base/.graph/behavior.json`.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -306,27 +339,35 @@ nothing for them while `git check-ignore` also declines them.
 │ ├── intents/              ← spec-manager        tracked      │
 │ ├── security/             ← security-scan       tracked      │
 │ │   ├── codebase-security/                      tracked      │
-│ │   │   └── 2024-01-15.md                       tracked      │
+│ │   │   ├── 2026-08-21.md                       tracked      │
+│ │   │   └── findings.json                       tracked      │
 │ │   └── .security-last-scan                     tracked      │
-│ ├── settings.json         ← engineer/code-graph committable* │
+│ ├── settings.json         ← engineer/code-graph tracked      │
 │ └── .graph/                                                  │
-│     ├── .gitignore            ← written by us   committable* │
+│     ├── .gitignore            ← written by us   tracked      │
 │     ├── graph.json            ← code-graph      ignored      │
 │     ├── graph.<backend>.json  ← code-graph      ignored      │
 │     ├── classifications.json  ← code-graph      ignored      │
 │     ├── docs.json             ← docs-manager    ignored      │
-│     └── behavior.json         ← behavior-graph  committable* │
-│                                                              │
-│   * not ignored, and not yet committed in this repository    │
+│     └── behavior.json         ← behavior-graph  tracked      │
 └─────────────────────────────────────────────────────────────┘
 ```
+
+Only the four `ignored` lines are absent from a fresh clone — absent from the *clone*, not
+necessarily from a working tree that has run a build. Listed on this one on 2026-08-24,
+`knowledge-base/.graph/` holds four files: the tracked `.gitignore` and `behavior.json`, plus
+`graph.json` and `graph.graphify.json`, both ignored and both left over from a build here. The
+classification cache and the docs graph are not present. Any measurement on this page that counts
+nodes or bytes is therefore a property of somebody's build, not of the repository — rebuild
+before quoting one.
 
 `.graph/` ignores its cache by name: `code-graph --build` writes a `.gitignore` listing
 `graph.json`, `graph.*.json`, `classifications.json` and `docs.json`
 (`skills/freya-code-graph/scripts/graph_ops.py:247`, assembled into the file at
 `graph_ops.py:249`), so an adopting project never has to touch its root `.gitignore`. Those four
 are a **parse cache** — rebuildable from source in seconds, large (124 KB on a ~230-file app;
-81.5 KB and 51.4 KB for the two artifacts in this checkout), and not byte-stable across builds,
+64 KB each for the two artifacts sitting in this checkout on 2026-08-24), and not byte-stable
+across builds,
 since each records the wall-clock `timestamp` of the build that wrote it. (The edge arrays
 themselves *are* deterministic: both the specifier pass and the resolved-target pass sort before
 emitting, `graph_ops.py:1159` and `:2073`. Two consecutive builds of an unchanged tree, measured
@@ -343,8 +384,12 @@ rewritten, and one containing anything else is treated as hand-edited and left a
 (`graph_ops.py:272`, `:280`).
 
 `knowledge-base/settings.json` sits outside `.graph/` and is **meant to be committed**: it is
-where a project records which backend it wants and which built-in exclusions it overrules, and both have to
-survive a clone and reach CI. The first build in a project that has not decided seeds it from
+where a project records which backend it wants, which built-in exclusions it overrules, and —
+since ADR-031 — which directories outside its own root it declares under `outside`. All three
+have to survive a clone and reach CI, which is also why `outside` accepts only relative paths: a
+committed file must name the same directory in every clone, and `~` denotes a different one for
+every reader (`skills/freya-code-graph/scripts/settings.py:413`). The first build in a project
+that has not decided seeds it from
 the machine default rather than leaving the choice implicit, validating the name against the
 registry on the way (`graph_ops.py:3262`), and prints one line asking for it to be committed
 (`graph_ops.py:3270`). Nothing verifies that it was; that line is the entire mechanism. See
@@ -440,10 +485,22 @@ Skills use tracking files to enable incremental updates:
 | `graph.json` → `commit` field | code-graph | Commit graph was built from |
 | `graph.json` → `substrate.backend` | code-graph | Which backend produced the artifact. A foreign one forces a full rebuild rather than splicing one resolver's edges into another's graph (`graph_ops.py:2183`) |
 | `graph.json` → `version` field | code-graph | Schema version on disk. A version-1 artifact forces a full rebuild ahead of the "nothing changed" short-circuit (`graph_ops.py:2196`) |
+| `graph.json` → `substrate.outside_roots` | code-graph | The `outside` declarations the artifact was built under. A change to them discards the cached graph and forces a full build (`graph_ops.py:2211`) |
 
-These enable "only process what changed" behavior. The last two are the exceptions that
-deliberately *defeat* it: both are conditions under which an incremental pass would produce a
+These enable "only process what changed" behavior. The last three are the exceptions that
+deliberately *defeat* it: each is a condition under which an incremental pass would produce a
 plausible-looking graph that is wrong about where its edges came from.
+
+The `outside_roots` row is the newest and the one whose cost is easiest to miss. A declaration
+is not a per-file change, so per-file incrementality cannot see it: `--update` re-resolves only
+what git says moved, while the report is recomputed from the settings file as it reads *now*.
+Both directions lied before the comparison existed — remove a declaration and the artifact keeps
+`outside:` targets with nothing in force; add one and the report says `crossings: 0` over a file
+that does cross. The comparison is over the declarations and **not** over what they resolve to,
+so a root whose target is replaced on disk between two runs keeps its signature and does not
+force a rebuild; git cannot see outside the project and nothing here could notice. That bound is
+stated rather than implied, and it matters more than it looks because `freya-wrap-up` runs
+`--update`, not `--build`.
 
 ## Fallback Behavior
 
@@ -452,6 +509,20 @@ Skills degrade rather than fail when a dependency is missing — the general sha
 The behavior layer degrades the same way: with no `code-graph` cache the declarative-drift check
 bounds its blast radius to changed files (never a silent empty set), and non-vitest / non-unit
 behaviors are emitted `coverage: "unknown"` rather than falsely marked passing.
+
+**One degrade path there was reachable without a missing dependency, and that is what makes it
+worth naming.** `compute_impact` shells out to code-graph and falls back to `changed-only` when
+the child fails. A filename `git diff --name-only` printed — `--build` is a legal filename on
+every platform this runs on, and `git add -- --build` is all it takes to commit one — went into
+the child's argv as a bare positional, argparse read it as a flag, the child exited rc=2, and
+the `CalledProcessError` was swallowed one frame up. Every dependent silently left the blast
+radius and the run reported success: one filename turning the declarative-drift gate into a
+check of the changed files and nothing else. Paths are now spelled `./<path>`, which argparse
+cannot read as a flag and `normalize_key` strips again on the way in, so the graph is keyed
+exactly as before. The measured detail worth carrying: the reorder that landed alongside it —
+moving `--impact` last so its `nargs='+'` has nothing to swallow — is defence in depth and not
+load-bearing, and reverting it alone leaves both tests green
+(`skills/freya-spec-manager/scripts/test_drift.py:149`).
 
 The substrate has its own ladder, and it is the one place where degrading is recorded in the
 artifact rather than only announced. Five paths end in "run the stdlib floor and say so":
@@ -491,8 +562,15 @@ bin/
 ├── updater.py                  # `freya update` (fast-forward + re-link) + the update notice
 ├── agents_md.py                # `freya init` — the managed AGENTS.md block
 ├── backend_setup.py            # the once-per-machine substrate question, asked at install/update
-└── check_skill_conformance.py  # the agent-neutrality gate (R1–R13)
+└── check_skill_conformance.py  # the skill-layer gate: R1–R13 agent neutrality, plus R14
 ```
+
+R14 is the exception the comment above has to spell out rather than absorb into a digit: it is
+not an agent-neutrality rule at all. It requires a skill that sends a worker at secret-bearing
+material to state the redaction rule and to restate it in the copied-source slot
+(`bin/check_skill_conformance.py:50`). Everything else the gate does is portability; this one is
+the prose half of the redaction control in
+[SECURITY.md § A secrets finding is fingerprinted before it can be re-sent](SECURITY.md#a-secrets-finding-is-fingerprinted-before-it-can-be-re-sent).
 
 `backend_setup.py` is called from both `bin/installer.py:988` and `bin/updater.py:394` and lives
 in `bin/` rather than under `skills/freya-code-graph/`, because the answer it records is a
@@ -516,7 +594,10 @@ freya-code-graph/scripts/
   backends.py           the registry, selection, the extension census
   graph_ops.py          the `homegrown` floor, the contract's funnel, the CLI
   backend_graphify.py   the graphify backend: extract, project onto file pairs
-  settings.py           project + machine settings, and their precedence
+  settings.py           project + machine settings, precedence, `outside` roots
+  containment.py        SHARED — the four path-containment predicates (ADR-030)
+  exec_path.py          SHARED — resolve an external program to an absolute path,
+                        or refuse (ADR-030)
 
 freya-docs-manager/scripts/
   detect_project.py     stack / framework detection
@@ -536,10 +617,28 @@ freya-behavior-runner/scripts/run_behaviors.py
 
 freya-codebase-security-scan/scripts/              the audit driver (above)
   audit.py              CLI, budget guard, confirmation, exit codes
-  audit_engine.py       discovery loop, dedup, skeptic voting, disposition
-  audit_adapter.py      per-agent argv (claude / copilot) + read-only flags
-  audit_io.py           categories, lenses, JSON schemas, extract + validate
+  audit_engine.py       discovery loop, dedup, skeptic voting, disposition,
+                        and the single ingest where a secrets finding is redacted
+  audit_adapter.py      per-agent argv (claude / copilot), read-only flags,
+                        and the absolute-argv[0] refusal
+  audit_io.py           categories, lenses, JSON schemas, extract + validate,
+                        and the redaction helper the ingest calls
 ```
+
+**Two of those modules are marked SHARED and the placement is a decision, not an accident.**
+`containment.py` and `exec_path.py` hold one body each of a rule several skills need, and they
+live under `freya-code-graph/scripts/` rather than in `bin/` or a `skills/_shared/` because
+those are the only two locations that survive every install mode. A real `--copy` install
+produces ten `freya-*` directories and a launcher shim with **no `bin/` sibling**, so a skill
+importing from `bin/` works under symlink and breaks under copy — on Windows, where copy is the
+normal mode; and `discover_skills` requires a `freya-`-prefixed directory carrying a `SKILL.md`,
+so a `skills/_shared/` would be invisible to the installer and would be the first shipped module
+a copy install does not carry. Both facts were measured against the installer rather than
+reasoned about; [ADR-030](../decisions/ADR-030-shared-primitives-live-in-a-skill.md) is the
+record, and it also states the cost — routing argv[0] through a helper makes INV-2 structurally
+blind to those sites, so a converted site loses its allowlist entry rather than shrinking it.
+Importers reach them by the `parents[2]` sibling pattern; the two that can run on a damaged tree
+guard the import and refuse rather than falling back to a bare name.
 
 ## Key Design Decisions
 
@@ -555,6 +654,8 @@ revisit, is in [decisions/](../decisions/); this table is a map, not a summary.
 | An edge is an object with `kind` and `provenance` ([ADR-021](../decisions/ADR-021-an-edge-is-an-object-with-kind-and-provenance.md)) | A string carries exactly one fact — where the edge points — so a barrel that only forwards a module and a module that uses it were the same value | Stay file-level with bare strings and drop the symbol kinds |
 | Each backend writes its own graph beside the active one ([ADR-028](../decisions/ADR-028-graphs-are-stored-per-backend.md)) | With one file the baseline is destroyed at exactly the moment a swap needs diffing | Copy the graph aside by hand before switching |
 | Every answer says what the backend could not read ([ADR-029](../decisions/ADR-029-an-answer-says-what-it-could-not-read.md)) | A file whose extension the backend does not handle is never enumerated, so `files_scanned` reads like a denominator | Say it on stderr everywhere — discarded by all three skill-to-skill callers |
+| Shared primitives live in a skill, never in `bin/` ([ADR-030](../decisions/ADR-030-shared-primitives-live-in-a-skill.md)) | A real `--copy` install produces ten `freya-*` directories and a launcher shim with no `bin/` sibling, so a skill importing from `bin/` breaks under the mode Windows uses by default | A `skills/_shared/`, which `discover_skills` would not carry at all |
+| Crossing the project root is a declared act, and it buys resolution only ([ADR-031](../decisions/ADR-031-crossing-the-root-is-a-declared-act.md)) | Discovery outside the root cannot be automatic without handing a scanned repository a read primitive; a declaration that only resolves gives the feature with none of that | Extend `directories` with a third verdict — the key space is project-relative, so an out-of-tree key corrupted the graph rather than extending it |
 
 Two promises in that set are **designed and unenforced**, and are recorded that way rather than
 in the present tense: the `extracted`/`inferred` trust tier has no filter behind it, and
@@ -570,20 +671,26 @@ already on the machine, or optional.
 | Dependency | Required | Used for |
 |---|---|---|
 | Python 3 | yes | Everything. `bin/freya` runs each target with `sys.executable`, so no SKILL.md names an interpreter |
-| `git` | for incremental work | The `commit` field a graph is built from (`graph_ops.py:536`) and the diff an update reads (`graph_ops.py:562`). `.gitignore` is also a scope input, but it is read as a plain file and needs no git |
-| `graphify` | no | The second substrate backend. Availability is `shutil.which('graphify')` and nothing more (`skills/freya-code-graph/scripts/backend_graphify.py:303`) |
-| an agent CLI (`claude` / `copilot`) | no | The security audit driver's worker processes. Without one it exits `1` and the skill falls back to an in-loop scan |
-| `pytest` | development only | The runner CONTRIBUTING tells contributors to use. The suites themselves are not written for it — all 29 test modules in this checkout import `unittest` and none imports `pytest` |
+| `git` | for incremental work | The `commit` field a graph is built from (`graph_ops.py:536`) and the diff an update reads (`graph_ops.py:574`). `.gitignore` is also a scope input, but it is read as a plain file and needs no git |
+| `graphify` | no | The second substrate backend. Availability is `exec_path.resolve('graphify', project_dir)` — on `PATH`, absolute, and not inside the repository being analysed (`skills/freya-code-graph/scripts/backend_graphify.py:318`) |
+| an agent CLI (`claude` / `copilot`) | no | The security audit driver's worker processes. Same resolution rule (`skills/freya-codebase-security-scan/scripts/audit_adapter.py:210`). Without a usable one it exits `1` and the skill falls back to an in-loop scan |
+| `pytest` | development only | The runner CONTRIBUTING tells contributors to use. The suites themselves are not written for it — all 37 test modules in this checkout import `unittest` and none imports `pytest` |
 
 `graphify` is the only one that changes what an artifact contains. Two costs are worth stating
-before adopting it. It has **no version check**: `available()` tests for the binary on `PATH`
-and nothing else, so an incompatible release is selected and then fails into the degrade path
+before adopting it. It has **no version check**: `available()` asks only where the binary is,
+never what it is, so an incompatible release is selected and then fails into the degrade path
 rather than being refused up front. And it writes its own extraction output to `graphify-out/`
 at the project root, which is a different order of magnitude from the projected graph — measured
-in this checkout on 2026-08-21, `graphify-out/` is 16 MB with a 5.0 MB `graph.json`, against the
-51 KB contract graph projected from it. The backend writes a `.gitignore` containing `*` into
-that directory after the tool has run, and leaves a hand-edited one alone
-(`backend_graphify.py:395`).
+on 2026-08-21, `graphify-out/` was 16 MB with a 5.0 MB `graph.json`, against the 51 KB contract
+graph projected from it. The backend writes a `.gitignore` containing `*` into that directory
+after the tool has run, and leaves a hand-edited one alone (`backend_graphify.py:395`).
+
+What `available()` *is* no longer is a bare `PATH` check, and the difference is a security
+property rather than a refinement: this backend is armed by the scanned repository's own
+`knowledge-base/settings.json`, so a `graphify.exe` committed at that repository's root was
+both selected and found. A resolution that is not absolute, or that lands inside the project
+being analysed, now reads as "not installed" and degrades to the floor. See
+[SECURITY.md § The one accepted regression: Windows on Python 3.9-3.11](SECURITY.md#the-one-accepted-regression-windows-on-python-39-311).
 
 ## Related Documentation
 

@@ -38,9 +38,10 @@
       </div>
       <p class="center muted small prose-center">
         That is the only number on this page, because it is the only one that is <em>measured</em>
-        rather than asserted. <code>bin/check_skill_conformance.py</code> enforces thirteen rules with
+        rather than asserted. <code>bin/check_skill_conformance.py</code> enforces fourteen rules with
         zero exemptions and exits clean on the tree today — so "the port is finished" is a claim you
-        can check in one command rather than take on trust.
+        can check in one command rather than take on trust. (Thirteen of the fourteen are the
+        portability rules; <code>R14</code> rides on the same gate and is about redacting secrets.)
       </p>
     </section>
 
@@ -320,7 +321,8 @@
             <tr>
               <td>That no host-specific construct survives</td>
               <td>Run <code>bin/check_skill_conformance.py</code>. It scans every skill file and exits
-              clean only if all thirteen rules pass.</td>
+              clean only if all fourteen rules pass — thirteen portability rules and one about
+              redacting secrets.</td>
             </tr>
             <tr>
               <td>What actually happened during live testing</td>
@@ -348,7 +350,7 @@
         <pre class="code"><code><span class="tok-c"># no network, no agent, no cost — every agent call is an injected callable</span>
 python -m pytest bin/ skills/ -q
 
-<span class="tok-c"># thirteen rules, zero exemptions; a non-zero exit is a host-specific leak</span>
+<span class="tok-c"># fourteen rules, zero exemptions; a non-zero exit is a host-specific leak (or, for R14, a missing redaction rule)</span>
 python bin/check_skill_conformance.py</code></pre>
       </div>
 

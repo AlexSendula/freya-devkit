@@ -6,7 +6,7 @@ tags: [status, worklists, behaviors, coverage, security, degradation, read-only]
 status: implemented
 certainty: 80
 created: 2026-08-21
-updated: 2026-08-21
+updated: 2026-08-24
 related_code:
   - skills/freya-status/scripts/collect_status.py
   - skills/freya-status/SKILL.md
@@ -17,6 +17,7 @@ intentional_decisions:
   - "verify_links' non-zero exit is a findings signal, not a failure — its JSON is read, never discarded by check=True"
   - "behavior_census accepts a project root or a specs directory, so a path that does not exist reports zero rather than raising"
   - "A spec that cannot be parsed or decoded is skipped, not fatal — one stray byte used to end the whole walk"
+  - "Findings are partitioned by status, never filtered by it — a status this report does not recognise is counted as open and named"
 behaviors:
   - behavior_id: BEH-136
     title: The census counts every behavior in the specs tree by lifecycle state
@@ -49,11 +50,17 @@ behaviors:
     adapter: manual
     locator: skills/freya-status/scripts/test_collect_status.py#CensusTest.test_an_unreadable_spec_does_not_stop_the_walk
   - behavior_id: BEH-141
-    title: Only findings still open reach the report — resolved and intentional ones are left out
+    title: Settled findings are left out of the report — resolved and intentional are the two statuses that are
     state: proposed
     level: unit
     adapter: unittest
     locator: skills/freya-status/scripts/test_collect_status.py#SecurityBucketTest.test_open_findings_only
+  - behavior_id: BEH-159
+    title: A finding carrying a status this report does not recognise is counted as open and named in the note
+    state: proposed
+    level: unit
+    adapter: unittest
+    locator: skills/freya-status/scripts/test_collect_status.py#SecurityBucketTest.test_an_unrecognised_status_is_counted_as_open_and_named
   - behavior_id: BEH-142
     title: A behavior whose captured coverage was fingerprinted at some commit other than HEAD is reported stale
     state: proposed
@@ -131,7 +138,8 @@ turns into signal rather than a uniform slog.
 | BEH-138 A confirmed behavior reaches the test-owed worklist, and is the only state that does | proposed | `test_collect_status.py#CensusTest.test_test_owed_worklist_is_confirmed` (unittest) |
 | BEH-139 A project with no specs directory reports an empty census instead of failing | proposed | `test_collect_status.py#CensusTest.test_missing_specs_dir_is_empty` (unittest) |
 | BEH-140 A spec file that cannot be parsed or decoded is skipped and the walk continues | proposed | **no test** — `test_collect_status.py#CensusTest.test_an_unreadable_spec_does_not_stop_the_walk` is where one belongs (manual) |
-| BEH-141 Only findings still open reach the report | proposed | `test_collect_status.py#SecurityBucketTest.test_open_findings_only` (unittest) |
+| BEH-141 Settled findings are left out — `resolved` and `intentional` are the two statuses that are | proposed | `test_collect_status.py#SecurityBucketTest.test_open_findings_only` (unittest) |
+| BEH-159 A status this report does not recognise is counted as open and named in the note | proposed | `test_collect_status.py#SecurityBucketTest.test_an_unrecognised_status_is_counted_as_open_and_named` (unittest) |
 | BEH-142 A behavior fingerprinted at some commit other than HEAD is reported stale | proposed | `test_collect_status.py#StaleBucketTest.test_stale_when_freshness_differs_from_head` (unittest) |
 | BEH-143 Link-integrity errors survive the checker's non-zero exit | proposed | `test_collect_status.py#VerifyBucketTest.test_returns_errors_even_when_subprocess_exits_nonzero` (unittest) |
 | BEH-144 Each unavailable source degrades to an empty bucket plus a note | proposed | `test_collect_status.py#SecurityBucketTest.test_missing_findings_is_note` (unittest) |
@@ -199,18 +207,50 @@ all-zero result looks like a swallowed error. It is the documented contract (BEH
 consequence honestly: a typo'd `--project` reports a clean, empty project rather than
 complaining, and nothing currently distinguishes the two.
 
-### Only `open` findings count as outstanding
+### Findings are partitioned by status, never filtered by it
 
-**Decision**: `security_bucket` keeps findings whose `status` is exactly `open`, so `resolved`
-and `intentional` are both excluded (`collect_status.py:197`).
+**Decision**: `security_bucket` drops a *finding object* only when its `status` is a string in
+`_SETTLED_STATUSES` — exactly `resolved` or `intentional` (`collect_status.py:142`, `:195`).
+Every other object is counted as **open**: `open` itself silently, and any other value — a
+capitalisation, a synonym, a missing key — as open *and* named in the bucket's note
+(`collect_status.py:197`–`:207`). The note carries the whole count and lists at most ten
+(`UNRECOGNISED_SAMPLE`, `collect_status.py:149`).
+
+**One shape is named but not counted, and the exception belongs in the same sentence as the
+rule**: a list entry that is not an object at all is appended to `unrecognised` and then
+`continue`d before `out.append` (`collect_status.py:187`–`:188`), so it never becomes a
+finding — there is no id, severity or file to make one out of. Measured 2026-08-24: a
+`findings.json` whose `findings` list is `["a", "b", "c"]` returns `([], "3 finding(s) carry a
+status this report does not recognise (entry 0: not an object; entry 1: not an object; entry
+2: not an object) — counted as open")`. The count is zero and the note says *open*, so the
+note is that input's only trace and the note's own wording over-claims for this one shape.
+The same over-claim is in the docstring (`collect_status.py:159`–`:161`) and in the emitted
+string (`:214`); this spec is accurate about the code as it stands and those two are
+not yet.
 
 **Rationale**: `intentional` is the disposition a spec's declared decision produces; carrying
 it in the outstanding-work list would mean the backlog never empties and would re-litigate a
-decision already recorded. See ADR-012 for the accepted-behavior side of the same idea.
+decision already recorded. See ADR-012 for the accepted-behavior side of the same idea. The
+partition — rather than an exact-match keep on `open` — is the SEC-007 fix, and the two are
+not interchangeable: a `findings.json` holding three high-severity findings with statuses
+`Open`, `unresolved` and none at all returned `([], None)`, which is zero findings and nothing
+to say about them. Both ends of that file are hand-written, an agent composing JSON against a
+prose schema at one end and an adopting project committing it at the other, so a vocabulary
+miss is the expected failure rather than the exotic one. The `isinstance` test beside the
+membership check is not tidiness either: `status` is project-supplied JSON and can be a list
+or a dict, and an unhashable value tested against a frozenset raises `TypeError` out of the
+whole census — the one thing every bucket in this module promises never to do.
 
 **Security Scan Note**: Findings disappearing from the status report is not suppression — the
 prose report and `findings.json` keep every finding with its disposition. This bucket answers
-"what is still owed", not "what was ever found".
+"what is still owed", not "what was ever found". What it will not do is answer zero *silently*
+because it did not understand the input — every path that understands nothing carries a note:
+a missing file, an unreadable one, a `findings` key holding something other than a list, and
+any status outside the vocabulary. It can still answer **zero with a note**, and the
+non-object entries described above are that case, so the residual is a reader who takes the
+number and skips the note. Say it that way rather than "it will not answer zero", because a
+silently-zero security bucket reads as clean rather than as never scanned, and those are the
+same number and opposite facts. The direction to fail in is the alarm (ADR-005, SPEC-027).
 
 ## Related Specs
 
@@ -224,6 +264,9 @@ prose report and `findings.json` keep every finding with its disposition. This b
 | Date | Change | Reason |
 |------|--------|--------|
 | 2026-08-21 | Initial spec, inferred from code and tests | Brownfield scan (`freya-spec-manager bootstrap`) |
+| 2026-08-24 | Rewrote the security-bucket decision as a partition rather than an exact-match filter, and added BEH-159 for the unrecognised-status alarm. BEH-141's title narrowed to the two statuses that really are excluded. | SEC-007. The spec described a keep-only-`open` filter, and the code stopped doing that on 2026-08-23 — an unknown status is now counted as open and named, because dropping it produced a zero that reads as clean. |
+| 2026-08-24 | Corrected the same rewrite the same day: a list entry that is not an object is named in the note but `continue`d before `out.append`, so it is *not* counted. The exception is now in the Decision, and the Security Scan Note no longer says the bucket "will not answer zero" — it will, with a note. | The rewrite generalised over a shape the code drops. Measured: `{"findings": ["a","b","c"]}` returns `([], "3 finding(s) … — counted as open")` — zero counted, three named. Re-documenting the count as complete would have re-documented the bug SEC-007 fixed. |
+| 2026-08-24 | The Security Scan Note's *"an unreadable one"* clause was false when written, and the code was changed to make it true rather than the sentence to admit it. Both buckets now catch `ValueError` instead of `json.JSONDecodeError`. | `json.JSONDecodeError` **is** a `ValueError`, so the narrower clause read as exhaustive while missing the `UnicodeDecodeError` that `open(..., encoding="utf-8")` raises before any parsing. One non-UTF-8 byte in `findings.json` took the whole census down with a traceback — and a traceback is not a note, which is this bucket's entire contract. Same defect as SEC-008 pointing the other way. |
 
 ---
 

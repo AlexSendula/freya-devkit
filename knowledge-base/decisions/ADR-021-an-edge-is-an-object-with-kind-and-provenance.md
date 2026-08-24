@@ -17,28 +17,29 @@ tags:
 An edge in `graph.json` is an object. Forward it is `{"to": …, "kind": …, "provenance": …}`;
 in the reverse index it is the same object keyed `from`. `kind` is one of the five values in
 `RELATION_KINDS` — `imports`, `re_exports`, `calls`, `inherits`, `references`
-(`skills/freya-code-graph/scripts/substrate.py:47`). `provenance` is one of the **two** values
-in `PROVENANCE` — `extracted` or `inferred` (`substrate.py:59`). `make_edge` raises on anything
-outside either vocabulary (`substrate.py:150`), and `validate_graph` reports an out-of-vocabulary
-kind or provenance on the forward edge (`substrate.py:763`, `:766`) and on its mirror in the
-reverse index (`:815`, `:818`) — a reverse edge is an edge, held to the same vocabulary. An edge
+(`skills/freya-code-graph/scripts/substrate.py:51`). `provenance` is one of the **two** values
+in `PROVENANCE` — `extracted` or `inferred` (`substrate.py:63`). `make_edge` raises on anything
+outside either vocabulary (`substrate.py:161`, `:164`), and `validate_graph` reports an out-of-vocabulary
+kind or provenance on the forward edge (`substrate.py:767`, `:770`) and on its mirror in the
+reverse index (`:819`, `:822`) — a reverse edge is an edge, held to the same vocabulary. An edge
 may also carry the optional symbol refinement, which ADR-024 governs; the file anchor is never
 replaced by it.
 
-The change bumped the artifact's schema from 1 to 2 (`substrate.py:90`). Readers accept both
+The change bumped the artifact's schema from 1 to 2 (`substrate.py:94`). Readers accept both
 shapes: every consumer goes through accessors that take a bare string or an object
-(`substrate.py:166`, `:178`, `:184`), and `upgrade_edges` rewrites string edges in memory on load
-(`substrate.py:233`). An upgraded edge claims `imports` / `extracted`, which is exactly what the
+(`substrate.py:170`, `:182`, `:188`), and `upgrade_edges` rewrites string edges in memory on load
+(`substrate.py:237`). An upgraded edge claims `imports` / `extracted`, which is exactly what the
 string era could express and the only honest reading of it. `upgrade_edges` deliberately does not
-stamp `version` (`substrate.py:253`): that field records what is on disk, and reading is how
+stamp `version` (`substrate.py:257`): that field records what is on disk, and reading is how
 staleness is discovered. A version-1 artifact therefore forces a full rebuild inside
 `CodeGraph.update`, ahead of the "nothing changed" short-circuit that the steady-state workflow
-otherwise takes (`graph_ops.py:2191`).
+otherwise takes (`graph_ops.py:2196`).
 
-The node queries stay in paths. `--impact`, `--dependents` and `--dependencies` answer with path
-strings, projected off the edge objects by `edge_ends` (`graph_ops.py:2358`, `:2456`). Only
-`--query` returns edges, because it is the one query whose question is "tell me about this file"
-(`graph_ops.py:2283`).
+The node queries stay in paths. `--impact` and `--dependents` answer with path strings projected
+off the edge objects by `edge_ends` (`graph_ops.py:2364`, `:2430`), and `--dependencies` uses
+`internal_ends`, which is `edge_ends` with the `external:` / `unresolved:` / `outside:` signals
+dropped (`:2400`). Only `--query` returns edges, because it is the one query whose question is
+"tell me about this file" (`graph_ops.py:2288`, `:2318`).
 
 **Provenance is recorded and read by nothing.** Every edge carries `extracted` or `inferred`
 faithfully: the homegrown resolver stamps `extracted` throughout, because it reads import
@@ -46,7 +47,7 @@ statements out of source text and does nothing else (`graph_ops.py:2059`, `:2072
 graphify backend maps that backend's own `EXTRACTED`/`INFERRED` tag, defaulting an unrecognised
 confidence to `inferred` (`backend_graphify.py:144`, `:670`, `:699`). Past that, no production
 code consults the field. `edge_provenance` has exactly one caller, and it is the reverse-index
-builder copying the value onto the mirrored edge (`substrate.py:384`). The design — stated in the
+builder copying the value onto the mirrored edge (`substrate.py:388`). The design — stated in the
 spec, in the working decision record and on the explainer pages — was that only `extracted` edges
 may gate `wrap-up` and `inferred` ones are advisory. No code implements that filter, so an
 inferred edge reaches blast radius indistinguishable from an extracted one. **The tier is
@@ -59,6 +60,28 @@ enforced by nothing*).
 where an edge points, not about how it was read, so it is a prefix on the target —
 `unresolved:<raw specifier>`, alongside `external:` (`substrate.py:69`). The edge is kept and
 visible rather than dropped, which is ADR-005's rule applied at edge granularity.
+
+> **Correction, 2026-08-24.** The paragraph above states the target vocabulary as three-way — a
+> project-relative path, `external:`, `unresolved:` — and it is four-way as of 2026-08-23. ADR-031
+> added `outside:<alias>/<path under that root>` for a specifier that resolved to a real file under
+> a root the project declared outside itself (`OUTSIDE_PREFIX`, `substrate.py:79`). The signal tuple
+> the paragraph's citation used to name is now three long (`IMPORT_SIGNALS`, `substrate.py:86`), and
+> `is_internal` states the four answers directly (`substrate.py:102`); `substrate.py:69` is today a
+> comment line inside the `OUTSIDE_PREFIX` block rather than the tuple.
+>
+> The fourth entry is the one that does not fit the sentence above it. `external:` and `unresolved:`
+> both mean "this did not resolve to a file in this project", and the natural reading of the
+> paragraph is that a prefix marks a non-resolution. `outside:` marks the opposite: the specifier
+> *did* resolve, to a file that exists, and is still not a node — because a declaration buys
+> resolution and never a place in the key space. That is what keeps `validate_graph`'s `files`-key
+> rule unconditional, and it is stated in the code at `substrate.py:73`–`:78` rather than left to
+> the reader.
+>
+> Nothing else in this record changes: `is_internal` is false for all three prefixes, so the reverse
+> index, the vocabulary checks and the accessors treat `outside:` exactly as they already treated
+> the other two. Not corrected here because it is code and not this record: the key table at
+> `substrate.py:127` still describes `to`/`from` as "a project-relative path, or an `external:` /
+> `unresolved:` signal".
 
 ## Rationale
 
@@ -157,7 +180,7 @@ rather than load-bearing forever.
   `substrate` metadata block entirely, and that block cannot be reconstructed from the artifact —
   only a real build knows which backend ran and what it can see. Stamping the version would have
   frozen the graph permanently claiming no backend and no coverage. A rebuild, not a rewrite,
-  is what ships (`graph_ops.py:2191`), and the persistence path refuses to rewrite a stale
+  is what ships (`graph_ops.py:2197`), and the persistence path refuses to rewrite a stale
   artifact a backend wrongly reported as up to date, saying so on stderr instead
   (`graph_ops.py:2556`).
 

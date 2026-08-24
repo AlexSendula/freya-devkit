@@ -48,6 +48,43 @@ Two things no verdict overrides: file-kind patterns — `*.d.ts`, `*.min.js`, `*
 claims about what a *file* is rather than about which directories are in scope, and a more
 specific stated verdict beneath the override.
 
+> **Correction, 2026-08-24.** There is a **third**, added 2026-08-23 by SEC-021: a `directories`
+> key that does not fold to a path *inside* this project is dropped, whatever verdict it carries.
+> `normalise_dir_key` returns `''` for it (`settings.py:169`), judged by `containment.escapes` on
+> the folded text (`settings.py:240`) and therefore in both path flavours, so a committed key means
+> the same thing on every host. Measured on this tree today: `../shared`, `..`, `.` and `D:/secrets`
+> all fold to `''`, while `docs/`, `./docs`, `/docs/`, `docs\lit` and `a/../b` keep folding to the
+> keys the paragraph above promises. The cache is folded through the same call, so a key that
+> reached `classifications.json` is refused on the same line rather than by a second rule.
+>
+> This is not an exclusion default being made unarguable; it is the key space being closed. Every
+> consumer joins a `directories` key onto the project root or matches it as the prefix of a
+> project-relative path, so a key that escapes has no reading at all — and before the refusal the
+> build did not fail on one, it succeeded wrongly. The measurement is in `normalise_dir_key`'s own
+> docstring, pinned to `abd1de3`: `{"directories": {"../shared": "source"}}` graphed a sibling tree,
+> read its file contents, and re-entered through `..` so every in-project file gained a second node,
+> with `validate_graph` clean and nothing printed.
+>
+> **Symlinks are not a fourth tier here, and this record should not be read as if they were.** The
+> non-overridable symlink refusal SEC-008 established is `_refuses_descent`
+> (`skills/freya-docs-manager/scripts/detect_project.py:352`), in docs-manager's project-stack walk
+> — which never reads `directories`, so no verdict in this record reaches it. Separately, a
+> declaration under ADR-031 never re-authorises a crossing made through a symlink
+> (`settings.py:303`, pinned by `test_graph_ops.py:3397`), and that is `outside`, not `directories`.
+> What is true of the graph's own scope is narrower than it first looks, and the narrow version is
+> the one worth writing down. `Path.glob` does not follow a directory symlink it meets *during*
+> recursion, and the census walk takes `os.walk`'s `followlinks=False` default
+> (`graph_ops.py:2749`). But `_scan_files` roots its globs at the classified source directories
+> (`graph_ops.py:1966`-`:1969`), and a glob whose **root** is itself a symlink does traverse it —
+> measured on Python 3.12.5: a symlinked directory reached mid-recursion yields nothing, the same
+> directory used as the glob root yields its files. So a `directories` verdict of `source` naming
+> a symlinked top-level directory is followed, and this record's own mechanism is the way in.
+>
+> That is an observation about current library behaviour, not a guarantee this record makes, and
+> it is deliberately stated as the weaker claim: the earlier draft of this paragraph asserted that
+> no walk descends a directory symlink at all, which is the false-containment shape ADR-031 and
+> SEC-008 were both written against.
+
 ## Rationale
 
 The lists had just been re-scoped by depth: artifact trees match at every path component, and

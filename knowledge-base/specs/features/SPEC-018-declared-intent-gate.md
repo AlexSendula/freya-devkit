@@ -6,7 +6,7 @@ tags: [governance, intent-records, gate, tier-1, git, spec-manager]
 status: implemented
 certainty: 85
 created: 2026-08-21
-updated: 2026-08-21
+updated: 2026-08-24
 related_code:
   - skills/freya-spec-manager/scripts/verify_intent.py
   - skills/freya-spec-manager/scripts/adapters.py
@@ -85,8 +85,14 @@ implementation could quietly stop protecting anything.
 
 **Certainty (85).** As deliberate as anything in this repository: the decision has
 an ADR, the module docstring states each rule and the reason for it, and there are
-seventeen tests including a CLI exit-code-plus-JSON contract test and a path-spelling
-test written after a real Windows CI fail-open. The deduction is only that this spec
+thirty-five tests — seventeen when this spec was written, and those seventeen already
+included a CLI exit-code-plus-JSON contract test and a path-spelling test written
+after a real Windows CI fail-open
+(`skills/freya-spec-manager/scripts/test_verify_intent.py:744` and `:176`, both
+present at `c00b2f4`). The eighteen added on 2026-08-23 are adversarial and are a
+different set: eleven for the marker shapes that got the gate to report itself clean,
+seven for `--advance` — what it refuses, what `--force` overrides, and the one skip it
+still advances over. The deduction is only that this spec
 is inferred from that material rather than authored alongside it, and that the
 fail-open surface (below) is wider than any single document states in one place.
 
@@ -112,21 +118,46 @@ here as scope and as decisions rather than duplicated as behavior records.
 
 ### The gate fails open on a missing baseline or an unusable git diff
 
-**Decision**: with no `.intent-last-verified` marker the run is `skipped: true` and
-exits 0 (BEH-090). If the `git diff` itself fails, `_changed_status` returns an
-empty map, nothing intersects, and the run also passes. No infrastructure problem
-is ever reported as a block.
+**Decision**: the run fails open on both — it exits 0 and never reports an
+infrastructure problem as a block — but each one is *labelled*, and the label is
+part of the decision rather than a courtesy. With no `.intent-last-verified`
+marker the run is `skipped: true` with the fresh-repo note (BEH-090). When the
+`git diff` itself fails, `_changed_status` returns `ok=False`
+(`skills/freya-spec-manager/scripts/verify_intent.py:133`) and the run is
+`skipped: true` with `intent gate skipped — git could not diff <baseline>..worktree;
+nothing was checked` (`verify_intent.py:359`). A marker that exists and is unusable
+— unreadable, holding an empty `commit:` value, holding no `commit:` line, or
+holding something that is not hash-shaped — is a third labelled skip, and it also
+appends a `warnings` entry naming the file (`_read_baseline`, `verify_intent.py:83`).
+
+`--advance` reads those labels and refuses on them. `advance_if_clear`
+(`verify_intent.py:458`) writes the baseline only over a gate that ran and did not
+block; over either refusal the CLI exits **2** with the reason on stderr
+(`verify_intent.py:551`, `:561`), and `--force` is the sole override. One carve-out
+survives and it is narrow: an *absent* marker still advances, because writing the
+first marker is how a fresh repository leaves that state. An empty, malformed or
+unresolvable marker does not qualify — the discriminator is structural rather than a
+list of shapes (`_skipped_without_checking`, `verify_intent.py:420`).
 
 **Rationale**: the project-wide rule that every check fails open on infrastructure
 failure — never a false clean *and* never a false block — is
 `knowledge-base/decisions/ADR-009-two-enforcement-tiers.md`. For this gate the
 concrete case is a fresh repository or a full scan, where there is no transition to
-govern yet.
+govern yet. What the earlier version of this section got wrong is the *silent* half:
+an empty change-set because git refused and an empty one because nothing changed are
+two different answers, and reporting both as `skipped: false` with exit 0 is a
+Tier-1 gate stating it ran while having read nothing. That is a false clean, which
+the fail-open rule was never meant to license. And a fail-open is only harmless
+while nothing durable happens: advancing the baseline over a gate that read nothing
+clears whatever it did not look at on every future run, which is why the write path
+refuses where the check does not.
 
-**Security Scan Note**: a passing `verify-intent` on a repository with no marker is
-not a statement that accepted tests are unchanged. Read `skipped` in the JSON
-before treating exit 0 as a guarantee. This is the intended semantics, not a
-bypass.
+**Security Scan Note**: a passing `verify-intent` is not a statement that accepted
+tests are unchanged. **Read `skipped` before treating exit 0 as a guarantee** — that
+is the contract, not a caveat, and it is stated in the module docstring
+(`verify_intent.py:23`). Exit 2 from `--advance` means the baseline was *not*
+moved; it is not the gate's exit 1 and a consumer that conflates the two will report
+an unauthorized edit where the gate produced none.
 
 ### Only `accepted` behaviors are governed; the rest change freely
 
@@ -208,3 +239,5 @@ the blocking cases are `unauthorized` and `errors`, and both are in the JSON.
 | Date | Change | Reason |
 |------|--------|--------|
 | 2026-08-21 | Initial spec (inferred) | Brownfield scan of `skills/freya-spec-manager/scripts/verify_intent.py` |
+| 2026-08-24 | Amended the fail-open decision: a failed `git diff` is a labelled `skipped: true`, not an empty change-set; an unusable marker is a third labelled skip; `--advance` refuses over a block or a skip and exits 2, with the absent-marker carve-out named. Test count 17 → 35. | SEC-001 and SEC-011. The section asserted an invariant the code contradicted: it said an unusable diff passes silently, and the code has reported `skipped: true` with a note since 2026-08-23. A spec blessing a fail-open the code removed is worse than no spec, because it reads as the intended semantics. |
+| 2026-08-24 | Fixed the Certainty paragraph the same day: the CLI-contract and path-spelling tests it named belong to the original seventeen, not to the eighteen added on 2026-08-23. | Set-differencing the two files gives 18 added and 0 removed; both named tests are present at `c00b2f4`. The 11/7 split of the eighteen was correct and is unchanged — only the trailing clause had drifted onto the wrong referent. |

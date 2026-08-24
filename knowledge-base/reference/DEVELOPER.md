@@ -62,19 +62,20 @@ python3 bin/check_skill_conformance.py     # must exit 0
 ```
 
 Not redundant with pytest, but not independent of it either: `ShippedTreeTest`
-(`bin/test_check_skill_conformance.py:928`) runs this same scan over this checkout and asserts
+(`bin/test_check_skill_conformance.py:919`) runs this same scan over this checkout and asserts
 zero violations, so a violation injected into a shipped `SKILL.md` fails the suite too —
-measured, with an `${CLAUDE_PLUGIN_ROOT}` line appended to `skills/freya-status/SKILL.md`: R1
-and R4 both surfaced through pytest. What the script adds is the readable report and the two
-flags below, and CI runs it as its own step so neither signal hides the other. Run both before
-you commit.
+measured 2026-08-24 on a full tree copy, with a `${CLAUDE_PLUGIN_ROOT}` line appended to
+`skills/freya-wrap-up/SKILL.md`: `1 failed, 2088 passed`, and the standalone gate exits 1 on the
+same input. What the script adds is the readable report and the two flags below, and CI runs it
+as its own step so neither signal hides the other. Run both before you commit.
 
 It walks every `*.md` and `*.py` under `skills/` and nothing else — `bin/`, `knowledge-base/`
-and the repo root are out of scope (`bin/check_skill_conformance.py:491`). Output is one
-`path:line: RULE: excerpt` per violation on stdout, a per-rule count on stderr, exit 1; a
-`bin/commands.json` it cannot read is exit 2 (`bin/check_skill_conformance.py:504`).
+and the repo root are out of scope (`bin/check_skill_conformance.py:491`); 23 markdown and 56
+Python files on 2026-08-24. Output is one `path:line: RULE: excerpt` per violation on stdout, a
+per-rule count on stderr, exit 1; a `bin/commands.json` it cannot read is exit 2
+(`bin/check_skill_conformance.py:520`).
 
-Thirteen rules, each with its one-line rationale at `bin/check_skill_conformance.py:29`. The
+**Fourteen rules**, each with its one-line rationale at `bin/check_skill_conformance.py:29`. The
 ones most often tripped:
 
 | Rule | What it rejects |
@@ -87,6 +88,18 @@ ones most often tripped:
 | R8 | a `name:` that does not equal the parent directory name |
 | R9 | a fan-out with no portability clause |
 | R13 | `~/.claude`, `.claude/`, `.claude-plugin`, `CLAUDE_*` env vars |
+| R14 | a SKILL.md that sends a worker at secret-bearing material without stating the redaction rule — the sentinel *and* a placeholder (`[REDACTED]`, `<redacted …>`) — and without restating it in a copied-source slot (`bin/check_skill_conformance.py:50`) |
+
+**R14 is the odd one and knowing why saves an argument.** R1–R13 are agent-neutrality rules:
+they exist so a skill written on one host loads and works on another. R14 is a *secrets* rule
+and has nothing to do with portability — it landed with SEC-009 because prose elsewhere in the
+file was being accepted as the rule being in force. It is `SKILL.md`-only, deliberately: widening
+it to every markdown file under `skills/` trips `references/templates.md` on 18 lines of fenced
+scaffolding that instructs nobody, and a rule that cries wolf gets switched off
+(`bin/check_skill_conformance.py:436`). It is also a presence check, so it pins the copied-source
+slot rather than the whole file — [TESTING.md § The conformance
+gate](TESTING.md#the-conformance-gate) has what it measurably does and does not catch. Anywhere a
+comment or a doc still spells the gate `R1–R13`, that is now wrong by one and wrong in kind.
 
 Two flags help while iterating: `--rule R9` (repeatable) narrows the report to one rule, and
 `--root PATH` points the scan at another checkout.
@@ -186,9 +199,9 @@ All of it is in `bin/freya` and `bin/freya_cli.py`:
 3. **Built-ins are dispatched before the manifest is consulted** — `help`, `doctor`, `init`,
    `update`, `install`, `uninstall` (`bin/freya_cli.py:26`). A manifest entry colliding with one
    of those names would be unreachable while `freya help` still advertised it under Commands,
-   so a test asserts the two sets stay disjoint (`bin/test_freya_cli.py:553`).
+   so a test asserts the two sets stay disjoint (`bin/test_freya_cli.py:631`).
 4. **Everything else is looked up in `bin/commands.json`** and joined onto `<root>/skills/`
-   (`bin/freya_cli.py:118`) — 17 commands as of commit `6252d3e`. The manifest is validated on
+   (`bin/freya_cli.py:118`) — 17 entries, counted 2026-08-24, all kebab-case. The manifest is validated on
    load rather than at the point of use: it must be a JSON object of string values, and each
    value must name a path *under* `skills/`. A POSIX-absolute path, a Windows drive or root,
    and a `..` in either spelling are all rejected, judged with both path flavours on every host
@@ -209,7 +222,7 @@ in a SKILL.md fails in CI rather than in front of a user: every entry must point
 that exists; every `skills/*/scripts/*.py` carrying a `__main__` block must have an entry
 (`bin/test_freya_cli.py:40`, `bin/test_freya_cli.py:50`); and every `freya <command>` that any
 `SKILL.md` or the root `README.md` prescribes must resolve to a real command
-(`bin/test_freya_cli.py:560`).
+(`bin/test_freya_cli.py:638`).
 
 ## The shapes a new skill follows
 
@@ -239,6 +252,37 @@ It is patterns.md's graceful-fallback rule one level finer: a confidently empty 
 dangerous failure, and "3 dependents" and "3 dependents, and a fifth of this repo is unread" are
 different claims. See ADR-029.
 
+### If your skill spawns a binary, or asks whether a path is contained
+
+Two obligations, and both are "import the one body, do not write a second". They exist because
+each was a HIGH finding on this repository before it was a convention.
+
+**Never put a bare program name in argv[0].** `skills/freya-code-graph/scripts/exec_path.py:84`
+answers where a program is, as a `Resolution` carrying either an absolute path or a printable
+reason. It refuses a result that is not already absolute, and — when you pass the project being
+analysed — one that resolves inside it. Do not "fix" a refusal by calling `abspath()`: on
+Windows `CreateProcess` searches the parent process's working directory before `PATH`, and the
+working directory under documented usage *is* the repository you were pointed at, so
+absolutising the hit hands the OS a fully-qualified path to the attacker's binary. `INV-2`
+(`bin/check_invariants.py`) catches the literal bare-name case and CI runs it, but it reads
+argv[0] at the call site: build the argv in a helper and the rule cannot see it, which is why
+`audit_adapter._guard` re-checks at runtime and `Argv0Test` pins that.
+
+**Never write a second body of a containment rule.**
+`skills/freya-code-graph/scripts/containment.py` has four predicates and the module docstring
+tells you which question each answers; pick by the question, not by the shape of your argument.
+The one duplicate in the tree, `bin/freya_cli.py:55`, exists because the launcher must be able to
+diagnose a broken skill tree and therefore cannot import from one, and it is held to parity by a
+test rather than by intent.
+
+Both modules live under `skills/freya-code-graph/scripts/` and are imported by the `parents[2]`
+sibling pattern, never from `bin/` — [ADR-030](../decisions/ADR-030-shared-primitives-live-in-a-skill.md)
+measured why, against a real `--copy` install. If your skill can be reached on a damaged store —
+`doctor`, `update`, or a security driver that a `--copy` install may have landed without
+`freya-code-graph` — guard the import and **refuse**, with a message naming the missing file.
+There is no fallback to a bare name: a damaged tree is exactly when "just search `PATH`" looks
+like graceful degradation (`bin/updater.py:53`).
+
 ## Where a new skill's output goes
 
 Under `knowledge-base/`, in the subdirectory the skill owns.
@@ -258,16 +302,21 @@ A skill **writes** its artifacts and stops. Staging and committing them is
 `freya-wrap-up`'s job and nobody else's — that separation is what makes the
 [two-commit pattern](../patterns.md#pattern-two-commit-separation) hold.
 
-Say so explicitly in the skill body. Four of the six artifact-writing skills carry a short
-"Artifacts, not commits" paragraph under that heading; `freya-codebase-security-scan` says the
-same thing inline at its report step ("Write the report. Do not commit it."), and
-`freya-status` only declares itself read-only — it still needs the paragraph. The reason is
-empirical: phase-6 validation watched an agent with broad tool permissions infer a `git commit`
-that no skill had asked for **and push a malformed message into the history of a repository it
-had only been asked to scan** (`skills/freya-codebase-security-scan/SKILL.md:807`). An agent
-will fill in the step you left implicit, so leave none. No conformance rule can check this — prose is the only lever a
-skill has — which is why it is a checklist item below rather than something the gate catches
-for you.
+Say so explicitly in the skill body. Re-measured 2026-08-24: **five** `SKILL.md` files carry an
+"Artifacts, not commits" heading — `freya-behavior-graph`, `freya-dependency-vulnerability-check`,
+`freya-docs-manager`, `freya-spec-manager` and `freya-status` — and
+`freya-codebase-security-scan` says the same thing inline at its report step ("Write the report.
+Do not commit it."). This page previously said four, and singled out `freya-status` as the one
+still owing a paragraph; `freya-status` has carried it since `2deb4ef`. The skill that writes an
+artifact and carries no such statement is **`freya-code-graph`**, which writes the whole of
+`knowledge-base/.graph/`.
+
+The reason is empirical: phase-6 validation watched an agent with broad tool permissions infer a
+`git commit` that no skill had asked for **and push a malformed message into the history of a
+repository it had only been asked to scan**
+(`skills/freya-codebase-security-scan/SKILL.md:814`). An agent will fill in the step you left
+implicit, so leave none. No conformance rule can check this — prose is the only lever a skill
+has — which is why it is a checklist item below rather than something the gate catches for you.
 
 ## Creating New Skills
 
@@ -300,8 +349,13 @@ Before considering a skill complete for this ecosystem:
 - [ ] Any fan-out carries the scheduling clause (see [CONTRIBUTING.md](../../CONTRIBUTING.md))
 - [ ] Every bundled script has a `bin/commands.json` entry and a `test_*.py` beside it
 - [ ] Any test class that reads settings or builds a graph sandboxes `FREYA_HOME` in `setUp`
+- [ ] Any subprocess names its program by an absolute path from `exec_path.resolve`, or the
+      site is added to `KNOWN_BARE_BINARIES` with a reason
+- [ ] Any "is this path inside the project" question uses a `containment.py` predicate, chosen
+      by the question it asks
 - [ ] `python3 -m pytest bin/ skills/ -q` is green, run from the repository root
 - [ ] `python3 bin/check_skill_conformance.py` exits 0
+- [ ] `python3 bin/check_doc_citations.py` and `python3 bin/check_invariants.py` exit 0
 
 ## Related Documentation
 
