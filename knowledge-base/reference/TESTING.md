@@ -528,9 +528,10 @@ between legs by design. Why 3.9 is the floor at all is
 **The one install the toolkit prints is pinned, and a test is what holds it.** That sits
 directly opposite the paragraph above and is worth reading beside it. `graphifyy` is the only
 third-party package this repository ever tells a person to install, and because INV-1 makes the
-standard library the whole runtime there is no manifest, lockfile or dependency bot in the tree
-— the install is prose inside `bin/backend_setup.py`'s install-time prompt, so the pin is prose
-too. `TestTheInstallInstructionIsPinnedAndUnambiguous`
+standard library the whole runtime there is no package manifest or lockfile for a bot to bump —
+the install is prose inside `bin/backend_setup.py`'s install-time prompt, so the pin is prose
+too. (`.github/dependabot.yml` does exist, and is scoped to `github-actions` alone for exactly
+this reason — see [SECURITY.md § The CI workflows are SHA-pinned](SECURITY.md).) `TestTheInstallInstructionIsPinnedAndUnambiguous`
 (`bin/test_backend_setup.py:203`) is the gate a manifest would have been. It renders the prompt
 as a person on the floor sees it, **enumerates** every install command a regex over the install
 verb can find in it (`bin/test_backend_setup.py:257`), and asserts each one equals

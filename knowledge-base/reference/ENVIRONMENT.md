@@ -79,8 +79,10 @@ notify-only, printed to stderr, with every exception swallowed (`bin/updater.py:
 this variable returns `None` before any of that happens (`bin/updater.py:604`).
 
 The test is Python truthiness on the raw string, so **any non-empty value disables the check,
-including `FREYA_NO_UPDATE_CHECK=0`**. `README.md:198` and `CHANGELOG.md:186` both suggest `=1`;
-`=0` is not a way to turn it back on. Unset the variable instead.
+including `FREYA_NO_UPDATE_CHECK=0`**. `CHANGELOG.md:238` suggests `=1`; `=0` is not a way to turn
+it back on. Unset the variable instead. (The root README carried the same `=1` suggestion until the
+staleness notice was cut from it; the notice is documented in
+[DEPLOYMENT.md](DEPLOYMENT.md) and nowhere in that file now.)
 
 `freya doctor` reports the variable rather than obeying it silently: it prints
 `[ok] updates: not checked (FREYA_NO_UPDATE_CHECK is set)` and skips the network

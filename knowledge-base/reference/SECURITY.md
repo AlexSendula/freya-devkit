@@ -640,6 +640,16 @@ the job's `GITHUB_TOKEN` into `.git/config` where every later step in the job ca
 (SEC-018). `bin/test_workflow_pins.py` is what keeps both true: it parses the workflows as
 text, because a YAML parser is not standard library and a dependency is an ADR.
 
+**A pin does not update itself, so Dependabot ships with it** — `.github/dependabot.yml`, monthly,
+one grouped pull request, `github-actions` and nothing else. Pinning without an update path is a
+decision to stop patching: left unwatched, nothing here would ever move off the pinned SHA again,
+and the day that commit is the one carrying the advisory, the pin is what keeps it running. The
+ecosystem list is deliberately one long — INV-1 makes the standard library the whole runtime, so
+there is no `requirements.txt`, `package.json` or `pyproject.toml` for another ecosystem entry to
+read, and `pytest` is installed by a `run:` line Dependabot does not parse. The bot also rewrites
+the trailing `# vN.N.N` comment beside each SHA, which is the mechanical reason every pin carries
+one and why `bin/test_workflow_pins.py` asserts the comment as well as the hash.
+
 Reading YAML as text means the parser meets spellings it cannot handle, and **every one of
 those is answered by over-reporting rather than by passing.** A `uses:` line it cannot read is
 a failure naming the line; a `permissions:` block it cannot parse is treated as granting write;
