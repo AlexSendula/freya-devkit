@@ -533,7 +533,19 @@ class CollectAndRenderTest(unittest.TestCase):
 
 
 class VerifyBucketTest(unittest.TestCase):
-    """Prove that verify_bucket preserves the errors list even on non-zero exit."""
+    """Prove that verify_bucket preserves the errors list even on non-zero exit —
+    and that it never reports zero for a run that did not produce one."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.project = self.tmp.name
+        specs = os.path.join(self.project, "knowledge-base", "specs", "features")
+        os.makedirs(specs)
+        with open(os.path.join(specs, "s.md"), "w", encoding="utf-8") as f:
+            f.write("---\nid: SPEC-001\ntitle: Fixture\nbehaviors:\n"
+                    "  - behavior_id: BEH-001\n    title: One\n    state: accepted\n"
+                    "    adapter: pytest\n    locator: tests/nope.py\n---\n# body\n")
 
     def test_returns_errors_even_when_subprocess_exits_nonzero(self):
         """Critical: verify_links exits non-zero on findings; errors must not be lost."""
@@ -547,24 +559,80 @@ class VerifyBucketTest(unittest.TestCase):
         self.assertEqual(len(errors), 1)
         self.assertEqual(errors[0]["kind"], "missing-locator")
 
-    def test_empty_stdout_is_clean(self):
-        """Zero exit + empty stdout returns ([], None) — no spurious note."""
+    def test_a_gate_that_died_is_a_note_and_not_a_zero(self):
+        """The whole bucket, run for real, on the tree that kills the gate.
+
+        No mock: the fixture declares one accepted behavior whose locator does not
+        exist, so a healthy verify_links has exactly one error to report — and then a
+        *directory* named `login.feature` is added beside it, which is all it takes.
+        `_iter_feature_files` globs `*.feature`, `read_text` raises IsADirectoryError
+        on a directory, nothing catches it, and the gate exits before printing.
+
+        The first half is the anti-vacuity control: without it, a `verify_bucket` that
+        always returned `([], <note>)` would pass the second half. The second half is
+        the finding — this used to be `([], None)`, which prints "verify failures: 0"
+        and writes that zero into BACKLOG.md under a banner telling the reader not to
+        edit it. Mutation: restore `json.loads(out.stdout) if out.stdout.strip() else
+        []` and the note assertion goes red while the first half stays green.
+
+        The coupling, said out loud: the directory is how this row *kills* the gate, and
+        it works because nothing in `_iter_feature_files` catches an unreadable entry. If
+        that walk is ever hardened, this row needs another way to kill the checker — the
+        property under test is the note, not the directory.
+        """
+        errors, note = collect_status.verify_bucket(self.project)
+        self.assertEqual([e["kind"] for e in errors], ["locator-unresolved"])
+        self.assertIsNone(note)
+
+        os.makedirs(os.path.join(self.project, "features", "login.feature"))
+        errors, note = collect_status.verify_bucket(self.project)
+        self.assertEqual(errors, [])
+        self.assertIn("verify_links", note)
+
+    def test_empty_stdout_is_a_dead_gate_not_a_clean_one(self):
+        """`--format json` prints `[]` on a clean run, so empty stdout is never one.
+
+        Zero exit as well, because the exit code is not the signal here: verify_links
+        exits non-zero on findings, so `0` and `1` both belong to healthy runs and a
+        traceback shares one of them.
+        """
         fake_result = mock.MagicMock()
         fake_result.returncode = 0
         fake_result.stdout = ""
         with mock.patch.object(collect_status.subprocess, "run", return_value=fake_result):
             errors, note = collect_status.verify_bucket("/any/project/dir")
         self.assertEqual(errors, [])
-        self.assertIsNone(note)
+        self.assertIn("verify_links", note)
 
-    def test_bad_json_degrades_to_note(self):
-        """Malformed stdout should not crash — degrade to ([], <note>)."""
+    def test_a_clean_run_still_says_nothing(self):
+        """The other side of the row above: `[]` on stdout is a real clean run, and a
+        note there would put a caveat on every healthy census in the repo."""
         fake_result = mock.MagicMock()
-        fake_result.stdout = "not json"
+        fake_result.returncode = 0
+        fake_result.stdout = "[]"
         with mock.patch.object(collect_status.subprocess, "run", return_value=fake_result):
             errors, note = collect_status.verify_bucket("/any/project/dir")
         self.assertEqual(errors, [])
-        self.assertIsNotNone(note)
+        self.assertIsNone(note)
+
+    def test_stdout_that_is_not_a_list_of_errors_degrades_to_a_note(self):
+        """Malformed stdout should not crash — degrade to ([], <note>).
+
+        `null` and an object are valid JSON and are not an error list. They used to be
+        returned as the bucket's value, and `len(None)` is the traceback the census
+        promises never to raise; an object would have been counted by its key count.
+        """
+        for label, stdout in (("not json", "not json"),
+                              ("null", "null"),
+                              ("an object", '{"kind": "missing-locator"}')):
+            with self.subTest(case=label):
+                fake_result = mock.MagicMock()
+                fake_result.stdout = stdout
+                with mock.patch.object(collect_status.subprocess, "run",
+                                       return_value=fake_result):
+                    errors, note = collect_status.verify_bucket("/any/project/dir")
+                self.assertEqual(errors, [])
+                self.assertIn("verify_links", note)
 
 
 class MainTest(unittest.TestCase):

@@ -480,7 +480,19 @@ def parse_outside(raw: Any, project_dir: str,
         if why:
             turn_away(name, value, why)
             continue
-        resolved = os.path.realpath(os.path.join(project_dir, target))
+        # The one call in this loop that raises instead of answering. A value carrying a NUL
+        # — which JSON can spell and no filesystem can address — reaches `lstat` and raises
+        # `ValueError`, and since `Settings.__init__` parses this section unconditionally the
+        # traceback took out `--build`, `--update` and every read-only query with it: the
+        # crash the paragraph above says configuration must never cause. A lone surrogate
+        # (`"\ud800"`, also spellable in JSON) raises `UnicodeEncodeError`, a `ValueError`
+        # too, so one clause covers both. `isdir` and `containment.within` answer False for
+        # these rather than raising, which is why this was the only line that had to change.
+        try:
+            resolved = os.path.realpath(os.path.join(project_dir, target))
+        except ValueError:
+            turn_away(name, value, 'is not a path this system can address')
+            continue
         if not os.path.isdir(resolved):
             turn_away(name, value, 'does not name a directory that exists')
             continue

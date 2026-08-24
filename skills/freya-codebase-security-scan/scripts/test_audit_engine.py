@@ -1056,6 +1056,244 @@ class LensBindingTest(unittest.TestCase):
                          {"upheld": 3, "total": 3, "lenses": audit_engine.SKEPTICS})
 
 
+class SpecReferenceIngestTest(unittest.TestCase):
+    """`specReference` is a second ingest of repository-derived text.
+
+    The redaction cut is at the single ingest, `discover`, and the whole
+    argument for cutting there rather than at the three egresses is that
+    patching egresses is three chances to miss one. A model-written field merged
+    onto the finding *after* that cut and ahead of every egress is the fourth
+    door the argument said did not exist. The skeptic that writes it can read and
+    search the repository and was handed `file:line`, so it never needed the
+    value in its prompt to put it here. Measured 2026-08-24: a spec-intentional
+    verdict citing a real spec file and quoting the line it had checked put the
+    credential into the audit result of the same finding whose `codeSnippet` the
+    run had just fingerprinted.
+
+    New classes are appended rather than inserted, and the two imports these
+    tests need are local to the methods that need them, because two documents
+    cite this file by line and a citation that drifts onto a wrong non-blank
+    line stays green while being silently wrong.
+    """
+
+    SECRET = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+    SNIPPET = 'AWS_SECRET_ACCESS_KEY = "%s"' % SECRET
+    SPEC = "knowledge-base/specs/SPEC-012-fixtures.md"
+
+    def setUp(self):
+        self.project = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.project, ignore_errors=True)
+        path = os.path.join(self.project, *self.SPEC.split("/"))
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write("# SPEC-012\nThe fixture credential is expected here.\n")
+
+    def _audit(self, reference, category="secrets"):
+        def ask(prompt, schema=None):
+            if schema is audit_engine.FINDER_SCHEMA:
+                return {"findings": [finding(file="src/config.js", line=12,
+                                             category=category,
+                                             codeSnippet=self.SNIPPET)]}
+            if schema is not None:
+                lens = prompt.split("Lens: ", 1)[1].split(".", 1)[0]
+                if lens == "spec-intentional":
+                    return {"lens": lens, "verdict": "refuted", "reason": "r",
+                            "specReference": reference}
+                return {"lens": lens, "verdict": "upheld", "reason": "r"}
+            return "context"
+        return audit_engine.audit(ask, SEQUENTIAL, max_rounds=1,
+                                  project=self.project).findings[0]
+
+    def test_a_credential_quoted_in_a_citation_does_not_reach_the_result(self):
+        """The measured leak, end to end through `audit()`. The same run's
+        `codeSnippet` is asserted fingerprinted, so this cannot pass by the
+        finding never having carried the credential at all."""
+        got = self._audit('%s documents the fixture AWS_SECRET_ACCESS_KEY = "%s"'
+                          % (self.SPEC, self.SECRET))
+        self.assertIn("redacted", got["codeSnippet"])
+        self.assertNotIn(self.SECRET, str(got))
+        self.assertEqual(got["disposition"], "intentional-design")
+
+    def test_the_citation_itself_survives_the_narrowing(self):
+        """Subtraction, not suppression: what a corroborated citation is *for*
+        is the document it names, and that is what a report's Spec Reference row
+        has to keep showing."""
+        got = self._audit("%s covers this, see the line quoted there" % self.SPEC)
+        self.assertEqual(got["specReference"], self.SPEC)
+
+    def test_a_second_citation_in_one_reference_is_kept_in_order(self):
+        got = self._audit("both %s and SPEC-013 cover it" % self.SPEC)
+        self.assertEqual(got["specReference"], "%s SPEC-013" % self.SPEC)
+
+    def test_an_id_already_inside_a_kept_path_is_not_repeated(self):
+        """`SPEC-012` matches inside the filename that already named it."""
+        got = self._audit("see %s" % self.SPEC)
+        self.assertEqual(got["specReference"], self.SPEC)
+
+    def test_another_category_keeps_the_prose_around_its_citation(self):
+        """The anti-over-reach half, drawn on the same boundary as the ingest
+        cut: this fires exactly where `redact_secret_evidence` fires, so an
+        injection finding's citation still gets to explain itself — and inherits
+        the same gap, that a credential filed under another category is not
+        reached by either."""
+        got = self._audit("%s accepts this: inputs are normalized upstream"
+                          % self.SPEC, category="injection")
+        self.assertIn("normalized upstream", got["specReference"])
+
+    def test_the_narrowing_does_not_sit_behind_the_corroboration_branch(self):
+        """`disposition` hands back the raw string when it has no project to
+        check against, so the narrowing has to be in `_settle`. Slot 2 is
+        `spec-intentional` by position, which is where the veto is decided.
+
+        Asserted on the field rather than on the whole settled dict: the ingest
+        cut lives in `discover`, so a finding handed straight to `_settle`
+        legitimately still carries an unredacted `codeSnippet` — the end-to-end
+        assertion belongs to the `audit()` test above.
+        """
+        got = audit_engine._settle(
+            finding(category="secrets", codeSnippet=self.SNIPPET),
+            [None, None, cited('%s holds "%s"' % (self.SPEC, self.SECRET))])
+        self.assertNotIn(self.SECRET, got["specReference"])
+        self.assertEqual(got["specReference"], self.SPEC)
+
+
+class CorroborationContainmentTest(unittest.TestCase):
+    """A corroborating document has to be a file this project really holds.
+
+    `os.walk` answers half of that by itself: it does not descend a symlinked
+    *directory*, but it yields a symlinked *file* as an ordinary name and the
+    walk opens it. The docstring that used to stand on `_project_mentions`
+    reasoned from the directory half to the file half and concluded there was
+    "no path here that a `realpath` could disagree with". Measured 2026-08-24: a
+    `knowledge-base/linked.md` pointing out of the tree had `SPEC-777`
+    corroborated out of a document that appears nowhere in the project — and a
+    corroborated citation is what licenses downgrading a security finding to
+    `intentional-design`.
+
+    So the shared predicate is asked per file (ADR-030), rather than a sixth
+    body of the containment rule being written out here.
+    """
+
+    def setUp(self):
+        self.project = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.project, ignore_errors=True)
+        self.outside = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.outside, ignore_errors=True)
+        self.root = os.path.realpath(self.project)
+
+    def _write(self, root, relpath, body):
+        path = os.path.join(root, *relpath.split("/"))
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write(body)
+        return path
+
+    def _link(self, relpath, target):
+        path = os.path.join(self.project, *relpath.split("/"))
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        try:
+            os.symlink(target, path)
+        except (OSError, NotImplementedError) as why:
+            self.skipTest("this host will not create a symlink: %s" % why)
+        return path
+
+    def test_a_symlinked_file_out_of_the_project_does_not_corroborate(self):
+        """The finding is the id branch, which walks and opens. The path branch
+        is asserted beside it as a control and was already right: it resolves
+        the cited candidate itself, and measured 2026-08-24 it still refuses the
+        link with its pre-existing `realpath` + `commonpath` in place. Swapping
+        it to the shared predicate buys one body of the rule, not a fix, and the
+        comment there says so.
+        """
+        self._write(self.outside, "leak.md", "SPEC-777 is documented here.\n")
+        self._link("knowledge-base/linked.md",
+                   os.path.join(self.outside, "leak.md"))
+        self.assertFalse(audit_engine._project_mentions(self.root, ["SPEC-777"]))
+        self.assertIsNone(audit_engine.resolve_spec_reference(
+            "per SPEC-777 this is intended", self.root))
+        self.assertIsNone(audit_engine.resolve_spec_reference(
+            "knowledge-base/linked.md", self.root))
+
+    def test_a_symlinked_file_inside_the_project_still_corroborates(self):
+        """Why the predicate is `within` and not "refuse every symlink": a
+        repository that links its own prose into place is still holding it, and
+        the walk has to read it. The control comes first — with the link absent
+        the id does not resolve — so the link is provably what carried it."""
+        self._write(self.project, "internal/notes/SPEC-007-real.md",
+                    "SPEC-007: usernames are pre-normalized.\n")
+        self.assertFalse(audit_engine._project_mentions(self.root, ["SPEC-007"]))
+        self._link("knowledge-base/linked.md",
+                   os.path.join(self.project, "internal", "notes",
+                                "SPEC-007-real.md"))
+        self.assertTrue(audit_engine._project_mentions(self.root, ["SPEC-007"]))
+
+    def test_a_symlink_reaching_this_skills_own_reports_does_not_corroborate(self):
+        """The prune in the walk is about a directory *name*, so it stops the
+        walk descending into the reports and stops nothing else. "The tool does
+        not get to be its own witness" has to survive a link that reaches them
+        under another name."""
+        self._write(self.project,
+                    "knowledge-base/security/codebase-security/2026-08-21.md",
+                    "SPEC-777 is quoted here as the id that must not resolve.\n")
+        self.assertFalse(audit_engine._project_mentions(self.root, ["SPEC-777"]))
+        self._link("knowledge-base/linked.md",
+                   os.path.join(self.project, "knowledge-base", "security",
+                                "codebase-security", "2026-08-21.md"))
+        self.assertFalse(audit_engine._project_mentions(self.root, ["SPEC-777"]))
+
+    def test_no_containment_predicate_means_no_corroboration(self):
+        """A `--copy` install skips a skill whose target was occupied or
+        foreign, so an engine can land in a tree with no `freya-code-graph`. It
+        must not answer as though it had checked: with the predicate gone,
+        nothing corroborates, the citation stops outranking the vote, and the
+        finding survives to be read. That is the direction a security tool has
+        to fail in."""
+        from unittest import mock  # local: this file is cited by line
+        self._write(self.project, "knowledge-base/a.md", "SPEC-007: yes.\n")
+        self.assertTrue(audit_engine._project_mentions(self.root, ["SPEC-007"]))
+        with mock.patch.object(audit_engine, "containment", None):
+            self.assertFalse(audit_engine._project_mentions(self.root,
+                                                            ["SPEC-007"]))
+            self.assertIsNone(
+                audit_engine.resolve_spec_reference("SPEC-007", self.root))
+            d, ref, _ = audit_engine.disposition(
+                verdicts(("exploitability", "upheld"),
+                         ("compensating-controls", "upheld")) + [cited("SPEC-007")],
+                project=self.project)
+        self.assertEqual((d, ref), ("confirmed", None))
+
+    def test_the_shared_predicate_travels_with_a_copy_install(self):
+        """ADR-030 puts a primitive more than one skill needs under
+        `skills/freya-code-graph/scripts/` and reaches it by the sibling
+        pattern, because a `--copy` install does not carry `bin/`. Asserted in a
+        fresh interpreter against a tree holding only the two skill directories,
+        since this process already has the real checkout on `sys.path` and would
+        answer for the wrong tree. Both legs, because the absent one is what the
+        guard is for and an empty `scripts/` is the shape `--copy` leaves when
+        the target was occupied."""
+        import subprocess  # local: this file is cited by line
+        import sys
+        scripts = os.path.dirname(os.path.abspath(audit_engine.__file__))
+        graph = os.path.join(os.path.dirname(os.path.dirname(scripts)),
+                             "freya-code-graph", "scripts", "containment.py")
+        for resolver in (True, False):
+            with self.subTest(resolver=resolver), tempfile.TemporaryDirectory() as tmp:
+                mine = os.path.join(tmp, "skills",
+                                    "freya-codebase-security-scan", "scripts")
+                shutil.copytree(scripts, mine,
+                                ignore=shutil.ignore_patterns("__pycache__"))
+                theirs = os.path.join(tmp, "skills", "freya-code-graph", "scripts")
+                os.makedirs(theirs)
+                if resolver:
+                    shutil.copy2(graph, theirs)
+                proc = subprocess.run(
+                    [sys.executable, "-c", "import audit_engine as e; "
+                     "print(e.containment is not None)"],
+                    cwd=mine, capture_output=True, text=True)
+                self.assertNotIn("Traceback", proc.stderr)
+                self.assertEqual(proc.stdout.strip(), str(resolver))
+
+
 # Last, not mid-file: this used to sit above PathNormalizationTest, so running
 # the file directly (rather than through `-m unittest`) executed unittest.main()
 # before those classes existed and silently skipped every one of them.

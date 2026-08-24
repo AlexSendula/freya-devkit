@@ -22,6 +22,11 @@ because that same gate is blocking or because it never ran. Fail-open on git err
 — and a fail-open always says so, `skipped: true` with a note, never a quiet pass.
 `skipped: true` is the field a consumer must read before trusting exit 0.
 
+Corpus: a spec file this gate could not read is an `errors` entry, so it blocks
+and `--advance` refuses over it. It used to drop out of `load_all_specs` and the
+gate reported `skipped: false` with an empty `unauthorized` — the shape of a run
+that happened — over a file it never opened.
+
 Usage:
     python verify_intent.py --project .
     python verify_intent.py --project . --format json
@@ -38,7 +43,13 @@ import sys
 from pathlib import Path, PurePath
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from search_specs import load_all_specs, find_specs_dir  # noqa: E402
+# The graph key rule is owned by freya-code-graph and imported, not copied
+# (ADR-030) — the same sibling pattern verify_links.py uses for `containment`.
+# A locator and a git path have to be compared as the same kind of string, and
+# `normalize_key` is where this toolkit already decides what that kind is.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "freya-code-graph" / "scripts"))
+from graph_ops import normalize_key  # noqa: E402
+from search_specs import load_specs, find_specs_dir  # noqa: E402
 from frontmatter import parse_frontmatter, FrontmatterError  # noqa: E402
 from adapters import parse_locator  # noqa: E402
 
@@ -232,6 +243,77 @@ def _is_change(status):
     return status in ("M", "D")
 
 
+def _changed_index(status):
+    """(exact, folded) — a change-set indexed the way a locator will ask for it.
+
+    `exact` is keyed by `normalize_key`, so a locator and git's spelling of the
+    same file arrive as one string: `./tests/test_a.py`, `tests//test_a.py` and
+    `tests/x/../test_a.py` all reduce to what git emits. Until 2026-08-24 the
+    lookup was verbatim against git's map, and every one of those spellings
+    missed — silently, and on the permissive side, so an accepted behavior's
+    test could be edited with no record and the gate reported `skipped: false,
+    unauthorized: [], exit 0`. None of the three is an error anywhere else in
+    the toolkit: `verify_links` resolves them (`escapes` is false and `root /
+    './tests/test_a.py'` is a file) and so does `behavior_graph`, so a fully
+    green repository had a behavior only this gate could not see.
+
+    `folded` is the case-insensitive index, and it exists to be a CANDIDATE
+    list rather than an answer — see `_one_file` for why that distinction is the
+    whole of the case handling.
+    """
+    exact, folded = {}, {}
+    for path, st in status.items():
+        key = normalize_key(path)
+        exact[key] = st
+        folded.setdefault(key.casefold(), []).append(key)
+    return exact, folded
+
+
+def _one_file(project_dir, a, b):
+    """Do two spellings name one file? Asked of the filesystem, never guessed.
+
+    `Tests/test_a.py` and `tests/test_a.py` are one file on macOS and Windows
+    and two on Linux, and Linux is the host a governance gate most often runs
+    on, so `casefold()` alone would match two genuinely different files there
+    and report an edit to one as an edit to the other. `samefile` puts the
+    question to the filesystem that owns the answer instead of to a table of
+    platforms.
+
+    It is only ever asked about a path git just named: the candidate comes from
+    `_changed_index`'s folded map, so a locator reaching this line already
+    reduces, modulo case, to an in-project path from the change-set. A locator
+    that escapes the project cannot get here to be `stat`ed.
+
+    The residue, stated where it is decided: a *deleted* accepted test whose
+    locator differs in case is not matched, because there is no file left to
+    ask about — and in that same run `verify_links` reports the locator as
+    unresolved and hard-blocks on it, which is checked by
+    `test_verify_intent.py#LocatorSpellingCase.test_a_deleted_test_is_caught_by_the_sibling_gate`
+    rather than asserted here.
+    """
+    try:
+        return os.path.samefile(os.path.join(project_dir, a),
+                                os.path.join(project_dir, b))
+    except OSError:
+        return False
+
+
+def _match_change(index, project_dir, rel_path):
+    """(git's status for `rel_path`, the path it was matched to).
+
+    Status is None when the file is not in the change-set; the second element is
+    then the normalised locator path, which is what the caller reports.
+    """
+    exact, folded = index
+    key = normalize_key(rel_path)
+    if key in exact:
+        return exact[key], key
+    for candidate in folded.get(key.casefold(), ()):
+        if _one_file(project_dir, key, candidate):
+            return exact[candidate], candidate
+    return None, key
+
+
 def _git_relpath(path, project_dir):
     """`path` as GIT addresses it: project-relative, forward slashes, always.
 
@@ -360,8 +442,15 @@ def verify_intent(project_dir="."):
                           f"{baseline}..worktree; nothing was checked")
         return result
 
-    specs = load_all_specs(specs_dir)
+    specs, unreadable = load_specs(specs_dir)
+    # A spec this gate could not read is a blocking error, not a shorter corpus.
+    # `errors` already feeds `_blocking`, so this exits 1 and `advance_if_clear`
+    # refuses to move the baseline over it — which is the half that matters,
+    # because advancing does not defer an unauthorized edit, it clears it.
+    spec_errors = [f"{_git_relpath(u.file_path, project_dir)}: {u.reason} "
+                   f"— its behaviors were not checked" for u in unreadable]
 
+    index = _changed_index(status)
     edited = []
     for s in specs:
         for b in s.behaviors:
@@ -371,16 +460,16 @@ def verify_intent(project_dir="."):
             if not locator:
                 continue
             rel_path, _frag = parse_locator(locator)
-            st = status.get(rel_path)
+            st, matched = _match_change(index, project_dir, rel_path)
             if _is_change(st):
                 edited.append({"behavior_id": b.get("behavior_id"), "spec_id": s.id,
-                               "locator": locator, "path": rel_path,
+                               "locator": locator, "path": matched,
                                "status": ("R" if isinstance(st, tuple) else st)})
     result["edited_accepted"] = edited
 
     records, errors = _load_records(project_dir, baseline)
     result["records_in_change"] = records
-    result["errors"] = errors
+    result["errors"] = spec_errors + errors
 
     all_bids = {b.get("behavior_id") for s in specs for b in s.behaviors}
     covered = set()
@@ -513,6 +602,13 @@ def _print_text(result):
                 print(f"  [{u['behavior_id']}] {u['spec_id']}: {u['path']} changed — "
                       f"file knowledge-base/intents/INTENT-NNN.md naming {u['behavior_id']} "
                       f"(intent.py new --behavior {u['behavior_id']}), or revert the test edit.")
+        if result["errors"]:
+            # A headline of its own: an unreadable spec or a malformed record can
+            # block on its own, with `unauthorized` empty, and the bare indented
+            # `[error]` lines this used to print had nothing above them saying
+            # what they were the reason for. "file(s)" rather than "record(s)"
+            # because both a spec and an INTENT record land in this list.
+            print(f"{len(result['errors'])} file(s) the gate could not read:\n")
         for e in result["errors"]:
             print(f"  [error] {e}")
     for w in result["warnings"]:

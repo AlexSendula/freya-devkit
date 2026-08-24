@@ -851,6 +851,31 @@ class CodeGraph:
                 # the graph asserting that a real dependency is a missing local file.
                 if any(part in _NEVER_A_WORKSPACE for part in directory.parts):
                     continue
+                # SEC-023's third route, and the one `_scan_files` and `update` did not cover.
+                # `Path.glob` follows a directory symlink, so a match can be a package whose
+                # files live outside the project — and everything below opens its manifest and
+                # then hands `_resolve_fs` a root under it, where `_contain` is lexical by
+                # design (ADR-025) and mints `pkglink/ui/src/index.ts` for a file `_scan_files`
+                # has already refused. That is two predicates disagreeing about one file in one
+                # build, which is why `validate_graph` could only report the symptom ("names no
+                # file in the graph").
+                #
+                # Same rule and same record as its two siblings: `containment.within` decides;
+                # a declared target is a crossing rather than an intruder and is still not
+                # adopted, because a declaration grants resolution and never re-authorises the
+                # implicit crossing a symlink is (SEC-008); and the refusal goes into
+                # `substrate.escaping_links`, because stderr is dead skill-to-skill (ADR-029).
+                # Stated with its limit attached: `glob` has already listed that directory to
+                # produce this candidate, and what stops here is opening, parsing and keying.
+                # A glob match is lexically under the root by construction, so the `rel_within`
+                # guard decides only whether the refusal is *disclosed*, never whether it
+                # happens — the `continue` is not reached through it.
+                if not containment.within(self.project_dir, directory):
+                    rel = containment.rel_within(self.project_dir, directory)
+                    if rel is not None:
+                        self._record_escaping_link(normalize_key(rel),
+                                                   self._outside_roots().key_for(directory))
+                    continue
                 manifest = directory / 'package.json'
                 if not manifest.is_file():
                     continue

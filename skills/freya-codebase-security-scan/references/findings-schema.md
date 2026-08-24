@@ -34,7 +34,10 @@ Field rules:
   - `intentional` — explained by intent, so not outstanding. Either a declarative
     spec decision (`spec_ref` names the spec) **or** an `accepted` behavior whose
     intent explains it (`behavior_ref` names the behavior — the stronger of the two,
-    and still a claim: no test is run to produce it). A finding may carry both.
+    and how strong depends on how it was produced: `--covering` alone labels a record
+    the repository committed, `--covering --verify` re-runs the linked behavior. Carry
+    the query's own `evidence` string, which says which one you got). A finding may
+    carry both.
 - `file` / `line` — primary location (`line` optional).
 - `spec_ref` — the declarative spec marking it intentional, when known (optional).
 - `behavior_ref` — the `accepted` behavior (`BEH-NNN`) whose intent explains the

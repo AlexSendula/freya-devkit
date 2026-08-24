@@ -30,6 +30,11 @@ from datetime import date as _date
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# Same reason verify_intent imports it (ADR-030): a declared path and git's spelling of
+# that path have to be compared as the same kind of string, and `normalize_key` is where
+# this toolkit decides what that kind is.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "freya-code-graph" / "scripts"))
+from graph_ops import normalize_key  # noqa: E402
 from search_specs import load_all_specs, find_specs_dir  # noqa: E402
 from adr import active_adrs  # noqa: E402
 import resolution_log  # noqa: E402
@@ -99,11 +104,22 @@ def compute_impact(project, base):
 
 
 def _spec_targets(project, impact):
+    """Specs whose declared `related_code` intersects the impact set.
+
+    Both sides are normalised, and that is not tidiness. `impact` holds git's spelling;
+    `related_code` holds whatever an author wrote in the frontmatter. Compared verbatim, a
+    perfectly ordinary `./src/b.py` never matched `src/b.py`, so the spec dropped out of
+    the P4b drift checkpoint's target set — silently, from a resolve-to-proceed gate, which
+    is a confidently short answer rather than a wrong one. The same defect as the G1
+    locator comparison, one file over; that one was found and this one was not, because the
+    survey asked who resolves a LOCATOR and not who compares a DECLARED PATH to git.
+    """
+    impact = {normalize_key(p) for p in impact}
     targets = []
     for s in load_all_specs(find_specs_dir(project)):
         if s.status == "deprecated" or not s.intentional_decisions:
             continue
-        hits = [p for p in s.related_code if p in impact]
+        hits = [p for p in s.related_code if normalize_key(p) in impact]
         if hits:
             targets.append({"item": s.id, "kind": "spec", "related_code": s.related_code,
                             "hit_paths": hits, "decisions": s.intentional_decisions,
@@ -114,9 +130,10 @@ def _spec_targets(project, impact):
 def _adr_targets(project, impact):
     adrs, warnings = active_adrs(project)
     targets = []
+    impact = {normalize_key(p) for p in impact}   # see `_spec_targets`
     for a in adrs:
         rc = a.get("related_code") or []
-        hits = [p for p in rc if p in impact]
+        hits = [p for p in rc if normalize_key(p) in impact]
         if hits:
             targets.append({"item": a["id"], "kind": "adr", "related_code": rc,
                             "hit_paths": hits, "title": a["title"], "body": a["body"]})

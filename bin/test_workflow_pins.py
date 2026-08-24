@@ -30,6 +30,22 @@ that produces is a demand to pin something that is not an action. Loud, and
 wrong in the safe direction. A full-line comment is the one exemption, because
 a commented-out step is the ordinary way to park one.
 
+The second half of the module reads `permissions:`, and that half decides
+whether the first half's question about a persisted token is asked at all — so
+a grant nobody could read is the more expensive of the two silences. The subset
+is every spelling GitHub documents: a block mapping of `scope: read|write|none`
+under a bare `permissions:`, the same mapping written inline as `{scope: level,
+...}`, `read-all` or `write-all` as the whole value, and `{}` for none. One pair
+of quotes comes off a scope or a level, and a trailing `# remark` comes off the
+end of either — `pages: write   # publish the site` is the line this was fixed
+for, and the pattern it replaced anchored past the remark and read that grant as
+empty. Every other spelling — an anchor, an alias, a block scalar, a nested flow
+collection, a level that is not one of the three, a `permissions:` key with
+nothing under it — is refused **by name**, and the refusal makes the checkout
+rule run anyway instead of switching it off. Both halves of that matter: a gate
+that cannot read a grant must not report the workflow clean, and must not
+quietly stop asking the question the grant unlocks.
+
 All of `.github/` is scanned, not only `.github/workflows/`. A composite action
 under `.github/actions/` executes third-party code with the same token as the
 job that calls it, and a workflows-only scan would never look at it. There are
@@ -108,9 +124,53 @@ SHA = re.compile(r"\A[0-9a-f]{40}\Z")
 #: moves a pin (`.github/dependabot.yml`). Anchored, so `# pinned, see v4` fails.
 VERSION_COMMENT = re.compile(r"\Av\d+(?:\.\d+)*\b")
 
-#: A permission granted rather than merely read, at workflow or job level. What
-#: it selects is the workflows whose token is worth stealing.
-WRITE_SCOPE = re.compile(r"^\s*[\w-]+:\s*write(?:-all)?\s*$")
+#: The `permissions:` key at workflow or job level — the block that decides
+#: what the job's token can do, and so which workflows are worth stealing one
+#: from. Read in the one spelling this parser follows: the whole value on the
+#: line, or nothing after the colon and the mapping on the lines below.
+PERMISSIONS = re.compile(r"^(?P<indent>\s*)permissions:(?P<rest>.*)$")
+
+#: The same key in any spelling at all, and nothing is judged by it — it exists
+#: for the same difference `LOOSE_USES` exists for. A `permissions:` line the
+#: strict pattern did not match is a line nothing read, and reading it as a
+#: workflow that grants nothing is how this rule silently stopped applying.
+LOOSE_PERMISSIONS = re.compile(r"""(?<![\w-])["']?permissions["']?\s*:""")
+
+#: A scope name or a permission level: a bare word, or the same word inside one
+#: balanced pair of quotes. Both are plain YAML scalars and GitHub reads them
+#: identically, so refusing the quoted one would be a rule about typography.
+WORD = r"""(?:[\w-]+|"[\w-]+"|'[\w-]+')"""
+
+#: One `scope: level` line of a block mapping. The value is taken as whatever
+#: follows the colon rather than matched here, so that a line whose value this
+#: parser cannot read is refused with the rest of the block rather than failing
+#: to match and being mistaken for the end of it.
+SCOPE = re.compile(r"^\s*(?P<scope>%s)\s*:(?P<rest>.*)$" % WORD)
+
+#: One entry of a flow mapping, between the braces and the commas.
+FLOW_ENTRY = re.compile(r"^\s*(?P<scope>%s)\s*:\s*(?P<level>%s)\s*$" % (WORD, WORD))
+
+#: A trailing YAML remark. The space before the `#` is required because that is
+#: what makes it a comment: `write#publish` is the scalar `write#publish`, and
+#: stripping it would turn a line GitHub rejects into one this gate approves.
+REMARK = re.compile(r"\s#.*$")
+
+#: The three levels a scope may take, and whether each is a grant. `none` is
+#: here because GitHub accepts it and a parser that refused it would go loud on
+#: a correct, deliberately-empty permission.
+LEVELS = {"read": False, "write": True, "none": False}
+
+#: The two values `permissions:` takes as a whole, in place of a mapping.
+GRANT_ALL = {"read-all": False, "write-all": True}
+
+#: What `permission_sites` records about a block it could not read. One message
+#: for every unreadable spelling, because the remedy is the same one every time
+#: — rewrite the block into the subset above — and because the line number is
+#: what the reader actually needs, which the record carries beside it.
+UNREADABLE_GRANT = ("this parser cannot read this `permissions:` block, so "
+                    "nothing has checked what the job's token can do — write "
+                    "it as `scope: read|write|none`, as `{scope: level, ...}`, "
+                    "or as `read-all`/`write-all`")
 
 #: The bare lowercase boolean, and only that. Every other spelling is reported
 #: as a violation, and every one of those reports is a false positive. At the
@@ -130,6 +190,13 @@ WRITE_SCOPE = re.compile(r"^\s*[\w-]+:\s*write(?:-all)?\s*$")
 PERSIST_OFF = re.compile(r"^\s*persist-credentials:\s*false\s*$")
 
 Site = namedtuple("Site", "path line ref comment")
+
+#: One `permissions:` block: the line it was read at, whether it grants a write
+#: scope, and why it could not be read at all. `grants` is False on an
+#: unreadable block and means nothing there — `problem` is the field that
+#: decides, and the two are separate so that "grants nothing" and "nobody
+#: checked" can never arrive at the caller as the same value.
+Permission = namedtuple("Permission", "line grants problem")
 
 
 def label(path):
@@ -151,13 +218,22 @@ def action_files(directory=GITHUB_DIR):
     return sorted(found)
 
 
+def _unquote(value):
+    """`value` with one balanced surrounding pair of quotes taken off.
+
+    `uses: "owner/repo@sha"` is the same step as the bare spelling and
+    `pages: 'write'` is the same grant as the bare one, so refusing either
+    would make these rules about typography rather than about pins and tokens.
+    An unbalanced quote is left where it is: the value continues somewhere this
+    parser is not looking, and each caller refuses it on that basis.
+    """
+    if len(value) > 1 and value[0] in "\"'" and value[-1] == value[0]:
+        return value[1:-1]
+    return value
+
+
 def _reference(value):
     """The action reference `value` names, or UNREADABLE when it names none.
-
-    One surrounding pair of quotes comes off, because `uses: "owner/repo@sha"`
-    is the same step as the bare spelling and refusing it would make this a rule
-    about typography rather than about pins. An unbalanced quote does not: the
-    value continues somewhere this parser is not looking.
 
     Anything opening with a YAML indicator is refused instead of read. The text
     after the colon is genuinely not the reference in those cases, and a
@@ -165,8 +241,7 @@ def _reference(value):
     for it — a failure pointing at the wrong thing, which teaches the next
     reader to distrust the gate rather than to fix the line.
     """
-    if len(value) > 1 and value[0] in "\"'" and value[-1] == value[0]:
-        value = value[1:-1]
+    value = _unquote(value)
     if not value or value[0] in UNFOLLOWABLE or '"' in value or "'" in value:
         return UNREADABLE
     return value
@@ -302,16 +377,164 @@ def step_block(lines, index):
     return lines[start:end]
 
 
+def _value_after_colon(rest):
+    """What a `key:` line assigns, or None when this parser cannot say.
+
+    `rest` is everything after the colon. It has to open with whitespace or be
+    empty, because `permissions:read-all` is not a mapping at all — YAML needs
+    the space, GitHub rejects the line, and reading it as a grant would teach
+    the gate a spelling nothing accepts. A trailing remark comes off the end;
+    everything left is the value, with its own whitespace stripped.
+    """
+    if rest and not rest[:1].isspace():
+        return None
+    return REMARK.sub("", rest).strip()
+
+
+def _scalar_permission(line, value):
+    """`permissions: read-all` — the whole mapping replaced by one word.
+
+    Those two words are the only whole-block values GitHub defines, so every
+    other scalar is refused rather than guessed at. `permissions: read` reads
+    perfectly reasonably and is not a thing; treating it as "grants nothing"
+    would be this gate approving a line GitHub itself rejects.
+    """
+    level = _unquote(value)
+    if level not in GRANT_ALL:
+        return Permission(line, False, UNREADABLE_GRANT)
+    return Permission(line, GRANT_ALL[level], None)
+
+
+def _flow_permission(line, value):
+    """`permissions: {contents: read, pages: write}` — the mapping written inline.
+
+    An empty pair of braces is the documented way to grant nothing, and a
+    trailing comma is legal YAML, so both read as a block with no grants rather
+    than as a block nobody could read. Anything else between the braces — a
+    nested collection, a level outside the three, a mapping that never closes —
+    is refused, because the alternative is guessing at what a job's token can do.
+    """
+    if not value.endswith("}"):
+        return Permission(line, False, UNREADABLE_GRANT)
+    grants = False
+    for entry in value[1:-1].split(","):
+        if not entry.strip():
+            continue
+        found = FLOW_ENTRY.match(entry)
+        level = _unquote(found.group("level")) if found else None
+        if level not in LEVELS:
+            return Permission(line, False, UNREADABLE_GRANT)
+        grants = grants or LEVELS[level]
+    return Permission(line, grants, None)
+
+
+def _block_permission(lines, index, indent):
+    """`permissions:` with its mapping on the lines below it — the common form.
+
+    The block runs to the first line indented no further than the key itself,
+    by column rather than by a count of levels, for the reason `step_block`
+    computes the same thing: indent width is a style choice and a rule keyed to
+    the number 2 reads the wrong block the day somebody reindents `.github/`.
+    Blank lines and full-line comments are passed over inside it, because YAML
+    ends a block on neither.
+
+    A refusal names the offending scope line and not the `permissions:` line
+    above it, so the failure sends its reader to the line nobody read. The one
+    exception is a key with no value and no entries under it at all — `null`
+    permissions, which GitHub rejects — where the key itself is the whole of
+    the problem and there is no other line to name.
+    """
+    grants, seen = False, False
+    for number, raw in enumerate(lines[index + 1:], index + 2):
+        if not raw.strip() or raw.lstrip().startswith("#"):
+            continue
+        if _indent(raw) <= indent:
+            break
+        seen = True
+        found = SCOPE.match(raw)
+        value = _value_after_colon(found.group("rest")) if found else None
+        level = _unquote(value) if value else None
+        if level not in LEVELS:
+            return Permission(number, False, UNREADABLE_GRANT)
+        grants = grants or LEVELS[level]
+    if not seen:
+        return Permission(index + 1, False, UNREADABLE_GRANT)
+    return Permission(index + 1, grants, None)
+
+
+def permission_sites(text):
+    """Every `permissions:` block in `text`, as (line, grants, problem).
+
+    A line naming the key that `PERMISSIONS` could not parse is recorded with a
+    `problem` rather than passed over, exactly as `uses_sites` records an
+    unreadable step. It is the same defect one key up: the pattern this
+    replaced was anchored at end of line, so `pages: write  # publish the site`
+    matched nothing, the workflow read as granting nothing, and the
+    persisted-token rule below stopped running over a job holding
+    `pages: write` — with no failure, no marker, and nothing in the output to
+    say a workflow had been skipped.
+
+    The cost is the one the `uses:` half already pays: a literal `permissions:`
+    inside a `run: |` block, or in a trailing remark, is read as a real key and
+    refused. Loud, and wrong in the safe direction.
+    """
+    lines = text.splitlines()
+    sites = []
+    for index, raw in enumerate(lines):
+        if raw.lstrip().startswith("#"):
+            continue
+        match = PERMISSIONS.match(raw)
+        if match:
+            value = _value_after_colon(match.group("rest"))
+            if value is None:
+                sites.append(Permission(index + 1, False, UNREADABLE_GRANT))
+            elif value.startswith("{"):
+                sites.append(_flow_permission(index + 1, value))
+            elif value:
+                sites.append(_scalar_permission(index + 1, value))
+            else:
+                sites.append(_block_permission(lines, index,
+                                               len(match.group("indent"))))
+        elif LOOSE_PERMISSIONS.search(raw):
+            sites.append(Permission(index + 1, False, UNREADABLE_GRANT))
+    return sites
+
+
 def grants_write(text):
-    """Does this workflow hand its job a token that can change anything?"""
-    return any(WRITE_SCOPE.match(line) for line in text.splitlines())
+    """Does this workflow hand its job a token that can change anything — or is
+    that a question this gate could not answer?
+
+    True on both, deliberately, and `permission_sites` is where the two are
+    told apart. Answering False on an unreadable block is the defect this was
+    fixed for: `token_persisting_checkouts` asks this before it does anything,
+    so one unparseable `permissions:` line switched the persisted-token rule off
+    for the whole file and the suite stayed green. Now the rule runs over a
+    workflow whose grant nobody could read — over-reporting, the direction this
+    module chooses everywhere else — and the shipped-tree test fails naming the
+    line, so the spelling gets fixed rather than tolerated.
+
+    NO `permissions:` KEY AT ALL IS ALSO TRUE, and that was the same defect one
+    step over: a workflow with no block simply had no sites, so `any([])` was
+    False and the persisted-token rule silently did not apply to it. Absent is
+    not "grants nothing" — GitHub falls back to the *repository* default, which
+    can be read-and-write, so the effective grant is one this parser has no way
+    to see. Reachable by the ordinary next edit: adding a workflow file.
+    The cost of the over-report is that a genuinely read-only workflow must say
+    so, which is a line worth writing in a repository that publishes a site.
+    """
+    sites = permission_sites(text)
+    if not sites:
+        return True
+    return any(site.grants or site.problem for site in sites)
 
 
 def token_persisting_checkouts(text):
     """Line numbers of checkout steps that leave the token in `.git/config`.
 
-    Only asked of a workflow that grants a write scope, because that is where
-    the answer costs something. `actions/checkout` defaults
+    Only asked of a workflow that grants a write scope — or whose grant this
+    parser could not read, which `grants_write` answers True for and which is
+    the whole of that function's fix — because that is where the answer costs
+    something. `actions/checkout` defaults
     `persist-credentials` to true, which writes the job's GITHUB_TOKEN into
     `.git/config` as an extraheader every later step in the job can read — and
     in the Pages job that token carries `pages: write` and `id-token: write`
@@ -580,6 +803,155 @@ class StepBlockTest(unittest.TestCase):
         self.assertEqual(step_block(self.WIDE, 4), self.WIDE[3:6])
 
 
+class PermissionScopeTest(unittest.TestCase):
+    """What the token can do — and whether that could be read at all."""
+
+    #: Every spelling of `permissions:` GitHub documents, and what each grants.
+    #: The tree writes exactly one of them, `block mapping`. The rest are here
+    #: because a gate that reads only the spelling already in front of it is a
+    #: gate that stops working at the next edit, and that is how this hole was
+    #: found: nobody had yet written `a remark after the level`, which is the
+    #: same grant as the first row and used to be read as the opposite of it.
+    READABLE = {
+        "block mapping": ("permissions:\n  contents: read\n  pages: write\n", True),
+        "block mapping, read only": ("permissions:\n  contents: read\n", False),
+        "an explicit none": ("permissions:\n  contents: none\n", False),
+        "a remark after the level": ("permissions:\n  pages: write   # publish the site\n", True),
+        "a remark after the key": ("permissions:  # the deploy needs these\n  pages: write\n", True),
+        "a quoted level": ("permissions:\n  pages: 'write'\n", True),
+        "a quoted scope": ('permissions:\n  "pages": write\n', True),
+        "space before the colon": ("permissions:\n  pages : write\n", True),
+        "a blank line inside the block": ("permissions:\n\n  pages: write\n", True),
+        "a comment line inside the block": ("permissions:\n  # for the deploy\n  pages: write\n", True),
+        "a job-level block": ("jobs:\n  deploy:\n    permissions:\n      pages: write\n    steps:\n", True),
+        "flow mapping": ("permissions: {contents: read, pages: write}\n", True),
+        "flow mapping, read only": ("permissions: {contents: read}\n", False),
+        "flow mapping, trailing comma": ("permissions: {pages: write,}\n", True),
+        "flow mapping granting nothing": ("permissions: {}\n", False),
+        "write-all": ("permissions: write-all\n", True),
+        "read-all": ("permissions: read-all\n", False),
+        "a quoted write-all": ("permissions: 'write-all'\n", True),
+    }
+
+    def test_every_spelling_github_accepts_is_read_rather_than_refused(self):
+        """One site per row, no problem on any of them, and the grant read
+        correctly in both directions — the second half being what stops the fix
+        from being "call everything a grant and claim vigilance"."""
+        for description, (body, grants) in sorted(self.READABLE.items()):
+            with self.subTest(spelling=description):
+                self.assertEqual([site.problem for site in permission_sites(body)],
+                                 [None])
+                self.assertEqual(grants_write(body), grants)
+
+    #: Every spelling this parser refuses. Each is either legal YAML that this
+    #: subset does not cover, or a line GitHub itself rejects — and either way
+    #: what the old pattern did with it was return False and move on.
+    UNREADABLE = {
+        "anchored value": "permissions: &p\n  pages: write\n",
+        "aliased value": "permissions: *p\n",
+        "folded block scalar": "permissions: >-\n  write-all\n",
+        "a nested flow collection": "permissions: {contents: {read: true}}\n",
+        "a flow mapping that never closes": "permissions: {contents: read,\n",
+        "a level outside the three": "permissions:\n  pages: writable\n",
+        "a scope with no level": "permissions:\n  pages:\n    - write\n",
+        "a sequence where a mapping belongs": "permissions:\n  - pages: write\n",
+        "no value and no block under it": "permissions:\n",
+        "no space after the colon": "permissions:read-all\n",
+        "a scalar that is neither read-all nor write-all": "permissions: read\n",
+        "space before the colon": "permissions : write-all\n",
+        "a quoted key": '"permissions": write-all\n',
+        "a remark with no space in front of it": "permissions:\n  pages: write#publish\n",
+    }
+
+    def test_a_grant_this_parser_cannot_read_is_named_rather_than_read_as_empty(self):
+        """The finding, stated as the rule it broke. Every row records one site
+        carrying a problem; none of them is passed over, and none of them
+        arrives at the caller looking like a workflow that grants nothing."""
+        for description, body in sorted(self.UNREADABLE.items()):
+            with self.subTest(spelling=description):
+                sites = permission_sites(body)
+                self.assertEqual(len(sites), 1)
+                self.assertIsNotNone(sites[0].problem)
+
+    def test_a_commented_out_block_is_not_a_block(self):
+        """The exemption `uses_sites` makes, for the same reason: parking a
+        block behind a `#` while you work out what a job needs is ordinary, and
+        reading it as a real key would fail the tree over a line GitHub never
+        sees. It is the one place a `permissions:` this parser did not parse is
+        allowed to record nothing."""
+        self.assertEqual(
+            permission_sites("# permissions: write-all\n  # pages: write\n"), [])
+
+    def test_a_workflow_with_no_permissions_key_is_an_unknown_grant_not_an_empty_one(self):
+        """The sibling of the unreadable-block case, and it was still open after
+        that one was fixed.
+
+        A workflow with no `permissions:` at all simply had no sites, so
+        `any([])` was False, `grants_write` said no, and the persisted-token
+        rule silently did not apply to the whole file. Absent is not "grants
+        nothing": GitHub falls back to the repository default, which can be
+        read-and-write, so the effective grant is one this parser cannot see —
+        the exact thing the module's own docstring says must not produce a clean
+        report.
+
+        Reachable by the ordinary next edit. Both shipped workflows declare a
+        block today, which is why the tree stayed green over it and why this
+        fixture is synthetic.
+        """
+        no_block = ("name: Release\non: push\njobs:\n  build:\n"
+                    "    runs-on: ubuntu-latest\n    steps:\n"
+                    "      - uses: actions/checkout@" + "3d3c42e5" + "a" * 32 + "\n")
+        self.assertEqual(permission_sites(no_block), [])
+        self.assertTrue(grants_write(no_block),
+                        "a grant this gate cannot see must not read as no grant")
+        self.assertEqual(token_persisting_checkouts(no_block), [7],
+                         "and the rule that grant unlocks must actually run")
+
+    def test_the_key_named_inside_a_run_block_is_over_reported_not_ignored(self):
+        """The stated cost of reading YAML as text, asserted so it stays a
+        decision. Telling a real key from the same word inside a `run:` script
+        or a trailing remark needs the parser this module does not have, so the
+        line is refused and the fix is to reword it. Wrong in the safe
+        direction, and the `uses:` half already pays exactly this."""
+        body = "    steps:\n      - run: echo 'permissions: write-all'\n"
+        self.assertEqual([site.problem is not None
+                          for site in permission_sites(body)], [True])
+
+    def test_the_refusal_names_the_line_it_could_not_read(self):
+        """A scope line the parser could not read is reported at its own line
+        and not at the `permissions:` key above it, for the reason the `uses:`
+        half reports the same way: a failure without a line number sends its
+        reader to read all of `.github/` by eye."""
+        sites = permission_sites("permissions:\n  contents: read\n  pages: writable\n")
+        self.assertEqual([(s.line, s.problem is None) for s in sites], [(3, False)])
+
+    #: A job whose checkout takes the `persist-credentials` default, appended to
+    #: each grant above. Nothing about it varies between rows: the row is the
+    #: `permissions:` spelling, and the answer is whether the rule ran at all.
+    CHECKOUT = ("jobs:\n  deploy:\n    steps:\n"
+                "      - uses: actions/checkout@%s\n" % ("a" * 40))
+
+    def test_an_unreadable_grant_still_asks_the_persisted_token_question(self):
+        """The consequence, which is the finding itself: the pin gate read an
+        unparseable `permissions:` line as granting nothing, `grants_write`
+        returned False, and `token_persisting_checkouts` returned `[]` without
+        examining a single step. A checkout leaving a write-scoped GITHUB_TOKEN
+        in `.git/config` went unflagged and the shipped-tree test stayed green.
+        Each of these bodies now reaches the rule instead of switching it off."""
+        for description, body in sorted(self.UNREADABLE.items()):
+            with self.subTest(spelling=description):
+                self.assertTrue(token_persisting_checkouts(body + self.CHECKOUT))
+
+    def test_a_readable_read_only_grant_is_still_not_asked(self):
+        """The control for the test above, on the two parse paths that are new:
+        refusing to read a block must not become refusing to read any block."""
+        for description, body in [("block", "permissions:\n  contents: read\n"),
+                                  ("flow", "permissions: {contents: read}\n"),
+                                  ("read-all", "permissions: read-all\n")]:
+            with self.subTest(spelling=description):
+                self.assertEqual(token_persisting_checkouts(body + self.CHECKOUT), [])
+
+
 class PersistedCredentialTest(unittest.TestCase):
     """The checkout that leaves a write-scoped token behind it."""
 
@@ -754,6 +1126,40 @@ class ShippedWorkflowTest(unittest.TestCase):
         self.assertEqual(missed, set(),
                          "workflows the scan never opened: %s" % sorted(missed))
         self.assertGreaterEqual(len(uses_sites()), 8)
+
+    def test_every_permissions_block_in_the_tree_is_one_this_gate_can_read(self):
+        """The `uses:` half's guarantee, one key up. A `permissions:` block
+        written outside the readable subset does not fail the rule below — it
+        stops the rule below from running — so it has to fail here, on its own,
+        with a message asking for a rewrite rather than for a setting.
+        """
+        unread = []
+        for path in action_files():
+            unread += ["%s:%d" % (label(path), site.line)
+                       for site in permission_sites(path.read_text(encoding="utf-8"))
+                       if site.problem]
+        self.assertEqual(unread, [],
+                         "`permissions:` blocks written in a form this gate "
+                         "cannot check, so nothing has checked what those "
+                         "tokens can do: %s" % unread)
+
+    def test_the_scan_read_the_grants_it_is_supposed_to_find(self):
+        """The guard against the test above passing over an empty list, and it
+        is not hypothetical: every assertion about permissions in this module
+        is vacuous the moment `permission_sites` stops matching, and stopping
+        matching is precisely what the pattern it replaced did.
+
+        Both directions are named, because one alone is satisfied by a broken
+        parser: pages.yml must read as granting write, so the persisted-token
+        rule really runs over the job SEC-018 is about, and ci.yml must read as
+        read-only, so the parser cannot be one that calls everything a grant.
+        """
+        read = {label(path): grants_write(path.read_text(encoding="utf-8"))
+                for path in action_files()}
+        self.assertEqual(read.get(".github/workflows/pages.yml"), True,
+                         "the Pages workflow's write grant was not read: %s" % read)
+        self.assertEqual(read.get(".github/workflows/ci.yml"), False,
+                         "CI reads as write-scoped or unreadable: %s" % read)
 
     def test_the_scan_read_every_line_it_found(self):
         """`test_every_action_is_pinned_to_a_commit` already fails on an

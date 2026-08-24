@@ -40,7 +40,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 _GRAPH_SCRIPTS = Path(__file__).resolve().parents[2] / "freya-code-graph" / "scripts"
 sys.path.insert(0, str(_GRAPH_SCRIPTS))
 from containment import escapes as _escapes  # noqa: E402
-from search_specs import load_all_specs, find_specs_dir  # noqa: E402
+from search_specs import load_specs, find_specs_dir  # noqa: E402
 from adapters import (  # noqa: E402
     parse_locator,
     has_scaffold_marker,
@@ -115,8 +115,24 @@ def _iter_feature_files(root: Path):
 def verify(specs_dir: str = None) -> list:
     specs_dir = specs_dir or find_specs_dir()
     root = _project_root(specs_dir)
-    specs = load_all_specs(specs_dir)
+    specs, unreadable = load_specs(specs_dir)
     errors = []
+
+    # A spec that could not be parsed is an error here rather than an absence.
+    # Every check below is "this behavior's link resolves", and a spec missing
+    # from the corpus has no behaviors to check — so without this row the gate
+    # prints its OK sentence over a file it never read, which is the one thing
+    # a Tier-1 hard-block is not allowed to do (ADR-005). SPEC-017 already noted
+    # the asymmetry it was on the wrong side of: a bad ADR is an error in
+    # `verify_adrs`, a bad spec was a warning nobody saw.
+    #
+    # The project-relative path goes in the `spec_id` slot because this row has
+    # no spec id to put there — that is frequently the whole complaint — and the
+    # `orphan-spec-tag` row sets the precedent of filling it with the closest
+    # thing to an identifier the error has.
+    for u in unreadable:
+        errors.append(_err(os.path.relpath(u.file_path, str(root)), None,
+                           "spec-unreadable", u.reason))
 
     spec_ids = {s.id for s in specs if s.id}
 

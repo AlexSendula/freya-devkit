@@ -1,6 +1,8 @@
+import io
 import json
 import os
 import shutil
+import subprocess
 import tempfile
 import unittest
 import unittest.mock as mock
@@ -166,7 +168,7 @@ class LoadBehaviorJsonTest(unittest.TestCase):
 
         os.rmdir(self._path())
         self._write('{"version": 1, "behavi')
-        with mock.patch.object(behavior_graph, "_changed_files", return_value=["lib/webauthn.ts"]), \
+        with mock.patch.object(behavior_graph, "_changed_files", return_value=(["lib/webauthn.ts"], True)), \
              mock.patch.object(behavior_graph, "_code_graph_impact", return_value={"lib/webauthn.ts"}), \
              mock.patch.object(behavior_graph, "_run_behavior_runner",
                                return_value={"version": 1, "commit": "new",
@@ -404,7 +406,7 @@ class RegressionCheckTest(unittest.TestCase):
         self.tmp.cleanup()
 
     def test_no_affected_exits_zero(self):
-        with mock.patch.object(behavior_graph, "_changed_files", return_value=["README.md"]), \
+        with mock.patch.object(behavior_graph, "_changed_files", return_value=(["README.md"], True)), \
              mock.patch.object(behavior_graph, "_code_graph_impact", return_value={"README.md"}):
             report, code = behavior_graph.regression_check(self.proj, "base")
         self.assertEqual(code, 0)
@@ -413,7 +415,7 @@ class RegressionCheckTest(unittest.TestCase):
     def test_affected_passing_exits_zero(self):
         runner_out = {"version": 1, "commit": "new", "fingerprints": {
             "BEH-002": {"coverage": "observed", "exercises": [{"path": "lib/webauthn.ts"}]}}}
-        with mock.patch.object(behavior_graph, "_changed_files", return_value=["lib/webauthn.ts"]), \
+        with mock.patch.object(behavior_graph, "_changed_files", return_value=(["lib/webauthn.ts"], True)), \
              mock.patch.object(behavior_graph, "_code_graph_impact", return_value={"lib/webauthn.ts"}), \
              mock.patch.object(behavior_graph, "_run_behavior_runner", return_value=runner_out) as run:
             report, code = behavior_graph.regression_check(self.proj, "base")
@@ -425,7 +427,7 @@ class RegressionCheckTest(unittest.TestCase):
     def test_affected_failing_blocks(self):
         runner_out = {"version": 1, "commit": "new", "fingerprints": {
             "BEH-002": {"coverage": "unknown", "exercises": [], "reason": "test-failed"}}}
-        with mock.patch.object(behavior_graph, "_changed_files", return_value=["lib/webauthn.ts"]), \
+        with mock.patch.object(behavior_graph, "_changed_files", return_value=(["lib/webauthn.ts"], True)), \
              mock.patch.object(behavior_graph, "_code_graph_impact", return_value={"lib/webauthn.ts"}), \
              mock.patch.object(behavior_graph, "_run_behavior_runner", return_value=runner_out):
             report, code = behavior_graph.regression_check(self.proj, "base")
@@ -439,9 +441,11 @@ class ConfirmedGraphTest(unittest.TestCase):
 
         def fake_run(argv, capture_output, text, check):
             captured["argv"] = argv
-            r = mock.MagicMock()
-            r.stdout = '{"version": 1, "commit": "x", "fingerprints": {}}'
-            return r
+            # `stderr` is spelled because the wrapper forwards it now; a MagicMock
+            # attribute here is truthy and would be written to the real stderr.
+            return mock.MagicMock(
+                returncode=0, stderr="",
+                stdout='{"version": 1, "commit": "x", "fingerprints": {}}')
 
         with mock.patch.object(behavior_graph.subprocess, "run", side_effect=fake_run):
             behavior_graph._run_behavior_runner("/proj")
@@ -468,7 +472,7 @@ class ConfirmedGraphTest(unittest.TestCase):
             "BEH-004": {"coverage": "static",
                         "exercises": [{"path": "app/api/x/route.ts", "source": "static",
                                        "confidence": 0.5, "freshness": "new"}]}}}
-        with mock.patch.object(behavior_graph, "_changed_files", return_value=["app/api/x/route.ts"]), \
+        with mock.patch.object(behavior_graph, "_changed_files", return_value=(["app/api/x/route.ts"], True)), \
              mock.patch.object(behavior_graph, "_code_graph_impact", return_value={"app/api/x/route.ts"}), \
              mock.patch.object(behavior_graph, "_run_behavior_runner", return_value=runner_out):
             report, code = behavior_graph.regression_check(proj, "base")
@@ -501,7 +505,7 @@ class ConfirmedDoesNotBlockOnTestFailedTest(unittest.TestCase):
         # Simulate a future bug: runner somehow returns test-failed for a confirmed behavior.
         runner_out = {"version": 1, "commit": "new", "fingerprints": {
             "BEH-004": {"coverage": "unknown", "exercises": [], "reason": "test-failed"}}}
-        with mock.patch.object(behavior_graph, "_changed_files", return_value=["app/api/x/route.ts"]), \
+        with mock.patch.object(behavior_graph, "_changed_files", return_value=(["app/api/x/route.ts"], True)), \
              mock.patch.object(behavior_graph, "_code_graph_impact", return_value={"app/api/x/route.ts"}), \
              mock.patch.object(behavior_graph, "_run_behavior_runner", return_value=runner_out):
             report, code = behavior_graph.regression_check(proj, "base")
@@ -577,8 +581,8 @@ behaviors:
             },
         })
 
-    def _surface(self, changed, impact):
-        with mock.patch.object(behavior_graph, "_changed_files", return_value=changed), \
+    def _surface(self, changed, impact, ok=True):
+        with mock.patch.object(behavior_graph, "_changed_files", return_value=(changed, ok)), \
              mock.patch.object(behavior_graph, "_code_graph_impact", return_value=set(impact)):
             return behavior_graph.surface(self.proj, "base")
 
@@ -633,6 +637,10 @@ behaviors:
         self.assertEqual(r["validate_candidates"], [])
         self.assertEqual(r["recall_gaps"], [])
         self.assertEqual(r["affected_accepted"], [])
+        # An honest empty diff is not a skip. `AGateThatCouldNotDiffSaysSoTest` owns the
+        # other half; this end of it is asserted here so the two cannot collapse into one
+        # note again without a test going red.
+        self.assertIs(r["skipped"], False)
 
     def test_covered_union_of_exercises_and_entries(self):
         behaviors = {"X": {"exercises": [{"path": "a.ts"}]}}
@@ -962,6 +970,10 @@ behaviors:
         """A failing test must not read as a verified one. It still appears in `covering` —
         the caller needs to see that the claim was tested and failed, which is strictly more
         information than the row being absent — with `passed` false and the runner's reason.
+
+        What `test-failed` does and does not establish is
+        `AVerificationSaysWhatItCouldNotTellApartTest`'s subject; asserted here only as the
+        `note` travelling with the token, so the two cannot be separated by an edit to one.
         """
         self._write_spec()
         with mock.patch.object(behavior_graph, "_run_behavior_runner",
@@ -969,8 +981,9 @@ behaviors:
                                    "BEH-777": {"coverage": "unknown", "exercises": [],
                                                "reason": "test-failed"}}}):
             r = behavior_graph.covering(self.proj, "src/vulnerable.ts", verify=True)
-        self.assertEqual(r["covering"][0]["verified"],
-                         {"passed": False, "reason": "test-failed"})
+        verdict = r["covering"][0]["verified"]
+        self.assertEqual((verdict["passed"], verdict["reason"]), (False, "test-failed"))
+        self.assertIn("could not start", verdict["note"])
         self.assertIn("0 of 1 passed", r["evidence"])
 
     def test_a_runner_that_cannot_start_does_not_verify_anything(self):
@@ -1202,6 +1215,295 @@ class GapsCoverablePredicateTest(unittest.TestCase):
         })
         r = behavior_graph.gaps(self.proj)
         self.assertEqual(r["gaps"], ["src/signup.py"])
+
+
+def _git(cwd, *argv):
+    """Run git in `cwd` with a fixed identity, raising on failure."""
+    env = dict(os.environ, GIT_AUTHOR_NAME="t", GIT_AUTHOR_EMAIL="t@e",
+               GIT_COMMITTER_NAME="t", GIT_COMMITTER_EMAIL="t@e")
+    return subprocess.run(["git", *argv], cwd=cwd, env=env, capture_output=True,
+                          text=True, check=True)
+
+
+class AGateThatCouldNotDiffSaysSoTest(unittest.TestCase):
+    """`--check` and `--surface` over a `--base` git cannot resolve.
+
+    Measured 2026-08-24 on the version this class was written against: a two-commit
+    repository, one accepted behavior exercising the file that changed between them.
+    `--base <real base>` reported `affected: [BEH-001]`. `--base origin/main` — a
+    repository with no remote, which is a CI checkout, a shallow clone, or any fork
+    whose default branch is not `main` — reported `{"affected": [], "failed": [],
+    "changed": []}` and exit 0, byte for byte what a genuinely unaffected change
+    produces. `git diff --name-only origin/main..HEAD` exits 128 there.
+
+    That is the Direction-A hard block wrap-up runs at phase 3 reporting a clean run
+    over a diff it never computed, and it is the shape `verify_intent._changed_status`
+    was rewritten to close with an `ok=False` labelled skip — left open in the sibling
+    gate. The fix is the same one: fail open per ADR-009 (a broken baseline must not
+    become a false block, which is the alternative that record rejects by name), and
+    say so, because a no-op indistinguishable from a pass is the false clean the same
+    record forbids.
+
+    Real git, not a mocked `_changed_files`, because what is under test is what git
+    does with an argument — a stub would assert the fixture's own opinion of that.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = self.tmp.name
+        os.makedirs(os.path.join(self.root, "src"))
+        self._write("src/a.py", "print(1)\n")
+        behavior_graph.write_behavior_json(self.root, {
+            "version": 1, "commit": "fixture",
+            "behaviors": {
+                "BEH-001": {"spec_id": "SPEC-001", "state": "accepted", "level": "unit",
+                            "adapter": "pytest", "locator": "tests/test_a.py::test_a",
+                            "coverage": "observed",
+                            "exercises": [{"path": "src/a.py", "source": "observed"}]},
+            },
+        })
+        self._write_graph_json()
+        _git(self.root, "init", "-q")
+        _git(self.root, "add", "-A")
+        _git(self.root, "commit", "-qm", "one")
+        self.base = _git(self.root, "rev-parse", "HEAD").stdout.strip()
+        self._write("src/a.py", "print(1)\nprint(2)\n")
+        _git(self.root, "add", "-A")
+        _git(self.root, "commit", "-qm", "two")
+
+    def _write(self, rel, text):
+        path = os.path.join(self.root, *rel.split("/"))
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(text)
+
+    def _write_graph_json(self, project=None):
+        path = os.path.join(project or self.root, "knowledge-base", ".graph", "graph.json")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump({"files": {"src/a.py": {"language": "python"}}}, f)
+
+    # -- the control, first: without it every assertion below passes on a fixture
+    # that is simply broken for both answers, which would read as the defect and is not.
+    def test_a_base_git_can_resolve_finds_the_affected_behavior(self):
+        with mock.patch.object(behavior_graph, "_run_behavior_runner",
+                               return_value={"commit": "new", "fingerprints": {
+                                   "BEH-001": {"coverage": "observed",
+                                               "exercises": [{"path": "src/a.py"}]}}}):
+            report, code = behavior_graph.regression_check(self.root, self.base)
+        self.assertEqual((report["affected"], report["changed"], code),
+                         (["BEH-001"], ["src/a.py"], 0))
+        self.assertIs(report["skipped"], False)
+
+    def test_an_unresolvable_base_is_a_labelled_skip_and_not_a_clean_run(self):
+        with mock.patch.object(behavior_graph, "_run_behavior_runner") as run:
+            report, code = behavior_graph.regression_check(self.root, "origin/main")
+        run.assert_not_called()
+        self.assertEqual(code, 0, "ADR-009 fails open on a git error; it does not block")
+        self.assertIs(report["skipped"], True)
+        self.assertIn("origin/main", report["note"])
+        self.assertIn("git", report["note"])
+
+    def test_a_real_base_with_nothing_changed_is_not_a_skip(self):
+        """The other half of the distinction. An honest empty diff must keep reading as
+        an honest empty diff, or the label is just noise on every clean run."""
+        head = _git(self.root, "rev-parse", "HEAD").stdout.strip()
+        report, code = behavior_graph.regression_check(self.root, head)
+        self.assertEqual((report["affected"], report["changed"], code), ([], [], 0))
+        self.assertIs(report["skipped"], False)
+        self.assertNotIn("note", report)
+
+    def test_surface_stops_calling_a_failed_diff_an_empty_one(self):
+        """`surface` already emitted a note here, which is why it was the sibling worth
+        checking rather than the one to leave alone: the note it emitted was `no changed
+        files in base..HEAD`, a sentence that is false when git refused to answer. Both
+        spellings of empty produced it, byte for byte."""
+        broken = behavior_graph.surface(self.root, "origin/main")
+        honest = behavior_graph.surface(
+            self.root, _git(self.root, "rev-parse", "HEAD").stdout.strip())
+        self.assertIs(broken["skipped"], True)
+        self.assertIn("origin/main", broken["note"])
+        self.assertIs(honest["skipped"], False)
+        self.assertEqual(honest["note"], "no changed files in base..HEAD")
+
+    def test_changed_files_reports_whether_git_answered(self):
+        self.assertEqual(behavior_graph._changed_files(self.base, self.root),
+                         (["src/a.py"], True))
+        self.assertEqual(behavior_graph._changed_files("origin/main", self.root),
+                         ([], False))
+
+    def test_the_revision_slot_cannot_smuggle_an_option(self):
+        """`--end-of-options`, and the same argument `graph_ops._get_changed_files` was
+        given: `--output=<file>` in the revision slot makes git truncate that file, write
+        the diff into it, and exit 0 with an empty stdout — a clean-looking run that also
+        clobbers a path outside the project. Measured on git 2.50.1, 2026-08-24, with the
+        token absent: rc=0 and the target overwritten. `--base` is operator-supplied here
+        rather than repository-supplied, so this is a footgun rather than the forgery
+        route it is in `verify_intent`; the sibling that asks the same question already
+        refuses it, and two of three spellings of one idea is how they drift."""
+        target = os.path.join(self.tmp.name, "sentinel")
+        with open(target, "w", encoding="utf-8") as f:
+            f.write("untouched")
+        self.assertEqual(behavior_graph._changed_files("--output=" + target, self.root),
+                         ([], False))
+        with open(target, encoding="utf-8") as f:
+            self.assertEqual(f.read(), "untouched")
+
+    def test_paths_are_project_relative_when_the_project_is_a_subdirectory(self):
+        """`--relative`. `git diff --name-only` prints paths from the *repository* root,
+        while every path this module joins against — `behavior.json`'s `exercises[].path`,
+        `graph.json`'s keys — is project-relative. In a monorepo package, or any `--project`
+        below the repo root, every returned path carried an extra prefix, so no exercised
+        path ever matched and the gate reported `0 affected` over a real change. That is
+        the same false clean this class is about, reached without any git error at all —
+        and it is the defect `graph_ops._get_changed_files` already fixed for its own
+        caller (`graph_ops.py:590`)."""
+        proj = os.path.join(self.root, "pkg")
+        os.makedirs(os.path.join(proj, "src"))
+        self._write("pkg/src/b.py", "print(1)\n")
+        _git(self.root, "add", "-A")
+        _git(self.root, "commit", "-qm", "three")
+        base = _git(self.root, "rev-parse", "HEAD").stdout.strip()
+        self._write("pkg/src/b.py", "print(2)\n")
+        self._write("src/a.py", "print(3)\n")
+        _git(self.root, "add", "-A")
+        _git(self.root, "commit", "-qm", "four")
+        self.assertEqual(behavior_graph._changed_files(base, proj), (["src/b.py"], True))
+
+    def test_a_rename_names_the_path_it_moved_from(self):
+        """`--no-renames`. This asks which paths moved, not what the author meant: with
+        rename detection on — git's default — a moved file is reported once, as its
+        destination, and the path it vanished from is never named. An accepted behavior
+        whose `exercises` still record the old path is then not affected by the commit
+        that moved its code out from under it, which is exactly the run that most needs
+        to happen."""
+        _git(self.root, "mv", "src/a.py", "src/moved.py")
+        _git(self.root, "commit", "-qm", "rename")
+        base = _git(self.root, "rev-parse", "HEAD~1").stdout.strip()
+        changed, ok = behavior_graph._changed_files(base, self.root)
+        self.assertIs(ok, True)
+        self.assertEqual(sorted(changed), ["src/a.py", "src/moved.py"])
+
+
+class AVerificationSaysWhatItCouldNotTellApartTest(unittest.TestCase):
+    """`--verify`'s verdict over a toolchain that never started.
+
+    `_verify_behaviors` promised that "the reason is carried so a refusal can be told
+    from a failure", and the runner's vocabulary does not reach that far: `test-failed`
+    is `run_behaviors`' word for ANY non-zero exit from the test command
+    (`run_behaviors.py:408`, `:463`). Measured 2026-08-24 on a fixture with a resolving
+    locator, an `observed` edge and no JS toolchain installed at all — `pnpm vitest`
+    exiting `ERR_PNPM_NO_IMPORTER_MANIFEST_FOUND` — the row came back
+    `{"passed": false, "reason": "test-failed"}` and the evidence string read "each
+    behavior's linked test was RE-RUN by this query. 0 of 1 passed."
+
+    Nothing ran. The consumer is told a false row "is a finding in its own right"
+    (`skills/freya-codebase-security-scan/SKILL.md:440`), so that answer files a report
+    accusing a repository of asserting behaviors whose tests fail, on a machine where
+    the tests were never executed. The token cannot be split here — it is the runner's,
+    and this module only reads it — so what is fixed is the claim built on top of it.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.proj = self.tmp.name
+        os.makedirs(os.path.join(self.proj, "lib"))
+        with open(os.path.join(self.proj, "lib", "webauthn.test.ts"), "w") as f:
+            f.write("")
+        specs = os.path.join(self.proj, "knowledge-base", "specs", "features")
+        os.makedirs(specs)
+        with open(os.path.join(specs, "SPEC-777.md"), "w") as f:
+            f.write(CoveringEvidenceTest.SPEC.format(
+                state="accepted", adapter="vitest",
+                locator_line="    locator: lib/webauthn.test.ts::x\n"))
+        behavior_graph.write_behavior_json(self.proj, {
+            "version": 1, "commit": "fixture",
+            "behaviors": {"BEH-777": {"spec_id": "SPEC-777", "state": "accepted",
+                                      "coverage": "observed",
+                                      "exercises": [{"path": "src/vulnerable.ts",
+                                                     "source": "observed",
+                                                     "freshness": "fixture"}]}},
+        })
+
+    def _verify(self, fingerprint):
+        with mock.patch.object(behavior_graph, "_run_behavior_runner",
+                               return_value={"fingerprints": {"BEH-777": fingerprint}}):
+            return behavior_graph.covering(self.proj, "src/vulnerable.ts", verify=True)
+
+    def test_test_failed_carries_the_two_things_it_cannot_tell_apart(self):
+        verdict = self._verify({"coverage": "unknown", "exercises": [],
+                                "reason": "test-failed"})["covering"][0]["verified"]
+        self.assertEqual((verdict["passed"], verdict["reason"]), (False, "test-failed"))
+        self.assertIn("could not start", verdict["note"])
+
+    def test_a_reason_that_is_already_unambiguous_carries_no_note(self):
+        """The note is attached to the one token that hides a second meaning. On every
+        other reason it would be noise, and a caveat printed everywhere is a caveat
+        nobody reads on the row where it matters."""
+        verdict = self._verify({"coverage": "unknown", "exercises": [],
+                                "reason": "no-coverage-tool"})["covering"][0]["verified"]
+        self.assertEqual((verdict["passed"], verdict["reason"]),
+                         (False, "no-coverage-tool"))
+        self.assertNotIn("note", verdict)
+
+    def test_the_evidence_string_stops_calling_an_unrun_test_a_failing_one(self):
+        """The evidence string is what `freya-codebase-security-scan` step 7 orders copied
+        into the human-read report verbatim, so a qualifier that lives anywhere else does
+        not travel. It goes in the same sentence as the claim it qualifies."""
+        evidence = self._verify({"coverage": "unknown", "exercises": [],
+                                 "reason": "test-failed"})["evidence"]
+        self.assertIn("0 of 1 passed", evidence)
+        self.assertIn("only where its test actually ran", evidence)
+        self.assertIn("non-zero exit", evidence)
+
+
+class TheRunnersOwnDiagnosisReachesTheOperatorTest(unittest.TestCase):
+    """`_run_behavior_runner` captured the child's stderr and dropped it.
+
+    `run_behaviors` writes every diagnosis it has to stderr and exits 0 anyway — the
+    failing test's own output (`run_behaviors.py:407`), "test passed but coverage was
+    not measured", "the locator is stale". `capture_output=True` here swallowed all of
+    it, so the only thing that reached the operator was the token in the JSON. Measured
+    2026-08-24: `--covering --verify` against a project with no JS toolchain printed
+    `reason: test-failed` and an empty stderr, leaving nothing anywhere on the machine
+    that says which of the two meanings applied.
+
+    Forwarding is not a nicety here. It is the only place the ambiguity the verdict's
+    `note` names can actually be resolved.
+    """
+
+    STDOUT = '{"version": 1, "commit": "x", "fingerprints": {}}'
+
+    def _run(self, returncode, stderr):
+        """(what the call produced, what reached sys.stderr) for one child outcome."""
+        if returncode:
+            outcome = {"side_effect": subprocess.CalledProcessError(
+                returncode, ["runner"], self.STDOUT, stderr)}
+        else:
+            outcome = {"return_value": mock.MagicMock(
+                returncode=0, stdout=self.STDOUT, stderr=stderr)}
+        err = io.StringIO()
+        with mock.patch.object(behavior_graph.subprocess, "run", **outcome), \
+             mock.patch.object(behavior_graph.sys, "stderr", err):
+            try:
+                return behavior_graph._run_behavior_runner("/proj"), err.getvalue()
+            except subprocess.CalledProcessError as exc:
+                return exc, err.getvalue()
+
+    def test_the_child_stderr_is_forwarded_when_the_runner_exits_zero(self):
+        """The path that matters most, and the counter-intuitive one: the runner exits 0
+        with a red behavior in its fingerprints, so the failing test's output is on the
+        *success* path."""
+        out, captured = self._run(0, "[behavior-runner] BEH-777: FAIL expected 1\n")
+        self.assertEqual(out["commit"], "x")
+        self.assertEqual(captured, "[behavior-runner] BEH-777: FAIL expected 1\n")
+
+    def test_the_child_stderr_is_forwarded_when_the_runner_exits_non_zero(self):
+        out, captured = self._run(2, "Traceback: FileNotFoundError: pnpm\n")
+        self.assertIsInstance(out, subprocess.CalledProcessError)
+        self.assertEqual(captured, "Traceback: FileNotFoundError: pnpm\n")
 
 
 if __name__ == "__main__":

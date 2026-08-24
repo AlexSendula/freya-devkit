@@ -273,6 +273,20 @@ def coverage_json_available():
         return False
 
 
+def _module_available(name):
+    """Is `name` importable by the interpreter that would run the test?
+
+    Split from `coverage_json_available` because the two answers carry very different
+    weight. A missing coverage module degrades the *measurement* and the test still runs;
+    a missing pytest means no test runs at all, and the difference decides whether an
+    `unknown` fingerprint preserves the committed edges or replaces them.
+    """
+    try:
+        return importlib.util.find_spec(name) is not None
+    except (ImportError, ValueError):
+        return False
+
+
 def pytest_argv(behavior):
     """Return (argv, test_file) to run a single pytest test for this behavior.
 
@@ -391,6 +405,21 @@ def run_pytest_behavior(behavior, project_dir):
     if os.path.exists(cov_path):
         os.remove(cov_path)
 
+    # Asked before spawning, for the same reason `_PYTEST_NOTHING_SELECTED` exists below:
+    # a machine with no pytest installed makes `python -m pytest` exit non-zero, which
+    # this function used to call `test-failed` — and that reason both wipes the committed
+    # edges in behavior.json and hard-blocks wrap-up (ADR-009). So a fresh clone with
+    # nothing installed failed the commit AND destroyed the blast-radius artifact, after
+    # which `--covering` on those files answered empty for good and a legitimate
+    # ADR-012 downgrade stopped working. "I could not run the test" is not "the test
+    # failed", and only one of the two is evidence about the code.
+    if not _module_available("pytest"):
+        sys.stderr.write(
+            f"[behavior-runner] {behavior.get('behavior_id')}: pytest is not installed in"
+            f" {sys.executable} — no test was run, so nothing is claimed about it\n"
+        )
+        return shape_fingerprint([], commit, reason="toolchain-missing: pytest")
+
     result = subprocess.run(argv, cwd=project_dir, capture_output=True, text=True)
     if result.returncode in _PYTEST_NOTHING_SELECTED:
         # The locator addressed nothing. Not a failure: no test ran, so there is no result
@@ -456,7 +485,19 @@ def run_unit_behavior(behavior, project_dir):
     if os.path.exists(cov_path):
         os.remove(cov_path)
 
-    result = subprocess.run(argv, cwd=project_dir, capture_output=True, text=True)
+    try:
+        result = subprocess.run(argv, cwd=project_dir, capture_output=True, text=True)
+    except OSError as exc:
+        # The JS half of the same defect, and it arrives by a different route: `pnpm` is
+        # spawned by name, so a machine without it raises here instead of exiting non-zero.
+        # Uncaught, that took the whole run down; called `test-failed`, it would wipe the
+        # committed edges and block the commit. It is neither — no test ran.
+        sys.stderr.write(
+            f"[behavior-runner] {behavior.get('behavior_id')}: cannot start {argv[0]!r}"
+            f" ({exc.__class__.__name__}) — no test was run, so nothing is claimed\n"
+        )
+        return shape_fingerprint([], commit,
+                                 reason="toolchain-missing: %s" % argv[0])
     if result.returncode != 0:
         # Test failed -> coverage-unknown, never faked.
         sys.stderr.write(result.stdout + result.stderr)

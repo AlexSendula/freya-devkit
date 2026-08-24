@@ -18,6 +18,23 @@ from pathlib import Path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from verify_intent import (verify_intent, advance_marker, advance_if_clear,  # noqa: E402
                            _git_relpath, _changed_status, _blocking)
+import verify_links  # noqa: E402  — the sibling Tier-1 gate, asserted alongside
+
+
+def _fs_folds_case(directory: Path) -> bool:
+    """Does this filesystem treat two spellings of one name as one file?
+
+    Asked of the directory the fixture is actually in, not of `sys.platform`:
+    macOS and Windows fold by default and Linux does not, but a case-sensitive
+    volume mounted on macOS is a real thing and `/tmp` is where these fixtures
+    live. Probing beats guessing for the same reason `_one_file` does.
+    """
+    probe = directory / "CaseProbe.tmp"
+    probe.write_text("x", encoding="utf-8")
+    try:
+        return (directory / "caseprobe.tmp").exists()
+    finally:
+        probe.unlink()
 
 
 def _write(path: Path, content: str):
@@ -68,12 +85,12 @@ def _spec(spec_id, behaviors_block):
     )
 
 
-def _beh_block(behavior_id, title, state, locator):
+def _beh_block(behavior_id, title, state, locator, adapter="cucumber"):
     return (
         f"  - behavior_id: {behavior_id}\n"
         f"    title: {title}\n"
         f"    state: {state}\n"
-        f"    adapter: cucumber\n"
+        f"    adapter: {adapter}\n"
         f"    locator: {locator}\n"
     )
 
@@ -751,6 +768,295 @@ class VerifyIntentCase(unittest.TestCase):
         self.assertEqual(r.returncode, 1)  # blocking
         data = json.loads(r.stdout)         # JSON still emitted on non-zero exit
         self.assertEqual([u["behavior_id"] for u in data["unauthorized"]], ["BEH-001"])
+
+
+class _GatePairFixture(unittest.TestCase):
+    """One repository, both Tier-1 gates, because the finding is about both.
+
+    `verify_intent` and `verify_links` read the corpus through the same loader
+    and hard-block in the same wrap-up phase, so a spec that leaves the corpus
+    takes both of them with it. Asserting only the gate whose file changed
+    would have left the other one printing OK.
+    """
+
+    def _root(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(lambda: shutil.rmtree(d, ignore_errors=True))
+        return Path(d)
+
+    def _project(self, root, locator="features/auth/login.feature#successful-login",
+                 state="accepted"):
+        _init_repo(root)
+        _write(root / "knowledge-base/specs/auth/SPEC-001-login.md",
+               _spec("SPEC-001",
+                     _beh_block("BEH-001", "Successful login", state, locator)))
+        _write(root / "features/auth/login.feature", FEATURE)
+        base = _commit_all(root, "baseline")
+        _set_marker(root, base)
+        return base
+
+    def _pytest_project(self, root, locator="tests/test_login.py::test_login"):
+        """The finding's own fixture shape, and the reason it is not the Gherkin
+        one: a `.feature` file carries `@SPEC-001`/`@BEH-001` reverse tags, and
+        `verify_links`' orphan-tag pass reports those the moment the spec leaves
+        the corpus. A python locator has no reverse link, so nothing else in the
+        gate notices — which is what made the loss silent in the first place.
+        """
+        _init_repo(root)
+        _write(root / "knowledge-base/specs/auth/SPEC-001-login.md",
+               _spec("SPEC-001",
+                     _beh_block("BEH-001", "Successful login", "accepted",
+                                locator, adapter="pytest")))
+        _write(root / "tests/test_login.py", "def test_login():\n    assert True\n")
+        base = _commit_all(root, "baseline")
+        _set_marker(root, base)
+        return base
+
+    def _edit_the_accepted_test(self, root):
+        _write(root / "features/auth/login.feature", FEATURE + "    And an extra step\n")
+
+    def _edit_the_python_test(self, root):
+        _write(root / "tests/test_login.py",
+               "def test_login():\n    assert True  # edited\n")
+
+    def _links(self, root):
+        return verify_links.verify(str(root / "knowledge-base" / "specs"))
+
+    def _kinds(self, root):
+        return [e["kind"] for e in self._links(root)]
+
+
+class SpecCorpusCase(_GatePairFixture):
+    """A spec this gate could not read is an alarm, not one fewer behavior."""
+
+    def test_a_spec_that_lost_its_id_blocks_instead_of_disappearing(self):
+        """The finding's own fixture, and the quietest route into it.
+
+        Delete the single line `id: SPEC-001` from a spec whose accepted
+        behavior's test has just been edited with no authorizing record.
+        Measured on the version before this one: `verify_intent` printed `OK —
+        no accepted test changed without an authorizing intent record.` at exit
+        0, `verify_links` printed `OK — all behavior links pass Tier-1
+        integrity checks.` at exit 0, and `--advance` then moved the baseline
+        over the edit — which does not defer that finding, it clears it on
+        every future run. No attacker is needed: a merge conflict or a hand
+        edit reaches it, which is what makes it worse than a forgery route.
+        """
+        root = self._root()
+        self._pytest_project(root)
+        spec = root / "knowledge-base/specs/auth/SPEC-001-login.md"
+        spec.write_text(spec.read_text(encoding="utf-8").replace("id: SPEC-001\n", "", 1),
+                        encoding="utf-8")
+        self._edit_the_python_test(root)
+        _commit_all(root, "unauthorized edit, and a spec that lost its id")
+
+        res = verify_intent(str(root))
+
+        self.assertFalse(res["skipped"], "the gate ran; what it could not do is read a file")
+        self.assertTrue(res["errors"], "an unreadable spec must not be one fewer behavior")
+        self.assertTrue(any("SPEC-001-login.md" in e for e in res["errors"]))
+        self.assertTrue(_blocking(res), "exit 1, so wrap-up stops")
+
+        self.assertEqual(self._kinds(root), ["spec-unreadable"],
+                         "the sibling gate printed OK over the same file")
+
+        commit, refused = advance_if_clear(str(root))
+        self.assertIsNone(commit, "advancing would clear what the gate could not read")
+        self.assertIsNotNone(refused)
+
+    def test_an_unparseable_spec_blocks_both_tier_one_gates(self):
+        """A second, differently-shaped failure, so neither gate is pinned to
+        the missing-`id` case. One tab in the frontmatter is outside the
+        grammar outright, and it used to cost one `Warning:` line on a stream
+        no skill-to-skill caller reads."""
+        root = self._root()
+        self._pytest_project(root)
+        spec = root / "knowledge-base/specs/auth/SPEC-001-login.md"
+        spec.write_text(spec.read_text(encoding="utf-8").replace(
+            "category: auth\n", "related_code:\n\t- src/a.ts\n"), encoding="utf-8")
+        self._edit_the_python_test(root)
+
+        res = verify_intent(str(root))
+        self.assertTrue(_blocking(res))
+        self.assertTrue(any("tab indentation" in e for e in res["errors"]), res["errors"])
+
+        self.assertEqual(self._kinds(root), ["spec-unreadable"])
+
+    def test_a_gherkin_behavior_is_the_case_that_was_already_half_covered(self):
+        """Stated so the fix is not credited with more than it did.
+
+        A `.feature` file carries `@SPEC-NNN` and `@BEH-NNN` reverse tags, so
+        when its spec leaves the corpus `verify_links`' orphan-tag pass reports
+        both tags and blocks — which means the Gherkin shape was never fully
+        silent at Tier 1, only at the intent gate. It is the python and JS
+        locators, which have no reverse link, that were invisible to both. The
+        new row still fires here, and it is the one that names the file.
+        """
+        root = self._root()
+        self._project(root)
+        spec = root / "knowledge-base/specs/auth/SPEC-001-login.md"
+        spec.write_text(spec.read_text(encoding="utf-8").replace("id: SPEC-001\n", "", 1),
+                        encoding="utf-8")
+
+        kinds = self._kinds(root)
+        self.assertIn("spec-unreadable", kinds)
+        self.assertIn("orphan-spec-tag", kinds)
+        self.assertIn("orphan-behavior-tag", kinds)
+
+    def test_a_readable_corpus_is_the_control(self):
+        """Without this the fix could be "always block". The same fixture with
+        nothing wrong in it reports the real answer through both gates."""
+        root = self._root()
+        self._pytest_project(root)
+        self._edit_the_python_test(root)
+
+        res = verify_intent(str(root))
+        self.assertEqual(res["errors"], [])
+        self.assertEqual([u["behavior_id"] for u in res["unauthorized"]], ["BEH-001"])
+        self.assertEqual(self._links(root), [])
+
+    def test_a_file_in_the_specs_tree_that_is_not_a_record_is_not_an_error(self):
+        """The other half of the discriminator, checked at the gate rather than
+        at the loader: the specs tree holds prose, and alarming on it would
+        make the alarm worthless."""
+        root = self._root()
+        self._pytest_project(root)
+        _write(root / "knowledge-base/specs/notes.md", "Working notes. No frontmatter.\n")
+        _write(root / "knowledge-base/specs/README.md", "# Index\n")
+
+        res = verify_intent(str(root))
+        self.assertEqual(res["errors"], [])
+        self.assertFalse(_blocking(res))
+        self.assertEqual(self._links(root), [])
+
+
+class LocatorSpellingCase(_GatePairFixture):
+    """A locator names a file; the gate must not require one spelling of it."""
+
+    def test_a_dot_slash_locator_is_the_same_file_to_the_gate(self):
+        """The finding's fixture. `./tests/x.py` is an ordinary authoring habit
+        and every other checker in the suite accepts it — `verify_links`
+        resolves it, `behavior_graph._locator_resolves` resolves it — so
+        nothing told the author their behavior had left the governance surface.
+        Matching git's map verbatim, `./features/...` never equalled
+        `features/...`, the behavior was skipped, and the gate reported
+        `skipped: false, unauthorized: [], exit 0`: the permissive direction,
+        bought with two characters that pass Tier-1 on the way in.
+        """
+        root = self._root()
+        self._project(root, locator="./features/auth/login.feature#successful-login")
+        self._edit_the_accepted_test(root)
+
+        self.assertEqual(self._links(root), [],
+                         "the Tier-1 link gate accepts this spelling, which is the point")
+
+        res = verify_intent(str(root))
+        self.assertEqual([u["behavior_id"] for u in res["unauthorized"]], ["BEH-001"])
+        self.assertEqual(res["unauthorized"][0]["path"], "features/auth/login.feature",
+                         "the report names the file git named, not the spec's spelling")
+
+    def test_a_redundant_separator_locator_is_the_same_file_to_the_gate(self):
+        """The second spelling `normalize_key` folds, and a different one from
+        `./` — a doubled separator survives a path join and a `Path.is_file`
+        just as quietly."""
+        root = self._root()
+        self._project(root, locator="features//auth/./login.feature#successful-login")
+        self._edit_the_accepted_test(root)
+
+        self.assertEqual(self._links(root), [])
+        res = verify_intent(str(root))
+        self.assertEqual([u["behavior_id"] for u in res["unauthorized"]], ["BEH-001"])
+
+    def test_a_locator_naming_a_different_file_is_still_not_a_match(self):
+        """The control the normalisation needs, or the fix could be "match
+        anything": an accepted behavior whose test was not touched stays out of
+        the report even though a sibling file in the same directory changed."""
+        root = self._root()
+        self._project(root, locator="./features/auth/login.feature#successful-login")
+        _write(root / "features/auth/other.feature", "@SPEC-002\nFeature: Other\n")
+        _commit_all(root, "an unrelated file")
+
+        res = verify_intent(str(root))
+        self.assertEqual(res["unauthorized"], [])
+        self.assertEqual(res["edited_accepted"], [])
+
+    def test_a_case_differing_locator_follows_the_filesystem_not_the_platform(self):
+        """Two spellings are one file on macOS and Windows and two on Linux, so
+        `casefold()` alone would be wrong on the host a governance gate most
+        often runs on — it would call an edit to `Login.feature` an edit to
+        `login.feature`, a false block on two genuinely different files.
+
+        Both legs are asserted rather than one being skipped, because each is
+        the whole answer on its own host. Where the filesystem folds, the gate
+        matches and the edit is unauthorized. Where it does not, Tier-1 refuses
+        the locator upstream — `verify_links` cannot resolve it — so the
+        behavior is blocked before this gate is the last line of defence.
+        """
+        root = self._root()
+        self._project(root, locator="features/auth/Login.feature#successful-login")
+        self._edit_the_accepted_test(root)
+
+        if _fs_folds_case(root):
+            self.assertEqual(self._links(root), [],
+                             "a case-folding filesystem resolves this locator, so "
+                             "nothing upstream stops it reaching the intent gate")
+            res = verify_intent(str(root))
+            self.assertEqual([u["behavior_id"] for u in res["unauthorized"]], ["BEH-001"])
+        else:
+            self.assertEqual([e["kind"] for e in self._links(root)], ["locator-unresolved"],
+                             "on a case-sensitive filesystem this locator names nothing")
+
+    def test_two_files_differing_only_in_case_stay_two_files(self):
+        """The mutation this rules out is `casefold()` with no `samefile`, which
+        is the obvious way to write the fix and is wrong on Linux — where the
+        two paths below are two files, and calling an edit to one an edit to
+        the other is a false block against a gate ADR-009 says must not produce
+        one. It can only be built where the filesystem does not fold, so it
+        runs on the CI half that matters and skips on this author's laptop; the
+        folding half is pinned by the case above.
+        """
+        root = self._root()
+        if _fs_folds_case(root):
+            self.skipTest("this filesystem folds case, so the two files cannot both exist")
+        self._pytest_project(root)
+        _write(root / "tests/Test_login.py", "def test_login():\n    assert True\n")
+        _commit_all(root, "a second file differing from the locator only in case")
+        _write(root / "tests/Test_login.py", "def test_login():\n    assert True  # edited\n")
+
+        res = verify_intent(str(root))
+        self.assertEqual(res["edited_accepted"], [],
+                         "the accepted test was not touched; a case-folded match "
+                         "would report an edit to a different file as an edit to it")
+
+    def test_a_deleted_test_is_caught_by_the_sibling_gate(self):
+        """`_one_file`'s stated residue, checked rather than asserted.
+
+        A case-differing locator whose file has been *deleted* cannot be
+        matched, because `samefile` needs a file to ask about and there is none
+        left. That is a real hole in this gate and it is covered by the other
+        one in the same wrap-up phase: `verify_links` reports the locator as
+        unresolved and hard-blocks. The claim is only worth making if it is
+        run, so it is run — on both kinds of filesystem, since the deletion
+        makes them agree.
+        """
+        root = self._root()
+        self._project(root, locator="features/auth/Login.feature#successful-login")
+        (root / "features/auth/login.feature").unlink()
+        _commit_all(root, "delete the accepted test")
+
+        self.assertEqual([e["kind"] for e in self._links(root)], ["locator-unresolved"],
+                         "the sibling gate is what stops this one")
+
+    def test_the_exact_spelling_still_reports_the_deletion_itself(self):
+        """The control for the residue above: with the locator spelled the way
+        git spells it, a deleted accepted test is this gate's own finding and
+        does not depend on the sibling at all."""
+        root = self._root()
+        self._project(root)
+        (root / "features/auth/login.feature").unlink()
+
+        res = verify_intent(str(root))
+        self.assertEqual([u["behavior_id"] for u in res["unauthorized"]], ["BEH-001"])
 
 
 if __name__ == "__main__":

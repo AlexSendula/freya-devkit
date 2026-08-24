@@ -561,5 +561,169 @@ class RedactionTest(unittest.TestCase):
         self.assertEqual(audit_io.redact_secret_evidence(item)["cwe"], "CWE-798")
 
 
+class BareCredentialTest(unittest.TestCase):
+    """The credential quoted on its own, rather than inside the line it came from.
+
+    Three narrowings came before this one and every one of them was about which
+    *field* got scrubbed — `description`, then `title` and `recommendation`,
+    then `cwe`. This one is about the shape of the *literal*. `redact_literals`
+    substitutes strings the caller hands it, and the set handed to it was the
+    snippet and its whole lines, so the credential itself was never a member
+    unless the snippet was exactly the credential. Measured 2026-08-24 on a
+    snippet of `AWS_SECRET_ACCESS_KEY = "<key>"`: `codeSnippet` came back
+    fingerprinted while `title`, `description` and `recommendation` carried the
+    key verbatim, and "remove <the key> and rotate it" is what `recommendation`
+    asks a finder for.
+
+    Two halves, and the second is why this class is not just four more leak
+    tests. Widening a literal set buys over-redaction, so the tests below also
+    pin what must *not* be substituted: the name in front of the separator, a
+    value the redactor was never shown, and anything shorter than
+    `MIN_DERIVED_LITERAL`.
+    """
+
+    SNIPPET = 'AWS_SECRET_ACCESS_KEY = "%s"' % SECRET
+
+    def _bare(self, field, text):
+        """A secrets finding whose one prose mention of the credential quotes
+        the value alone. One field at a time, so a red test names the leak."""
+        item = finding(category="secrets", codeSnippet=self.SNIPPET,
+                       **{field: text})
+        return audit_io.redact_secret_evidence(item)
+
+    def test_a_recommendation_naming_only_the_key_is_scrubbed(self):
+        """The measured leak, in the field FINDER_SCHEMA makes required."""
+        out = self._bare("recommendation", "remove %s and rotate it" % SECRET)
+        self.assertNotIn(SECRET, json.dumps(out))
+        self.assertIn("redacted", out["recommendation"])
+        # The sentence still reads. Only the value went.
+        self.assertIn("and rotate it", out["recommendation"])
+
+    def test_a_title_naming_only_the_key_is_scrubbed(self):
+        out = self._bare("title", "hardcoded AWS key %s" % SECRET)
+        self.assertNotIn(SECRET, json.dumps(out))
+        self.assertIn("hardcoded AWS key", out["title"])
+
+    def test_a_description_naming_only_the_key_is_scrubbed(self):
+        out = self._bare("description", "the key %s is committed" % SECRET)
+        self.assertNotIn(SECRET, json.dumps(out))
+        self.assertIn("is committed", out["description"])
+
+    def test_a_cwe_naming_only_the_key_is_scrubbed(self):
+        out = self._bare("cwe", "CWE-798 — the value is %s" % SECRET)
+        self.assertNotIn(SECRET, json.dumps(out))
+        self.assertIn("CWE-798", out["cwe"])
+
+    def test_the_name_in_front_of_the_separator_is_not_a_literal(self):
+        """Where over-redaction would bite first. A report that fingerprints
+        `AWS_SECRET_ACCESS_KEY` has deleted the one word telling a reader which
+        credential to go and rotate, so only the value side of a line is
+        derived and the name never becomes a literal."""
+        out = self._bare("description", "AWS_SECRET_ACCESS_KEY holds %s" % SECRET)
+        self.assertNotIn(SECRET, out["description"])
+        self.assertIn("AWS_SECRET_ACCESS_KEY", out["description"])
+
+    def test_an_unquoted_value_after_a_colon_is_a_literal(self):
+        """The other common snippet shape: a YAML or `.env` line with no
+        quotes at all, where the whole-line literal is the only thing the old
+        set could have matched."""
+        item = finding(category="secrets", codeSnippet="password: hunter2trustno1",
+                       recommendation="rotate hunter2trustno1 today")
+        out = audit_io.redact_secret_evidence(item)
+        self.assertNotIn("hunter2trustno1", json.dumps(out))
+        self.assertIn("rotate", out["recommendation"])
+
+    def test_a_scheme_prefixed_token_is_a_literal_on_its_own(self):
+        """`Authorization: Bearer <token>`. The value side is two words, the
+        scheme is public and the token is not, so the tail's tokens are
+        literals as well as the tail."""
+        item = finding(category="secrets",
+                       codeSnippet="Authorization: Bearer sk-live-9f2b1c7a",
+                       description="the token sk-live-9f2b1c7a is committed")
+        out = audit_io.redact_secret_evidence(item)
+        self.assertNotIn("sk-live-9f2b1c7a", json.dumps(out))
+        self.assertIn("the token", out["description"])
+
+    def test_a_credential_inside_a_url_is_a_literal(self):
+        """A quoted run is taken whole, so a value carrying its own `:` and `/`
+        survives as one literal instead of being split at them."""
+        item = finding(
+            category="secrets",
+            codeSnippet='DATABASE_URL = "postgres://svc:Pa55wordLong@db/app"',
+            description="postgres://svc:Pa55wordLong@db/app is hardcoded")
+        out = audit_io.redact_secret_evidence(item)
+        self.assertNotIn("Pa55wordLong", json.dumps(out))
+
+    def test_a_quoted_argument_with_no_assignment_is_a_literal(self):
+        """The case only the quoted-run rule reaches. A credential passed
+        positionally has no `=` and no `:` on its line, so the value-side tail
+        never fires and the whole-line literal is the only other candidate.
+        Mutation-checked: with quoted runs dropped from the derivation, every
+        other test in this class still passed."""
+        item = finding(
+            category="secrets",
+            codeSnippet='client.connect("db.internal", "Pa55wordLongValue")',
+            description="the second argument is Pa55wordLongValue")
+        out = audit_io.redact_secret_evidence(item)
+        self.assertNotIn("Pa55wordLongValue", json.dumps(out))
+
+    def test_an_unquoted_multi_word_value_is_a_literal_whole(self):
+        """The case only the whole-tail rule reaches. A passphrase is several
+        ordinary words, each one under `MIN_DERIVED_LITERAL` and none of them a
+        literal on its own, so the tail has to be taken entire. Mutation-checked
+        the same way: with the tail dropped and only its tokens kept, every
+        other test in this class still passed."""
+        item = finding(
+            category="secrets",
+            codeSnippet="PASSPHRASE = correct horse battery staple",
+            description="the passphrase correct horse battery staple is committed")
+        out = audit_io.redact_secret_evidence(item)
+        self.assertNotIn("correct horse battery staple", json.dumps(out))
+        self.assertIn("the passphrase", out["description"])
+
+    def test_a_value_the_snippet_never_held_still_survives(self):
+        """The half that keeps this from becoming the detector `redact_literals`
+        declines to be. Widening the set widens what is *substituted*, never
+        what is searched for: every literal is a substring of the evidence the
+        finder handed over, so a second credential-shaped string the redactor
+        was never shown comes back untouched."""
+        item = finding(category="secrets", codeSnippet='k = "%s"' % SECRET,
+                       description="and also %s" % UNTOLD)
+        out = audit_io.redact_secret_evidence(item)
+        self.assertNotIn(SECRET, json.dumps(out))
+        self.assertIn(UNTOLD, out["description"])
+
+    def test_a_value_at_the_floor_is_substituted(self):
+        value = "K" * audit_io.MIN_DERIVED_LITERAL
+        item = finding(category="secrets", codeSnippet='pw = "%s"' % value,
+                       description="the value %s is committed" % value)
+        out = audit_io.redact_secret_evidence(item)
+        self.assertNotIn(value, out["description"])
+
+    def test_a_value_below_the_floor_survives_and_that_is_the_stated_gap(self):
+        """Pinned as a boundary rather than fixed, because the fix costs more
+        than it buys. A short piece of a line's value side is likelier to be an
+        ordinary word than a credential — substituting `1` fingerprints every
+        "line 12" in the report — and a stand-in publishing `len=6` gives a
+        six-character value away regardless. `redact_secret_evidence` states
+        this gap in the same sentence as its claim; if the floor moves, that
+        sentence has to move with it."""
+        short = "s3cr3t"
+        self.assertLess(len(short), audit_io.MIN_DERIVED_LITERAL)
+        item = finding(category="secrets", codeSnippet='pw = "%s"' % short,
+                       description="the password %s is committed" % short)
+        out = audit_io.redact_secret_evidence(item)
+        self.assertIn(short, out["description"])
+
+    def test_a_paraphrased_credential_is_still_the_stated_gap(self):
+        """Unchanged by the widening, and still stated: substitution is byte
+        for byte, so a finder that retypes the value rather than copying it is
+        out of reach of anything short of pattern detection."""
+        item = finding(category="secrets", codeSnippet='k = "%s"' % SECRET,
+                       description="the key starts wJalr and ends KEY")
+        out = audit_io.redact_secret_evidence(item)
+        self.assertIn("wJalr", out["description"])
+
+
 if __name__ == "__main__":
     unittest.main()

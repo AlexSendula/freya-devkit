@@ -3536,6 +3536,123 @@ class TestASymlinkDoesNotCrossTheRootOnItsOwn(Base):
         block = fresh.graph["substrate"]["escaping_links"]
         self.assertEqual((block["refused"], block["crossed"]), (1, 0))
 
+    def workspace_linked_project(self, declaration=None):
+        """A monorepo whose workspace directory is a symlink to a checkout elsewhere.
+
+        `packages/real` beside it is the anti-vacuity half and is not decoration: every
+        assertion below is about a package *not* being adopted, and a fixture where the
+        glob reached nothing at all would satisfy all of them with
+        `_load_workspace_packages` deleted outright.
+        """
+        root = self.mk({
+            "proj/package.json": '{"name":"root","workspaces":["pkglink/*","packages/*"]}',
+            "proj/src/app.ts": ("import { B } from '@acme/ui'\n"
+                                "import { R } from '@acme/real'\n"),
+            "proj/packages/real/package.json": '{"name":"@acme/real","main":"index.ts"}',
+            "proj/packages/real/index.ts": "export const R = 1\n",
+            "elsewhere/ui/package.json": '{"name":"@acme/ui","main":"src/index.ts"}',
+            "elsewhere/ui/src/index.ts": "export const %s = 1\n" % self.LEAKED,
+        })
+        proj = os.path.join(root, "proj")
+        os.makedirs(os.path.join(proj, "knowledge-base"), exist_ok=True)
+        cfg = {"substrate": {"backend": "homegrown"}}
+        if declaration is not None:
+            cfg["outside"] = declaration
+        with open(os.path.join(proj, "knowledge-base", "settings.json"), "w",
+                  encoding="utf-8") as handle:
+            json.dump(cfg, handle)
+        try:
+            os.symlink(os.path.join(root, "elsewhere"), os.path.join(proj, "pkglink"),
+                       target_is_directory=True)
+        except (OSError, NotImplementedError, AttributeError) as exc:
+            self.skipTest("this host will not create symlinks: %s" % exc)
+        g = CodeGraph(proj)
+        graph_ops.run_build(g, non_interactive=True, exclusions=g.project_exclusions())
+        return proj, g
+
+    def test_a_symlinked_workspace_package_is_not_adopted(self):
+        """Route three, and the one the first two fixes did not reach.
+
+        `Path.glob` follows a directory symlink, so `pkglink/*` matched a package whose
+        files are outside the project: its `package.json` was opened out there, its name
+        was adopted, and `@acme/ui` resolved through `_contain` — which is lexical, because
+        the key it returns is what three artifacts join on — to `pkglink/ui/src/index.ts`.
+        A project-relative key for a file `_scan_files` had already refused, so the two
+        predicates disagreed about one file in one build and the artifact carried a
+        validation error naming the symptom rather than the cause.
+
+        The specifier now comes back `external:` rather than `unresolved:`, and that is the
+        honest answer rather than a compromise: the manifest that would have said this repo
+        owns the name is the exact file this refuses to open, so nothing here can know it is
+        not a package off npm. `substrate.escaping_links` is where a reader is told the
+        graph is short.
+        """
+        _, g = self.workspace_linked_project()
+        self.assertEqual(g._load_workspace_packages().keys(), {"@acme/real"})
+        imports = ends(g.query("src/app.ts")["imports"])
+        self.assertIn("external:@acme/ui", imports)
+        self.assertIn("packages/real/index.ts", imports,
+                      "the glob never reached the contained package, so the refusal above "
+                      "proves nothing")
+        # Over `files` and not the whole graph: `escaping_links` names the refused paths
+        # on purpose, and that disclosure is the fix rather than the leak. What must not
+        # appear is a *node or edge* under the link — `pkglink/ui/src/index.ts` is the
+        # outside manifest's `main`, so an edge naming it is one this build could only
+        # have got by opening the file it refuses to open.
+        self.assertNotIn("pkglink", json.dumps(g.graph["files"]))
+        self.assertNotIn("validation", g.graph["substrate"])
+        block = g.graph["substrate"]["escaping_links"]
+        self.assertIn("pkglink/ui", block["sample"]["refused"])
+
+    def test_a_declared_target_makes_the_workspace_link_a_crossing_and_still_not_a_package(self):
+        """The same rule the other two routes apply, so the three agree: a declaration
+        grants resolution into the directory it names and never re-authorises the implicit
+        crossing a symlink is (SEC-008). Declared, so it is reported as a crossing under its
+        alias rather than as an intruder — and still not a workspace member, because
+        adopting it would make a symlink buy strictly more than an import does.
+        """
+        _, g = self.workspace_linked_project(declaration={"out": "../elsewhere"})
+        self.assertEqual(g._load_workspace_packages().keys(), {"@acme/real"})
+        self.assertIn("external:@acme/ui", ends(g.query("src/app.ts")["imports"]))
+        block = g.graph["substrate"]["escaping_links"]
+        self.assertEqual(block["sample"]["crossed"]["pkglink/ui"], "outside:out/ui")
+
+    def test_a_workspace_link_that_stays_inside_the_project_is_still_a_package(self):
+        """The row that stops the fix above being "refuse every symlinked workspace".
+
+        Linking a package into place is what a monorepo does, and `containment.within` is
+        the predicate precisely because it asks where the directory *is* rather than whether
+        a link was involved in reaching it. Mutation: refuse when `directory.resolve()`
+        differs from the lexical path — the obvious "was a link involved" test — and this row
+        goes red (measured 2026-08-24: alone in the workspace set on this host).
+
+        `os.path.islink(directory)` is deliberately *not* offered as the mutation, and the
+        reason is worth keeping: the glob is `linked/*`, so `directory` is `linked/ui` and it
+        is the parent that is the link. That test answers False for every fixture in this
+        class and turns the two refusals above red instead of this row.
+        """
+        root = self.mk({
+            "proj/package.json": '{"name":"root","workspaces":["linked/*"]}',
+            "proj/src/app.ts": "import { B } from '@acme/ui'\n",
+            "proj/real/ui/package.json": '{"name":"@acme/ui","main":"index.ts"}',
+            "proj/real/ui/index.ts": "export const B = 1\n",
+        })
+        proj = os.path.join(root, "proj")
+        os.makedirs(os.path.join(proj, "knowledge-base"), exist_ok=True)
+        with open(os.path.join(proj, "knowledge-base", "settings.json"), "w",
+                  encoding="utf-8") as handle:
+            json.dump({"substrate": {"backend": "homegrown"}}, handle)
+        try:
+            os.symlink(os.path.join(proj, "real"), os.path.join(proj, "linked"),
+                       target_is_directory=True)
+        except (OSError, NotImplementedError, AttributeError) as exc:
+            self.skipTest("this host will not create symlinks: %s" % exc)
+        g = CodeGraph(proj)
+        graph_ops.run_build(g, non_interactive=True, exclusions=g.project_exclusions())
+        self.assertEqual(g._load_workspace_packages().keys(), {"@acme/ui"})
+        self.assertIn("linked/ui/index.ts", ends(g.query("src/app.ts")["imports"]))
+        self.assertNotIn("escaping_links", g.graph["substrate"])
+
     def test_a_project_with_no_symlinks_says_nothing(self):
         """Absent, not empty (ADR-029) — so every repository that has never had a symlink
         produces byte-identical output to one built before this existed. No symlink is

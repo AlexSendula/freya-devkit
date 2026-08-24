@@ -703,6 +703,30 @@ class OutsideRootsTest(unittest.TestCase):
         self.assertEqual([alias for alias, _, _ in conf.outside.roots], ['ui'])
         self.assertEqual(len(conf.warnings), 1)
 
+    def test_a_value_the_filesystem_cannot_address_is_refused_and_not_raised(self):
+        """The row above with a value that did not merely fail to resolve — it raised.
+
+        `os.path.realpath` was the one line in this parser that answered a malformed value
+        with an exception. A NUL is spellable in JSON (`"\\u0000"`) and is not spellable in a
+        path, so `lstat` raised `ValueError` straight out of `parse_outside`; a lone surrogate
+        raises `UnicodeEncodeError`, which is one too. `Settings.__init__` parses this section
+        unconditionally, so both took down `--build`, `--update` and every read-only query on
+        a project whose committed file carried one — a build failing because configuration is
+        wrong, which is the thing this function's docstring promises never happens.
+
+        The good root beside it is the anti-vacuity half: a guard that skipped the whole
+        section rather than the entry would pass an assertion about the bad one alone.
+        Mutation: remove the `try`/`except ValueError` and both subTests error out here rather
+        than failing, which is the crash itself.
+        """
+        for label, bad in (('NUL', '../sh\x00ared'), ('lone surrogate', '../sh\ud800ared')):
+            with self.subTest(case=label):
+                conf = self.declare({'ui': '../packages/ui', 'bad': bad})
+                self.assertEqual([alias for alias, _, _ in conf.outside.roots], ['ui'])
+                self.assertEqual(len(conf.warnings), 1)
+                self.assertIn('is not a path this system can address', conf.warnings[0])
+                self.assertEqual(conf.outside.to_dict()['refused'][0]['alias'], 'bad')
+
 
 class AnUntaughtConsumerRefusesACrossingTest(unittest.TestCase):
     """Fail-closed, as a property of the token rather than a rule anyone has to remember.

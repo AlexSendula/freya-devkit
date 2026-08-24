@@ -100,16 +100,33 @@ def gaps_bucket(project_dir):
 
 
 def verify_bucket(project_dir):
-    """Tier-1 link-integrity errors from verify_links (which exits non-zero when it
-    finds errors — so we must NOT use check=True, or the JSON would be lost)."""
+    """Tier-1 link-integrity errors from verify_links.
+
+    `check=True` would be wrong — verify_links exits non-zero exactly when it has
+    errors, and that is the run whose JSON this bucket wants. But then the exit
+    code says nothing either way, because a traceback exits 1 too. Only the JSON
+    tells them apart, so the JSON is what is tested: `--format json` always
+    prints at least `[]`, so stdout that will not parse is a run that did not
+    finish. This read empty stdout as `[]` with `note=None` — "verify failures:
+    0" for a check that died, and that zero is committed to BACKLOG.md. A
+    *directory* named `login.feature` is enough to get there, because
+    verify_links globs `*.feature` and `read_text` raises on one. SEC-007 closed
+    this shape in `security_bucket`; this is the sibling it did not reach
+    (SPEC-028 — the note is what separates "clean" from "never ran").
+    """
     try:
         out = subprocess.run(
             [sys.executable, str(_VERIFY_LINKS), "--dir", _specs_dir(project_dir), "--format", "json"],
             capture_output=True, text=True)
-        errors = json.loads(out.stdout) if out.stdout.strip() else []
-        return errors, None
-    except (json.JSONDecodeError, FileNotFoundError, OSError):
-        return [], "could not run verify_links"
+        errors = json.loads(out.stdout)
+    except (OSError, ValueError):
+        # ValueError, not json.JSONDecodeError: it covers that one (a subclass), the empty
+        # stdout of a gate that died before printing, and the UnicodeDecodeError `text=True`
+        # raises on an undecodable byte — the trap the two buckets below name.
+        return [], "verify_links returned no result — link integrity was not checked"
+    if not isinstance(errors, list):
+        return [], "verify_links returned no list of errors — link integrity was not checked"
+    return errors, None
 
 
 def stale_bucket(project_dir):

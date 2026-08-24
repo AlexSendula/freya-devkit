@@ -212,6 +212,31 @@ class ContextCase(unittest.TestCase):
         self.assertEqual(ctx["targets"][0]["hit_paths"], ["lib/webauthn.ts"])
         self.assertEqual(ctx["targets"][0]["decisions"], ["userVerification preferred"])
 
+    def test_a_declared_path_spelled_differently_from_gits_still_hits(self):
+        """`impact` holds git's spelling; `related_code` holds whatever the author typed.
+
+        Compared verbatim, an ordinary `./lib/webauthn.ts` never matched
+        `lib/webauthn.ts`, so the spec dropped out of the P4b drift checkpoint's
+        target set — silently, from a resolve-to-proceed gate. That is a
+        confidently short answer, which is worse than a wrong one because
+        nothing about the output says it is short.
+
+        The same defect as the G1 locator comparison, one file over. That one
+        was found and this one was not, because the sibling survey asked who
+        resolves a LOCATOR rather than who compares a DECLARED PATH to git — so
+        the ADR row below is here to make the pair testable together.
+        """
+        for declared in ("./lib/webauthn.ts", "lib//webauthn.ts", "lib/x/../webauthn.ts"):
+            with self.subTest(declared=declared):
+                root = self._root()
+                _write(root / "knowledge-base/specs/auth/SPEC-001.md",
+                       _spec("SPEC-001", "auth", ["userVerification preferred"], [declared]))
+                _adr(root, "ADR-001", [declared])
+                ctx = build_drift_context(str(root), "BASE",
+                                          impact={"lib/webauthn.ts"}, source="test")
+                self.assertEqual(sorted(t["item"] for t in ctx["targets"]),
+                                 ["ADR-001", "SPEC-001"])
+
     def test_no_target_when_no_intersection(self):
         root = self._root()
         _write(root / "knowledge-base/specs/auth/SPEC-001.md",

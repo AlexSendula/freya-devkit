@@ -270,6 +270,13 @@ def redact_literals(text, literals, *, keep=KEEP_PREFIX):
     Longest literal first, so one that is a prefix of another does not shred it
     and leave the tail in the clear.
 
+    `_secret_literals` derives some of what the one caller passes, and that does
+    not soften the rule above: every literal it derives is a substring of the
+    evidence the finder handed over, so the pattern is applied to the value that
+    is already known and never to the text being scrubbed. What a bad derivation
+    can do is over-redact one `secrets` finding's own prose. What it cannot do is
+    leak, or reach a finding of any other category.
+
     Here and not in the shared-primitive module, because ADR-030 places a
     primitive there once *more than one* skill needs it and only this one does.
     The moment a second caller appears it moves, by that rule and not by taste.
@@ -300,10 +307,89 @@ def redact_literals(text, literals, *, keep=KEEP_PREFIX):
 #: what it COSTS to scrub, never by what it is nominally for.
 #:
 #: `file` is the one field excluded on cost — it is what a reader needs in order
-#: to go and rotate the key, and `normalize_file` owns it. `category` and
-#: `severity` are closed enums, so no prose reaches them. `codeSnippet` is out
-#: because it is replaced whole rather than scrubbed.
+#: to go and rotate the key, and `normalize_file` owns it. Widening the literal
+#: set raised that cost rather than lowering it: a snippet reading
+#: `key = "/home/ops/.aws/credentials"` now yields a path as a literal, so
+#: scrubbing `file` could fingerprint the one field that says where to go.
+#: `category` and `severity` are closed enums, so no prose reaches them.
+#: `codeSnippet` is out because it is replaced whole rather than scrubbed.
 _SCRUBBED_FIELDS = ("description", "title", "recommendation", "cwe")
+
+#: How long a substring *derived* from the snippet has to be before it is
+#: substituted. The floor is not about the secret, it is about the rest of the
+#: sentence: a short piece of a line's value side — `1`, `r`, `dev`, `true` — is
+#: far likelier to be an ordinary word somewhere in the prose than to be the
+#: credential, and substituting `1` fingerprints every "line 12" in the report
+#: while protecting nothing, because a stand-in publishing `len=1` has already
+#: given a one-character value away. Eight is where value-side tokens stop
+#: reading as English in practice. Arguable, like `KEEP_PREFIX`, and a constant
+#: so that an argument about it has somewhere to land. The snippet itself and
+#: its whole lines are substituted at any length: those are what the finder
+#: declared to be the evidence, not something this module inferred from it.
+MIN_DERIVED_LITERAL = 8
+
+#: Punctuation a source line wraps a value in, trimmed off a derived literal so
+#: the literal is the value and not the quoting around it. `=` is absent and the
+#: absence is the decision: base64 padding ends a great many real keys, and
+#: trimming it would substitute a prefix of the credential and leave the whole of
+#: it standing wherever a finder wrote it out in full. `.` is absent for the same
+#: reason — a JWT is three dot-separated segments and a trailing one is data.
+_VALUE_WRAPPERS = "\"'`,;:()[]{}<> \t"
+
+#: A quoted run, in the three quote characters source uses. Non-greedy and
+#: applied per line, so an unterminated quote cannot swallow the rest of the
+#: snippet, and the value is group 2.
+_QUOTED = re.compile(r"""(['"`])(.*?)\1""")
+
+#: Where a line's value side starts: the first `=` or `:`, whichever comes
+#: first. `url = "https://x"` has both and the value starts at the `=`;
+#: `Authorization: Bearer x` has both and it starts at the `:`. Everything in
+#: front of the separator is the *name* — `AWS_SECRET_ACCESS_KEY`, `password`,
+#: `Authorization` — and the name is the word a reader needs in order to know
+#: which credential to rotate, so it never becomes a literal.
+_VALUE_SIDE = re.compile(r"[=:]")
+
+
+def _secret_literals(snippet):
+    """Every substring of `snippet` this module is willing to substitute.
+
+    The snippet itself and each of its lines, which is what a finder quotes when
+    it copies the evidence — and then the value side of each line, because the
+    leak this closes is the finder that quotes the credential *alone*. "remove
+    <the key> and rotate it" is exactly what FINDER_SCHEMA's required
+    `recommendation` asks for, and no whole-line literal ever matches it.
+    Measured 2026-08-24 on a snippet of `AWS_SECRET_ACCESS_KEY = "<key>"`: with
+    only the snippet and its lines in the set, the credential came back out of
+    `audit()` intact in `title`, `description` and `recommendation`, in the same
+    run whose `codeSnippet` was fingerprinted.
+
+    Value side means three things, and they overlap on purpose because a snippet
+    is a few lines and a redundant literal costs one dictionary slot: every
+    quoted run on the line, which is what keeps a value carrying its own `:` and
+    `/` in one piece; the tail after the line's first `=` or `:`, which is the
+    unquoted `.env` and YAML shape; and that tail's whitespace-separated tokens,
+    which is what reaches the credential in `Authorization: Bearer <token>`
+    where the scheme is a public word and the token is not.
+
+    Derived literals are held to `MIN_DERIVED_LITERAL`; the snippet and its whole
+    lines are not.
+    """
+    literals = [snippet]
+    for line in snippet.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        literals.append(line)
+        derived = [match.group(2) for match in _QUOTED.finditer(line)]
+        separator = _VALUE_SIDE.search(line)
+        if separator:
+            tail = line[separator.end():]
+            derived.append(tail)
+            derived.extend(tail.split())
+        literals.extend(
+            token for token in (item.strip(_VALUE_WRAPPERS) for item in derived)
+            if len(token) >= MIN_DERIVED_LITERAL)
+    return literals
 
 
 def redact_secret_evidence(finding):
@@ -315,20 +401,24 @@ def redact_secret_evidence(finding):
 
     `codeSnippet` is a verbatim copy of bytes read out of the scanned
     repository, and for this one category those bytes *are* the credential, so
-    it is replaced whole. Each field in `_SCRUBBED_FIELDS` — `description`,
-    `title` and `recommendation`, the three the model writes prose into — is then
-    scrubbed of that same literal and of each of its lines, because a finder
-    that writes "hardcoded key AKIA... on line 12" has copied the snippet into
-    its prose, and does so in whichever field it happens to be filling.
+    it is replaced whole. Each of the four fields in `_SCRUBBED_FIELDS` — the
+    ones the model writes prose into — is then scrubbed of everything
+    `_secret_literals` derives from that snippet: the snippet, each of its
+    lines, and the value side of each of its lines. A finder that writes
+    "hardcoded key AKIA... on line 12" has copied the snippet into its prose; a
+    finder that writes "remove AKIA... and rotate it" has copied only the
+    credential out of it, and does either in whichever field it is filling.
 
     Every other category comes back untouched. The vulnerable-code block is most
     of what a report is worth for an injection or an auth finding, and this is
     not a secret detector — it acts only where the finder already said
-    "secrets". State the gap that leaves rather than papering over it, because
-    it is real and this function does not close it: what is scrubbed is the
-    snippet's own bytes, so a credential a finder paraphrases, reflows, or
-    quotes from somewhere other than `codeSnippet` survives. Catching that needs
-    the pattern detection `redact_literals` refuses, and refuses for reasons.
+    "secrets". State what that leaves rather than papering over it. Substitution
+    is byte for byte against substrings of the snippet, so three things survive:
+    a credential a finder *retyped* rather than copied — paraphrased, re-cased,
+    abbreviated with an ellipsis; one shorter than `MIN_DERIVED_LITERAL` that is
+    neither the whole snippet nor a whole line of it; and one quoted from
+    somewhere `codeSnippet` never went. Catching any of those needs the pattern
+    detection `redact_literals` refuses, and refuses for reasons.
 
     Prevention, not retraction. It stops a value from being written; it cannot
     recall one already committed. ADR-010's open question about an escape hatch
@@ -342,7 +432,7 @@ def redact_secret_evidence(finding):
         return finding
     out = dict(finding)
     out["codeSnippet"] = _fingerprint(snippet)
-    literals = [snippet] + [line.strip() for line in snippet.splitlines()]
+    literals = _secret_literals(snippet)
     for field in _SCRUBBED_FIELDS:
         if finding.get(field):
             out[field] = redact_literals(finding[field], literals)

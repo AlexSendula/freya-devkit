@@ -10,6 +10,14 @@ from unittest.mock import patch, MagicMock
 
 import run_behaviors
 
+# The merge is the only reason a reason string matters, and it lives in the sibling
+# skill. Asserting the runner's word without the consumer that reads it is how
+# `test-failed` came to mean two different things in two modules.
+sys.path.insert(0, os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "freya-behavior-graph", "scripts"))
+import behavior_graph  # noqa: E402
+
 
 SPEC = """---
 id: SPEC-001
@@ -410,6 +418,42 @@ class RunPytestBehaviorTest(unittest.TestCase):
 
     def test_exit_five_no_tests_collected_is_the_same_non_failure(self):
         self.assertEqual(self.run_it(5)["reason"], "locator-selected-nothing")
+
+    def test_a_missing_pytest_is_not_a_red_test(self):
+        """The third member of the family above, and the one that was still wrong.
+
+        `python -m pytest` on a machine without pytest exits non-zero, which this
+        reported as `test-failed` — a reason that both wipes the committed edges
+        and hard-blocks wrap-up. So a fresh clone with nothing installed failed
+        the commit AND destroyed the blast-radius artifact, after which
+        `--covering` on those files answered empty for good and a legitimate
+        ADR-012 downgrade stopped working.
+
+        The two exits look identical from here, which is why this is asked
+        *before* spawning rather than inferred from a code afterwards.
+        """
+        with mock.patch.object(run_behaviors, "_module_available", return_value=False):
+            fp = self.run_it(1)
+        self.assertEqual(fp["coverage"], "unknown")
+        self.assertEqual(fp["exercises"], [])
+        self.assertEqual(fp["reason"], "toolchain-missing: pytest")
+
+    def test_a_missing_toolchain_preserves_the_committed_edges(self):
+        """The consequence, asserted through the merge rather than described.
+
+        This is the assertion that would have caught it: the reason string only
+        matters because `merge_fingerprint` reads it, and reading it wrong
+        rewrites a git-tracked file.
+        """
+        prior = {"coverage": "observed",
+                 "exercises": [{"path": "lib/webauthn.ts", "source": "observed"}]}
+        with mock.patch.object(run_behaviors, "_module_available", return_value=False):
+            fp = self.run_it(1)
+        merged = behavior_graph.merge_fingerprint(prior, fp)
+        self.assertEqual(merged["exercises"], prior["exercises"])
+        self.assertEqual(behavior_graph.merge_fingerprint(
+            prior, {"coverage": "unknown", "exercises": [], "reason": "test-failed"}
+        )["exercises"], [], "a real red test must still invalidate")
 
     def test_a_pass_with_no_coverage_tooling_says_so_rather_than_claiming_a_measurement(self):
         """coverage.py and pytest-cov are optional (ADR-005: zero-install), so this is the
