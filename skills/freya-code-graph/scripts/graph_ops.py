@@ -413,6 +413,22 @@ class CodeGraph:
         # Empty is both the default and the common case, and an empty one answers every
         # containment question without a single filesystem call.
         self._outside_cache: Optional[settings.OutsideRoots] = None
+        # Discovery candidates whose realpath left the project (SEC-023), as
+        # {rel_path: crossing-token-or-None}. Populated by `_scan_files` and drained into
+        # the artifact by `_escaping_links_report`, because a silently shrinking file set
+        # produces a blast radius that is quietly too small — the failure ADR-029 exists
+        # against — and because stderr is dead skill-to-skill.
+        self._escaping_links: Dict[str, Optional[str]] = {}
+
+    def _record_escaping_link(self, rel_path: str, crossing: Optional[str]) -> None:
+        """Note a discovery candidate that resolved out of the project, once.
+
+        `crossing` is `outside:<alias>/<tail>` when a declared root covers the target and
+        None when nothing did. Both are recorded: the declared one is legitimate and is
+        reported as a crossing, the undeclared one is refused — and a reader needs to be able
+        to tell which happened without re-running the build.
+        """
+        self._escaping_links.setdefault(rel_path, crossing)
 
     # -------------------------------------------------------------------------
     # The substrate contract (see substrate.py). This class is freya's first
@@ -2010,8 +2026,35 @@ Respond with ONLY a JSON object, no markdown formatting:
                 # One decision, in one place. The ancestor walk used to be inlined here and
                 # again in `update()`, each consulting only `exclude` verdicts — so a
                 # `source` verdict was accepted, written to disk and never read by anything.
-                if not self._should_exclude(rel_path, gitignore_patterns, classified_dirs):
-                    filtered.append(f)
+                if self._should_exclude(rel_path, gitignore_patterns, classified_dirs):
+                    continue
+
+                # SEC-023. Discovery is where a symlink crossed the root, and ADR-031's
+                # "crossing is a declared act" was true of imports and false here: a symlink
+                # committed *inside* the project whose target is outside it was globbed,
+                # opened, parsed, and its declarations published as this node's `exports` —
+                # no declaration, nothing on stderr. It is SEC-008's defect on the other
+                # traversal; that one bounded docs-manager's YAML walk, and this walk never
+                # got the same rule.
+                #
+                # `containment.within`, not `os.path.islink`: the question is not "is this a
+                # link" but "does the file this names live inside the project". An in-project
+                # symlink is legitimate and common — a monorepo links a package into place —
+                # and blanket-refusing links would empty those graphs. `within` realpaths both
+                # sides and catches the ValueError `commonpath` raises across Windows drives.
+                #
+                # Read the polarity carefully: `within` returning False is the *permissive*
+                # branch for `exec_path.resolve` ("not the scanned repo's own binary, so run
+                # it") and the *refusing* branch here. Same predicate, opposite question.
+                if not containment.within(self.project_dir, f):
+                    # Declared, so it is a crossing rather than an intruder — and it lands on
+                    # the same side of the line as an import into a declared root: reported,
+                    # never a node. Otherwise the declaration would buy strictly more through
+                    # a symlink than through an import, which is incoherent.
+                    self._record_escaping_link(rel_path, self._outside_roots().key_for(f))
+                    continue
+
+                filtered.append(f)
             except ValueError:
                 continue
 
@@ -2621,6 +2664,15 @@ def _finalise(backend: Any, result: Any,
         if sentence:
             _announce_once('code-graph: %s' % sentence)
 
+    # SEC-023, and the third instance of the same funnel rather than a fourth mechanism: a
+    # file this build declined to scan is a fact about the answer's completeness, exactly as
+    # an unparseable source is. Absent, not empty, when nothing escaped — so a repository
+    # with no symlinks produces byte-identical output (ADR-029).
+    escaped = _escaping_links_report(backend)
+    if escaped:
+        graph['substrate']['escaping_links'] = escaped
+        _announce_once('code-graph: %s' % _escaping_links_sentence(escaped))
+
     cached_to = persist_graph(backend.project_dir, backend.name, graph)
 
     if result.status != substrate.Result.BUILT:
@@ -2836,6 +2888,60 @@ def _answer_caveats(graph: Optional[Dict[str, Any]], full: bool = False) -> Dict
         # qualified is the graph the answer was computed from, not the file asked about.
         caveats['outside_roots'] = crossed
     return caveats
+
+
+#: Escaping links named individually in the artifact. A cap for the same reason
+#: `_MAX_RECORDED_VALIDATION_ERRORS` has one — the count is the fact, the sample is the lead —
+#: and pinned to that constant by a test rather than by this comment, because a parity claim
+#: nothing checks is how the two drift.
+_MAX_RECORDED_ESCAPING_LINKS = 20
+
+
+def _escaping_links_report(backend: Any) -> Optional[Dict[str, Any]]:
+    """Discovery candidates whose realpath left the project, or None when none did.
+
+    None — the key absent rather than an empty block — so a repository with no symlinks
+    produces byte-identical output to one built before this existed (ADR-029).
+
+    Two buckets, because they are two different events and collapsing them would hide the
+    one that matters. `refused` is a symlink that pointed out of the project with nothing
+    declaring the target: it was not opened, not parsed, and is not a node. `crossed` is one
+    whose target sits under a declared `outside` root (ADR-031): also not a node, but
+    legitimate, and named with the same `outside:<alias>/<tail>` token an import into that
+    root produces — so the two routes into a declared root read identically in the artifact,
+    which is the point.
+
+    Read as a completeness caveat and not as a security verdict. A `refused` entry means the
+    graph is *smaller* than the file listing suggests, which is what a reader needs in order
+    to know the blast radius is short. It does not mean anything hostile happened: a symlink
+    out of the project is a perfectly ordinary thing for a monorepo checkout to contain.
+    """
+    escaping = getattr(backend, '_escaping_links', None)
+    if not escaping:
+        return None
+    refused = sorted(rel for rel, crossing in escaping.items() if crossing is None)
+    crossed = sorted(rel for rel, crossing in escaping.items() if crossing is not None)
+    return {
+        'refused': len(refused),
+        'crossed': len(crossed),
+        'sample': {
+            'refused': refused[:_MAX_RECORDED_ESCAPING_LINKS],
+            'crossed': {rel: escaping[rel] for rel in crossed[:_MAX_RECORDED_ESCAPING_LINKS]},
+        },
+        'advice': ('a symlink under this project resolves outside it; declare its target under '
+                   '`outside` in knowledge-base/settings.json to have the crossing named, or '
+                   'leave it refused'),
+    }
+
+
+def _escaping_links_sentence(block: Dict[str, Any]) -> str:
+    """One line for the stderr surface, naming both counts.
+
+    Both, always, even when one is zero: the reader's question is "is anything missing from
+    this graph", and `refused: 0, crossed: 3` answers it as usefully as the other way round.
+    """
+    return ('%d symlink(s) resolve outside the project — %d refused, %d declared as crossings'
+            % (block['refused'] + block['crossed'], block['refused'], block['crossed']))
 
 
 def _outside_report(project_dir: Any, graph: Dict[str, Any]) -> Optional[Dict[str, Any]]:

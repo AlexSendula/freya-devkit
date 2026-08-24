@@ -415,23 +415,35 @@ For each finding, check two evidence sources — declarative specs and accepted 
 
 *Accepted behaviors (the stronger evidence — read what it is evidence of):*
 5. Run the behavior graph to find the `accepted` behaviors that exercise the
-   finding's file:
+   finding's file, **and re-run their tests while you are there**:
    ```bash
    freya behavior-graph \
-     --covering <finding-file> --project .
+     --covering <finding-file> --project . --verify
    ```
+   `--verify` is not the default for that query — other callers use it in a loop and it
+   spawns a test run — but this is the one caller whose answer can stop a security finding
+   from counting, and a scan is already expensive. Use it.
 6. For each returned behavior, read its intent (its spec's Behavior entry /
    rationale) and judge: **does this behavior's intent explain this finding?**
-   (the same relevance judgment as for specs)
+   (the same relevance judgment as for specs). Where the row carries `symbols`, those are
+   the named functions that actually ran — judge against those and not merely against the
+   file, because a test touching a 500-line module says nothing about the line flagged in it.
 7. If an accepted behavior explains the finding:
    - Update status to **INTENTIONAL DESIGN** and record `behavior_ref: BEH-NNN`
    - Note `intentional per BEH-NNN (SPEC-MMM)`, then copy the query's own
-     `evidence` string into the note **verbatim**. Never *"verified by passing
-     test"* — no test ran. A finding may carry both `spec_ref` and `behavior_ref`.
+     `evidence` string into the note **verbatim**. The evidence string states whether a
+     test was re-run or a committed record was trusted; never substitute your own summary
+     of it, and never write *"verified by passing test"* unless `verified.passed` is true
+     for that row.
+   - A row whose `verified.passed` is **false** is evidence *against* the behavior. It does
+     not downgrade anything, and it is worth a note of its own: a repository asserting an
+     accepted behavior whose test does not pass is a finding in its own right.
 8. **Only `accepted` behaviors downgrade a finding**, and only on what `--covering`
-   checked: `state` and `spec_id` re-read from the specs, and a locator — *only if one
-   is declared* — resolving to a file in the project. A row with `"locator": null` had
-   no check. `proposed`/`confirmed`: note *"intended, test owed"*, and stay open.
+   checked: `state` and `spec_id` re-read from the specs, a locator that resolves to a file
+   in the project — **required, not optional** — and an exercised path whose `source` is
+   `observed`. A statically inferred edge is the import graph's guess that no test ever
+   backed, and it licenses nothing. `proposed`/`confirmed`: note *"intended, test owed"*,
+   and stay open.
 
 **Phase 4: Update Original Report In Place**
 Enhance the existing security report directly (no new file created):

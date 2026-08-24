@@ -532,7 +532,7 @@ def _locator_resolves(project_dir, locator):
     return os.path.isfile(os.path.join(project_dir, rel_path))
 
 
-def covering(project_dir, file):
+def covering(project_dir, file, verify=False):
     """Accepted behaviors whose `exercises` include `file` (read-only).
 
     Only `accepted` behaviors are returned — they are the strongest "intentional"
@@ -588,19 +588,109 @@ def covering(project_dir, file):
         if not spec or spec.get("state") != "accepted":
             continue
         locator = spec.get("locator")
-        if locator and not _locator_resolves(project_dir, locator):
+        # A locator is now REQUIRED, where it used to be checked only if declared. The old
+        # `if locator and ...` let a behavior that declared none skip the check entirely and
+        # still license a downgrade — the widest of the three holes SEC-006 named, because it
+        # needed no forgery at all, just an omission. What it costs is stated rather than
+        # hidden: an `accepted` + `adapter: manual` behavior legitimately has no locator, and
+        # it no longer downgrades anything. That is the right answer for this query — a
+        # manual behavior has no test that could have run — but it is a real narrowing and
+        # ADR-012 records it.
+        if not locator or not _locator_resolves(project_dir, locator):
             continue
-        paths = {e["path"] for e in rec.get("exercises", [])}
-        if file in paths:
-            out.append({"behavior_id": bid, "spec_id": spec.get("spec_id"),
-                        "coverage": rec.get("coverage"), "locator": locator})
+        # `source == "observed"`, and this is the change that matters most. An exercises entry
+        # carries `observed` (a real run, with coverage) or `static` — INFERRED FROM THE
+        # IMPORT GRAPH, no test ever ran (`run_behaviors.static_exercises`). This query read
+        # neither, so a dependency-graph inference silenced security findings exactly as a
+        # passing test did. Nothing needs to run to fix that; it just stops treating an
+        # inference as evidence.
+        covering_entries = [e for e in rec.get("exercises", [])
+                            if isinstance(e, dict) and e.get("path") == file
+                            and e.get("source") == "observed"]
+        if not covering_entries:
+            continue
+        # The symbols that actually ran, where the runner captured them. The file anchor
+        # alone is weak in a way worth naming: a test touching anywhere in a 500-line module
+        # downgraded a finding on a line it never executed. This does not fix that — the
+        # judgement is still the agent's — but it hands the agent the evidence to make it.
+        # File-plus-symbols, never lines: `coverage_symbols` records named functions, and
+        # claiming line granularity the data cannot support would be the overclaim this
+        # branch keeps deleting.
+        symbols = sorted({s for e in covering_entries for s in (e.get("symbols") or [])})
+        row = {"behavior_id": bid, "spec_id": spec.get("spec_id"),
+               "coverage": rec.get("coverage"), "locator": locator,
+               "source": "observed"}
+        if symbols:
+            row["symbols"] = symbols
+        out.append(row)
     out.sort(key=lambda c: c["behavior_id"])
-    return {"version": 1, "file": file, "covering": out,
-            "evidence": ("state and locator re-derived from knowledge-base/specs; "
-                         "exercised paths and coverage read from the project's committed "
-                         "knowledge-base/.graph/behavior.json. No test was run by this "
-                         "query, so this is a label on the evidence, not a verification "
-                         "of it.")}
+    if verify and out:
+        # One runner invocation for every candidate, not one per row. `--only` already takes a
+        # list, and a query that spawned N test runs for N behaviors would be slow enough that
+        # somebody would turn verification off — which is the failure mode that matters more
+        # than the wasted seconds.
+        verdicts = _verify_behaviors(project_dir, [c["behavior_id"] for c in out])
+        for row in out:
+            row["verified"] = verdicts[row["behavior_id"]]
+    if verify:
+        kept = [c for c in out if c.get("verified", {}).get("passed")]
+        evidence = ("state and locator re-derived from knowledge-base/specs; only "
+                    "`source: observed` exercised paths counted, so a statically inferred "
+                    "edge licenses nothing; and each behavior's linked test was RE-RUN by "
+                    "this query. %d of %d passed. A row with `verified.passed` false is "
+                    "evidence against the behavior, not for it." % (len(kept), len(out)))
+    else:
+        evidence = ("state and locator re-derived from knowledge-base/specs; only "
+                    "`source: observed` exercised paths counted, so a statically inferred "
+                    "edge licenses nothing. Exercised paths and symbols are read from the "
+                    "project's committed knowledge-base/.graph/behavior.json, which records "
+                    "that a test passed once — no test was run by this query, so this is a "
+                    "label on the evidence and not a verification of it. Re-run with "
+                    "--verify to execute the linked tests.")
+    return {"version": 1, "file": file, "covering": out, "verified": bool(verify),
+            "evidence": evidence}
+
+
+def _verify_behaviors(project_dir, bids):
+    """Re-run each named behavior's linked test; return {bid: {passed, reason}}.
+
+    This exists because the argument against it was wrong, and the way it was wrong is worth
+    keeping. The earlier reasoning held that running a scanned repository's test is "arbitrary
+    code execution, worse than the finding it would close" — an argument against a capability
+    this toolkit ships as a feature, in a sibling skill this module already imports.
+    `freya-behavior-runner` exists to run the project's tests, and `regression_check` below
+    already re-runs accepted behaviors through the same helper this uses. freya is a tool a
+    developer points at a repository they are working in; by then they have installed its
+    dependencies and run its suite, and one more test run adds nothing to that risk.
+
+    `passed` is False on a red test AND on any inability to run, because this is the one query
+    that can silence a security finding: "could not determine" must never read as "verified".
+    The reason is carried so a refusal can be told from a failure — an operator seeing every
+    row unverified needs to know whether the suite is red or the runner never started.
+
+    No `except Exception`. `_run_behavior_runner` uses `check=True`, so a non-zero exit raises
+    `CalledProcessError`, and malformed stdout raises `ValueError`; those two plus `OSError`
+    are what a spawn can do here. A blanket catch would also swallow a bug in this function
+    and report it as an unverified behavior, which is the shape that hides a defect behind a
+    conservative-looking answer.
+    """
+    try:
+        fingerprints = _run_behavior_runner(project_dir, only=list(bids)).get("fingerprints", {})
+    except (subprocess.CalledProcessError, OSError, ValueError) as exc:
+        return {bid: {"passed": False,
+                      "reason": "could not run: %s" % exc.__class__.__name__} for bid in bids}
+    out = {}
+    for bid in bids:
+        fp = fingerprints.get(bid)
+        if not isinstance(fp, dict):
+            out[bid] = {"passed": False, "reason": "runner returned no verdict"}
+        elif fp.get("coverage") == "observed":
+            out[bid] = {"passed": True, "reason": "test passed under this query"}
+        else:
+            # `test-failed` is the runner's word for a red test; anything else here is a
+            # behavior it could not exercise. Both are False, and the reason says which.
+            out[bid] = {"passed": False, "reason": fp.get("reason") or "no coverage observed"}
+    return out
 
 
 def _changed_files(base, project_dir):
@@ -669,10 +759,16 @@ def main():
     group.add_argument("--covering", metavar="FILE",
                        help="Accepted behaviors whose exercised code includes FILE (security cross-ref).")
     parser.add_argument("--base", help="Base commit for --check (diff base..HEAD).")
+    # Off by default because `--covering` is a graph query other things call in a loop, and a
+    # query that spawns a test run cannot be that. On for the security scan, which is the one
+    # caller whose answer can silence a finding and which is already expensive.
+    parser.add_argument("--verify", action="store_true",
+                        help="Re-run each returned behavior's linked test instead of trusting "
+                             "the committed record (--covering only).")
     args = parser.parse_args()
 
     if args.covering:
-        print(json.dumps(covering(args.project, args.covering), indent=2))
+        print(json.dumps(covering(args.project, args.covering, verify=args.verify), indent=2))
         return 0
 
     if args.gaps:

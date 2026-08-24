@@ -70,11 +70,17 @@ behaviors:
         # BEH-500 is accepted and its test exercises the flagged file — the strongest
         # intentional-design evidence there is. BEH-501 covers the other flagged file
         # but is only proposed, which is intent nobody has executed.
+        #
+        # `source: "observed"` is spelled out because it is now load-bearing: an entry
+        # whose source is `static` is the import graph's inference with no test behind it,
+        # and it no longer licenses a downgrade (SEC-006). The runner always writes the
+        # field; a fixture omitting it tests a shape only a hand-edited file has.
         with open(os.path.join(graph_dir, "behavior.json"), "w", encoding="utf-8") as f:
             json.dump({"version": 1, "commit": "fixture", "behaviors": {
                 "BEH-500": {"spec_id": "SPEC-500", "state": "accepted",
                             "coverage": "observed",
-                            "exercises": [{"path": "lib/anti-enumeration.ts"}]},
+                            "exercises": [{"path": "lib/anti-enumeration.ts",
+                                           "source": "observed"}]},
                 "BEH-501": {"spec_id": "SPEC-500", "state": "proposed",
                             "coverage": "unknown",
                             "exercises": [{"path": "lib/date-formatter.ts"}]},

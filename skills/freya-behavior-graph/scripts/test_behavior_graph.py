@@ -569,7 +569,9 @@ behaviors:
             "version": 1, "commit": "base",
             "behaviors": {
                 "BEH-002": {"spec_id": "SPEC-100", "state": "accepted",
-                            "coverage": "observed", "exercises": [{"path": "lib/webauthn.ts"}]},
+                            "coverage": "observed",
+                            "exercises": [{"path": "lib/webauthn.ts",
+                                           "source": "observed"}]},
                 "BEH-006": {"spec_id": "SPEC-100", "state": "confirmed",
                             "coverage": "static", "exercises": [{"path": "app/api/x/route.ts"}]},
             },
@@ -702,25 +704,40 @@ behaviors:
 class CoveringEvidenceTest(unittest.TestCase):
     """What `--covering` may claim, and what it may only label (SEC-006).
 
-    The 2026-08-21 scan reproduced the mechanism exactly: a hand-written
-    behavior.json declaring `BEH-777` accepted, with a locator naming a file that
-    does not exist, made `--covering src/vulnerable.ts` return it — and that
-    return value is what licenses ADR-012's downgrade, the only sanctioned way
-    this toolkit stops counting a real security finding.
+    The 2026-08-21 scan reproduced the mechanism: a hand-written behavior.json
+    declaring `BEH-777` accepted made `--covering src/vulnerable.ts` return it —
+    and that return value is what licenses ADR-012's downgrade, the only
+    sanctioned way this toolkit stops counting a real security finding.
 
-    It cannot be fixed by reading a different committed file: the specs are
-    committed by whoever committed the graph. So these tests pin the two things
-    that can be fixed — single ownership of `state` (the spec owns it, per
-    ADR-002/ADR-003) and a locator that names a real file — and then pin the
-    residual out loud in
-    `test_an_accepted_behavior_with_no_locator_still_covers`, because a limit
-    nobody wrote down is a limit somebody will mistake for a guarantee.
+    **The earlier version of this class argued the finding could not be closed,
+    on a premise that was wrong.** It held that the only non-project-supplied
+    evidence would be running the linked test, and that executing a scanned
+    repository's suite is worse than the problem. That is an argument against a
+    capability this toolkit ships as a feature: `freya-behavior-runner` exists to
+    run the project's tests, and `regression_check` in the module under test
+    already re-runs accepted behaviors. freya is a tool a developer points at a
+    repository they are working in, and by then they have installed its
+    dependencies and run its suite.
 
-    The locator property here is *related to* verify_links' Tier-1 one and is
-    not the same property; `LocatorCheckDivergesFromTier1Test` measures the gap.
-    Neither is a verification: an `accepted` state and a resolving locator are
-    both things the scanned repository asserts about itself, and no test is run
-    by any of this.
+    So the class now pins four things instead of two:
+
+    * `state` is owned by the spec (ADR-002/ADR-003), so behavior.json alone
+      asserts nothing.
+    * a locator is **required** and must name a real file. It used to be checked
+      only when declared, which let an omission through — the widest of the
+      holes, because it needed no forgery.
+    * only `source: "observed"` counts. An exercises entry is either a real run
+      with coverage or `static` — **inferred from the import graph, with no test
+      involved at all** — and this query read neither, so an inference silenced
+      findings exactly as a passing test did.
+    * `--verify` re-runs the linked test rather than trusting the committed
+      record of a past run.
+
+    What is left is a genuine residual and is pinned out loud rather than
+    described: without `--verify`, `observed` means *a test passed once on
+    somebody's machine*, which is a label on evidence and not a verification.
+    The locator property here is *related to* verify_links' Tier-1 one and is not
+    the same property; `LocatorCheckDivergesFromTier1Test` measures the gap.
     """
 
     SPEC = """---
@@ -745,14 +762,25 @@ behaviors:
         os.makedirs(os.path.join(self.proj, "lib"))
         with open(os.path.join(self.proj, "lib", "webauthn.test.ts"), "w") as f:
             f.write("")
-        # The attacker's artifact, verbatim: accepted state and an exercise on the
-        # flagged file, asserted by the graph and by nothing else.
+        self._write_graph()
+
+    def _write_graph(self, source="observed", symbols=None):
+        """The attacker's artifact: accepted state and an exercise on the flagged file,
+        asserted by the graph and by nothing else.
+
+        `source` is spelled out because a hand-written artifact would spell it — an
+        attacker writing this file writes `observed`, and a fixture that omits the field
+        tests a shape the runner never produces. The default is therefore the *hard* case,
+        not the easy one."""
+        edge = {"path": "src/vulnerable.ts", "source": source,
+                "confidence": 0.8, "freshness": "fixture"}
+        if symbols:
+            edge["symbols"] = symbols
         behavior_graph.write_behavior_json(self.proj, {
             "version": 1, "commit": "fixture",
             "behaviors": {
                 "BEH-777": {"spec_id": "SPEC-777", "state": "accepted",
-                            "coverage": "observed",
-                            "exercises": [{"path": "src/vulnerable.ts"}]},
+                            "coverage": "observed", "exercises": [edge]},
             },
         })
 
@@ -774,7 +802,7 @@ behaviors:
         self._write_spec()
         self.assertEqual(self._covering(), [{
             "behavior_id": "BEH-777", "spec_id": "SPEC-777", "coverage": "observed",
-            "locator": "lib/webauthn.test.ts::x",
+            "locator": "lib/webauthn.test.ts::x", "source": "observed",
         }])
 
     def test_an_accepted_state_only_in_behavior_json_does_not_cover(self):
@@ -831,20 +859,70 @@ behaviors:
                 self._write_spec(locator=locator)
                 self.assertEqual(self._covering(), [])
 
-    def test_an_accepted_behavior_with_no_locator_still_covers(self):
-        """The residual forgery path, pinned rather than closed. `manual` is the
-        one adapter Tier 1 *permits* to declare no locator, and this fixture is
-        that legal shape — but the exemption here is wider than that, because
-        `covering()` never reads the adapter: any spec declaring no locator gets
-        the same pass. `test_a_missing_locator_is_refused_by_tier_1_and_returned_here`
-        is the same shape with `adapter: vitest` and is the one that matters, so
-        do not read this test as bounding the residual to manual behaviors.
-        Closing it would mean refusing an accepted behavior for declaring
-        nothing, which is a decision about every adapter rather than a fix for
-        SEC-006, and this repository has zero accepted behaviors (149 proposed,
-        measured 2026-08-23) to test such a rule against."""
+    def test_an_accepted_behavior_with_no_locator_no_longer_covers(self):
+        """The residual this class used to pin out loud, now closed.
+
+        It read: `manual` is the one adapter Tier 1 permits to declare no locator, but the
+        exemption here was wider, because `covering()` never reads the adapter — ANY spec
+        declaring no locator got the pass. The old note said closing it "would mean refusing
+        an accepted behavior for declaring nothing, which is a decision about every adapter
+        rather than a fix for SEC-006".
+
+        That decision has been taken, and this is the right query to take it in: the whole
+        question `covering()` answers is "did a test exercise this file", and a behavior with
+        no locator names no test. A `manual` behavior is intent without an executable — real
+        and worth recording, and not evidence that anything ran. It still appears everywhere
+        else in the graph; it just stops silencing security findings.
+        """
         self._write_spec(locator=None, adapter="manual")
-        self.assertEqual([c["behavior_id"] for c in self._covering()], ["BEH-777"])
+        self.assertEqual(self._covering(), [])
+
+    def test_a_statically_inferred_exercise_does_not_cover(self):
+        """The widest hole SEC-006 had, and the one the finding did not name.
+
+        An exercises entry carries `source: "observed"` (a real run, with coverage) or
+        `static` — inferred from the import graph by `run_behaviors.static_exercises`, with no
+        test involved at all. This query read neither field, so a dependency-graph inference
+        silenced a security finding exactly as a passing test did.
+
+        No forgery is needed to reach this state: a project whose accepted behavior has no
+        runnable adapter gets `static` edges from an ordinary `--build`.
+        """
+        self._write_graph(source="static")
+        self._write_spec()
+        self.assertEqual(self._covering(), [])
+
+    def test_an_exercise_with_no_source_field_does_not_cover(self):
+        """Fail closed on a shape the runner does not produce.
+
+        Every edge `run_behaviors` writes carries `source`. One without it is hand-written or
+        from a format older than this check, and neither is evidence a test ran. Absent must
+        not read as `observed` — that is the direction that silences findings.
+        """
+        behavior_graph.write_behavior_json(self.proj, {
+            "version": 1, "commit": "fixture",
+            "behaviors": {
+                "BEH-777": {"spec_id": "SPEC-777", "state": "accepted",
+                            "coverage": "observed",
+                            "exercises": [{"path": "src/vulnerable.ts"}]},
+            },
+        })
+        self._write_spec()
+        self.assertEqual(self._covering(), [])
+
+    def test_the_symbols_that_ran_are_carried_to_the_caller(self):
+        """The file anchor alone is weak in a way worth handing to the agent: a test touching
+        anywhere in a 500-line module downgraded a finding on a line it never executed. The
+        runner records which named functions ran, and this query used to drop that.
+
+        It does not make the judgement — the agent still does — but it stops asking the agent
+        to make it blind. File-plus-symbols, never lines: `coverage_symbols` records names,
+        and claiming line granularity would be an overclaim the data cannot support.
+        """
+        self._write_graph(symbols=["handleLogin", "verifyChallenge"])
+        self._write_spec()
+        self.assertEqual(self._covering()[0]["symbols"],
+                         ["handleLogin", "verifyChallenge"])
 
     def test_the_answer_says_what_it_trusted(self):
         """The actual remediation. Nothing here was verified — both inputs are
@@ -855,7 +933,57 @@ behaviors:
         self._write_spec()
         r = behavior_graph.covering(self.proj, "src/vulnerable.ts")
         self.assertIn("behavior.json", r["evidence"])
-        self.assertIn("No test was run", r["evidence"])
+        self.assertIn("no test was run by this query", r["evidence"])
+        self.assertIs(r["verified"], False)
+        # The distinction the label has to carry, and the reason a generic sentence is the
+        # failure mode: `observed` means a test passed once on somebody's machine. Only
+        # --verify means one passed now.
+        self.assertIn("source: observed", r["evidence"])
+
+    def test_verify_reruns_the_test_and_says_so(self):
+        """`--verify` is the half that was argued away rather than built.
+
+        The runner is stubbed because this asserts the wiring and the label, not that pytest
+        works: what must hold is that a green run reaches the row as `verified.passed` and
+        that the evidence stops saying no test ran.
+        """
+        self._write_spec()
+        with mock.patch.object(behavior_graph, "_run_behavior_runner",
+                               return_value={"fingerprints": {
+                                   "BEH-777": {"coverage": "observed", "exercises": []}}}):
+            r = behavior_graph.covering(self.proj, "src/vulnerable.ts", verify=True)
+        self.assertIs(r["verified"], True)
+        self.assertEqual(r["covering"][0]["verified"],
+                         {"passed": True, "reason": "test passed under this query"})
+        self.assertIn("RE-RUN", r["evidence"])
+        self.assertNotIn("no test was run by this query", r["evidence"])
+
+    def test_a_red_test_is_evidence_against_the_behavior(self):
+        """A failing test must not read as a verified one. It still appears in `covering` —
+        the caller needs to see that the claim was tested and failed, which is strictly more
+        information than the row being absent — with `passed` false and the runner's reason.
+        """
+        self._write_spec()
+        with mock.patch.object(behavior_graph, "_run_behavior_runner",
+                               return_value={"fingerprints": {
+                                   "BEH-777": {"coverage": "unknown", "exercises": [],
+                                               "reason": "test-failed"}}}):
+            r = behavior_graph.covering(self.proj, "src/vulnerable.ts", verify=True)
+        self.assertEqual(r["covering"][0]["verified"],
+                         {"passed": False, "reason": "test-failed"})
+        self.assertIn("0 of 1 passed", r["evidence"])
+
+    def test_a_runner_that_cannot_start_does_not_verify_anything(self):
+        """"Could not determine" must never read as "verified" in the one query that can
+        silence a security finding. A missing runner, a timeout and a malformed stdout all
+        land here, and all of them are False with the reason naming the class."""
+        self._write_spec()
+        with mock.patch.object(behavior_graph, "_run_behavior_runner",
+                               side_effect=OSError("no runner")):
+            r = behavior_graph.covering(self.proj, "src/vulnerable.ts", verify=True)
+        verdict = r["covering"][0]["verified"]
+        self.assertFalse(verdict["passed"])
+        self.assertIn("could not run", verdict["reason"])
 
 
 class LocatorCheckDivergesFromTier1Test(unittest.TestCase):
@@ -900,9 +1028,12 @@ behaviors:
         behavior_graph.write_behavior_json(self.proj, {
             "version": 1, "commit": "fixture",
             "behaviors": {
+                # `source: observed` spelled out — the runner always writes it, and a
+                # fixture without it exercises a shape that only a hand-edited file has.
                 "BEH-778": {"spec_id": "SPEC-778", "state": "accepted",
                             "coverage": "observed",
-                            "exercises": [{"path": "src/vulnerable.ts"}]},
+                            "exercises": [{"path": "src/vulnerable.ts",
+                                           "source": "observed"}]},
             },
         })
 
@@ -947,15 +1078,18 @@ behaviors:
         at that path is not one."""
         self.assertEqual(self._both("lib::x"), (False, False))
 
-    def test_a_missing_locator_is_refused_by_tier_1_and_returned_here(self):
-        """The divergence running the other way, and the one that matters for
-        SEC-006. Tier 1 knows `accepted` + a non-`manual` adapter must carry a
-        locator; this query reads only what is declared, so a spec declaring
-        nothing has nothing refused. That is the residual forgery path
-        `test_an_accepted_behavior_with_no_locator_still_covers` pins — this row
-        adds that the gate would have caught it, so the exposure is exactly the
-        repositories nobody ran the gate on."""
-        self.assertEqual(self._both(None), (False, True))
+    def test_a_missing_locator_is_now_refused_by_both(self):
+        """The divergence that mattered most for SEC-006, and it is spent.
+
+        This row read `(False, True)`: Tier 1 knew that `accepted` plus a non-`manual`
+        adapter must carry a locator, while this query read only what was declared — so a
+        spec declaring nothing had nothing refused, and the exposure was exactly the
+        repositories nobody ran the gate on. `covering()` now requires a locator, so both
+        refuse.
+
+        Kept as an assertion of agreement rather than deleted, for the reason this class
+        exists: if either side loosens, this goes red from whichever side moved."""
+        self.assertEqual(self._both(None), (False, False))
 
     def test_an_unresolvable_python_fragment_is_refused_by_tier_1_and_returned_here(self):
         """Tier 1 parses a `.py` locator's fragment and resolves the symbol. This

@@ -3415,5 +3415,107 @@ class TestCrossingTheRootIsADeclaredAct(Base):
                          "unresolved:../vendor/other/x")
 
 
+class TestASymlinkDoesNotCrossTheRootOnItsOwn(Base):
+    """SEC-023. ADR-031 said crossing the root is a declared act; it was true of imports.
+
+    An `..` import, a tsconfig `paths` escape and an absolute import all came back
+    `unresolved:`. A symlink committed *inside* the project pointing outside it was globbed
+    by discovery, opened, parsed, and its declarations published as a node's `exports` — no
+    declaration, nothing on stderr. SEC-008's defect on the other traversal.
+
+    The fixture detail that matters: without a committed `settings.json` the classification
+    path differs and the symlink is not picked up at all, so a first attempt at this
+    reproduction wrongly came back clean. A negative result here is worth nothing without it.
+    """
+
+    LEAKED = "LEAKED_FROM_OUTSIDE_ROOT"
+
+    def linked_project(self, *, target_outside=True, declaration=None):
+        root = self.mk({
+            "proj/src/app.ts": "import './linkfile'\n",
+            "proj/src/real.ts": "export const INSIDE = 1\n",
+            "outside/leaked.ts": "export const %s = 1\n" % self.LEAKED,
+        })
+        proj = os.path.join(root, "proj")
+        os.makedirs(os.path.join(proj, "knowledge-base"), exist_ok=True)
+        cfg = {"substrate": {"backend": "homegrown"}}
+        if declaration is not None:
+            cfg["outside"] = declaration
+        with open(os.path.join(proj, "knowledge-base", "settings.json"), "w",
+                  encoding="utf-8") as handle:
+            json.dump(cfg, handle)
+        target = (os.path.join(root, "outside", "leaked.ts") if target_outside
+                  else os.path.join(proj, "src", "real.ts"))
+        try:
+            os.symlink(target, os.path.join(proj, "src", "linkfile.ts"))
+        except (OSError, NotImplementedError, AttributeError) as exc:
+            self.skipTest("this host will not create symlinks: %s" % exc)
+        g = CodeGraph(proj)
+        graph_ops.run_build(g, non_interactive=True, exclusions=g.project_exclusions())
+        return proj, g
+
+    def test_a_symlink_out_of_the_project_is_refused_and_said_out_loud(self):
+        """The finding. Refused, and the refusal is in the artifact rather than only on
+        stderr, because stderr is dead skill-to-skill and a silently shorter file set is a
+        blast radius that is quietly too small (ADR-029)."""
+        _, g = self.linked_project()
+        self.assertNotIn("src/linkfile.ts", g.graph["files"])
+        block = g.graph["substrate"]["escaping_links"]
+        self.assertEqual((block["refused"], block["crossed"]), (1, 0))
+        self.assertEqual(block["sample"]["refused"], ["src/linkfile.ts"])
+
+    def test_nothing_outside_the_root_is_read_through_the_link(self):
+        """The reason the finding was Medium rather than cosmetic: the name published as an
+        export existed only in the file outside the root."""
+        _, g = self.linked_project()
+        self.assertNotIn(self.LEAKED, json.dumps(g.graph))
+
+    def test_a_symlink_that_stays_inside_the_project_still_becomes_a_node(self):
+        """The row that stops this being 'refuse every symlink'.
+
+        A monorepo links a package into place, and `containment.within` is the predicate
+        precisely because it asks whether the *file* is inside rather than whether the entry
+        is a link. Simplify this to `os.path.islink` and this test goes red.
+        """
+        _, g = self.linked_project(target_outside=False)
+        self.assertIn("src/linkfile.ts", g.graph["files"])
+        self.assertNotIn("escaping_links", g.graph["substrate"])
+
+    def test_a_declared_target_makes_it_a_crossing_and_still_not_a_node(self):
+        """Declared, so legitimate — and it lands on the same side of the line as an import
+        into a declared root. ADR-031's grant is resolution only: an outside file never
+        becomes a `files` key, whichever route reached it. Were a symlink to produce a node
+        here, the declaration would buy strictly more through a link than through an import.
+        """
+        _, g = self.linked_project(declaration={"out": "../outside"})
+        self.assertNotIn("src/linkfile.ts", g.graph["files"])
+        block = g.graph["substrate"]["escaping_links"]
+        self.assertEqual((block["refused"], block["crossed"]), (0, 1))
+        self.assertEqual(block["sample"]["crossed"]["src/linkfile.ts"],
+                         "outside:out/leaked.ts")
+        self.assertNotIn(self.LEAKED, json.dumps(g.graph))
+
+    def test_a_project_with_no_symlinks_says_nothing(self):
+        """Absent, not empty (ADR-029) — so every repository that has never had a symlink
+        produces byte-identical output to one built before this existed. No symlink is
+        created, so this row asserts on every host and the class is never wholly skipped.
+        """
+        root = self.mk({"proj/src/app.ts": "export const a = 1\n"})
+        proj = os.path.join(root, "proj")
+        os.makedirs(os.path.join(proj, "knowledge-base"), exist_ok=True)
+        with open(os.path.join(proj, "knowledge-base", "settings.json"), "w",
+                  encoding="utf-8") as handle:
+            json.dump({"substrate": {"backend": "homegrown"}}, handle)
+        g = CodeGraph(proj)
+        graph_ops.run_build(g, non_interactive=True, exclusions=g.project_exclusions())
+        self.assertNotIn("escaping_links", g.graph["substrate"])
+
+    def test_the_sample_cap_is_the_number_validation_errors_uses(self):
+        """A parity claim a comment makes is a claim nothing checks. This is the check."""
+        self.assertEqual(graph_ops._MAX_RECORDED_ESCAPING_LINKS,
+                         graph_ops._MAX_RECORDED_VALIDATION_ERRORS)
+        self.assertEqual(graph_ops._MAX_RECORDED_ESCAPING_LINKS, 20)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
