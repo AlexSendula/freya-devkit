@@ -6,6 +6,7 @@ instead of Claude-specific `${CLAUDE_PLUGIN_ROOT}` script paths. Logic lives
 here (importable, testable); `bin/freya` is the executable shim.
 """
 import json
+import ntpath
 import os
 import shutil
 import subprocess
@@ -77,11 +78,20 @@ def _escapes(rel):
     installs. ADR-030 records the exception; the two bodies are held together by
     `bin/test_freya_cli.py::ContainmentParityTest`, which errors rather than
     skips if the canonical module cannot be imported.
+
+    The drive question goes to `ntpath` and not to `pathlib`: `PureWindowsPath`
+    restricted a drive letter to ASCII up to 3.11 and delegates to
+    `ntpath.splitdrive` from 3.12, so `PureWindowsPath('1:x').drive` changes
+    answer with the interpreter while `ntpath.splitdrive` does not. The
+    canonical body carries the measurement; this copy carries the same rule
+    because `ContainmentParityTest` compares them value by value.
     """
-    win, posix = PureWindowsPath(rel), PurePosixPath(rel)
+    posix = PurePosixPath(rel)
+    win_parts = PureWindowsPath(rel).parts
+    drive, rest = ntpath.splitdrive(str(rel))
     return bool(
-        posix.is_absolute() or win.drive or win.root
-        or ".." in win.parts or ".." in posix.parts
+        posix.is_absolute() or drive or rest[:1] in ("\\", "/")
+        or ".." in win_parts or ".." in posix.parts
     )
 
 

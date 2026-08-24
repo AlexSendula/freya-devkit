@@ -10,11 +10,13 @@ which question was answered wrongly.
 Run: python test_containment.py
 """
 
+import ntpath
 import os
+import string
 import sys
 import tempfile
 import unittest
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -69,6 +71,54 @@ class EscapesTest(unittest.TestCase):
         """
         self.assertTrue(containment.escapes("C:x"))
         self.assertTrue(containment.escapes("C:\\Windows\\win.ini"))
+
+    def test_a_drive_letter_that_is_not_a_letter_escapes_on_every_interpreter(self):
+        """`1:x` — the value that made this rule move under the interpreter.
+
+        `PureWindowsPath` restricted a drive letter to ASCII up to 3.11 and
+        delegates to `ntpath.splitdrive` from 3.12, so `.drive` is `''` on 3.9
+        and `'1:'` on 3.12. `ntpath.splitdrive` has read `p[1:2] == ':'` on every
+        version. The consumers join with `ntpath` — `ntpath.join('C:\\\\work',
+        '1:x')` is `'1:x'`, the root discarded — so on 3.9 through 3.11 this
+        predicate passed a value that escaped at the very next join.
+
+        Found by CI on 2026-08-24, green on 3.13 and red on 3.9, which is why the
+        second assertion is written against the *join*: the predicate agreeing
+        with itself proves nothing if the thing it guards disagrees.
+        """
+        for value in ("1:x", "_:x", "a:b"):
+            with self.subTest(value=value):
+                self.assertTrue(containment.escapes(value))
+                self.assertEqual(
+                    ntpath.normpath(ntpath.join("C:\\work\\proj", value)), value,
+                    "this value discards the root at the join, on every version")
+        # The control: two characters before the colon is not a drive to ntpath
+        # either, so an ordinary directory named `ab:x` stays legal.
+        self.assertFalse(containment.escapes("ab:x"))
+
+    def test_the_drive_question_never_goes_through_pathlib(self):
+        """Version-independence asserted as a property, not as a list of values.
+
+        `PureWindowsPath.drive` is the one term whose answer moved between 3.11
+        and 3.12. This re-derives the whole rule with the pre-3.12 pathlib
+        semantics simulated, and requires the shipped predicate to refuse
+        wherever the two eras disagreed — so an edit that reaches for `.drive`
+        again turns red here on 3.12, without waiting for a 3.9 CI leg.
+        """
+        for value in ("1:x", "_:x", "a:b", "C:x", "ab:x", "a/../b", "docs/", ""):
+            with self.subTest(value=value):
+                win, posix = PureWindowsPath(value), PurePosixPath(value)
+                drive = win.drive
+                if drive[:1] not in string.ascii_letters:
+                    drive = ""              # what 3.9 through 3.11 would have said
+                pathlib_era = bool(
+                    posix.is_absolute() or drive or win.root
+                    or ".." in win.parts or ".." in posix.parts)
+                if containment.escapes(value) != pathlib_era:
+                    self.assertTrue(
+                        containment.escapes(value),
+                        "%r: the shipped rule must refuse wherever the "
+                        "pathlib-era rule disagreed with it" % value)
 
     def test_a_rooted_path_with_no_drive_escapes(self):
         """`\\etc\\passwd` is caught by `win.root` and by nothing else.

@@ -485,9 +485,23 @@ def parse_outside(raw: Any, project_dir: str,
         # `ValueError`, and since `Settings.__init__` parses this section unconditionally the
         # traceback took out `--build`, `--update` and every read-only query with it: the
         # crash the paragraph above says configuration must never cause. A lone surrogate
-        # (`"\ud800"`, also spellable in JSON) raises `UnicodeEncodeError`, a `ValueError`
-        # too, so one clause covers both. `isdir` and `containment.within` answer False for
-        # these rather than raising, which is why this was the only line that had to change.
+        # (`"\ud800"`) is the same class of value and is equally spellable in JSON.
+        #
+        # Decided from the STRING, before the call, and not from whether the call happened to
+        # raise. An earlier version of this guard caught `ValueError` alone and said the two
+        # were one clause because `UnicodeEncodeError` is a subclass — true, and not the
+        # question. Whether `realpath` raises at all is the interpreter's and the platform's
+        # to decide: CI measured Windows/3.9 resolving the lone surrogate without raising, so
+        # the entry fell through to `isdir`, was still refused, and was refused with the wrong
+        # reason. A wrong reason on a refusal is the `doctor`-row defect SPEC-001 records, one
+        # file over. NUL and the surrogate range are properties of the text on every platform
+        # and every version, so asking the text is the version-independent question.
+        #
+        # The `try` stays as a backstop rather than being replaced: it costs nothing and it
+        # covers whatever else a future `realpath` decides is unrepresentable.
+        if '\x00' in target or any('\ud800' <= ch <= '\udfff' for ch in target):
+            turn_away(name, value, 'is not a path this system can address')
+            continue
         try:
             resolved = os.path.realpath(os.path.join(project_dir, target))
         except ValueError:

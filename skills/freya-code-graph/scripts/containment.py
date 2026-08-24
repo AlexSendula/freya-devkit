@@ -56,11 +56,32 @@ def escapes(rel):
     `..` is rejected even where it would normalise back inside. No honest
     locator or manifest entry needs it, and a rule you can state in one sentence
     is worth more than the handful of paths it turns away.
+
+    **The drive question goes to `ntpath`, never to `pathlib`**, and that is the
+    second time an interpreter has moved this rule under it. `PureWindowsPath`
+    restricted a drive letter to ASCII up to 3.11 and delegates to
+    `ntpath.splitdrive` from 3.12, which accepts ANY single character — so
+    `PureWindowsPath('1:x').drive` is `''` on 3.9 and `'1:'` on 3.12. Meanwhile
+    `ntpath.splitdrive` has read `p[1:2] == ':'` throughout, on every version.
+
+    The consumers are why that mismatch was a hole rather than a curiosity: they
+    join with `ntpath`, and `ntpath.join('C:\\\\work', '1:x')` is `'1:x'` — the
+    project root discarded. So on 3.9 through 3.11 this predicate said "does not
+    escape" about a value that escaped at the very next join, which is SEC-022's
+    shape reached through the interpreter instead of through the value. Measured
+    by CI on 2026-08-24: green on 3.13, red on 3.9, on both Linux and Windows.
+
+    Asking `ntpath` fixes both halves at once. It is version-independent, and it
+    is the same body of code the consumers use, so predicate and join cannot
+    disagree by construction rather than by vigilance. `is_anchored` below
+    already reaches for `ntpath` for exactly this reason.
     """
-    win, posix = PureWindowsPath(rel), PurePosixPath(rel)
+    posix = PurePosixPath(rel)
+    win_parts = PureWindowsPath(rel).parts
+    drive, rest = ntpath.splitdrive(str(rel))
     return bool(
-        posix.is_absolute() or win.drive or win.root
-        or ".." in win.parts or ".." in posix.parts
+        posix.is_absolute() or drive or rest[:1] in ("\\", "/")
+        or ".." in win_parts or ".." in posix.parts
     )
 
 
