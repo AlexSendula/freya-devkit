@@ -271,9 +271,9 @@ PY
 The block reaches each command in the shape that command can carry. `--build` and `--update`
 carry it whole, including a prose `advice` sentence
 (`skills/freya-code-graph/scripts/substrate.py:1025`, announced once on stderr at
-`skills/freya-code-graph/scripts/graph_ops.py:2652`–`:2655`); `--query` and `--impact` carry a
+`skills/freya-code-graph/scripts/graph_ops.py:2666`–`:2669`); `--query` and `--impact` carry a
 digest; `--dependents` and `--dependencies` keep their bare JSON arrays and say the same thing on
-stderr (`graph_ops.py:3106`–`:3134`). `--format summary` prints a `NOT GRAPHED:` line.
+stderr (`graph_ops.py:3120`–`:3148`). `--format summary` prints a `NOT GRAPHED:` line.
 
 **Fix.** If the files named are ones you need edges for, switch backends (below). If the census
 is silent but you know a language is missing, the tier lists are closed-world by design
@@ -305,7 +305,7 @@ They contribute no blast radius — which is not the same as having none.
 ```
 
 `not_in_graph` is in the JSON, not only on stderr, because the caller is usually another skill
-reading `--format json` (`graph_ops.py:2488`–`:2501`).
+reading `--format json` (`graph_ops.py:2502`–`:2515`).
 
 **Fix.** A non-empty `not_in_graph` means the file is not a node: either the backend cannot read
 its extension (see `unmapped_source` above), or the path is excluded by the build's scope rule
@@ -317,7 +317,7 @@ its extension (see `unmapped_source` above), or the path is excluded by the buil
 **Symptom.** One line on stderr —
 `code-graph: 'graphify' unavailable (not installed) — using 'homegrown' instead, with reduced
 coverage` — and `substrate.degraded_from` set in the artifact
-(`skills/freya-code-graph/scripts/backends.py:53`–`:56`, printed at `graph_ops.py:3495`–`:3496`).
+(`skills/freya-code-graph/scripts/backends.py:53`–`:56`, printed at `graph_ops.py:3509`–`:3510`).
 
 **Confirm.** Read `substrate.degraded_reason`. It distinguishes two mistakes deliberately
 (`backends.py:139`–`:150`):
@@ -326,8 +326,8 @@ coverage` — and `substrate.degraded_from` set in the artifact
 |---|---|---|
 | `not installed` | The name is a real backend that did not report itself **usable**. For `graphify` that is now `exec_path.resolve('graphify', project_dir)` returning no path (`skills/freya-code-graph/scripts/backend_graphify.py:318`), which covers three different situations — see below | Install it, accept the floor, or read the next paragraph |
 | `unknown backend` | The name is not a backend at all. `--use` refuses unknown names, so this only reaches a hand-edited `settings.json` | Correct the file |
-| `does not satisfy the substrate contract: …` | A registered backend failed the structural check and was not used (`graph_ops.py:3475`–`:3493`) | Report it; the floor ran instead |
-| `failed during the build: …` | The backend was selected, then threw (`graph_ops.py:2720`–`:2745`) | Usually the wrapped tool was upgraded |
+| `does not satisfy the substrate contract: …` | A registered backend failed the structural check and was not used (`graph_ops.py:3489`–`:3507`) | Report it; the floor ran instead |
+| `failed during the build: …` | The backend was selected, then threw (`graph_ops.py:2734`–`:2759`) | Usually the wrapped tool was upgraded |
 
 **`not installed` no longer means only "not on `PATH`".** Since the binary is resolved rather
 than searched, the same reason string covers three states, and the third is the one that will
@@ -376,12 +376,12 @@ broken, not that a backend is missing.
 **Why.** Precedence is project, then machine, then floor
 (`skills/freya-code-graph/scripts/settings.py:727`–`:738`), and the first build in a project that
 has not decided *records* the machine answer in that project's own
-`knowledge-base/settings.json` (`graph_ops.py:3351`–`:3378`). Once recorded, the project file
+`knowledge-base/settings.json` (`graph_ops.py:3365`–`:3392`). Once recorded, the project file
 wins and changing the machine default later does not reach back into it.
 
 **Fix.** `freya code-graph --use <backend>` inside the project. And commit
 `knowledge-base/settings.json` — the build prints one line asking you to, and nothing verifies
-that you did; that line is the entire mechanism (`graph_ops.py:3375`–`:3378`). A project that
+that you did; that line is the entire mechanism (`graph_ops.py:3389`–`:3392`). A project that
 leaves the choice implicit graphs differently on different machines.
 
 #### A key in `~/.freya/settings.json` is ignored
@@ -412,8 +412,8 @@ code-graph: produced 0 files where the cached graph has 65; refusing to overwrit
   intentional, run --clear first.
 ```
 
-Exit 1, and the previous artifact is untouched (`graph_ops.py:2694`–`:2717`, presented at
-`:3573`–`:3584`).
+Exit 1, and the previous artifact is untouched (`graph_ops.py:2708`–`:2731`, presented at
+`:3587`–`:3598`).
 
 **Confirm.** The ordinary causes are a directory verdict committed to
 `knowledge-base/settings.json` that excludes the whole source tree — `{"directories": {"src":
@@ -448,7 +448,7 @@ against one produced weeks ago and report the difference as a substrate effect. 
 artifacts' `commit` and `timestamp` before believing a diff.
 
 **Fix / expectations.** `freya code-graph --clear` removes the active graph **and** every
-`graph.*.json` beside it (`graph_ops.py:2512`–`:2534`) — a clear that knew about only one of the
+`graph.*.json` beside it (`graph_ops.py:2526`–`:2548`) — a clear that knew about only one of the
 two would leave a complete, current-looking graph that nothing would ever report as stale. Copies
 accumulate one per backend name ever used and nothing prunes them; a renamed backend orphans its
 old file under the old name forever.
@@ -492,13 +492,13 @@ was **honoured** (`settings.py:527`).
 **A declaration that is in force and still shows `crossings: 0` is not broken.** Two separate
 sentences are reported and they answer different questions: a declaration being in force, and
 an edge actually crossing. A total of zero says the roots were **not reached**
-(`skills/freya-code-graph/scripts/graph_ops.py:2996`) — which is the true statement and the one
+(`skills/freya-code-graph/scripts/graph_ops.py:3010`) — which is the true statement and the one
 that reads as an invitation to check the declaration. Where two roots nest, `../packages` and
 `../packages/ui`, the **most specific** one names the file, decided by resolved path length, so
 an outer root can honestly report zero while an inner one covers everything it would have.
 
 **On the `graphify` backend a zero is not even a measurement.** Only the floor's own resolver
-consults declarations; graphify never looks at them (`graph_ops.py:3006`), so `crossings: 0`
+consults declarations; graphify never looks at them (`graph_ops.py:3020`), so `crossings: 0`
 there means the question was never asked. If you have declared a root and want the crossings
 recorded, build on `homegrown` — `freya code-graph --use homegrown` — or read the zero as
 "unknown" rather than "none".
@@ -524,7 +524,7 @@ edited `knowledge-base/settings.json`, or upgraded — and a rebuild does not sh
 builder skips any directory already present there. Three properties matter:
 
 - `--clear` deliberately **does not** remove it: the clear loop unlinks `graph.json` and
-  `graph.*.json` and nothing else (`graph_ops.py:2523`, stated at `:2519`). It holds user and
+  `graph.*.json` and nothing else (`graph_ops.py:2537`, stated at `:2533`). It holds user and
   model judgements about which directories are source, which a cache clear has no business
   discarding.
 - A rules change only invalidates part of it. `RULES_VERSION`
@@ -619,7 +619,7 @@ nudge.
 **Why.** It is rewritten by full overwrite — the file is opened `"w"` and replaced
 (`skills/freya-status/scripts/collect_status.py:346`–`:349`). It is the only markdown file in
 the tree that code rewrites wholesale; every other whole-file write is a tool-owned JSON
-artifact (`graph_ops.py:2579`, `docs_graph.py:427`, `behavior_graph.py:172`).
+artifact (`graph_ops.py:2593`, `docs_graph.py:427`, `behavior_graph.py:172`).
 
 **Fix.** Put hand-maintained items in [`roadmap.md`](../roadmap.md), which is why it carries that
 name: on a case-insensitive filesystem `backlog.md` is the same path the generator overwrites.

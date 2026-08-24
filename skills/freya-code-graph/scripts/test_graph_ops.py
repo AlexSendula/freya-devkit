@@ -3495,6 +3495,47 @@ class TestASymlinkDoesNotCrossTheRootOnItsOwn(Base):
                          "outside:out/leaked.ts")
         self.assertNotIn(self.LEAKED, json.dumps(g.graph))
 
+    def test_the_incremental_path_refuses_it_too(self):
+        """Every other row in this class calls `run_build`, and the fix was written against
+        `_scan_files` — so the first version of it closed the cold-start path and left the
+        steady-state one open. `--update` never calls `_scan_files`: it takes what
+        `git diff --name-only` reports, admits it on `full_path.exists()` (which follows the
+        link) and hands it to `_build_file_info`, which reads it.
+
+        That made the incremental hole strictly worse than the one it re-opened. `--build`
+        printed a line and recorded `escaping_links`; this printed nothing and recorded
+        nothing, and the resulting key IS project-relative, so `validate_graph` passed the
+        artifact clean. And it is the path that matters: `--update` is what `freya-wrap-up`
+        runs on every commit, so `--build` is the cold start and this is the steady state.
+
+        Found by running the security scan over this branch's own new code, which is the
+        argument for doing that at all — the class above proved a `nothing` claim on one
+        route and asserted it for two.
+        """
+        proj, g = self.linked_project()
+        self.assertNotIn("src/linkfile.ts", g.graph["files"])   # build refused it
+
+        # The incremental loop is driven by git, and these fixtures are not repositories, so
+        # the two git reads are stubbed and everything between them is the real code. Naming
+        # the link is exactly what a commit touching it would do.
+        cached = Path(proj) / "knowledge-base" / ".graph" / "graph.json"
+        on_disk = json.loads(cached.read_text(encoding="utf-8"))
+        on_disk["commit"] = "abc123def4567890"
+        cached.write_text(json.dumps(on_disk), encoding="utf-8")
+
+        fresh = CodeGraph(proj)
+        fresh._get_changed_files = lambda since: ["src/linkfile.ts"]
+        fresh._get_git_commit = lambda: "fedcba9876543210"
+        graph_ops.run_update(fresh, non_interactive=True,
+                             exclusions=fresh.project_exclusions())
+
+        self.assertEqual(fresh.graph["commit"], "fedcba9876543210",
+                         "the incremental path must have run, not fallen back to a build")
+        self.assertNotIn("src/linkfile.ts", fresh.graph["files"])
+        self.assertNotIn(self.LEAKED, json.dumps(fresh.graph))
+        block = fresh.graph["substrate"]["escaping_links"]
+        self.assertEqual((block["refused"], block["crossed"]), (1, 0))
+
     def test_a_project_with_no_symlinks_says_nothing(self):
         """Absent, not empty (ADR-029) — so every repository that has never had a symlink
         produces byte-identical output to one built before this existed. No symlink is

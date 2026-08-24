@@ -47,7 +47,7 @@ Where a build's output lands, and which of those files a repository is expected 
 
 One serialisation is written to two paths: `knowledge-base/.graph/graph.json`, the active graph
 every other skill reads, and `knowledge-base/.graph/graph.<backend>.json`, named for the backend
-that produced it. Both are written by `persist_graph` (`graph_ops.py:2565`), which has exactly
+that produced it. Both are written by `persist_graph` (`graph_ops.py:2579`), which has exactly
 one production caller — the contract's shared funnel — so no backend can opt out of either
 file or name it differently.
 
@@ -58,7 +58,7 @@ Alongside them the build writes `knowledge-base/.graph/.gitignore`, listing `gra
 because whichever skill runs first wins.
 
 `clear()` removes the active graph and every `graph.*.json` beside it, and deliberately keeps
-`classifications.json` (`graph_ops.py:2512`).
+`classifications.json` (`graph_ops.py:2526`).
 
 A backend that produces its own scratch output is responsible for marking it: the graphify
 backend writes `graphify-out/.gitignore` containing `*` after the tool has run

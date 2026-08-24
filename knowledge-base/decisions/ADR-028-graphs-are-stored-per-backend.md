@@ -16,17 +16,17 @@ tags:
 Every build is written twice. `persist_graph` serialises the graph once and writes that same
 payload to `knowledge-base/.graph/graph.json` — the active artifact every consumer reads — and
 to `knowledge-base/.graph/graph.<backend>.json`, named for the backend that produced it
-(`skills/freya-code-graph/scripts/graph_ops.py:2559`, `:2572`;
+(`skills/freya-code-graph/scripts/graph_ops.py:2573`, `:2586`;
 `skills/freya-code-graph/scripts/substrate.py:279`, `:284`). The two files are byte-identical
 at the moment of writing. It has one production caller, in the contract's shared funnel
-(`graph_ops.py:2651`), so no backend can opt out and none can name the file differently.
+(`graph_ops.py:2665`), so no backend can opt out and none can name the file differently.
 
 Switching backends therefore replaces the active graph and leaves the previous backend's copy
 untouched, at its own path, with the `timestamp`, `commit` and `substrate` block of the build
 that produced it still inside it. Both files are in the cache `.gitignore` the build writes
 (`graph_ops.py:245`), so the copy is a working artifact, not a committed one — see ADR-017 for
 why that line is drawn where it is. `clear()` removes the active graph *and* every
-`graph.*.json` beside it (`graph_ops.py:2506`, `:2517`), pinned by a test
+`graph.*.json` beside it (`graph_ops.py:2520`, `:2531`), pinned by a test
 (`skills/freya-code-graph/scripts/test_substrate.py:1524`).
 
 **Nothing in the toolkit reads `graph.<backend>.json.`** `backend_graph_path` has exactly one
@@ -72,7 +72,7 @@ arrives committable — which is why `_EVER_IGNORED` records every list we have 
 (`graph_ops.py:270`). And a cache clear that knows about only one of the two files is worse than
 no clear at all: it leaves a complete, correctly-shaped, current-looking graph that nothing will
 ever report as stale, whereas a missing `graph.json` at least announces its own absence.
-`classifications.json` is deliberately spared by the same clear (`graph_ops.py:2513`) — it holds
+`classifications.json` is deliberately spared by the same clear (`graph_ops.py:2527`) — it holds
 human and model judgements about which directories are source, which a cache clear has no
 business discarding.
 
@@ -81,7 +81,7 @@ has introduced a substrate that owns and clears `.graph/` wholesale, in which ca
 would have to move out of that directory. Checked on 2026-08-21 by running a build and then a
 clear in a temporary project with `behavior.json` present: `clear()` unlinks `graph.json` and
 `graph.*.json`, then attempts `rmdir()` inside a bare `try`/`except` that fails harmlessly while
-anything else remains (`graph_ops.py:2517`–`:2527`). `behavior.json`, `classifications.json` and
+anything else remains (`graph_ops.py:2531`–`:2541`). `behavior.json`, `classifications.json` and
 the directory itself all survived. No shipped backend wipes `.graph/`; graphify confines itself
 to `graphify-out/`. `behavior.json` does not need to move.
 

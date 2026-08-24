@@ -229,19 +229,19 @@ deletes the key rather than writing it — the only way to un-answer the install
 (`skills/freya-code-graph/scripts/settings.py:915`, `settings.py:936`).
 
 The name is validated against the registry at the moment somebody is present to be told they
-typed it wrong (`skills/freya-code-graph/scripts/graph_ops.py:3398`), and the project-scope
+typed it wrong (`skills/freya-code-graph/scripts/graph_ops.py:3412`), and the project-scope
 message asks for the file to be committed so a clone, a colleague and CI all resolve the same
-backend (`skills/freya-code-graph/scripts/graph_ops.py:3433`). The machine-scope message is
+backend (`skills/freya-code-graph/scripts/graph_ops.py:3447`). The machine-scope message is
 careful about what it promises: a project already carrying its own answer keeps it
-(`skills/freya-code-graph/scripts/graph_ops.py:3427`).
+(`skills/freya-code-graph/scripts/graph_ops.py:3441`).
 
 The first `--build` or `--update` in a project that has not decided copies the machine's answer
 into that project's own committed settings
-(`skills/freya-code-graph/scripts/graph_ops.py:3559` → `graph_ops.py:3351` →
+(`skills/freya-code-graph/scripts/graph_ops.py:3573` → `graph_ops.py:3365` →
 `skills/freya-code-graph/scripts/settings.py:968`), validating it against the registry on the
 way. A headless run with nothing configured writes nothing. Nothing verifies that the seeded
 file is actually committed — the build prints one line asking for it
-(`skills/freya-code-graph/scripts/graph_ops.py:3375`) and that is the entire mechanism; ADR-019
+(`skills/freya-code-graph/scripts/graph_ops.py:3389`) and that is the entire mechanism; ADR-019
 states this gap rather than implying enforcement.
 
 Read on this worktree on 2026-08-24, `knowledge-base/settings.json` is tracked (committed at

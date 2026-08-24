@@ -352,7 +352,7 @@ unmapped-source census.
 `substrate.CENSUS_PRUNE` (`skills/freya-code-graph/scripts/substrate.py:907`) is a set of
 directory names — `node_modules`, `dist`, `build`, `vendor`, `target` and others — that the walk
 prunes *before* it calls `_should_exclude`
-(`skills/freya-code-graph/scripts/graph_ops.py:2805`). An earlier version of
+(`skills/freya-code-graph/scripts/graph_ops.py:2819`). An earlier version of
 `test_it_honours_the_build_s_own_exclusions` built its fixture under `node_modules/` and `dist/`.
 The assertion passed. It would also have passed with `_should_exclude` deleted, because no
 fixture file ever reached it (`skills/freya-code-graph/scripts/test_graph_ops.py:2075`). The fix
@@ -372,7 +372,7 @@ Two older findings sit in the same three shapes:
 Worked, measured, on this checkout — this is the whole ritual:
 
 ```bash
-# delete the two-line dotfile guard at graph_ops.py:2807-2695, then:
+# delete the two-line dotfile guard at graph_ops.py:2821-2695, then:
 python3 -m pytest skills/freya-code-graph/scripts/test_graph_ops.py -q
 # → 1 failed, 163 passed      (at f407251 — the total moves as the file grows; the 1 does not)
 #   FAILED ...::TestUnmappedSourceWalk::test_dotfiles_and_extensionless_files_are_skipped

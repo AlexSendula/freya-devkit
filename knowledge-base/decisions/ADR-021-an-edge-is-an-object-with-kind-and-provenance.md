@@ -36,10 +36,10 @@ staleness is discovered. A version-1 artifact therefore forces a full rebuild in
 otherwise takes (`graph_ops.py:2239`).
 
 The node queries stay in paths. `--impact` and `--dependents` answer with path strings projected
-off the edge objects by `edge_ends` (`graph_ops.py:2407`, `:2473`), and `--dependencies` uses
+off the edge objects by `edge_ends` (`graph_ops.py:2421`, `:2487`), and `--dependencies` uses
 `internal_ends`, which is `edge_ends` with the `external:` / `unresolved:` / `outside:` signals
-dropped (`:2443`). Only `--query` returns edges, because it is the one query whose question is
-"tell me about this file" (`graph_ops.py:2331`, `:2361`).
+dropped (`:2457`). Only `--query` returns edges, because it is the one query whose question is
+"tell me about this file" (`graph_ops.py:2345`, `:2375`).
 
 **Provenance is recorded and read by nothing.** Every edge carries `extracted` or `inferred`
 faithfully: the homegrown resolver stamps `extracted` throughout, because it reads import
@@ -182,7 +182,7 @@ rather than load-bearing forever.
   frozen the graph permanently claiming no backend and no coverage. A rebuild, not a rewrite,
   is what ships (`graph_ops.py:2240`), and the persistence path refuses to rewrite a stale
   artifact a backend wrongly reported as up to date, saying so on stderr instead
-  (`graph_ops.py:2599`).
+  (`graph_ops.py:2613`).
 
 - **Discard inferred edges entirely and run the second backend in its most conservative mode.**
   This was the first recommendation when the trust question was raised, and it would have removed

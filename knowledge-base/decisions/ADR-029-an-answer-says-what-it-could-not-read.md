@@ -18,7 +18,7 @@ Every build or update that writes a graph runs one pruned tree walk over the
 project and records what it found at `graph["substrate"]["unmapped_source"]`:
 how many in-scope source files the running backend cannot read, which
 extensions they are, and which directories to search instead. The walk is
-performed in `_finalise` (`skills/freya-code-graph/scripts/graph_ops.py:2647`)
+performed in `_finalise` (`skills/freya-code-graph/scripts/graph_ops.py:2661`)
 — the single funnel every backend passes through, and the only point after
 `update()` has rebuilt `graph['substrate']` wholesale. It is filtered by the
 build's *own* scope rule, `CodeGraph._should_exclude` (`graph_ops.py:1386`)
@@ -31,7 +31,7 @@ and a `readable_by` recommendation; the last two carry a structured digest of
 `files`, `extensions` and `directories`, plus truncation markers when they are
 true (`substrate.unmapped_digest`, `substrate.py:1050`). `--dependents` and
 `--dependencies` keep their bare arrays and say the same thing on stderr
-(`_announce_unmapped`, `graph_ops.py:3100`). The key is **absent** — not empty
+(`_announce_unmapped`, `graph_ops.py:3114`). The key is **absent** — not empty
 — when there is nothing to say, so a repository the backend reads completely
 produces byte-identical output to what it produced before this existed.
 `{"files": 0}` means the census ran and found nothing; `{"files": null,
@@ -73,11 +73,11 @@ this repo is unread" are not the same sentence. The argument for fixing it in
 the payload was already written down in this codebase: `get_impact` returns
 `not_in_graph` in the JSON, with the comment that "the caller is usually
 another skill reading `--format json`, and stderr is not part of what it
-parses" (`graph_ops.py:2499-2396`). It had been applied to "the file you asked
+parses" (`graph_ops.py:2513-2396`). It had been applied to "the file you asked
 about is unmapped" and never generalised to "this answer is incomplete".
 
 The consumer is not a human. `non_interactive` auto-enables whenever stdin is
-not a TTY (`graph_ops.py:3531`), which is every agent-driven run and every
+not a TTY (`graph_ops.py:3545`), which is every agent-driven run and every
 wrap-up run, so a printed warning lands nowhere. Verified: the three
 programmatic callers — `behavior_graph.py:258`,
 `skills/freya-spec-manager/scripts/drift.py:89` and `run_behaviors.py:337` —
@@ -180,8 +180,8 @@ confident "nothing" is least earned.
 
 - **Wrap `--dependents` only, since nothing parses it.** Genuinely free: the
   only non-test occurrences of the flag are its own argparse declaration
-  (`graph_ops.py:3511`) and the dispatch that reads `args.dependents`
-  (`graph_ops.py:3583`). It would have bought the payload signal on one of the
+  (`graph_ops.py:3525`) and the dispatch that reads `args.dependents`
+  (`graph_ops.py:3597`). It would have bought the payload signal on one of the
   two bare-array surfaces at no risk at all. Rejected because it buys a shape
   asymmetry inside a trio ADR-021 presents as answering alike, on a surface
   nothing parses; the stderr line gives it the same signal at no shape cost.

@@ -22,7 +22,7 @@ implementations. It is structural rather than inherited — a backend supplies `
 here controls and a contract only the incumbent can satisfy is not a contract. It is checked at
 runtime, not by types: `choose_backend` calls `conformance_errors` on the backend it selected,
 and a backend that fails is refused before it runs, replaced by the floor, and recorded in the
-graph metadata as a degradation with the reason (`graph_ops.py:3447`). The check binds the call
+graph metadata as a degradation with the reason (`graph_ops.py:3461`). The check binds the call
 itself, not just the attribute names — `BUILD_KWARGS` and `UPDATE_KWARGS` (`substrate.py:606`)
 are bound against each method's signature, because "callable" is not a contract and a backend
 that passes an attribute check can still be uninvokable.
@@ -63,7 +63,7 @@ block (`substrate.py:433`), and until 2026-08-21 the only read in the repository
 did not, and both shipping backends declare `True` — so nothing had ever been in a position to
 notice. `run_update` now calls the backend's build path when `coverage().incremental` is false,
 and takes the same safe route when a backend cannot describe its coverage at all
-(`graph_ops.py:2759`). It is pinned by a test that fails under mutation of that branch.
+(`graph_ops.py:2773`). It is pinned by a test that fails under mutation of that branch.
 
 **`coverage.relations` is still declared and unenforced**, and this record says so rather than
 repeating the design's present tense: written on every build, consumed by no caller, so the

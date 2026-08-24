@@ -2304,7 +2304,21 @@ Respond with ONLY a JSON object, no markdown formatting:
 
         for file_path in map(normalize_key, changed_files):
             full_path = self.project_dir / file_path
-            if full_path.exists() and not out_of_scope(file_path):
+            # SEC-023 again, on the path the first fix did not reach. `_scan_files` refuses a
+            # candidate whose realpath leaves the project; this loop never calls `_scan_files`,
+            # so a committed symlink out of the tree was admitted here on `full_path.exists()`
+            # — which follows the link — and `_build_file_info` then read the outside file and
+            # published its exports as this node's. Worse than the hole it re-opened: `--build`
+            # printed a line and recorded `escaping_links`, this printed nothing; and the
+            # resulting key IS project-relative, so `validate_graph` passed it clean.
+            #
+            # It is also the path that matters most: `--update` is what `freya-wrap-up` runs, so
+            # `--build` is the cold start and this is the steady state. Fixing discovery and not
+            # the incremental loop fixed the rarer half.
+            escaped = full_path.exists() and not containment.within(self.project_dir, full_path)
+            if escaped:
+                self._record_escaping_link(file_path, self._outside_roots().key_for(full_path))
+            if full_path.exists() and not escaped and not out_of_scope(file_path):
                 # Check if it's a source file
                 if self._detect_language(full_path):
                     graph['files'][file_path] = self._build_file_info(full_path)

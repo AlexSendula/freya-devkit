@@ -74,7 +74,7 @@ specific stated verdict beneath the override.
 > What is true of the graph's own scope is narrower than it first looks, and the narrow version is
 > the one worth writing down. `Path.glob` does not follow a directory symlink it meets *during*
 > recursion, and the census walk takes `os.walk`'s `followlinks=False` default
-> (`graph_ops.py:2801`). But `_scan_files` roots its globs at the classified source directories
+> (`graph_ops.py:2815`). But `_scan_files` roots its globs at the classified source directories
 > (`graph_ops.py:1982`-`:1985`), and a glob whose **root** is itself a symlink does traverse it —
 > measured on Python 3.12.5: a symlinked directory reached mid-recursion yields nothing, the same
 > directory used as the glob root yields its files. So a `directories` verdict of `source` naming
@@ -124,7 +124,7 @@ folds the committed verdicts over the cached ones so a build sees both (`graph_o
 persisting that result baked them into the cache as ordinary `user` entries, where they outlived
 the file that declared them: deleting `"docs": "source"` from `settings.json` changed nothing,
 because the cached copy still outranked every rule, survived the `RULES_VERSION` discard and
-survived `--clear`, which deliberately keeps `classifications.json` (`graph_ops.py:2506`). The
+survived `--clear`, which deliberately keeps `classifications.json` (`graph_ops.py:2520`). The
 cache now never holds a settings-declared verdict.
 
 `RULES_VERSION` (`graph_ops.py:152`, currently `'2026-08-20b'`) is what lets the defaults change

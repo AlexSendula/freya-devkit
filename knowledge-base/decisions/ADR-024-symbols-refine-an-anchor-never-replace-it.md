@@ -80,7 +80,7 @@ reproduces now, so the ratio is the durable fact here and the counts are not.
 
 Nothing narrows on those symbols. The only code that reads them is the printed edge
 annotation on `--query --format summary`, which renders `[calls: caller → callee:42]`
-(`graph_ops.py:3171`). Everything that gates or feeds another skill works in path
+(`graph_ops.py:3185`). Everything that gates or feeds another skill works in path
 strings by design (ADR-021). So the size is currently paid for human display, and
 default-off is the honest price for a consumer that does not exist yet.
 
@@ -184,7 +184,7 @@ file; qualifying with the owner takes that to zero
 
 - **A consumer appears that genuinely narrows on a symbol.** The default-off trade
   rests entirely on there being none; today the sole reader is a print statement
-  (`graph_ops.py:3171`). When `behavior-graph`, `docs-manager` or wrap-up wants to
+  (`graph_ops.py:3185`). When `behavior-graph`, `docs-manager` or wrap-up wants to
   answer *which function*, re-argue it — and start with whether the switch should be
   per relation kind (`calls` only, say) rather than one global boolean, since that is
   where most of the 6x comes from.

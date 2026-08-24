@@ -79,7 +79,7 @@ relocatable with `FREYA_HOME` (`settings.py:92`), which may carry only `substrat
 `substrate.symbols` (`settings.py:102`). The machine question is asked once, at install or update
 time (`bin/backend_setup.py:104`, called from `bin/installer.py:988` and `bin/updater.py:394`),
 because that is where a keyboard is — `code-graph` auto-enables non-interactive mode whenever
-stdin is not a TTY (`graph_ops.py:3542`), which is every agent-driven run. See
+stdin is not a TTY (`graph_ops.py:3556`), which is every agent-driven run. See
 [ADR-019](../decisions/ADR-019-the-floor-and-choosing-a-backend.md).
 
 A named backend that is not installed does not fail the build. It degrades to the floor with a
@@ -92,11 +92,11 @@ with the reason, instead of a narrower answer that would look authoritative
 **The contract persists the graph; a backend only produces it.** `build()` and `update()`
 return a `substrate.Result` — the graph, and what was done to produce it
 (`substrate.py:297`) — and one shared funnel, `_finalise`
-(`skills/freya-code-graph/scripts/graph_ops.py:2584`), owns everything after that: it derives
+(`skills/freya-code-graph/scripts/graph_ops.py:2598`), owns everything after that: it derives
 the `dependents` reverse index from scratch on every write (`substrate.py:335`), refuses to
-overwrite a populated graph with an empty one (`graph_ops.py:2621`), validates what the backend
-emitted (`graph_ops.py:2627`), takes the census described below (`graph_ops.py:2652`), and
-writes (`graph_ops.py:2676`). Validation **does not block**: a graph that fails is written
+overwrite a populated graph with an empty one (`graph_ops.py:2635`), validates what the backend
+emitted (`graph_ops.py:2641`), takes the census described below (`graph_ops.py:2666`), and
+writes (`graph_ops.py:2690`). Validation **does not block**: a graph that fails is written
 anyway with the errors recorded under `substrate.validation`, and no code in the toolkit
 branches on that field. It is a diagnostic for whoever opens the graph later, not a guarantee
 that a graph on disk is sound. See
@@ -104,7 +104,7 @@ that a graph on disk is sound. See
 
 Every build is written twice — the same payload to `knowledge-base/.graph/graph.json`, the
 active artifact every consumer reads, and to `knowledge-base/.graph/graph.<backend>.json`, named
-for the backend that produced it (`graph_ops.py:2565`, `:2578`; `substrate.py:288`). Switching
+for the backend that produced it (`graph_ops.py:2579`, `:2592`; `substrate.py:288`). Switching
 backends therefore leaves the previous one's graph intact at its own path, with the `timestamp`,
 `commit` and `substrate` block of the build that produced it still inside. **Nothing in the
 toolkit reads the per-backend copy.** There is no `compare` subcommand, and the incremental path
@@ -112,7 +112,7 @@ does not warm-start from it either — a graph produced by a different backend f
 rebuild (`graph_ops.py:2226`). What this buys is a preserved baseline on disk, not an automated
 comparison; the diff is run by hand. `--clear` removes the active graph and every `graph.*.json`
 beside it, and deliberately spares `classifications.json`, which holds human and model
-judgements a cache clear has no business discarding (`graph_ops.py:2512`). See
+judgements a cache clear has no business discarding (`graph_ops.py:2526`). See
 [ADR-028](../decisions/ADR-028-graphs-are-stored-per-backend.md).
 
 #### The shape of an edge
@@ -168,7 +168,7 @@ extension the backend does not handle is never enumerated at all, so `files_scan
 a denominator and is a numerator. Every build or update now runs one pruned walk over the
 project and records what it found at `graph["substrate"]["unmapped_source"]` — how many in-scope
 source files the running backend cannot read, which extensions they are, and which directories
-to search instead (`graph_ops.py:2652`). It is filtered by the build's own scope rule
+to search instead (`graph_ops.py:2666`). It is filtered by the build's own scope rule
 (`graph_ops.py:1391`), which is wider than the `Exclusions` recorded in the artifact, and by two
 tiers of materiality: definite program source is reported unconditionally
 (`substrate.py:867`), while scripting and data-definition extensions are reported only when
@@ -180,16 +180,16 @@ The block reaches each surface in the shape that surface can carry. `--build` an
 carry it whole, including a prose `advice` sentence and a `readable_by` recommendation;
 `--query` and `--impact` carry a structured digest (`substrate.py:1054`); `--dependents` and
 `--dependencies` keep their bare arrays and say the same thing on stderr
-(`graph_ops.py:3106`), because behavior-runner rejects any `--dependencies` answer that is not a
+(`graph_ops.py:3120`), because behavior-runner rejects any `--dependencies` answer that is not a
 list of strings and routes the behaviour to `coverage: unknown`
 (`run_behaviors.py:353`). In an *answer* the key is **absent**, not empty, when there is nothing
-to say (`graph_ops.py:2864`–`:2875`), so a repository the backend reads completely produces the
+to say (`graph_ops.py:2878`–`:2889`), so a repository the backend reads completely produces the
 same output it did before this existed. The artifact is the exception: `_finalise` always writes
 the block, so a clean census is recorded there as `{"files": 0}` rather than omitted.
 
 `_answer_caveats` is now the one place that discipline is enforced for **two** caveats rather
 than one: ADR-031's `outside_roots` block rides the same funnel and obeys the same absent-not-
-empty rule (`graph_ops.py:2876`). That is deliberate — a second caveat added at four surfaces
+empty rule (`graph_ops.py:2890`). That is deliberate — a second caveat added at four surfaces
 independently is four chances to get the empty case wrong, and the split was in fact inverted on
 exactly the surface a person reads before it was centralised.
 
@@ -391,8 +391,8 @@ committed file must name the same directory in every clone, and `~` denotes a di
 every reader (`skills/freya-code-graph/scripts/settings.py:413`). The first build in a project
 that has not decided seeds it from
 the machine default rather than leaving the choice implicit, validating the name against the
-registry on the way (`graph_ops.py:3368`), and prints one line asking for it to be committed
-(`graph_ops.py:3376`). Nothing verifies that it was; that line is the entire mechanism. See
+registry on the way (`graph_ops.py:3382`), and prints one line asking for it to be committed
+(`graph_ops.py:3390`). Nothing verifies that it was; that line is the entire mechanism. See
 ADR-019 and ADR-022.
 
 **`behavior.json` is deliberately not ignored.** It is not a parse cache: its
@@ -531,9 +531,9 @@ artifact rather than only announced. Five paths end in "run the stdlib floor and
 |---|---|
 | A named backend is not installed (`backends.py:139`) | yes, reason `not installed` |
 | The name is not a backend at all (same branch, deliberately a different message — telling someone to install a backend that does not exist sends them nowhere) | yes, reason `unknown backend` |
-| The selected backend fails the contract check (`graph_ops.py:3488`) | yes, with the conformance errors as the reason |
-| The backend throws during the build (`graph_ops.py:2736`) | yes, reason `failed during the build: …` |
-| Selection itself raises (`graph_ops.py:3503`) | **no** — stderr only |
+| The selected backend fails the contract check (`graph_ops.py:3502`) | yes, with the conformance errors as the reason |
+| The backend throws during the build (`graph_ops.py:2750`) | yes, reason `failed during the build: …` |
+| Selection itself raises (`graph_ops.py:3517`) | **no** — stderr only |
 
 The last row is the deliberate exception, and it is worth knowing about before trusting
 `degraded_from` as a complete record: selection is an optimisation over "run the floor", so when

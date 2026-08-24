@@ -152,18 +152,18 @@ contributed rather than on every macOS checkout under `/tmp`.
 **The answer says what it read from outside.** ADR-029 obliges an answer to say what it could
 not read; this is the analogue, on the same funnel and with the same discipline. Every build
 records at `graph['substrate']['outside_roots']`
-(`skills/freya-code-graph/scripts/graph_ops.py:2662`) each declared alias, the path as written,
+(`skills/freya-code-graph/scripts/graph_ops.py:2676`) each declared alias, the path as written,
 and how many edges crossed to it, plus every declaration that was refused and why. The key is
 **absent** — not empty — when the project declares nothing, so a repository that has never used
 this produces byte-identical output. A declared root nothing imported is reported with
-`crossings: 0` rather than omitted (`skills/freya-code-graph/scripts/graph_ops.py:2990`): a
+`crossings: 0` rather than omitted (`skills/freya-code-graph/scripts/graph_ops.py:3004`): a
 declaration that buys nothing is a typo or a leftover, and silent no-effect configuration is the
 defect this settings file has already paid for twice. `--query` and `--impact` carry the block
-in their payload (`skills/freya-code-graph/scripts/graph_ops.py:2889`); `--dependents` and
+in their payload (`skills/freya-code-graph/scripts/graph_ops.py:2903`); `--dependents` and
 `--dependencies` keep their bare arrays and say it on stderr
-(`skills/freya-code-graph/scripts/graph_ops.py:3137`), for the reasons ADR-029 measured and
+(`skills/freya-code-graph/scripts/graph_ops.py:3151`), for the reasons ADR-029 measured and
 which have not changed. `--format summary` carries the same sentence on all four of its surfaces
-(`skills/freya-code-graph/scripts/graph_ops.py:3205`), beside the census line ADR-029 added there
+(`skills/freya-code-graph/scripts/graph_ops.py:3219`), beside the census line ADR-029 added there
 for the analogous case. Without it the split was inverted on exactly the surface a person reads:
 `--query --format summary` printed an `outside:` target with no qualification and `--impact
 --format summary` printed a blast radius with nothing on either stream, while both carried the
@@ -173,7 +173,7 @@ block in `--format json`.
 about the *edges*, and gating it on a declaration merely being in force made it false in the
 commonest state of a new one — a root nobody has imported through yet — on `--build` and again
 on every `--dependents`. So a total of zero says the roots were **not reached**
-(`skills/freya-code-graph/scripts/graph_ops.py:2996`), which is both the true statement and the
+(`skills/freya-code-graph/scripts/graph_ops.py:3010`), which is both the true statement and the
 one that reads as an invitation to check the declaration.
 
 **"Every build" includes the incremental one, and that costs a rebuild.** A declaration is not a
