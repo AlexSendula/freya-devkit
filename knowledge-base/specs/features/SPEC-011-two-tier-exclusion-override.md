@@ -6,7 +6,7 @@ tags: [code-graph, scope, exclusions, classification, override, substrate]
 status: implemented
 certainty: 80
 created: 2026-08-21
-updated: 2026-08-21
+updated: 2026-08-24
 related_code:
   - skills/freya-code-graph/scripts/graph_ops.py
   - skills/freya-code-graph/scripts/substrate.py
@@ -191,6 +191,43 @@ overridable" alternative ADR-022 rejects. Verified by
 minified or generated files inside it to enter the graph. Absence of a `.min.js` from
 a graph built over an overridden directory is expected.
 
+### A `directories` key that leaves the project is refused, not folded
+
+**Decision**: `normalise_dir_key` returns `''` — no key, no verdict — for any name that does
+not resolve to a directory *inside* this project. `containment.escapes` is the predicate,
+judged in **both** path flavours, and applied to the **folded** text rather than to the text as
+written.
+
+**Rationale**: added 2026-08-24 (SEC-022, medium). Every consumer joins this key onto the
+project root or matches it as the prefix of a project-relative path — the scan roots are
+`project_dir / key.split('/')[0]`, and the override lookups and `Exclusions._under` compare
+prefixes — so a key that escapes has no valid reading, and the build does not fail on it: it
+succeeds, wrongly. Measured 2026-08-23 at `abd1de3`, a committed
+`{"directories": {"../shared": "source"}}` graphed the sibling tree (`../shared/secret.ts` a
+node, its exports read out of the file) and, because the scan root is the key's first
+component, `..` walked back into the project and gave every in-project file a second node under
+`../<checkout-name>/`. Nothing was printed and `validate_graph` returned clean. `D:/secrets` is
+the same hole on Windows: the drive survives the fold, and `PureWindowsPath('C:/proj') / 'D:'`
+is `D:` with the project root discarded — which is why the check does not defer to the host it
+happens to be running on. A directory key is a value *declared* in checked-in data, so the
+platform reading the file does not get to decide what a committed key means.
+
+**Folded text, not written text**, and that is the one way this differs from checking a
+locator: `a/../b` and `b` have to be one key (ADR-025), so the question is whether the key the
+consumers will actually join escapes — not whether a `..` appeared on the way to it.
+
+**Refusing is all it does.** Naming a directory outside the root stays impossible rather than
+becoming a third verdict here. Declaring an out-of-project root is a separate, explicit act
+under `outside` (ADR-031), which grants *resolution* and never a verdict.
+
+**Security Scan Note**: `substrate.validate_graph` now also rejects a non-project-relative key
+under `files`, so backing this refusal out today produces three errors rather than silence.
+That is **not a substitute** and does not make this redundant — its own message says "writing
+it anyway", and by the time it runs the file has been opened and its contents are already in
+the artifact being audited. That check reads the graph; this one refuses the read. A leading
+`/` and a UNC-looking name still fold rather than being refused; only what escapes after
+folding is dropped.
+
 ### The contract layer collapses the two tiers
 
 **Decision**: `project_exclusions` puts `user` and `ai` `source` verdicts into the
@@ -223,4 +260,5 @@ layers *agree*, not that the contract enforces the tier.
 
 | Date | Change | Reason |
 |------|--------|--------|
+| 2026-08-24 | Added "A `directories` key that leaves the project is refused, not folded" | SEC-022 (medium). A committed `../shared` key graphed a sibling tree and re-entered the project through `..`, with nothing printed and `validate_graph` clean |
 | 2026-08-21 | Initial spec, inferred from code during brownfield scan | Candidate behaviors recorded as `proposed` for lazy review (ADR-007) |

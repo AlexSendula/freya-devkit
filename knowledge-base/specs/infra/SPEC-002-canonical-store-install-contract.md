@@ -6,7 +6,7 @@ tags: [installer, distribution, symlink, ownership, update, windows, safety]
 status: implemented
 certainty: 85
 created: 2026-08-21
-updated: 2026-08-21
+updated: 2026-08-24
 related_code:
   - bin/installer.py
   - bin/updater.py
@@ -247,7 +247,44 @@ one, and a copy install tracks nothing at all.
 **Security Scan Note**: `freya update` runs `git` in the store directory with a
 remote name taken from the branch's own upstream configuration, not from user
 input, and refuses to act on any tree it did not find clean. Its re-link step
-prunes only entries that audit as ours.
+prunes only entries that audit as ours. Which `git` binary that is, is decided by
+`exec_path` — see below.
+
+### `git` is resolved, never spelled; and there is no degraded resolver
+
+**Decision**: `updater.git` resolves its program through the shared `exec_path` module, which
+refuses a resolution that is not already absolute. The import is **guarded**, and a store where
+the resolver is missing does not fall back to a bare `"git"` — the git-backed features refuse
+with a stated reason instead.
+
+**Rationale**: added 2026-08-24. Two things had to hold at once and they pull opposite ways.
+
+The resolver lives in the code-graph skill rather than beside `bin/`, because `bin/` is not
+copied into an agent's skills directory (ADR-030), so a helper here could not be imported from
+an installed skill. Reaching the other way is safe for this module specifically: `updater` only
+ever runs from the store.
+
+The guard is the load-bearing half, and it was measured rather than reasoned about. `freya_cli`
+imports this module *inside* `doctor_checks` and inside the `update` branch, and neither import
+is wrapped. A bare `import exec_path` therefore turned a missing skill tree into a
+`ModuleNotFoundError` out of `freya doctor` and `freya update` — a traceback from the two
+commands whose entire job is to diagnose and repair that exact state. With `exec_path.py` moved
+aside, both died at this module's import line while every other command survived.
+
+An earlier draft got this backwards: it reasoned that `exec_path.py` travels in the same
+checkout at the same commit, so a store missing it is a hand-broken clone that `git pull`
+fixes. The circle is that `git pull` is spelled `freya update` here, and `freya update` was the
+command that crashed.
+
+**No fallback to a bare name**, and that is a separate decision from the guard. A resolver that
+searched `PATH` on failure would reinstate exactly the hole `exec_path` exists to close
+(SEC-002/SEC-003), and it would be a third body of the absoluteness rule. The resolver is
+either present and authoritative, or absent and the feature refuses.
+
+**Security Scan Note**: a guarded import whose failure path disables a feature rather than
+substituting a default is the design. Flag any change that adds an `or "git"`, and note that
+`freya doctor`'s `updates` row reports this refusal by asking `updater.git_program()` directly
+(SPEC-001), so the two commands cannot tell different stories about it.
 
 ## Related Specs
 
@@ -258,4 +295,5 @@ prunes only entries that audit as ours.
 
 | Date | Change | Reason |
 |------|--------|--------|
+| 2026-08-24 | Added "`git` is resolved, never spelled; and there is no degraded resolver" | The `exec_path` resolution (SEC-002/SEC-003 family) reached `updater.git`; the guarded import and the refusal to fall back to a bare name are both measured decisions, not incidental |
 | 2026-08-21 | Initial spec, inferred from code and tests by the brownfield scan | `freya-spec-manager bootstrap` — all behaviors `proposed`, none reviewed by a human yet |

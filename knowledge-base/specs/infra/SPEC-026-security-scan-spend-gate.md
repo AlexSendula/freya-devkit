@@ -6,7 +6,7 @@ tags: [security, audit, cost, budget, confirmation, cli-contract, driver]
 status: implemented
 certainty: 82
 created: 2026-08-21
-updated: 2026-08-21
+updated: 2026-08-24
 related_code:
   - skills/freya-codebase-security-scan/scripts/audit.py
   - skills/freya-codebase-security-scan/scripts/audit_io.py
@@ -19,6 +19,7 @@ intentional_decisions:
   - "A ceiling that cannot pay to verify one finding is refused, not warned about"
   - "stdout carries the JSON payload and nothing else; every human-facing line goes to stderr"
   - "The budget counts attempts, not tasks, and charges the slot before the call is made"
+  - "The agent CLI is resolved ahead of the cost plan, so an unusable one is refused having spent nothing and degrades like a missing CLI"
 behaviors:
   - behavior_id: BEH-126
     title: --dry-run prints the mode, the ceiling, the worst-case attempt count and what it buys, and makes no agent call at all
@@ -69,9 +70,15 @@ once. Everything between the command line and the first worker call is therefore
 Three things happen before anything is spent. The plan is printed — mode, agent, project, the
 attempt ceiling, the worst case in attempts, and how many findings that buys — and with
 `--dry-run` the run stops right there at exit 0. Bad configurations are refused: an unknown
-`--agent`, a `--project` that is not a directory, a `--max-calls` below 1, and a ceiling too
-small to discover *and* verify a single finding (68 attempts for `audit`, 20 for `scan`) all
-return an exit code and a sentence, having called nothing. Then the confirmation: without
+`--agent`, a `--project` that is not a directory, a `--max-calls` below 1, an agent CLI whose
+binary will not resolve to an absolute path outside the audited project (SEC-003; SPEC-025
+owns the rule), and a ceiling too small to discover *and* verify a single finding (68 attempts
+for `audit`, 20 for `scan`) all return an exit code and a sentence, having called nothing.
+
+The agent-CLI resolution sits deliberately *ahead* of the cost plan rather than beside the
+worker calls it guards: a refusal then costs nothing and arrives explained, and it exits
+`EXIT_NOTHING_TO_DO` so it degrades into the in-loop fallback exactly as a missing CLI does
+rather than becoming a new failure mode of its own. Then the confirmation: without
 `--yes` the driver asks, and at a shell with no tty it declines and exits 4 rather than
 blocking or assuming consent.
 
@@ -228,6 +235,7 @@ and `HealthLockTest`.
 
 | Date | Change | Reason |
 |------|--------|--------|
+| 2026-08-24 | Pre-flight refusal list extended with the agent-CLI resolution, and its ordering ahead of the cost plan stated | SEC-003 (high). The refusal is new; placing it before the plan is what makes it cost nothing, and reusing `EXIT_NOTHING_TO_DO` is what keeps it a degradation rather than a new failure mode. The rule itself is SPEC-025's |
 | 2026-08-21 | Initial spec, inferred from code and tests | Brownfield scan (`freya-spec-manager bootstrap`) |
 
 ---

@@ -15,11 +15,6 @@
 | BEH-086 | An unparseable spec file warns on stderr and the remaining specs are still returned | SPEC-017 |
 | BEH-029 | Transitive dependents and dependencies answer over a very long import chain | SPEC-006 |
 | BEH-030 | Clearing the cache removes every backend's graph file | SPEC-006 |
-| BEH-111 | A changed file returns the behaviors whose exercised code its blast radius reaches | SPEC-023 |
-| BEH-112 | A behavior id returns the project files that behavior exercises, in sorted order | SPEC-023 |
-| BEH-113 | The security cross-reference for a file answers with accepted behaviors only | SPEC-023 |
-| BEH-114 | The whole-repo audit lists indexed source files no behavior covers, counting a declared entry as covered | SPEC-023 |
-| BEH-115 | The audit run on a project with no code graph says so instead of reporting zero gaps | SPEC-023 |
 | BEH-146 | A refresh writes the census to knowledge-base/BACKLOG.md, creating the directory if it is absent | SPEC-029 |
 | BEH-147 | The generated backlog names each outstanding behavior under a do-not-edit banner and its four fixed sections | SPEC-029 |
 | BEH-148 | A refresh replaces the file whole — anything hand-written at that path is gone, with no merge and no warning | SPEC-029 |
@@ -67,6 +62,11 @@
 | BEH-108 | A rebuild whose run could not measure anything keeps the fingerprint already committed | SPEC-022 |
 | BEH-109 | Proposed behaviors are never projected into behavior.json; accepted and confirmed are | SPEC-022 |
 | BEH-110 | A behavior.json that cannot be read says so instead of answering as an empty graph | SPEC-022 |
+| BEH-111 | A changed file returns the behaviors whose exercised code its blast radius reaches | SPEC-023 |
+| BEH-112 | A behavior id returns the project files that behavior exercises, in sorted order | SPEC-023 |
+| BEH-113 | The security cross-reference for a file answers with accepted behaviors only | SPEC-023 |
+| BEH-114 | The whole-repo audit lists indexed source files no behavior covers, counting a declared entry as covered | SPEC-023 |
+| BEH-115 | The audit run on a project with no code graph says so instead of reporting zero gaps | SPEC-023 |
 | BEH-116 | A confirmed behavior naming a unit test is still never executed | SPEC-024 |
 | BEH-117 | A confirmed behavior cannot fail the regression gate even when handed a failed result | SPEC-024 |
 | BEH-118 | An accepted behavior at a level with no implemented path reports unknown and names the reason | SPEC-024 |

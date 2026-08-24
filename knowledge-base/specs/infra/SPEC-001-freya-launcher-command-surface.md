@@ -6,7 +6,7 @@ tags: [launcher, cli, dispatch, portability, agent-neutral, manifest]
 status: implemented
 certainty: 85
 created: 2026-08-21
-updated: 2026-08-21
+updated: 2026-08-24
 related_code:
   - bin/freya
   - bin/freya_cli.py
@@ -146,6 +146,49 @@ is validated before the join, on both path flavours, and the manifest is
 repository-owned. Flag a change that removes `_escapes`, not the dispatch
 itself.
 
+### The launcher keeps its own copy of the containment rule, and that is the ADR-030 exception
+
+**Decision**: `bin/freya_cli.py:_escapes` is the **second and last** body of a rule whose
+canonical home is `skills/freya-code-graph/scripts/containment.py:escapes`. Every other caller
+in the tree imports it; the launcher deliberately does not. The two are held together by
+`bin/test_freya_cli.py::ContainmentParityTest`, which **errors rather than skips** when the
+canonical module cannot be imported.
+
+**Rationale**: added 2026-08-24. ADR-030 places a shared primitive in one skill and has every
+other caller import it, so a second body is a rule that can drift — normally the defect, here
+the lesser one. `doctor` and `update` are the commands that diagnose and repair a skill tree,
+so they must run when that tree is missing, half-installed or broken, and `load_manifest` is
+reached by `doctor_checks` on nearly every `freya` invocation. Importing from `skills/` would
+make the bootstrap depend on the payload it installs, and the failure would land on exactly the
+command whose job is to explain that failure.
+
+The parity test erroring rather than skipping is the load-bearing half: a skipped parity test
+is a duplicated security predicate with nothing watching it, which is the outcome this
+arrangement exists to avoid.
+
+**Security Scan Note**: "the same function implemented twice" is recorded and tested here, not
+an oversight to consolidate. Consolidating it re-introduces the bootstrap dependency. What
+*is* worth flagging is a change that lets `ContainmentParityTest` skip.
+
+### `doctor` reports why git could not run, rather than what its silence implied
+
+**Decision**: the `updates` row asks `updater.git_program()` for the reason git is unusable
+before any git answer is read as a fact about the repository — `fail` when the resolver itself
+is missing, `warn` otherwise. It is asked only when the ladder will actually use `updater.git`;
+an injected `run=` replaces git wholesale, so reporting on the resolver would describe a spawn
+that never happens.
+
+**Rationale**: added 2026-08-24. `updater.git` returns `(1, "")` both for a missing resolver
+and for a git it refused, and `is_git_store` reads `(1, "")` as "not a checkout" — so the row
+said *the store is not a git checkout* about a store that was one, while `freya update` on the
+same machine printed the real reason. Two commands, contradictory stories, and the wrong one on
+the command that exists to explain this state. It is asked of the same body `update` prints
+from, so the two cannot disagree again.
+
+**Security Scan Note**: a diagnostic that reports a *cause* it was handed rather than inferring
+one from an ambiguous return is the fix, not defensive noise. A `(1, "")` that means two things
+is the shape to flag wherever else it appears.
+
 ### Dispatched scripts get their own directory prepended to `PYTHONPATH`
 
 **Decision**: `child_env` puts the resolved directory of the script being run at
@@ -204,4 +247,5 @@ names the cause.
 
 | Date | Change | Reason |
 |------|--------|--------|
+| 2026-08-24 | Added the ADR-030 exception for the launcher's own `_escapes` body, and the `doctor` `updates` row's cause reporting | The duplicated containment predicate is deliberate (bootstrap independence) and is now guarded by an erroring parity test; the `updates` row previously reported "not a git checkout" for a store that was one |
 | 2026-08-21 | Initial spec, inferred from code and tests by the brownfield scan | `freya-spec-manager bootstrap` — all behaviors `proposed`, none reviewed by a human yet |

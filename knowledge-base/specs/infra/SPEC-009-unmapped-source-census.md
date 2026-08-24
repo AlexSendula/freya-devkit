@@ -6,7 +6,7 @@ tags: [substrate, code-graph, coverage, honesty, polyglot, agent-surface]
 status: implemented
 certainty: 82
 created: 2026-08-21
-updated: 2026-08-21
+updated: 2026-08-24
 related_code:
   - skills/freya-code-graph/scripts/substrate.py
   - skills/freya-code-graph/scripts/graph_ops.py
@@ -190,6 +190,26 @@ from the API response computed from it — is deliberate. `test_a_clean_repo_pay
 asserts the answer's key set exactly rather than asserting an absence, so adding a
 harmless-looking empty `unmapped_source: {}` to the clean path is a test failure by design.
 
+> **Correction (2026-08-24, dated append per ADR-016).** The decision above stands in full —
+> the absent-not-empty rule, the sentinel, and the exact-key-set test are all unchanged. What
+> has moved is the *scope* of the sentence "`_answer_caveats` returns `{}`": that was true when
+> `unmapped_source` was the only caveat it could carry, and it now builds a dict that may also
+> hold **`outside_roots`** when the graph has edges leaving the repository (ADR-031). The rule
+> is the same one, applied twice — each key is present only when it has something to say, so a
+> monoglot in-tree repository still emits exactly the pre-feature key set.
+>
+> `outside_roots` is carried **verbatim rather than digested**, which is where it differs from
+> `unmapped_source`. That block has a prose `advice` sentence and a `readable_by`
+> recommendation worth trimming out of a per-file answer; this one is a handful of aliases and
+> counts, and a digest of it would be the same object under a different name. It is
+> repository-level data on a per-file surface, deliberately: an answer computed over a graph
+> with edges leaving the repository is not the same sentence as one that is entirely in-tree,
+> and it goes in the payload for exactly the reason the census does — the consumer is another
+> skill reading `--format json`, and stderr is dead skill-to-skill (ADR-029).
+>
+> Read alongside `substrate.escaping_links` (SPEC-005), which is the other half: `outside_roots`
+> says what this graph *reached* outside the project, `escaping_links` says what it *refused*.
+
 ## Related Specs
 
 - [SPEC-007: Substrate Backend Selection](./SPEC-007-substrate-backend-selection.md) — which
@@ -201,6 +221,7 @@ harmless-looking empty `unmapped_source: {}` to the clean path is a test failure
 
 | Date | Change | Reason |
 |------|--------|--------|
+| 2026-08-24 | Dated correction on "Absent, not empty": `_answer_caveats` may now also carry `outside_roots` | ADR-031 crossings joined the caveat payload. The absent-not-empty rule is unchanged; the sentence naming `unmapped_source` as the only key was scoped to a one-key version of the function |
 | 2026-08-21 | Initial spec, inferred from code and tests | Brownfield scan (`freya-spec-manager bootstrap`) |
 
 ---

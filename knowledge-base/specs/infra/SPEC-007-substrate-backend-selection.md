@@ -6,18 +6,20 @@ tags: [substrate, code-graph, backend-selection, configuration, portability, deg
 status: implemented
 certainty: 85
 created: 2026-08-21
-updated: 2026-08-21
+updated: 2026-08-24
 related_code:
   - skills/freya-code-graph/scripts/backends.py
   - skills/freya-code-graph/scripts/settings.py
   - skills/freya-code-graph/scripts/substrate.py
   - skills/freya-code-graph/scripts/graph_ops.py
   - skills/freya-code-graph/scripts/backend_graphify.py
+  - skills/freya-code-graph/scripts/exec_path.py
 intentional_decisions:
   - "`auto` runs the floor and never shops for a wider installed backend"
   - "A backend that is named but unusable degrades to the floor at exit 0 instead of failing the build"
   - "The first build carries the machine-level default into the project's committed settings.json"
   - "There is no permission list — naming a backend in settings.json is the whole opt-in"
+  - "The repository chooses the backend NAME; exec_path decides the path, refusing any resolution that is not already absolute or that lands inside the project"
 behaviors:
   - behavior_id: BEH-031
     title: An unconfigured project builds on the stdlib floor even when a wider backend is installed
@@ -184,8 +186,41 @@ permission list would only be a place for the two to disagree.
 
 **Security Scan Note**: "Executes a binary named in a config file" is accurate and intended.
 The mitigations that exist are that the name is validated against a closed registry at
-`--use` time, that an unknown name degrades rather than being executed, and that
-`conformance_errors` binds the actual call signature before the backend is invoked.
+`--use` time, that an unknown name degrades rather than being executed, that
+`conformance_errors` binds the actual call signature before the backend is invoked, and —
+added 2026-08-24 — that **which binary that name resolves to is not the repository's to
+decide** (see below).
+
+### The name is the repository's to choose; the path it resolves to is not
+
+**Decision**: A backend's program is resolved through `exec_path.resolve(name, project_dir)`,
+which **refuses** a resolution that is not already absolute, and refuses one that lands inside
+the project being graphed. It never absolutises a relative answer. A refusal degrades to the
+floor exactly as a missing binary does.
+
+**Rationale**: added 2026-08-24 (SEC-002, high). ADR-019 grants the *name*, and the decision
+above is unchanged: a project that wrote the name down has decided. What it never granted was
+the *path*, and the two came apart on Windows, where `shutil.which` searches the current
+directory ahead of `PATH`. A cloned repository containing `graphify.exe` beside its own
+`settings.json` therefore both named the backend and supplied the binary, so a `git clone` plus
+`freya code-graph` ran the clone's own executable — the one thing "naming a backend is the
+entire opt-in" was never meant to authorise, because the person who wrote the name down was not
+the person who chose what it would run.
+
+Refusing rather than absolutising is the whole of the fix and is deliberate. Rewriting a
+relative answer to an absolute one preserves the attacker's choice of file and only changes how
+it is spelled; the question `exec_path` asks is whether the resolution came from a search the
+project could not influence.
+
+`containment.is_anchored` is what "absolute" means here rather than `os.path.isabs`, because
+Python 3.13 changed `ntpath.isabs` and a rule that moves between interpreter versions is not a
+security boundary. One body of the rule, imported by every caller (ADR-030) — `git` is resolved
+through the same function, at `backend_graphify.py:739`.
+
+**Security Scan Note**: `exec_path.resolve` returning `None` for a binary a developer can see
+on their `PATH` is correct behaviour, not a portability bug — read `.reason`, which says which
+of the two rules refused it. Do not "fix" it by falling back to the bare name or by joining the
+result onto a root; both restore SEC-002.
 
 ## Related Specs
 
@@ -198,6 +233,7 @@ The mitigations that exist are that the name is validated against a closed regis
 
 | Date | Change | Reason |
 |------|--------|--------|
+| 2026-08-24 | Added "The name is the repository's to choose; the path it resolves to is not"; corrected the opt-in section's mitigation list, which understated by one | SEC-002 (high). ADR-019's grant of the *name* was being read as a grant of the *binary*, which on Windows let a clone supply its own. `exec_path.py` added to `related_code` |
 | 2026-08-21 | Initial spec, inferred from code and tests | Brownfield scan (`freya-spec-manager bootstrap`) |
 
 ---
