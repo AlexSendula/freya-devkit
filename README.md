@@ -10,14 +10,18 @@ An integrated, AI-assisted development toolkit for <strong>any coding agent</str
 
 > 📖 **New here? Read the explainer → [alexsendula.github.io/freya-devkit](https://alexsendula.github.io/freya-devkit/)** — a no-install webapp: the problem it solves, how to install and use it, how it works, and how it evolved.
 
-## What's new since 0.3.0 — declaring a directory outside the repo
+## What's new in 0.3.1 — the security pass, and declaring a directory outside the repo
 
-**None of this is in a numbered release yet.**
-[`.claude-plugin/plugin.json`](.claude-plugin/plugin.json) still reads `0.3.0`, and that file is
-the version a Claude marketplace install sees — so everything below reaches marketplace users at
-the next version bump, not before. `freya update` consumers see no version at all: that path
-fast-forwards the checkout to its tracked branch, so this is live for them the moment it is
-pushed.
+**Mostly a security release.** Twenty-one findings from an audit of this toolkit, plus two
+more found while fixing them — every external program now resolved to an absolute path or
+refused, five separate ways a governance gate could report a clean run it never performed, and a
+security finding made harder to silence. The [CHANGELOG](CHANGELOG.md) has the detail; the one
+thing below that changes what you can *do* is the `outside` declaration.
+
+`0.3.1` is what [`.claude-plugin/plugin.json`](.claude-plugin/plugin.json) reads, and that file
+is the version a Claude marketplace install sees. `freya update` consumers see no version at
+all: that path fast-forwards the checkout to its tracked branch, so this is live for them the
+moment it is pushed.
 
 **One new capability.** Inside the project root, discovery is automatic and needs no
 configuration — that has not changed. What is new is that a project can name a directory

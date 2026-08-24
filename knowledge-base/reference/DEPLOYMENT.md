@@ -179,7 +179,7 @@ ways to fail quietly.
 
 Two files, both at the repo root under `.claude-plugin/`:
 
-- `plugin.json` — `name: freya-devkit`, `version: 0.3.0` (`plugin.json:2-3`), description, author
+- `plugin.json` — `name: freya-devkit`, `version: 0.3.1` (`plugin.json:2-3`), description, author
   `github@alexsendula.com`, MIT, keywords. There is no `skills` key; the plugin relies on the
   host loading the repository's `skills/` directory by convention.
 - `marketplace.json` — one plugin entry whose `"source": "."` (`marketplace.json:11`) makes the repository
@@ -368,7 +368,7 @@ and triggers a deploy on its own. Last successful deploy: run `32155951130`,
 
 ## Versioning and release
 
-**The current version is `0.3.0`** (`.claude-plugin/plugin.json:3`).
+**The current version is `0.3.1`** (`.claude-plugin/plugin.json:3`).
 
 **It matches the newest CHANGELOG heading**, `## 0.3.0 — the polyglot substrate, and the
 toolkit run on itself (2026-08-23)` (`CHANGELOG.md:9`). The previous release heading,

@@ -8,7 +8,7 @@ It replaces the two backlogs that used to sit inside the historical design tree
 (`design/notes.md` and `design/behavior-layer/parking-lot.md`). Those were written mid-flight
 and accumulated entries that have since shipped. Every item below was re-verified against
 shipped code on **2026-08-19**; delivered work was dropped rather than carried. Current
-release: **0.3.0** (2026-08-23).
+release: **0.3.1** (2026-08-24).
 
 Each item says *what*, *why it was deferred*, and *how to pick it up*. Keep it that way —
 an item nobody can act on is noise.

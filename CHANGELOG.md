@@ -6,6 +6,58 @@ at all** — that path fast-forwards the checkout to the tracked branch's head, 
 pushed commit is live for them the moment they run it. See
 [CONTRIBUTING.md § Releasing updates](CONTRIBUTING.md#releasing-updates).
 
+## 0.3.1 — the security pass, and what auditing your own corrections turns up (2026-08-24)
+
+Twenty-one findings from the 2026-08-21 scan, plus two more found while fixing them. All
+closed or recorded as intentional. Nothing here changes what the toolkit is for; it changes
+what it will believe.
+
+**The scanned repository no longer chooses which binary runs.** On Windows `CreateProcess`
+searches the current directory before `PATH`, and the toolkit runs its subprocesses with `cwd`
+set to the project being scanned — so a repository that committed `graphify.exe` or
+`claude.exe` at its root got code execution as the operator. Every external program is now
+resolved to an absolute path or refused. The rule is *refuse*, not *absolutise*: a `which()`
+result that is not already absolute is rejected, because making it absolute is the fix
+backwards. Accepted cost, on one matrix leg: `NoDefaultCurrentDirectoryInExePath` is 3.12+, so
+on Windows with Python 3.9–3.11 a hostile repository gets a refusal rather than an execution.
+
+**Gates that reported a clean run they never performed.** The declared-intent gate took five
+separate fixes: a marker of `--output=/tmp/victim` truncated that file; forty zeros passed the
+hash check and left an empty change-set; a committed file named `deadbeef` made git read the
+value as a *pathspec*; a tree hash walked past the regex, `--end-of-options` and `--` alike;
+and an empty `commit:` value looked exactly like a fresh repository, so `--advance` erased the
+finding. Each vector passed the fix written for the one before it, and each was found by
+re-running the attack rather than re-reading the patch.
+
+**Crossing the project root is a declared act.** Discovery inside the root stays automatic —
+zero-config on a fresh repository is not traded away — but an import that reaches outside comes
+back `unresolved:` unless the project declares the target in `knowledge-base/settings.json`, and
+the answer says what it read from outside. The declaration buys *resolution only*: no file under
+a declared root is read and no directory under one is enumerated.
+
+**A security finding is harder to silence.** The downgrade path trusted a committed record that
+a test covered the flagged file. It now requires that a test actually *ran* — an `exercises`
+entry inferred from the import graph no longer counts — requires a locator, carries the named
+functions that ran rather than only the file, and can re-run the linked behavior to check.
+
+**One containment gap this release found in its own new feature:** a symlink committed inside
+the project pointing outside it was followed and read, with nothing declared. Fixed here, and
+worth naming because the claim "nothing crosses the root undeclared" had already been written
+into the README and two explainer pages before anyone tested it against a symlink.
+
+Also: path containment is one rule in one place instead of two copies that agreed by luck; the
+status census counts an unrecognised finding status instead of silently reporting zero; secrets
+are redacted where a finding is created rather than at each of the three places it leaves; every
+GitHub Action is SHA-pinned; and the docs walk is bounded, refuses symlinks, and reads bytes
+rather than decoding.
+
+**The most useful thing this release found was in its own corrections.** The pass whose entire
+job was accuracy wrote three new unqualified safety claims — "validate_graph now *rejects* any
+non-project-relative key" (it reports, and the graph is written anyway), "*every* containment
+question goes through one module" (one deliberately does not), "*no* symlink crosses on its
+own" (one did). Same shape as the defects being fixed. The only thing that caught any of them
+was going and running it.
+
 ## 0.3.0 — the polyglot substrate, and the toolkit run on itself (2026-08-23)
 
 The code graph everything else stands on was one hand-written resolver reading four languages.
