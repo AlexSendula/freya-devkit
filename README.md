@@ -36,12 +36,12 @@ over there"* from *"npm"*.
 walked or globbed, and a declaration causes no file under one to be read — the whole filesystem
 reach it grants is a `realpath` on the candidate an in-project import named, one `is_file()`,
 and one cached `listdir` of that file's own directory. No file under a declared root ever
-becomes a node in the graph. Crossing by *import* is never implicit either: an import's `..`,
-a tsconfig `paths` escape and an absolute import all come back `unresolved:` rather than
-reaching out. One gap is open and stated rather than glossed: a **file symlink committed inside
-the project** that points outside is still followed and read by the scanner, with nothing
-declared (SEC-023). The declaration is the only door for imports; it is not yet the only door
-for symlinks. Only relative paths are
+becomes a node in the graph. Crossing is never implicit either, by any route: an import's
+`..`, a tsconfig `paths` escape and an absolute import all come back `unresolved:`, and a file
+symlink committed inside the project whose target is outside it is refused rather than followed
+(SEC-023, fixed). A symlink that stays inside the project is untouched — a monorepo linking a
+package into place still works — because the rule asks where the file *is*, not whether the
+entry is a link. Only relative paths are
 accepted — `~` and absolute paths are refused by name, because that file is committed and both
 of those mean a different directory for every reader. It is a per-project setting and never a
 machine-wide one.

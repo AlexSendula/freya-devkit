@@ -318,8 +318,8 @@ documented, working command fails the gate.
 
 ### 3. `mitigated` is an unreachable disposition
 
-`skills/freya-codebase-security-scan/SKILL.md:612` maps `mitigated` → MITIGATED in its
-disposition table, and `:576` lists it among the valid values. `disposition()` in
+`skills/freya-codebase-security-scan/SKILL.md:624` maps `mitigated` → MITIGATED in its
+disposition table, and `:588` lists it among the valid values. `disposition()` in
 `skills/freya-codebase-security-scan/scripts/audit_engine.py:266`–`:313` only ever returns
 `intentional-design`, `needs-review`, `confirmed`, or `drop`. Neither the original JS engine
 nor the Python port ever emitted `mitigated`. Either wire it up or remove it from the table and

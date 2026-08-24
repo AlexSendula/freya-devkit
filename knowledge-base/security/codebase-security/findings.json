@@ -47,7 +47,7 @@
       "id": "SEC-006",
       "title": "--covering trusts a hand-editable, repo-committed behavior.json as verified test-backed evidence",
       "severity": "medium",
-      "status": "open",
+      "status": "resolved",
       "file": "skills/freya-behavior-graph/scripts/behavior_graph.py",
       "line": 418
     },
@@ -185,7 +185,7 @@
       "id": "SEC-023",
       "title": "A committed file symlink pointing outside the project is scanned and its contents published, with nothing declared",
       "severity": "medium",
-      "status": "open",
+      "status": "resolved",
       "file": "skills/freya-code-graph/scripts/graph_ops.py",
       "line": 1955
     }

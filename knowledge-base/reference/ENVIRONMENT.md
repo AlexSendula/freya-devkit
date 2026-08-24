@@ -229,19 +229,19 @@ deletes the key rather than writing it — the only way to un-answer the install
 (`skills/freya-code-graph/scripts/settings.py:915`, `settings.py:936`).
 
 The name is validated against the registry at the moment somebody is present to be told they
-typed it wrong (`skills/freya-code-graph/scripts/graph_ops.py:3292`), and the project-scope
+typed it wrong (`skills/freya-code-graph/scripts/graph_ops.py:3398`), and the project-scope
 message asks for the file to be committed so a clone, a colleague and CI all resolve the same
-backend (`skills/freya-code-graph/scripts/graph_ops.py:3327`). The machine-scope message is
+backend (`skills/freya-code-graph/scripts/graph_ops.py:3433`). The machine-scope message is
 careful about what it promises: a project already carrying its own answer keeps it
-(`skills/freya-code-graph/scripts/graph_ops.py:3321`).
+(`skills/freya-code-graph/scripts/graph_ops.py:3427`).
 
 The first `--build` or `--update` in a project that has not decided copies the machine's answer
 into that project's own committed settings
-(`skills/freya-code-graph/scripts/graph_ops.py:3453` → `graph_ops.py:3245` →
+(`skills/freya-code-graph/scripts/graph_ops.py:3559` → `graph_ops.py:3351` →
 `skills/freya-code-graph/scripts/settings.py:968`), validating it against the registry on the
 way. A headless run with nothing configured writes nothing. Nothing verifies that the seeded
 file is actually committed — the build prints one line asking for it
-(`skills/freya-code-graph/scripts/graph_ops.py:3269`) and that is the entire mechanism; ADR-019
+(`skills/freya-code-graph/scripts/graph_ops.py:3375`) and that is the entire mechanism; ADR-019
 states this gap rather than implying enforcement.
 
 Read on this worktree on 2026-08-24, `knowledge-base/settings.json` is tracked (committed at
@@ -314,10 +314,10 @@ eight still name it bare, and that list is not hand-maintained — it is what
 
 ```
 bin/check_doc_citations.py:135
-skills/freya-behavior-graph/scripts/behavior_graph.py:609
+skills/freya-behavior-graph/scripts/behavior_graph.py:699
 skills/freya-behavior-runner/scripts/run_behaviors.py:442
-skills/freya-code-graph/scripts/graph_ops.py:535
-skills/freya-code-graph/scripts/graph_ops.py:565
+skills/freya-code-graph/scripts/graph_ops.py:551
+skills/freya-code-graph/scripts/graph_ops.py:581
 skills/freya-spec-manager/scripts/drift.py:68
 skills/freya-spec-manager/scripts/verify_intent.py:76
 skills/freya-status/scripts/collect_status.py:33
@@ -331,7 +331,7 @@ records seven files rather than eight sites because `graph_ops.py` has two.
 
 Every one of the ten treats a missing git as an answer rather than a crash —
 `run_behaviors.py:447` catches `FileNotFoundError` and returns `"unknown"`,
-`behavior_graph.py:614` returns an empty change list, `updater.git` returns `(1, "")` for a
+`behavior_graph.py:704` returns an empty change list, `updater.git` returns `(1, "")` for a
 missing, refused *or* unresolvable git (`bin/updater.py:167`) — so the toolkit degrades rather
 than failing when git is absent. `freya doctor` is the exception that had to be made: it prints
 `git_program`'s *reason* rather than inferring a repository fact from a git call that never
@@ -437,7 +437,7 @@ The reasons a degrade can carry are tabulated in
 **What it writes.** `graphify update <project>` puts its extraction (`graph.json`), an HTML
 viewer (`graph.html`), a report (`GRAPH_REPORT.md`), a manifest and a cache in
 `graphify-out/` at the project root — measured on 0.9.47, over two runs, it keeps no dated
-backups, though `backend_graphify.py:266` and `graph_ops.py:1240` still say it does. That
+backups, though `backend_graphify.py:266` and `graph_ops.py:1256` still say it does. That
 directory is outside `knowledge-base/`, which is
 the only place this toolkit's own ignore rules reach. The backend therefore writes
 `graphify-out/.gitignore` containing `*` after the tool has run

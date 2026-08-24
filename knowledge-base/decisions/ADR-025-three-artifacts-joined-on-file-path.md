@@ -17,7 +17,7 @@ The graph layer is three artifacts under `knowledge-base/.graph/`, and each one 
 exactly one piece of code.
 
 `graph.json` holds code → code and is written by `persist_graph`
-(`skills/freya-code-graph/scripts/graph_ops.py:2516`), whichever backend produced the content —
+(`skills/freya-code-graph/scripts/graph_ops.py:2559`), whichever backend produced the content —
 the contract persists, a backend only produces (ADR-020) — with a per-backend copy alongside it
 (ADR-028). `behavior.json` holds behaviour → test → code and is written by
 `write_behavior_json` (`skills/freya-behavior-graph/scripts/behavior_graph.py:206`);

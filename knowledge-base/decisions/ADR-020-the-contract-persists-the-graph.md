@@ -15,16 +15,16 @@ tags:
 
 A backend's `build()` and `update()` return a `substrate.Result` — the graph it produced, and
 what it did to produce it (`skills/freya-code-graph/scripts/substrate.py:297`). Everything after
-that belongs to the contract. `run_build` and `run_update` (`graph_ops.py:2696`, `:2701`) pass
-the result to one shared funnel, `_finalise` (`graph_ops.py:2541`), which derives the
-`dependents` reverse index (`:2576`), refuses to overwrite a populated graph with an empty one
-(`:2578`), validates what the backend emitted and records any errors in the artifact
-(`:2584`–`:2601`), takes the census of in-scope files the backend cannot read (`:2609`), and
-writes both `graph.json` and `graph.<backend>.json` (`:2624`, and ADR-028 for why there are two).
+that belongs to the contract. `run_build` and `run_update` (`graph_ops.py:2748`, `:2753`) pass
+the result to one shared funnel, `_finalise` (`graph_ops.py:2584`), which derives the
+`dependents` reverse index (`:2619`), refuses to overwrite a populated graph with an empty one
+(`:2621`), validates what the backend emitted and records any errors in the artifact
+(`:2627`–`:2644`), takes the census of in-scope files the backend cannot read (`:2652`), and
+writes both `graph.json` and `graph.<backend>.json` (`:2676`, and ADR-028 for why there are two).
 `persist_graph` has exactly one production caller, and it is that line.
 
 A backend that returns anything other than a `Result` is rejected by name rather than
-mishandled (`graph_ops.py:2544`). `project_dir` is a required backend attribute for this reason
+mishandled (`graph_ops.py:2587`). `project_dir` is a required backend attribute for this reason
 alone — the contract does the writing, so it has to be told where (`substrate.py:600`, `:653`).
 
 `Result` is a type rather than a bare dict because a dict cannot say "nothing changed", which
@@ -34,7 +34,7 @@ alone — the contract does the writing, so it has to be told where (`substrate.
 What the backend keeps is the decision to *rebuild*. Only it knows which tool ran and what that
 tool can see, so when a backend reports its artifact current the contract writes nothing, even
 if that artifact is schema-old: it says on stderr that the backend should have rebuilt it and
-leaves it alone (`graph_ops.py:2549`–`:2567`).
+leaves it alone (`graph_ops.py:2592`–`:2610`).
 
 ## Rationale
 
@@ -70,7 +70,7 @@ it should be read that way rather than as a guarantee that a graph on disk is so
 Exactly one check does block, and it is the one validation cannot make: an empty `files` dict is
 *valid* — there is no edge to be wrong about — so a backend that silently stops working would
 overwrite a good graph and report `status: built`. `_refuse_to_erase` raises instead
-(`graph_ops.py:2642`), which lets the caller degrade to the floor and keeps the previous artifact
+(`graph_ops.py:2694`), which lets the caller degrade to the floor and keeps the previous artifact
 until something can replace it honestly (ADR-019).
 
 The split holds up now that a second backend is real: `GraphifyBackend.build()` extracts,
@@ -114,7 +114,7 @@ through.
   (`test_backend_graphify.py:939`–`:941`, `:964`). `substrate.py` was not an option either: it is
   the contract and deliberately knows nothing about implementations (`backends.py:4`), while
   finalisation must reach into the floor — `_finalise`'s census constructs a `CodeGraph` to
-  borrow its scope rule (`graph_ops.py:2785`).
+  borrow its scope rule (`graph_ops.py:2837`).
 
 - **Refuse to write a graph that fails validation.** The strict reading, and the one that makes
   the validator a guarantee rather than a note: no consumer could ever act on an edge the
@@ -141,7 +141,7 @@ through.
   delete it rather than keep it as evidence of a promise.
 
 - **`_refuse_to_erase` starts firing on legitimate builds.** It compares against the active
-  artifact whoever wrote it (`graph_ops.py:2661`), so switching a repository from a polyglot
+  artifact whoever wrote it (`graph_ops.py:2713`), so switching a repository from a polyglot
   backend to the floor — a Java project going from a full graph to zero readable files — trips
   the refusal, and when the floor *is* the running backend the CLI exits 1 and tells the user to
   `--clear` first. That is right for a backend that broke and wrong for a backend swap that

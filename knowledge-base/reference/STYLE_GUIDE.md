@@ -143,7 +143,7 @@ that set it:
 FRONTMATTER_LIMITS = {"description": 1024, "compatibility": 500, "name": 64}
 ```
 
-`skills/freya-code-graph/scripts/graph_ops.py:1016`–`:1020` — a search order that reads like an
+`skills/freya-code-graph/scripts/graph_ops.py:1032`–`:1036` — a search order that reads like an
 omission, with the measurement proving it is not:
 
 ```python
@@ -228,7 +228,7 @@ files, reading files those tests just wrote. This is a Windows rule: CI runs the
 Ten shipped-code `open()` calls do not follow it and fall back to the platform default — eight
 in `skills/freya-docs-manager/scripts/detect_project.py` (reading `package.json`,
 `pyproject.toml`, `schema.prisma`) and two in
-`skills/freya-code-graph/scripts/graph_ops.py:1584` and `:1643` (reading and writing
+`skills/freya-code-graph/scripts/graph_ops.py:1600` and `:1659` (reading and writing
 `classifications.json`). It was eleven and nine before SEC-008: the Kubernetes probe that used
 to `open()` a whole YAML file in text mode now reads a bounded prefix in **binary** and matches
 `b"apiVersion"`, so it takes no encoding argument and left the census by being rewritten rather

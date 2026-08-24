@@ -15,9 +15,27 @@ tags:
 
 ## Decision
 
+> **Correction (2026-08-24, dated append per ADR-016).** *"Nothing outside the root is ever
+> discovered"* was true of **imports** and false of **symlinks** when this record was written,
+> and the gap was found by auditing this sentence rather than by the scan. A symlink committed
+> inside the project whose target resolved outside it was picked up by `_scan_files`, opened,
+> parsed, and its declarations published as a node's `exports` — no declaration present,
+> nothing on stderr. Filed as SEC-023 and fixed the same day: discovery now asks
+> `containment.within` of every candidate, so a link whose realpath leaves the project is
+> refused when nothing declares its target and reported as a crossing when something does,
+> in both cases without becoming a node. The sentence below now holds for both routes.
+>
+> Two things worth carrying forward from how it was missed. It is SEC-008's defect on the
+> other traversal — that one bounded docs-manager's YAML walk and taught it to refuse
+> symlinks, and the code graph's own file discovery was never given the same rule, because
+> nobody asked whether the two walks had the same obligation. And a first attempt to reproduce
+> it came back clean, because the fixture had no committed `settings.json` and the
+> classification path differs without one. A negative result was worth nothing without that
+> detail, which is the argument for writing the fixture down and not just the conclusion.
+
 Inside the project root, discovery stays automatic and needs no configuration. Nothing outside
-the root is ever discovered. It is reached only when the project has declared it, and only
-along a reference that in-project code wrote.
+the root is ever discovered — not along an import, and not through a symlink. It is reached
+only when the project has declared it, and only along a reference that in-project code wrote.
 
 A project declares an out-of-tree directory in its committed `knowledge-base/settings.json`,
 under a new top-level `outside` section mapping an **alias** to a **relative directory**:
@@ -100,9 +118,9 @@ code change at all. The consequence is stated where it is read: an outer root ca
 
 **Adoption is per consumer, and the default is refusal.** In this branch only code-graph's
 containment sites honour a declaration — `CodeGraph._contain`
-(`skills/freya-code-graph/scripts/graph_ops.py:708`), reached from `_resolve_fs`
-(`skills/freya-code-graph/scripts/graph_ops.py:784`) and `_resolve_python_module`
-(`skills/freya-code-graph/scripts/graph_ops.py:984`), and through them from the alias and
+(`skills/freya-code-graph/scripts/graph_ops.py:724`), reached from `_resolve_fs`
+(`skills/freya-code-graph/scripts/graph_ops.py:800`) and `_resolve_python_module`
+(`skills/freya-code-graph/scripts/graph_ops.py:1000`), and through them from the alias and
 workspace resolvers. Everything else continues to refuse every path outside the project root,
 declared or not: `verify_links`, `detect_project`, `audit_engine.resolve_spec_reference`,
 docs-manager and behavior-runner. That asymmetry is a decision and not an oversight.
@@ -134,18 +152,18 @@ contributed rather than on every macOS checkout under `/tmp`.
 **The answer says what it read from outside.** ADR-029 obliges an answer to say what it could
 not read; this is the analogue, on the same funnel and with the same discipline. Every build
 records at `graph['substrate']['outside_roots']`
-(`skills/freya-code-graph/scripts/graph_ops.py:2619`) each declared alias, the path as written,
+(`skills/freya-code-graph/scripts/graph_ops.py:2662`) each declared alias, the path as written,
 and how many edges crossed to it, plus every declaration that was refused and why. The key is
 **absent** — not empty — when the project declares nothing, so a repository that has never used
 this produces byte-identical output. A declared root nothing imported is reported with
-`crossings: 0` rather than omitted (`skills/freya-code-graph/scripts/graph_ops.py:2884`): a
+`crossings: 0` rather than omitted (`skills/freya-code-graph/scripts/graph_ops.py:2990`): a
 declaration that buys nothing is a typo or a leftover, and silent no-effect configuration is the
 defect this settings file has already paid for twice. `--query` and `--impact` carry the block
-in their payload (`skills/freya-code-graph/scripts/graph_ops.py:2837`); `--dependents` and
+in their payload (`skills/freya-code-graph/scripts/graph_ops.py:2889`); `--dependents` and
 `--dependencies` keep their bare arrays and say it on stderr
-(`skills/freya-code-graph/scripts/graph_ops.py:3031`), for the reasons ADR-029 measured and
+(`skills/freya-code-graph/scripts/graph_ops.py:3137`), for the reasons ADR-029 measured and
 which have not changed. `--format summary` carries the same sentence on all four of its surfaces
-(`skills/freya-code-graph/scripts/graph_ops.py:3099`), beside the census line ADR-029 added there
+(`skills/freya-code-graph/scripts/graph_ops.py:3205`), beside the census line ADR-029 added there
 for the analogous case. Without it the split was inverted on exactly the surface a person reads:
 `--query --format summary` printed an `outside:` target with no qualification and `--impact
 --format summary` printed a blast radius with nothing on either stream, while both carried the
@@ -155,7 +173,7 @@ block in `--format json`.
 about the *edges*, and gating it on a declaration merely being in force made it false in the
 commonest state of a new one — a root nobody has imported through yet — on `--build` and again
 on every `--dependents`. So a total of zero says the roots were **not reached**
-(`skills/freya-code-graph/scripts/graph_ops.py:2890`), which is both the true statement and the
+(`skills/freya-code-graph/scripts/graph_ops.py:2996`), which is both the true statement and the
 one that reads as an invitation to check the declaration.
 
 **"Every build" includes the incremental one, and that costs a rebuild.** A declaration is not a
@@ -164,7 +182,7 @@ says moved, while the report is recomputed from the settings file as it reads no
 directions were reachable by touching one unrelated file and both lied — remove a declaration
 and the artifact keeps `outside:` targets with nothing in force, add one and the report says
 `crossings: 0` over a file that does cross. A change to the declared roots therefore discards the
-cached graph and forces a full build (`skills/freya-code-graph/scripts/graph_ops.py:2211`), on
+cached graph and forces a full build (`skills/freya-code-graph/scripts/graph_ops.py:2254`), on
 the same reasoning `RULES_VERSION` already discards cached directory verdicts. The comparison is
 over the declarations and not over what they resolve to: a root whose target is replaced on disk
 between two runs keeps its signature and does not force a rebuild, because git cannot see outside

@@ -8,7 +8,7 @@ properties are enforced by tested code rather than by prose.
 
 This is not a vulnerability report of a project the toolkit scanned. Those are written per
 scan to `knowledge-base/security/codebase-security/YYYY-MM-DD.md` in the scanned project
-(`skills/freya-codebase-security-scan/SKILL.md:812`), alongside a machine-readable
+(`skills/freya-codebase-security-scan/SKILL.md:824`), alongside a machine-readable
 `findings.json` (`skills/freya-codebase-security-scan/references/findings-schema.md`).
 
 **This repository now has one, and it is tracked.** `knowledge-base/security/` holds
@@ -57,7 +57,7 @@ What the toolkit does execute:
 | What | Where | Notes |
 |---|---|---|
 | A bundled script, under the current interpreter | `bin/freya_cli.py:135` | argv is `[sys.executable, <script from bin/commands.json>, *args]`; no `python` need be on `PATH` |
-| `git`, read-only queries | `skills/freya-status/scripts/collect_status.py:33`, `skills/freya-code-graph/scripts/graph_ops.py:535`, `skills/freya-spec-manager/scripts/verify_intent.py:76` | `rev-parse`, `diff --name-only` and similar; the graph and status layers never write git state. These are bare-`git` sites; the two resolved ones are `bin/updater.py:170` and `skills/freya-code-graph/scripts/backend_graphify.py:743` |
+| `git`, read-only queries | `skills/freya-status/scripts/collect_status.py:33`, `skills/freya-code-graph/scripts/graph_ops.py:551`, `skills/freya-spec-manager/scripts/verify_intent.py:76` | `rev-parse`, `diff --name-only` and similar; the graph and status layers never write git state. These are bare-`git` sites; the two resolved ones are `bin/updater.py:170` and `skills/freya-code-graph/scripts/backend_graphify.py:743` |
 | `git fetch` and `git merge --ff-only` | `bin/updater.py:346`, `:360` | Only during `freya update`, which fast-forwards the checkout to its tracked branch (`CONTRIBUTING.md:222`) |
 | An agent CLI as an audit worker | `skills/freya-codebase-security-scan/scripts/audit_adapter.py:123`, `:139` | The subject of most of this document. argv[0] is an absolute path or the worker does not start |
 | The project's own test command | `skills/freya-behavior-runner/scripts/run_behaviors.py:228`, `:459` | `pnpm vitest run <test file>`. Running a project's tests is executing project-controlled code, by design and unavoidably. This is the one spawn that is neither resolved nor allowlisted, and the one bare name INV-2 cannot see |
@@ -175,9 +175,9 @@ repository that left `git status --porcelain` and HEAD identical before and afte
 | Read files by absolute path — the argv sets no path boundary | Run a shell command, hence no shell redirect |
 | Return a JSON object on stdout | Be granted a blanket permission flag, even via the prompt (`audit_adapter.py:83`) |
 | Take up to `--timeout` seconds, 600 by default (`audit.py:41`) | Ask a question — Copilot workers run `--no-ask-user` (`audit_adapter.py:142`) and there is no tty |
-| Fail, and be retried once (`audit.py:42`) | Write the report, assign `SEC-###` ids, or re-evaluate previous findings — those stay in the skill's main loop (`skills/freya-codebase-security-scan/SKILL.md:545`) |
+| Fail, and be retried once (`audit.py:42`) | Write the report, assign `SEC-###` ids, or re-evaluate previous findings — those stay in the skill's main loop (`skills/freya-codebase-security-scan/SKILL.md:557`) |
 | Be started only from an absolute path the operator's `PATH` produced (`audit_adapter.py:107`) | Be started from the scanned repository's own tree, or from a bare name the OS re-searches (`audit_adapter.py:210`) |
-| | Commit anything. Only `freya-wrap-up` commits generated artifacts (`skills/freya-codebase-security-scan/SKILL.md:814`) |
+| | Commit anything. Only `freya-wrap-up` commits generated artifacts (`skills/freya-codebase-security-scan/SKILL.md:826`) |
 
 That last row is a convention, not an enforced boundary, and it is enforced nowhere — see
 [DEVELOPER.md § Artifacts, Not Commits](DEVELOPER.md#artifacts-not-commits) for the incident
@@ -407,7 +407,7 @@ The worst case is `1 + rounds x 6 + 3 x findings` logical tasks, each of which m
 (`audit.py:153`, `:163`). One finder worker measured $0.396 on a trivial fixture (ADR-015),
 so a full audit is dozens of calls and tens of dollars on a real repository. That cost is the
 reason `audit` is on-demand and is deliberately **not** part of `freya-wrap-up`, which runs
-`update` (`skills/freya-codebase-security-scan/SKILL.md:532`, `:624`).
+`update` (`skills/freya-codebase-security-scan/SKILL.md:544`, `:636`).
 
 The gates, in the order a run meets them:
 
@@ -553,7 +553,7 @@ correct.** `covering()` re-checks a declared locator itself rather than trusting
 divergences are tabulated in the query's own docstring
 (`skills/freya-behavior-graph/scripts/behavior_graph.py:556`–`:568`) and executed by
 `LocatorCheckDivergesFromTier1Test`
-(`skills/freya-behavior-graph/scripts/test_behavior_graph.py:861`): a locator with no path part
+(`skills/freya-behavior-graph/scripts/test_behavior_graph.py:989`): a locator with no path part
 and a locator naming a directory both pass Tier 1 and are refused here, while a missing locator
 on a non-`manual` adapter and a `.py` fragment naming no symbol are refused by Tier 1 and
 returned here. The two that favour this query fail closed — the finding stays open — which is
@@ -563,7 +563,7 @@ first person to meet a correct refusal on a green repository will otherwise file
 
 **A downgrade annotates and reclassifies; it never deletes.** The finding stays fully visible
 in the report with status INTENTIONAL DESIGN and a `behavior_ref` naming the behavior, plus the
-query's `evidence` string copied verbatim (`skills/freya-codebase-security-scan/SKILL.md:427`;
+query's `evidence` string copied verbatim (`skills/freya-codebase-security-scan/SKILL.md:432`;
 `skills/freya-codebase-security-scan/references/findings-schema.md:22`, `:40`), and drops out
 of the *outstanding* count only. That last part is code: `collect_status` counts a finding as
 outstanding unless its status is exactly `open`
@@ -577,7 +577,7 @@ filter above, **this half is procedure**: the report is written by the skill's m
 nothing checks that a downgraded finding is still in it. A misjudgment is therefore a visible,
 reversible annotation rather than a vanished finding. Findings also persist across scans: the previous report's findings
 are re-evaluated and carried forward as PERSISTENT, RESOLVED or REGRESSED rather than dropped
-(`skills/freya-codebase-security-scan/SKILL.md:776`–`:800`).
+(`skills/freya-codebase-security-scan/SKILL.md:788`–`:812`).
 
 **Where a finding genuinely does disappear.** Two honest exceptions to "never deleted", both
 inside the driver and before any report exists:
@@ -589,7 +589,7 @@ inside the driver and before any report exists:
   (`audit_engine.py:307`). No information is not unanimous refutation. This is a deliberate
   divergence from the retired JS engine, which deleted the finding.
 
-The `mitigated` disposition appears in the skill's status mapping (`skills/freya-codebase-security-scan/SKILL.md:612`) but **no
+The `mitigated` disposition appears in the skill's status mapping (`skills/freya-codebase-security-scan/SKILL.md:624`) but **no
 code path emits it**: `grep -rn mitigated skills/ --include='*.py'` outside tests returns
 nothing. It is a known dead branch (ADR-015 § Revisit Conditions).
 

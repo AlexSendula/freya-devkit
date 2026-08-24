@@ -141,7 +141,7 @@ not a bug. Do not "fix" `auto` to choose the widest backend.
 **Decision**: Every path where the requested backend cannot be used — not on PATH, not a
 registered name at all, raises on construction, fails `conformance_errors`, or throws
 mid-build — falls back to the floor, finishes the build, and exits 0
-(`backends.py:138`–`:150`, `graph_ops.py:3369`–`:3387`, `graph_ops.py:2668`). The only
+(`backends.py:138`–`:150`, `graph_ops.py:3475`–`:3493`, `graph_ops.py:2720`). The only
 non-recoverable case is the floor itself failing, which is re-raised.
 
 **Rationale**: ADR-019. The floor is what the run would have used had nobody configured
@@ -152,7 +152,7 @@ discharged by recording the fallback rather than by refusing to answer.
 `choose_backend` and `_run_or_degrade` are deliberate fail-open paths, not swallowed errors.
 Each one writes `degraded_from` and a reason into the artifact. Flag them only if a path is
 found that degrades *without* recording it — that is the actual defect class here, and it has
-occurred once (`graph_ops.py:3375`).
+occurred once (`graph_ops.py:3481`).
 
 ### The first build writes the machine's answer into the project's committed settings
 

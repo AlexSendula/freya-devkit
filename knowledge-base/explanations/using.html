@@ -362,11 +362,11 @@ freya code-graph --use graphify --global   <span class="tok-c"># and every futur
               imports.</li>
               <li>Monorepos want one graph per subproject, and a <code>tsconfig</code> <code>extends</code>
               chain is not followed.</li>
-              <li><strong>No import reaches outside the project root unless you declare it.</strong>
+              <li><strong>Nothing outside the project root is reached unless you declare it.</strong>
               An import's <code>..</code>, a tsconfig <code>paths</code> escape and an absolute
-              import all come back <code>unresolved:</code>. A file symlink committed inside the
-              project and pointing outside is a known exception — it is still followed and read
-              (SEC-023). Naming a
+              import all come back <code>unresolved:</code>, and a committed symlink pointing
+              out of the project is refused rather than followed. A symlink that stays inside
+              the project still works. Naming a
               sibling directory under <code>outside</code> in
               <code>knowledge-base/settings.json</code> — <code>{"ui": "../packages/ui"}</code> — makes
               imports that land there resolve to <code>outside:ui/&lt;path&gt;</code> instead of

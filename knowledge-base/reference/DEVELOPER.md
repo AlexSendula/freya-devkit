@@ -314,7 +314,7 @@ artifact and carries no such statement is **`freya-code-graph`**, which writes t
 The reason is empirical: phase-6 validation watched an agent with broad tool permissions infer a
 `git commit` that no skill had asked for **and push a malformed message into the history of a
 repository it had only been asked to scan**
-(`skills/freya-codebase-security-scan/SKILL.md:814`). An agent will fill in the step you left
+(`skills/freya-codebase-security-scan/SKILL.md:826`). An agent will fill in the step you left
 implicit, so leave none. No conformance rule can check this — prose is the only lever a skill
 has — which is why it is a checklist item below rather than something the gate catches for you.
 

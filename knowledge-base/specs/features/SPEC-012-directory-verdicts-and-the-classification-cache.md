@@ -130,7 +130,7 @@ The `outside` section is invalidated on the same principle by a second mechanism
 declaration is not a per-file change, so per-file incrementality cannot see it:
 `CodeGraph.update` compares the roots declared when the artifact was written against
 the roots declared now and forces a full rebuild when they differ
-(`graph_ops.py:2213`). Without that, an `--update` triggered by any unrelated file
+(`graph_ops.py:2256`). Without that, an `--update` triggered by any unrelated file
 leaves every unchanged file holding edges resolved under the old declarations while
 the report is stamped from the new ones — reachable in both directions, and both
 artifacts lie. The comparison is over the declarations and not over what they resolve

@@ -31,7 +31,7 @@ project's `knowledge-base/settings.json`, falling back to a machine-level defaul
 defaulting to `false` (`skills/freya-code-graph/scripts/settings.py:158`, `:817`).
 Asking is a request, not a requirement — a backend that cannot see symbols is
 unaffected, and the floor resolver declares only `imports` and `re_export`
-(`skills/freya-code-graph/scripts/graph_ops.py:439`), so turning the flag on
+(`skills/freya-code-graph/scripts/graph_ops.py:455`), so turning the flag on
 for a homegrown project changes nothing.
 
 A behaviour's symbols come from the istanbul coverage report — the named functions
@@ -80,7 +80,7 @@ reproduces now, so the ratio is the durable fact here and the counts are not.
 
 Nothing narrows on those symbols. The only code that reads them is the printed edge
 annotation on `--query --format summary`, which renders `[calls: caller → callee:42]`
-(`graph_ops.py:3065`). Everything that gates or feeds another skill works in path
+(`graph_ops.py:3171`). Everything that gates or feeds another skill works in path
 strings by design (ADR-021). So the size is currently paid for human display, and
 default-off is the honest price for a consumer that does not exist yet.
 
@@ -166,7 +166,7 @@ file; qualifying with the owner takes that to zero
   Rejected because there is no such reader: the field is written
   (`behavior_graph.py:239`, `run_behaviors.py:446`) and nothing anywhere inspects it,
   unlike `graph.json`'s version, which really does drive a staleness rebuild
-  (`graph_ops.py:2202`). Bumping it would have been a compatibility gesture with no
+  (`graph_ops.py:2245`). Bumping it would have been a compatibility gesture with no
   compatibility behind it. The guarantee that matters is structural and is asserted
   instead of announced: an entry with no symbols is byte-identical to one written
   before the field existed
@@ -184,7 +184,7 @@ file; qualifying with the owner takes that to zero
 
 - **A consumer appears that genuinely narrows on a symbol.** The default-off trade
   rests entirely on there being none; today the sole reader is a print statement
-  (`graph_ops.py:3065`). When `behavior-graph`, `docs-manager` or wrap-up wants to
+  (`graph_ops.py:3171`). When `behavior-graph`, `docs-manager` or wrap-up wants to
   answer *which function*, re-argue it — and start with whether the switch should be
   per relation kind (`calls` only, say) rather than one global boolean, since that is
   where most of the 6x comes from.
