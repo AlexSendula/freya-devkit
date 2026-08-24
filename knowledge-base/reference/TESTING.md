@@ -91,8 +91,9 @@ total ~41s against the whole suite's 42s, so there is no shared setup cost hidin
 is installed. The other six areas together finish in under nine seconds, so
 `python3 -m pytest skills/freya-spec-manager -q` while iterating costs nothing.
 
-The **1,345 subtests** are `self.subTest(...)` loops — 157 call sites across 26 files, counted by
-AST and reproducible as `grep -rn '\.subTest(' bin skills --include='test_*.py' | wc -l`. Count
+The **1,345 subtests** are `self.subTest(...)` loops — 157 call sites across 26 files *in that
+same tree*, counted by AST and reproducible there as
+`grep -rn '\.subTest(' bin skills --include='test_*.py' | wc -l`. Count
 the calls, not the word: dropping the `\.` and the `(` from that pattern reads 162 over the same
 files, because five of the hits are prose about subtests rather than a call. pytest
 reports each iteration's outcome separately from the 2,089 test items; `unittest` reports only
@@ -155,7 +156,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 Twenty-five call `sys.path.insert` at all; the two extras are not this idiom — they put a
 *sibling skill's* `scripts/` on the path and leave their own subject to pytest
-(`bin/test_workflow_pins.py:60`, `skills/freya-codebase-security-scan/scripts/test_findings_index.py:19`–`:20`).
+(`bin/test_workflow_pins.py:76`, `skills/freya-codebase-security-scan/scripts/test_findings_index.py:19`–`:20`).
 The other fourteen simply write `import installer` or `import audit_io` and rely on pytest's
 `prepend` mode putting the test file's own directory on `sys.path` — which is also what
 `unittest discover -s <dir>` and a direct `python3 bin/test_installer.py` do. Both work; the
@@ -180,11 +181,14 @@ all resolved the same way, by a `parents[2]` constant and a `sys.path.insert` be
 | `skills/freya-behavior-runner/scripts/run_behaviors.py:36` | `freya-code-graph` | `containment` |
 | `skills/freya-spec-manager/scripts/project_shape.py:30` | `freya-code-graph` | `substrate.IMPORT_SIGNALS` |
 
-Five of the nine are new, and all three import a **shared primitive** rather than a feature:
-one body of the containment rule and one body of the program-resolution rule, placed in
-`freya-code-graph/scripts/` by ADR-030 because that is the only location that survives every
-install mode. `verify_links.py` used to carry its own copy of `escapes` with a docstring
-claiming the two were "deliberately identical" and nothing holding them to it, which is the
+Five of the nine are new on this branch, and they are exactly the five that reach into
+`freya-code-graph` — each for a **shared primitive** rather than for a feature: one body of the
+containment rule (`containment.py`), one body of the program-resolution rule (`exec_path.py`),
+and one table of the prefixes that mark an import target as not-a-file-in-this-project
+(`substrate.IMPORT_SIGNALS`). All three sit in `freya-code-graph/scripts/` by ADR-030, because
+that is the only location that survives every install mode. `verify_links.py` used to carry its
+own copy of `escapes` with a docstring claiming the two were "deliberately identical" and
+nothing holding them to it, which is the
 duplicate-security-predicate shape ADR-002 forbids. The two `freya-code-graph` importers that
 can be reached on a damaged tree guard the import and refuse rather than falling back —
 `audit_adapter.py:52`, and `bin/updater.py:75` outside `skills/`.
@@ -352,7 +356,7 @@ unmapped-source census.
 `substrate.CENSUS_PRUNE` (`skills/freya-code-graph/scripts/substrate.py:907`) is a set of
 directory names — `node_modules`, `dist`, `build`, `vendor`, `target` and others — that the walk
 prunes *before* it calls `_should_exclude`
-(`skills/freya-code-graph/scripts/graph_ops.py:2819`). An earlier version of
+(`skills/freya-code-graph/scripts/graph_ops.py:2844`). An earlier version of
 `test_it_honours_the_build_s_own_exclusions` built its fixture under `node_modules/` and `dist/`.
 The assertion passed. It would also have passed with `_should_exclude` deleted, because no
 fixture file ever reached it (`skills/freya-code-graph/scripts/test_graph_ops.py:2075`). The fix
@@ -372,7 +376,7 @@ Two older findings sit in the same three shapes:
 Worked, measured, on this checkout — this is the whole ritual:
 
 ```bash
-# delete the two-line dotfile guard at graph_ops.py:2821-2695, then:
+# delete the two-line dotfile guard at graph_ops.py:2846-2720, then:
 python3 -m pytest skills/freya-code-graph/scripts/test_graph_ops.py -q
 # → 1 failed, 163 passed      (at f407251 — the total moves as the file grows; the 1 does not)
 #   FAILED ...::TestUnmappedSourceWalk::test_dotfiles_and_extensionless_files_are_skipped
@@ -639,7 +643,7 @@ reaches it (`skills/freya-status/scripts/collect_status.py:80`) and nothing is c
 written, against 24 real, because `gaps()` subtracted covered files from *every* file in the
 graph and so counted every `test_*.py`, `conftest.py`, `install.sh`, `install.ps1` and the
 extensionless `bin/freya` as files a behavior ought to cover. `gaps()` now filters through
-`_is_coverable` (`skills/freya-behavior-graph/scripts/behavior_graph.py:380`), which drops test
+`_is_coverable` (`skills/freya-behavior-graph/scripts/behavior_graph.py:401`), which drops test
 files, extensionless scripts and languages no import system can address; roadmap item 15 is
 struck as resolved by item 18. Read the current 28 as a worklist rather than as an upper bound.
 

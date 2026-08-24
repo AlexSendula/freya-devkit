@@ -28,7 +28,7 @@ one.
 
 Graph refinement is off unless a project asks for it: `substrate.symbols` in the
 project's `knowledge-base/settings.json`, falling back to a machine-level default,
-defaulting to `false` (`skills/freya-code-graph/scripts/settings.py:158`, `:817`).
+defaulting to `false` (`skills/freya-code-graph/scripts/settings.py:158`, `:829`).
 Asking is a request, not a requirement — a backend that cannot see symbols is
 unaffected, and the floor resolver declares only `imports` and `re_export`
 (`skills/freya-code-graph/scripts/graph_ops.py:455`), so turning the flag on
@@ -80,7 +80,7 @@ reproduces now, so the ratio is the durable fact here and the counts are not.
 
 Nothing narrows on those symbols. The only code that reads them is the printed edge
 annotation on `--query --format summary`, which renders `[calls: caller → callee:42]`
-(`graph_ops.py:3185`). Everything that gates or feeds another skill works in path
+(`graph_ops.py:3210`). Everything that gates or feeds another skill works in path
 strings by design (ADR-021). So the size is currently paid for human display, and
 default-off is the honest price for a consumer that does not exist yet.
 
@@ -99,7 +99,7 @@ the sharper of the two on that report: exactly one of the 775, `verifyChallenge`
 the test loaded and not what it entered.
 
 Symbols reach `behavior.json` only on the observed path. The static fingerprint used
-for integration-level behaviours passes none (`run_behaviors.py:384`), which is
+for integration-level behaviours passes none (`run_behaviors.py:398`), which is
 correct: a static dependency closure is inference and has no measured function to
 name.
 
@@ -157,20 +157,20 @@ file; qualifying with the owner takes that to zero
 - **One `exercises` entry per symbol.** A flat list is easier to filter, and it makes
   the symbol a first-class row rather than an attribute of a file. Rejected because
   `behavior-graph` reads `exercises[].path`, and Direction B returns those paths as a
-  list (`skills/freya-behavior-graph/scripts/behavior_graph.py:249`), so a file with
+  list (`skills/freya-behavior-graph/scripts/behavior_graph.py:270`), so a file with
   three exercised functions would be reported three times and every count derived
   from that list would shift. A refinement must not change cardinality.
 
 - **Bump `behavior.json`'s `version`.** Exactly what a version field is for, and it
   would let a future reader distinguish a pre-symbol file from a post-symbol one.
   Rejected because there is no such reader: the field is written
-  (`behavior_graph.py:239`, `run_behaviors.py:446`) and nothing anywhere inspects it,
+  (`behavior_graph.py:260`, `run_behaviors.py:475`) and nothing anywhere inspects it,
   unlike `graph.json`'s version, which really does drive a staleness rebuild
-  (`graph_ops.py:2245`). Bumping it would have been a compatibility gesture with no
+  (`graph_ops.py:2270`). Bumping it would have been a compatibility gesture with no
   compatibility behind it. The guarantee that matters is structural and is asserted
   instead of announced: an entry with no symbols is byte-identical to one written
   before the field existed
-  (`skills/freya-behavior-runner/scripts/test_run_behaviors.py:336`).
+  (`skills/freya-behavior-runner/scripts/test_run_behaviors.py:344`).
 
 - **Narrow Direction A with symbols** — wake only the behaviours whose measured
   functions a change actually touched, rather than every behaviour that touches the
@@ -184,7 +184,7 @@ file; qualifying with the owner takes that to zero
 
 - **A consumer appears that genuinely narrows on a symbol.** The default-off trade
   rests entirely on there being none; today the sole reader is a print statement
-  (`graph_ops.py:3185`). When `behavior-graph`, `docs-manager` or wrap-up wants to
+  (`graph_ops.py:3210`). When `behavior-graph`, `docs-manager` or wrap-up wants to
   answer *which function*, re-argue it — and start with whether the switch should be
   per relation kind (`calls` only, say) rather than one global boolean, since that is
   where most of the 6x comes from.

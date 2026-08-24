@@ -513,11 +513,13 @@ freya code-graph --use graphify --global   <span class="tok-c"># and every futur
             <h4>Limits</h4>
             <ul>
               <li>Only <strong><code>accepted</code></strong> behaviors downgrade a finding; proposed
-              and confirmed add an advisory note at most. <strong>No test is run to establish
-              that.</strong> The query checks that the behavior's state is <code>accepted</code> in
-              the specs and that a declared locator resolves to a file in the project — both read
-              from artifacts the scanned repository commits — and returns a sentence saying so, which
-              the report must carry verbatim. It is a narrower claim than a spec, not a
+              and confirmed add an advisory note at most. The query checks that the behavior's state
+              is <code>accepted</code> in the specs, that its locator resolves to a file in the
+              project, and that the exercised path was <code>observed</code> rather than inferred
+              from the import graph — all read from artifacts the scanned repository commits — and
+              returns a sentence saying so, which the report must carry verbatim. <strong>The scan
+              passes <code>--verify</code></strong>, so the linked test is re-run; on the plain
+              query, which runs nothing, that sentence is a label on evidence and not a
               verification.</li>
               <li>On the driver path, exactly <strong>three</strong> refutation lenses run per finding. (The
               "2–3 lenses" wording elsewhere describes the in-loop <code>update</code> pass, not the

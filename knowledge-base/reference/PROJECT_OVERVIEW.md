@@ -45,7 +45,7 @@ The supervising human is a first-class constraint, not an afterthought:
   refuses rather than defaulting to yes (`audit.py:452`).
 - Which graph backend to use is a person's answer: asked once per machine at install
   (`bin/backend_setup.py:104`), resolved project-then-machine-then-floor
-  (`skills/freya-code-graph/scripts/settings.py:727`), and never scored automatically —
+  (`skills/freya-code-graph/scripts/settings.py:739`), and never scored automatically —
   `auto` means the floor and nothing else (`skills/freya-code-graph/scripts/backends.py:166`,
   [ADR-019](../decisions/ADR-019-the-floor-and-choosing-a-backend.md)).
 - Model-judgment checks are *resolve-to-proceed* procedures, not script exit codes; only

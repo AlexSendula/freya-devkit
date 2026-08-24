@@ -59,8 +59,9 @@ crossed". See
 records this as a known limit.
 
 **Everything else here is a security pass** and changes nothing you type. The toolkit was
-audited against itself; of the nineteen open findings, eighteen are fixed and one more was
-found and fixed on the way. Two of them mattered on Windows, where `CreateProcess` searches
+audited against itself; of the twenty-one findings, two are recorded as intentional design and
+the other nineteen are fixed, as are the two more found while fixing them — the index counts
+zero open. Two of them mattered on Windows, where `CreateProcess` searches
 the working directory before `PATH`: a scanned repository that committed a `graphify.exe` or a
 `claude.exe` at its root could get its own binary run as you. Both are closed the same way —
 `graphify` and the agent CLIs are resolved to an absolute path before they are spawned, or
@@ -84,11 +85,17 @@ knowing:
   loud that the package is `graphifyy` with two y's while the command it installs is `graphify`
   with one.
 
-Every GitHub Action this repo runs is SHA-pinned, with Dependabot to move the pins. One finding
-is **mitigated rather than closed** and is deliberately still listed as open:
-`--covering` now *labels* the evidence behind an accepted behavior instead of calling it a
-verified guarantee, because the only evidence that would not come from the scanned repository
-itself is running that repository's tests, which is worse than the problem.
+Every GitHub Action this repo runs is SHA-pinned, with Dependabot to move the pins. The finding
+that took longest was about `--covering`, the query that lets an accepted behavior silence a
+security finding. It was first closed as *mitigated* on the argument that the only evidence not
+supplied by the scanned repository would be running that repository's tests — and that argument
+was wrong: freya is a tool you point at a repository you are working in, and
+`freya-behavior-runner` exists to run its tests. So it was closed properly instead. A downgrade
+now needs an **observed** coverage source (an edge inferred from the import graph no longer
+counts), needs a locator that resolves, and carries the symbols the run actually touched; and
+`--covering --verify` **re-runs the linked test**, which is how the security scan calls it.
+Without `--verify` the answer is still a label on evidence rather than a verification, and the
+`evidence` string it returns says so in those words.
 
 ## What's new in 0.3.0 — the graph reads your language
 

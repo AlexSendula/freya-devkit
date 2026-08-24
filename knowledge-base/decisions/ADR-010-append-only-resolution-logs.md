@@ -28,7 +28,7 @@ The shared module is a worked rule of three. G3 stated the case for duplication 
 
 The duplication was measured before it was removed. `append_resolution` and `_load_records` were verbatim across all three modules with only the relpath differing, while `active_prior` had exactly two shapes over one algorithm — latest-wins per key, drop keys whose latest verdict is superseded, filter by the caller's query, de-dupe by append index. G2 and P4b explode a record over its `paths` and key on `(field, path)`; G3 keys once on `(spec, against)`. Both are expressible through a single `keys_of` callback, which is how `active` is parameterised (`skills/freya-spec-manager/scripts/resolution_log.py:47`).
 
-Safety came from a hard rule rather than from review: the three existing suites (11 + 16 + 19 tests) had to pass **with no edits**, and any needed test edit was treated as a signal the refactor had changed behavior — fix the refactor, not the test. Completion was verified mechanically by grepping each module for a remaining local `latest[` loop and requiring zero hits. All three modules now import the helper (`skills/freya-spec-manager/scripts/contradictions.py:38`, `principles.py:31`, `drift.py:35`).
+Safety came from a hard rule rather than from review: the three existing suites (11 + 16 + 19 tests) had to pass **with no edits**, and any needed test edit was treated as a signal the refactor had changed behavior — fix the refactor, not the test. Completion was verified mechanically by grepping each module for a remaining local `latest[` loop and requiring zero hits. All three modules now import the helper (`skills/freya-spec-manager/scripts/contradictions.py:38`, `principles.py:31`, `drift.py:40`).
 
 ## Rejected Alternatives
 

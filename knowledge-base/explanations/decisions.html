@@ -381,14 +381,19 @@
             <p class="muted small"><strong>Rejected —</strong> letting <code>proposed</code> or
             <code>confirmed</code> behaviors explain findings: intent that nobody has claimed a test
             for is weaker still, so a bootstrap guess could clear a real vulnerability.</p>
-            <p class="muted small"><strong>Corrected 2026-08-24 —</strong> the title's
-            "test-backed" is the record's own false premise, and the ADR now says so at the top.
-            <strong>No test is run.</strong> The query reads behavior state and locator from the
-            specs and exercised paths from the committed <code>behavior.json</code>, both supplied by
-            the repository under audit, and checks the state is <code>accepted</code> and a declared
-            locator resolves. Read "test-backed" as "accepted, and <em>if</em> a locator is declared it resolves" — the check is <code>if locator and not _locator_resolves(...)</code>, so a behavior that declares no locator at all skips it and still licenses the downgrade. The
-            gap is mitigated rather than closed: the query now labels what it trusted and the scan
-            copies that label into the report.</p>
+            <p class="muted small"><strong>Corrected twice on 2026-08-24, the second retracting
+            part of the first —</strong> the title's "test-backed" was the record's own false
+            premise, and the ADR carries both readings at the top. Plain <code>--covering</code>
+            runs no test: it re-derives state and locator from the specs and reads exercised paths
+            from the committed <code>behavior.json</code>. What it now requires is stricter than
+            what the first correction described — the state must be <code>accepted</code>, a
+            locator is <em>required</em> and must resolve, and the exercised path must carry
+            <code>source: observed</code>, so an edge inferred from the import graph licenses
+            nothing. Read "test-backed" as "accepted, with a locator that resolves and an observed
+            run behind it". The first correction also argued the gap could never be closed, because
+            running the repository's own tests would be arbitrary code execution; that is an
+            argument against <code>freya-behavior-runner</code>, which ships to do exactly that, and
+            <code>--covering --verify</code> now re-runs the linked test.</p>
             <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-012-accepted-behavior-downgrades-findings.md">knowledge-base/decisions/ADR-012-accepted-behavior-downgrades-findings.md</a></p>
           </div>
 

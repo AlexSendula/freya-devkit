@@ -33,17 +33,17 @@ string era could express and the only honest reading of it. `upgrade_edges` deli
 stamp `version` (`substrate.py:257`): that field records what is on disk, and reading is how
 staleness is discovered. A version-1 artifact therefore forces a full rebuild inside
 `CodeGraph.update`, ahead of the "nothing changed" short-circuit that the steady-state workflow
-otherwise takes (`graph_ops.py:2239`).
+otherwise takes (`graph_ops.py:2264`).
 
 The node queries stay in paths. `--impact` and `--dependents` answer with path strings projected
-off the edge objects by `edge_ends` (`graph_ops.py:2421`, `:2487`), and `--dependencies` uses
+off the edge objects by `edge_ends` (`graph_ops.py:2446`, `:2512`), and `--dependencies` uses
 `internal_ends`, which is `edge_ends` with the `external:` / `unresolved:` / `outside:` signals
-dropped (`:2457`). Only `--query` returns edges, because it is the one query whose question is
-"tell me about this file" (`graph_ops.py:2345`, `:2375`).
+dropped (`:2482`). Only `--query` returns edges, because it is the one query whose question is
+"tell me about this file" (`graph_ops.py:2370`, `:2400`).
 
 **Provenance is recorded and read by nothing.** Every edge carries `extracted` or `inferred`
 faithfully: the homegrown resolver stamps `extracted` throughout, because it reads import
-statements out of source text and does nothing else (`graph_ops.py:2102`, `:2115`), and the
+statements out of source text and does nothing else (`graph_ops.py:2127`, `:2140`), and the
 graphify backend maps that backend's own `EXTRACTED`/`INFERRED` tag, defaulting an unrecognised
 confidence to `inferred` (`backend_graphify.py:144`, `:670`, `:699`). Past that, no production
 code consults the field. `edge_provenance` has exactly one caller, and it is the reverse-index
@@ -129,11 +129,11 @@ why this record states the field's real status instead of its intended one.
 
 Two boundaries were drawn at the same time and are load-bearing. Node queries answer in paths
 because their callers do set arithmetic on the answer: `set(data["all_affected"]) | set(changed)`
-in spec-manager's drift check (`drift.py:95`) and `paths & impact` in the behavior graph
-(`behavior_graph.py:276`). An edge object there raises `TypeError: unhashable type: 'dict'` in a
+in spec-manager's drift check (`drift.py:100`) and `paths & impact` in the behavior graph
+(`behavior_graph.py:297`). An edge object there raises `TypeError: unhashable type: 'dict'` in a
 skill that gains nothing from the extra fields; the third consumer, behavior-runner, instead
 rejects any `--dependencies` answer that is not a list of strings and degrades that behaviour to
-coverage-unknown (`run_behaviors.py:353`). All three needed no change at all. The readers that
+coverage-unknown (`run_behaviors.py:367`). All three needed no change at all. The readers that
 open `graph.json` directly did, and `project_shape.py:73` now reads both shapes because
 misreading a version-1 artifact would report a wired codebase as greenfield.
 
@@ -180,9 +180,9 @@ rather than load-bearing forever.
   `substrate` metadata block entirely, and that block cannot be reconstructed from the artifact —
   only a real build knows which backend ran and what it can see. Stamping the version would have
   frozen the graph permanently claiming no backend and no coverage. A rebuild, not a rewrite,
-  is what ships (`graph_ops.py:2240`), and the persistence path refuses to rewrite a stale
+  is what ships (`graph_ops.py:2265`), and the persistence path refuses to rewrite a stale
   artifact a backend wrongly reported as up to date, saying so on stderr instead
-  (`graph_ops.py:2613`).
+  (`graph_ops.py:2638`).
 
 - **Discard inferred edges entirely and run the second backend in its most conservative mode.**
   This was the first recommendation when the trust question was raised, and it would have removed
@@ -212,8 +212,8 @@ rather than load-bearing forever.
   polyglot repository, not an argument. The concrete trigger is the first project where an
   inferred edge widens a blast radius enough that `wrap-up`'s affected-behaviour re-run
   (`skills/freya-wrap-up/SKILL.md:168`) blocks on a behaviour the change did not touch. If the
-  filter is written, it belongs where blast radius is *consumed* — `behavior_graph.py:252`,
-  `drift.py:76` — not in the graph, which must go on recording every edge it can see.
+  filter is written, it belongs where blast radius is *consumed* — `behavior_graph.py:273`,
+  `drift.py:81` — not in the graph, which must go on recording every edge it can see.
 
 - **A backend arrives whose relations do not fit the five kinds.** `RELATION_KINDS` is fixed
   deliberately so a caller can ask "does this backend give me calls?" portably, and unmappable

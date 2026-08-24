@@ -57,7 +57,7 @@ What the toolkit does execute:
 | What | Where | Notes |
 |---|---|---|
 | A bundled script, under the current interpreter | `bin/freya_cli.py:135` | argv is `[sys.executable, <script from bin/commands.json>, *args]`; no `python` need be on `PATH` |
-| `git`, read-only queries | `skills/freya-status/scripts/collect_status.py:33`, `skills/freya-code-graph/scripts/graph_ops.py:551`, `skills/freya-spec-manager/scripts/verify_intent.py:76` | `rev-parse`, `diff --name-only` and similar; the graph and status layers never write git state. These are bare-`git` sites; the two resolved ones are `bin/updater.py:170` and `skills/freya-code-graph/scripts/backend_graphify.py:743` |
+| `git`, read-only queries | `skills/freya-status/scripts/collect_status.py:33`, `skills/freya-code-graph/scripts/graph_ops.py:551`, `skills/freya-spec-manager/scripts/verify_intent.py:87` | `rev-parse`, `diff --name-only` and similar; the graph and status layers never write git state. These are bare-`git` sites; the two resolved ones are `bin/updater.py:170` and `skills/freya-code-graph/scripts/backend_graphify.py:743` |
 | `git fetch` and `git merge --ff-only` | `bin/updater.py:346`, `:360` | Only during `freya update`, which fast-forwards the checkout to its tracked branch (`CONTRIBUTING.md:222`) |
 | An agent CLI as an audit worker | `skills/freya-codebase-security-scan/scripts/audit_adapter.py:123`, `:139` | The subject of most of this document. argv[0] is an absolute path or the worker does not start |
 | The project's own test command | `skills/freya-behavior-runner/scripts/run_behaviors.py:228`, `:459` | `pnpm vitest run <test file>`. Running a project's tests is executing project-controlled code, by design and unavoidably. This is the one spawn that is neither resolved nor allowlisted, and the one bare name INV-2 cannot see |
@@ -87,7 +87,7 @@ The security consequence is what makes it belong in this document: because the d
 the workers, the driver decides what the workers are allowed to do.
 
 `scan` and `audit` are presets of one engine differing in exactly one parameter, discovery
-rounds — 1 versus 5 (`audit.py:50`, `audit_engine.py:24`). Verification is never cut. With a
+rounds — 1 versus 5 (`audit.py:50`, `audit_engine.py:47`). Verification is never cut. With a
 single lens any one refutation is unanimous, `disposition` reaches `upheld == 0`, and a real
 vulnerability is dropped with no trace in the report (`audit_engine.py:312`).
 
@@ -298,7 +298,7 @@ remember.
 against a declared root resolves both sides, so a symlink planted under one that points
 elsewhere is not contained and the crossing is refused. A declared root that is *itself* a
 symlink is the other case and is honoured — nothing was crossed implicitly — and named on
-stderr (`skills/freya-code-graph/scripts/settings.py:527`).
+stderr (`skills/freya-code-graph/scripts/settings.py:539`).
 
 **The trust argument is not inherited from ADR-019 and the ADR says so.** The declaration comes
 from the scanned repository's own committed settings, so the repository grants itself the power
@@ -455,7 +455,7 @@ commits. That is the shape of the finding this branch spent the longest on, and 
 attempts to close, so the residue is worth stating rather than leaving as a gap.
 
 **Three argv tokens are what make the marker unable to be read as anything but a revision**
-(`skills/freya-spec-manager/scripts/verify_intent.py:151`–`:175`). `--end-of-options` refuses to
+(`skills/freya-spec-manager/scripts/verify_intent.py:162`–`:186`). `--end-of-options` refuses to
 read it as an OPTION: without it, a marker holding `--output=/tmp/victim` made git **truncate
 that file**, write the diff into it, and return rc=0 with empty stdout. `^{commit}` refuses to
 read it as a non-commit object or as a pathspec: a tree hash is 40 hex characters, git diffs a
@@ -477,11 +477,11 @@ marker is a file the scanned repository can write, so a repository willing to co
 `commit: <its own HEAD>` gets an honest diff of nothing and a truthful exit 0. That is ADR-008's
 trust model for the marker rather than a bypass of it, and nothing said so out loud until it was
 written into `_changed_status`'s docstring
-(`skills/freya-spec-manager/scripts/verify_intent.py:195`).
+(`skills/freya-spec-manager/scripts/verify_intent.py:206`).
 
 Both of the gate's fail-open paths now **say** they failed open rather than reporting a clean
 run: `ok=False` when git could not answer, and a labelled skip rather than `skipped: false`
-(`skills/freya-spec-manager/scripts/verify_intent.py:141`). A consumer must therefore check
+(`skills/freya-spec-manager/scripts/verify_intent.py:152`). A consumer must therefore check
 `skipped` before trusting exit 0 — that sentence lives in the module docstring
 (`skills/freya-spec-manager/scripts/verify_intent.py:23`) and is the thing to mirror anywhere a
 skill tells an agent to read the JSON on a non-zero exit.
@@ -522,44 +522,65 @@ next build. The canonical case is a scan flagging "endpoint does not verify the 
 against a deliberate uniform anti-enumeration response: real as a pattern, wrong as a verdict,
 and the recorded intent is what settles it.
 
-**No test is run, and this page used to say one was.** The sentence here was "a passing linked
-test proves the flagged pattern is the intended, working behavior — verified evidence rather
-than a prose claim". That is false, and it was the most valuable of the findings this branch
-turned up, because it reads as a safety property. `--covering` reads two project-supplied
-artifacts — the specs, and the committed `knowledge-base/.graph/behavior.json` — and executes
-nothing. The only evidence that would not be project-supplied is running the linked test, which
-is executing a scanned repository's suite, which is worse than the problem it would solve. So
-the query **labels** its evidence instead: every answer carries an `evidence` string saying
-what was trusted and stating outright that no test was run
-(`skills/freya-behavior-graph/scripts/behavior_graph.py:599`–`:603`), and the skill copies that
-string into the report verbatim rather than writing "verified by passing test"
-(`skills/freya-codebase-security-scan/SKILL.md:429`). SEC-006 is therefore **mitigated, not
-closed**: re-deriving state from the specs moves the forgery from one committed file to two.
+**Whether a test is run depends on one flag, and this page has been wrong about it in both
+directions.** It first said "a passing linked test proves the flagged pattern is the intended,
+working behavior — verified evidence rather than a prose claim". That was false: nothing ran,
+and the sentence reads as a safety property, which is what made it the most valuable finding of
+the branch. It then said no test could ever be run, because the only evidence not supplied by
+the audited repository would be executing that repository's suite, "which is worse than the
+problem it would solve". That was false too, and worse, because it argued against a capability
+this toolkit ships: `freya-behavior-runner` exists to run a project's tests, and freya is a tool
+a developer points at a repository they are working in, having already installed its
+dependencies and run its suite. What is true now:
+
+- **Plain `--covering` executes nothing**, and what it demands of the committed artifacts is
+  narrow: `state: accepted` and a locator, both re-derived from the specs; that locator must
+  resolve to a file inside the project; and the exercised path must carry `source: observed`.
+  An edge marked `static` — inferred from the import graph, no test involved at all — licenses
+  nothing. Until 2026-08-24 it silenced a finding exactly as a recorded run did, which is a
+  wider hole than the finding that prompted the review described, and one that needed no
+  forgery: an accepted behavior with no runnable adapter gets `static` edges from an ordinary
+  `--build`.
+- **`--covering --verify` re-runs each returned behavior's linked test** through
+  `freya-behavior-runner`, batched into one invocation, and the security scan passes that flag
+  (`skills/freya-codebase-security-scan/SKILL.md:421`). A row whose `verified.passed` is false
+  is evidence *against* the behavior and downgrades nothing.
+- **Either way the answer says which of the two happened.** Every result carries an `evidence`
+  string naming what was trusted, the skill copies it into the report verbatim, and writing
+  "verified by passing test" over a row that was not verified is forbidden in as many words
+  (`skills/freya-codebase-security-scan/SKILL.md:436`).
+
+Unverified, `observed` still means *a test passed once, on somebody's machine, at the commit
+`freshness` names* — a label on evidence rather than a verification. A freshness gate cannot
+substitute for one either: committing `behavior.json` necessarily creates a later commit, so
+`freshness != HEAD` for every entry on any fresh clone, and gating on it would empty
+`--covering` permanently. SEC-006 is **closed**.
 
 **The bar is enforced by the query, not only by procedure.** `freya behavior-graph --covering
-<file>` filters to `state == "accepted"` before the agent ever judges relevance
-(`skills/freya-behavior-graph/scripts/behavior_graph.py:588`), so a `proposed` or `confirmed`
+<file>` filters to `state == "accepted"` inside `covering()`
+(`skills/freya-behavior-graph/scripts/behavior_graph.py`) before the agent ever judges
+relevance, so a `proposed` or `confirmed`
 behavior is never even a candidate for silencing — it may add an advisory note and the finding
-stays open (`skills/freya-codebase-security-scan/SKILL.md:434`). The trust boundary sits in
-deterministic code rather than in an instruction the agent could drift from. Two citations into
-that filter are stale and neither self-reports, because both land on a non-blank line: ADR-012
-cites it as `behavior_graph.py:320`, which is now inside `_graph_files`, and this page cited
-`:427`, which is inside `surface()`. Neither is `_covered`, which an earlier correction here
-claimed.
+stays open (`skills/freya-codebase-security-scan/SKILL.md:445`). The trust boundary sits in
+deterministic code rather than in an instruction the agent could drift from. That filter is
+cited by line in ADR-012 and in the scan report, and both citations have already been repointed
+once on this branch, so it is named by function here instead: a line number into a file this
+branch is still rewriting is a citation with a short shelf life.
 
-**A gate-green repository can still have `--covering` refuse a behavior, and the refusal is
-correct.** `covering()` re-checks a declared locator itself rather than trusting that
-`verify_links` ran, and the two checks are deliberately not the same one. Four measured
-divergences are tabulated in the query's own docstring
-(`skills/freya-behavior-graph/scripts/behavior_graph.py:556`–`:568`) and executed by
-`LocatorCheckDivergesFromTier1Test`
-(`skills/freya-behavior-graph/scripts/test_behavior_graph.py:989`): a locator with no path part
-and a locator naming a directory both pass Tier 1 and are refused here, while a missing locator
-on a non-`manual` adapter and a `.py` fragment naming no symbol are refused by Tier 1 and
-returned here. The two that favour this query fail closed — the finding stays open — which is
-the safe direction for the one query that can silence a finding. Say this out loud, because the
-first person to meet a correct refusal on a green repository will otherwise file a bug against
-`behavior_graph.py`.
+**A gate-green repository can still get nothing back from `--covering`, and that is correct.**
+Two independent reasons, and the second is the one that will surprise a reader. First,
+`covering()` re-checks the locator itself rather than trusting that `verify_links` ran, and the
+two checks are deliberately not the same one; `LocatorCheckDivergesFromTier1Test` in
+`skills/freya-behavior-graph/scripts/test_behavior_graph.py` runs one fixture through both.
+As of 2026-08-24 exactly one measured divergence is left — a `.py` fragment naming no symbol,
+which Tier 1 refuses and this query returns — and it runs in Tier 1's favour, which is why
+running the gate is still worth more than running this. The three rows that used to run the
+other way now agree at *both refuse*: a locator with no path part, a locator naming a
+directory, and no locator at all. Second, and unrelated to locators, `--covering` requires an
+exercised path whose `source` is `observed`, and `verify_links` never looks at coverage — so a
+repository whose accepted behaviors carry only statically inferred edges is green at Tier 1 and
+gets an empty `--covering`. Say both out loud, because the first person to meet a correct
+refusal on a green repository will otherwise file a bug against `behavior_graph.py`.
 
 **A downgrade annotates and reclassifies; it never deletes.** The finding stays fully visible
 in the report with status INTENTIONAL DESIGN and a `behavior_ref` naming the behavior, plus the
@@ -567,7 +588,7 @@ query's `evidence` string copied verbatim (`skills/freya-codebase-security-scan/
 `skills/freya-codebase-security-scan/references/findings-schema.md:22`, `:40`), and drops out
 of the *outstanding* count only. That last part is code: `collect_status` counts a finding as
 outstanding unless its status is exactly `open`
-(`skills/freya-status/scripts/collect_status.py:197`). SEC-007 changed the shape of that
+(`skills/freya-status/scripts/collect_status.py:214`). SEC-007 changed the shape of that
 filter and it is worth knowing which way: the census used to *drop* any finding whose status
 was outside its vocabulary, so a typo'd or unknown status reported **zero open findings with no
 note at all** — a silently-clean security bucket, which is the exact failure ADR-005 and

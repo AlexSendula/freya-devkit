@@ -17,7 +17,7 @@ The graph layer is three artifacts under `knowledge-base/.graph/`, and each one 
 exactly one piece of code.
 
 `graph.json` holds code → code and is written by `persist_graph`
-(`skills/freya-code-graph/scripts/graph_ops.py:2573`), whichever backend produced the content —
+(`skills/freya-code-graph/scripts/graph_ops.py:2598`), whichever backend produced the content —
 the contract persists, a backend only produces (ADR-020) — with a per-backend copy alongside it
 (ADR-028). `behavior.json` holds behaviour → test → code and is written by
 `write_behavior_json` (`skills/freya-behavior-graph/scripts/behavior_graph.py:206`);
@@ -31,7 +31,7 @@ commands on the launcher — `code-graph`, `behavior-graph`, `docs-graph`
 They share one key space: the project-relative POSIX file path. Joining them is a set operation
 on that key and needs no translation table. `_affected_from_impact` is the join in full —
 `{e["path"] for e in entry["exercises"]} & impact`, one line
-(`skills/freya-behavior-graph/scripts/behavior_graph.py:271`). The runner works to stay in that
+(`skills/freya-behavior-graph/scripts/behavior_graph.py:292`). The runner works to stay in that
 key space: istanbul reports absolute paths, and it converts each one with
 `Path(abs_path).resolve().relative_to(project).as_posix()` before it becomes an exercise
 (`run_behaviors.py:131`). `docs.json` edge targets are the same strings. A symbol may refine
@@ -45,7 +45,7 @@ What is *not* built is the query layer the design named — a reader that loads 
 artifacts are present and answers across them. Two pairwise joins ship instead, each hardcoded
 in the consumer: `docs_graph.load_code_files` reads `graph.json` to get the file set it
 validates citations against (`docs_graph.py:321`), and `run_behaviors._code_graph_deps` shells
-out to `code-graph --dependencies` to build a static fingerprint (`run_behaviors.py:291`). The
+out to `code-graph --dependencies` to build a static fingerprint (`run_behaviors.py:305`). The
 third pair has no consumer at all: nothing in the toolkit reads `docs.json`, and `freya
 docs-graph` has no programmatic caller — its only mentions outside its own source are the
 launcher registration and an instruction to the agent to chain it after a blast radius
@@ -77,7 +77,7 @@ it. `docs.json` carries `code_graph_present` in every build (`docs_graph.py:392`
 zero-edge artifact is distinguishable from a repository nobody documented. `_code_graph_deps`
 returns `None` with a reason — `no-graph`, or `graph-degraded: <backend>` — rather than the
 empty closure it used to return, and the merge then preserves the prior fingerprint instead of
-overwriting it with a narrower one (`run_behaviors.py:291`). That is ADR-029's rule applied at
+overwriting it with a narrower one (`run_behaviors.py:305`). That is ADR-029's rule applied at
 the artifact level: an answer says what it could not read. One combined file could carry the
 same flags in principle, but it would carry them for a document nobody can partially refresh —
 whichever producer ran last would decide the whole file's freshness, and a caller reading it

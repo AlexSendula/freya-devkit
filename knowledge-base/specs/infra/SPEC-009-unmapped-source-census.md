@@ -62,7 +62,7 @@ Every answer the code graph gives says what it could not read.
 
 Each build or update that writes a graph performs one pruned tree walk over the project and
 records the result at `graph["substrate"]["unmapped_source"]` (`graph_ops._census`,
-`graph_ops.py:2837`): how many in-scope source files the running backend does not read, which
+`graph_ops.py:2862`): how many in-scope source files the running backend does not read, which
 extensions they are, and which directories to grep instead. `--build` and `--update` carry the
 whole block in their JSON answer, including a prose `advice` sentence and — on a run that did
 not degrade — a `readable_by` recommendation naming a backend that would read them. `--query`
@@ -120,7 +120,7 @@ worth having if both directions hold.
 
 BEH-045 is the gap. `backends.readable_by` is deliberately availability-blind — it answers "is
 there a remedy at all?", which matters most on a machine that has never installed one — and
-`_census` suppresses it on a degraded run (`graph_ops.py:2860`–`:2867`) so the answer does not
+`_census` suppresses it on a degraded run (`graph_ops.py:2885`–`:2892`) so the answer does not
 recommend `--use graphify` in the same breath as "graphify is unavailable". Nothing asserts
 that suppression: no test in this repository constructs a degraded build and inspects the
 census block. A regression would produce advice that contradicts the stderr line directly above
@@ -159,7 +159,7 @@ is a new entry in the frozenset, not a default case.
 
 ### The census re-derives the build's scope rule instead of reading the recorded exclusions
 
-**Decision**: `_unmapped_source_paths` (`graph_ops.py:2821`) filters using
+**Decision**: `_unmapped_source_paths` (`graph_ops.py:2846`) filters using
 `CodeGraph._should_exclude` plus the caller's `Exclusions` — the two layers `build()` itself
 applies — rather than the `substrate.exclusions` block recorded in the artifact.
 

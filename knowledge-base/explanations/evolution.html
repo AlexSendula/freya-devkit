@@ -954,18 +954,30 @@
         </div>
 
         <div class="callout callout--danger">
-          <span class="callout-label">And one finding could not be fixed at all</span>
+          <span class="callout-label">And one finding was declared unfixable, on a threat model that was not this tool's</span>
           <p>SEC-006 is the mechanism that lets an <code>accepted</code> behavior silence a security
           finding. The record authorising it said the behavior's <em>passing test</em> is
-          <em>"verified evidence rather than a prose claim"</em>. No test is run, and none can be:
-          both artifacts the query reads are committed by the repository under audit, and the only
-          evidence that would not be is executing that repository's test suite — a security tool
-          running hostile code. Re-deriving the state from a second committed file moves the forgery;
-          it does not remove it. So the finding is <strong>mitigated and deliberately left open</strong>:
-          the query now returns a sentence saying exactly what it trusted, and the skill that consumes
-          it is told never to write <em>"verified by passing test"</em>. A false safety invariant that
-          reads as true is the most expensive kind of documentation there is, and the honest repair
-          was to delete the claim rather than to manufacture the proof.</p>
+          <em>"verified evidence rather than a prose claim"</em>, and no test was being run — so the
+          claim was false and deleting it was right. What came next was not. The finding was closed
+          as <strong>mitigated and left open on purpose</strong>, arguing that no better evidence
+          could exist: the only evidence not committed by the repository under audit would be
+          executing that repository's test suite, "a security tool running hostile code".</p>
+          <p><strong>That argument was overturned the same day, and it is the most useful thing this
+          pass produced.</strong> It is an argument against a capability this toolkit ships as a
+          feature — <code>freya-behavior-runner</code> exists to run the project's tests, and
+          <code>regression_check</code>, in the same module as the query being reasoned about,
+          already re-ran accepted behaviors. The reasoning had imported a hostile-clone threat model
+          that does not match what freya is: a tool a developer points at a repository they are
+          working in, having already installed its dependencies and run its suite. The premise was
+          never checked against the sibling skill sitting next to it.</p>
+          <p>Closing it properly found a hole wider than the finding described and one no forgery
+          was needed to reach: the query never read whether an exercised path came from a real run
+          or was <em>inferred from the import graph</em>, and both licensed a downgrade identically.
+          A downgrade now requires an observed run and a resolving locator, carries the symbols that
+          actually executed, and <code>--verify</code> re-runs the linked test for the one caller
+          whose answer can silence a finding. A false safety invariant that reads as true is the
+          most expensive kind of documentation there is — and so is a confident argument that the
+          gap behind it can never be closed.</p>
         </div>
       </section>
 

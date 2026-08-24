@@ -6,7 +6,7 @@ tags: [search, specs, discovery, cli, spec-manager]
 status: implemented
 certainty: 70
 created: 2026-08-21
-updated: 2026-08-21
+updated: 2026-08-24
 related_code:
   - skills/freya-spec-manager/scripts/search_specs.py
   - skills/freya-spec-manager/scripts/frontmatter.py
@@ -15,7 +15,8 @@ related_code:
 intentional_decisions:
   - "Full-text search reads a 500-character body preview, not the whole spec"
   - "--max-certainty/--below is exclusive at the threshold while --min-certainty is inclusive"
-  - "A markdown file with no id is not a spec and is skipped without a warning"
+  - "A file with no frontmatter is quietly not a spec; a record whose frontmatter carries no id is an alarm"
+  - "load_all_specs raises rather than answering a corpus it knows is short"
   - "Discovery falls back to a legacy docs/specs layout, then to a path that need not exist"
 behaviors:
   - behavior_id: BEH-082
@@ -61,8 +62,13 @@ spec-manager script builds on. It does two separable jobs.
 `knowledge-base/specs`, a bare `specs/`, the parent's `knowledge-base/specs`,
 then the legacy `docs/specs` and the parent's `docs/specs`; the first directory
 that exists wins. Every `*.md` under it is loaded recursively, `README.md` is
-skipped by name, and a file whose frontmatter cannot be parsed is reported on
-stderr and left out while the rest of the corpus still loads.
+skipped by name, and a file that claims to be a record and cannot be read is an
+**alarm**: `load_specs` returns it in a second list, `load_all_specs` raises
+`SpecCorpusError` rather than hand back a corpus it knows is short, and
+`freya spec` prints the results, names the files on stderr and exits non-zero.
+Until 2026-08-24 all four of those cases were dropped — some with a `Warning:`
+line on a stream no skill-to-skill caller reads, the missing-`id` case with
+nothing on any stream at all.
 
 **Filtering** — narrow the loaded set. `--query` is a case-insensitive substring
 match over title, category, tags and a 500-character body preview. `--tag`,
@@ -148,23 +154,34 @@ uniform.
 proposing to "make the bounds consistent" would silently break the review worklist
 by putting every fully-certain spec back into it.
 
-### A markdown file with no `id` is not a spec, and is skipped without a warning
+### A file with no frontmatter is not a spec; a record that lost its `id` is an alarm
 
-**Decision**: `parse_spec_file` returns `None` when frontmatter carries no `id`,
-and `load_all_specs` also skips any `README.md` by name. Neither prints anything.
-A file that *has* an id but is otherwise malformed does warn (BEH-086).
+**Decision**: the discriminator is the frontmatter block, not the `id`.
+`parse_spec_file` returns `None` — silently — when `parse_frontmatter` gives back
+an empty mapping, which is what a file that never opens a `---` fence looks like,
+and `load_specs` also skips any `README.md` by name. A file that *does* open a
+fence and then carries no `id:`, or whose frontmatter is outside the grammar, or
+whose `certainty:` is not a number, raises `SpecCorpusError` instead.
 
-**Rationale**: the specs tree legitimately holds non-records — the index README, and
-whatever a project parks alongside it — and warning on each of them on every query
-would train people to ignore the warnings channel that BEH-086 depends on.
+**Rationale**: the specs tree legitimately holds non-records — the index README, a
+prose note, a template — and alarming on each of them on every query would train
+people to ignore the channel the real case depends on. But a record that lost its
+`id` to a hand edit or a merge conflict is not a non-record, it is a spec the
+corpus is missing, and the two Tier-1 gates then certify its `accepted` behaviors
+without reading them (ADR-005: never confidently empty).
 
-**Security Scan Note**: a spec missing from search output may be missing its `id:`
-field rather than missing from the tree.
+**Security Scan Note**: a spec missing from search output is now a non-zero exit
+and a named file, not an absence to be inferred. An empty `--query` result is
+still not evidence of anything (see the preview decision above), but a *short
+corpus* is no longer silent.
 
-**[NEEDS CLARIFICATION]** the two cases are indistinguishable to the author: a spec
-that *should* have an id and lost it in an edit is dropped as quietly as a template
-that never had one. Should a file with frontmatter but no `id` warn, while a file
-with no frontmatter at all stays quiet?
+~~**[NEEDS CLARIFICATION]** ... Should a file with frontmatter but no `id` warn,
+while a file with no frontmatter at all stays quiet?~~ **Answered 2026-08-24, and
+promoted past "warn".** The question was right and its two halves are now exactly
+the two branches above. It was closed as an alarm rather than a warning because of
+what the silence bought downstream: `verify_intent` and `verify_links` both read
+this loader, and both printed their success sentence at exit 0 over a spec that had
+left the corpus.
 
 ### Discovery falls back to legacy `docs/specs`, then to a path that need not exist
 
@@ -202,3 +219,4 @@ simply never been asked the question?
 | Date | Change | Reason |
 |------|--------|--------|
 | 2026-08-21 | Initial spec (inferred) | Brownfield scan of `skills/freya-spec-manager/scripts/search_specs.py` |
+| 2026-08-24 | Answered the third decision's `[NEEDS CLARIFICATION]` and rewrote the decision around the answer: the discriminator is the frontmatter block rather than the `id`, and an unreadable record is an alarm rather than a warning. Added the `load_all_specs` raises/`load_specs` reports split as a fourth decision, and rewrote the Discovery paragraph to match. | A security finding against `parse_spec_file`'s silent-drop path. A dropped spec is a spec whose `accepted` behaviors both Tier-1 gates certify without reading — measured by deleting one `id:` line and watching `verify_intent`, `verify_links` and `--advance` all report success. |

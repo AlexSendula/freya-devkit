@@ -93,7 +93,7 @@ behaviors:
 ## What
 
 `freya status` answers "where do I stand" from five independent sources and mutates nothing
-(`collect_status.collect`, `collect_status.py:211`). The answer is one document: a census of
+(`collect_status.collect`, `collect_status.py:228`). The answer is one document: a census of
 every behavior in `knowledge-base/specs/**` by lifecycle state, the two worklists that drain
 that census (`proposed` → confirm, `confirmed` → write a test), whole-repo coverage gaps,
 Tier-1 link-integrity failures, behaviors whose captured coverage fingerprint predates HEAD,
@@ -148,16 +148,21 @@ turns into signal rather than a uniform slog.
 BEH-142's other edge is `StaleBucketTest.test_fresh_when_matches_head`; BEH-144 holds three
 tests across three sources — `SecurityBucketTest.test_missing_findings_is_note`,
 `StaleBucketTest.test_missing_behavior_json_is_note` and
-`VerifyBucketTest.test_bad_json_degrades_to_note` — because a degradation rule stated once for
-all sources is only worth having if it holds at each of them. `VerifyBucketTest.test_empty_stdout_is_clean`
-holds the opposite edge for BEH-143: a genuinely clean run must not manufacture a note.
+`VerifyBucketTest.test_stdout_that_is_not_a_list_of_errors_degrades_to_a_note` — because a
+degradation rule stated once for all sources is only worth having if it holds at each of them.
+`VerifyBucketTest.test_a_clean_run_still_says_nothing` holds the opposite edge for BEH-143: a
+genuinely clean run must not manufacture a note. That edge is `[]` on stdout and not an empty
+stdout, which is the correction `test_empty_stdout_is_a_dead_gate_not_a_clean_one` and
+`test_a_gate_that_died_is_a_note_and_not_a_zero` carry — `--format json` always prints at least
+`[]`, so nothing on stdout is a checker that died, and it used to be read as zero link errors
+with no note at all.
 
 Two gaps. **BEH-140** guards a regression that already happened once: the `except` at
 `collect_status.py:59` carries the comment that a `UnicodeDecodeError` is not an `OSError` and
 that strict decoding of one spec with a stray byte "raise[d] out of the whole status walk".
 The fix is in the code and nothing asserts it, so the same class of failure can return
 silently. **BEH-145** is the never-blocks guarantee — `main` returns 0 unconditionally
-(`collect_status.py:385`) — which is stated in ADR-007, in the skill and in the module
+(`collect_status.py:402`) — which is stated in ADR-007, in the skill and in the module
 docstring, and is checked by nothing: no test invokes `main` at all.
 
 ## Intentional Design Decisions
@@ -180,7 +185,7 @@ The failure is reported through the `notes` list, not through an exception.
 ### `check=True` is used on exactly one subprocess call, and deliberately not on the other
 
 **Decision**: `gaps_bucket` uses `check=True`; `verify_bucket` does not, and says why in place
-(`collect_status.py:102`–`:104`).
+(`collect_status.py:102`–`:116`).
 
 **Rationale**: `behavior-graph --gaps` always exits 0 — a missing graph comes back as a JSON
 `note` — so a non-zero exit there really is a failure. `verify_links` exits non-zero *because
@@ -210,22 +215,22 @@ complaining, and nothing currently distinguishes the two.
 ### Findings are partitioned by status, never filtered by it
 
 **Decision**: `security_bucket` drops a *finding object* only when its `status` is a string in
-`_SETTLED_STATUSES` — exactly `resolved` or `intentional` (`collect_status.py:142`, `:195`).
+`_SETTLED_STATUSES` — exactly `resolved` or `intentional` (`collect_status.py:159`, `:212`).
 Every other object is counted as **open**: `open` itself silently, and any other value — a
 capitalisation, a synonym, a missing key — as open *and* named in the bucket's note
-(`collect_status.py:197`–`:207`). The note carries the whole count and lists at most ten
-(`UNRECOGNISED_SAMPLE`, `collect_status.py:149`).
+(`collect_status.py:214`–`:224`). The note carries the whole count and lists at most ten
+(`UNRECOGNISED_SAMPLE`, `collect_status.py:166`).
 
 **One shape is named but not counted, and the exception belongs in the same sentence as the
 rule**: a list entry that is not an object at all is appended to `unrecognised` and then
-`continue`d before `out.append` (`collect_status.py:187`–`:188`), so it never becomes a
+`continue`d before `out.append` (`collect_status.py:204`–`:205`), so it never becomes a
 finding — there is no id, severity or file to make one out of. Measured 2026-08-24: a
 `findings.json` whose `findings` list is `["a", "b", "c"]` returns `([], "3 finding(s) carry a
 status this report does not recognise (entry 0: not an object; entry 1: not an object; entry
 2: not an object) — counted as open")`. The count is zero and the note says *open*, so the
 note is that input's only trace and the note's own wording over-claims for this one shape.
-The same over-claim is in the docstring (`collect_status.py:159`–`:161`) and in the emitted
-string (`:214`); this spec is accurate about the code as it stands and those two are
+The same over-claim is in the docstring (`collect_status.py:176`–`:178`) and in the emitted
+string (`:231`); this spec is accurate about the code as it stands and those two are
 not yet.
 
 **Rationale**: `intentional` is the disposition a spec's declared decision produces; carrying

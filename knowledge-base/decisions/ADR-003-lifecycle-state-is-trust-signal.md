@@ -37,7 +37,7 @@ The `confirmed` stage validated first try in SP1: BEH-004 as `confirmed`, level 
 - **Redesigning certainty/provenance to express "agent-drafted, human-confirmed".** The F4 problem was dissolved rather than redesigned: once state carries trust, the score no longer has to encode who wrote what.
 - **Requiring `entry` or a locator at confirm time.** Entry-less `confirmed` is legal, at the stated cost that Direction A cannot surface it — such a behavior appears only in the worklist.
 - **Letting `confirmed` gate wrap-up.** There is no test to fail, so a gate could only produce false blocks.
-- **Dispatching on level/adapter before state.** A confirmed record may name a vitest locator for a test that does not exist yet. Pinned by `test_confirmed_with_unit_adapter_is_still_not_executed` (`skills/freya-behavior-runner/scripts/test_run_behaviors.py:979`) under the rule "state wins over level/adapter".
+- **Dispatching on level/adapter before state.** A confirmed record may name a vitest locator for a test that does not exist yet. Pinned by `test_confirmed_with_unit_adapter_is_still_not_executed` (`skills/freya-behavior-runner/scripts/test_run_behaviors.py:1023`) under the rule "state wins over level/adapter".
 - **Skipping adapter/locator validation where they are optional.** They are still type- and enum-checked in every state, so a typo fails loud instead of being silently ignored in the pre-test states.
 - **Hiding `confirmed` from `behavior.json`.** Surfacing it is the point; the safety guarantee comes from never executing it, not from concealing it.
 - **A `BEH-NNN` allocator script.** No other id type has one — `search_specs.py` only reads ids and SKILL.md says "next sequential number" — so only collision detection is coded.

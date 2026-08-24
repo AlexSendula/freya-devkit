@@ -38,7 +38,7 @@ first. A link whose two endpoints share a file is dropped in the projection
 `link_dependents` skips a self-target rather than writing it into the reverse index
 (`substrate.py:350`), and `validate_graph` reports it as a contract error
 (`substrate.py:781`). None of the three rejects the artifact — validation records its errors
-under `substrate.validation` and the graph is written anyway (`graph_ops.py:2635`) — so the
+under `substrate.validation` and the graph is written anyway (`graph_ops.py:2660`) — so the
 guarantee is that a self-edge cannot reach a *caller*, not that it cannot be produced.
 
 Three shapes need naming because they are not what they look like:
@@ -129,7 +129,7 @@ One consequence should be stated plainly rather than celebrated. Phase 0 recorde
 solely on an inferred link. That is no longer true — at this commit exactly one of the 78 pairs
 does — and that one edge is **wrong**: graphify guesses that `audit_engine.audit()` calling
 `Result(...)` reaches `substrate.Result`, when `Result` is a local `namedtuple` at
-[`audit_engine.py:36`](../../skills/freya-codebase-security-scan/scripts/audit_engine.py) and
+[`audit_engine.py:59`](../../skills/freya-codebase-security-scan/scripts/audit_engine.py) and
 the file never imports `substrate`. The tier is doing exactly what it exists to mark. It is
 also read by nothing: provenance is written on every edge and surfaced by `query`, but no
 production code branches on it, so this inferred edge reaches blast radius indistinguishable

@@ -22,7 +22,7 @@ vendor's CLI; that is covered under [Credentials](#credentials).
 
 | Variable | Read at | Default | What changes when it is set |
 |---|---|---|---|
-| `FREYA_HOME` | `skills/freya-code-graph/scripts/settings.py:559`, `bin/updater.py:563` | `~/.freya` | Relocates the machine-level settings file and the update-check stamp. Nothing else. |
+| `FREYA_HOME` | `skills/freya-code-graph/scripts/settings.py:571`, `bin/updater.py:563` | `~/.freya` | Relocates the machine-level settings file and the update-check stamp. Nothing else. |
 | `FREYA_NO_UPDATE_CHECK` | `bin/updater.py:604`, reported by `bin/freya_cli.py:478` | unset | Suppresses the once-a-day staleness check entirely. |
 | `FREYA_DEBUG` | `bin/updater.py:673` | unset | Prints the traceback from the update check, whose contract is to swallow every exception. |
 | `PATH` | `bin/installer.py:529`, plus every `shutil.which` below | — | Decides which external binaries are found, and whether the installer prints a "not on PATH" hint. |
@@ -44,9 +44,9 @@ holding this machine's answer to "which parser should freya use":
 ```
 
 Both definitions read the variable the same way and fall back to `~/.freya`
-(`skills/freya-code-graph/scripts/settings.py:559`, `bin/updater.py:563`). A value that is
+(`skills/freya-code-graph/scripts/settings.py:571`, `bin/updater.py:563`). A value that is
 empty or whitespace-only is ignored and the default applies
-(`skills/freya-code-graph/scripts/settings.py:560`, `bin/updater.py:564`). The two definitions
+(`skills/freya-code-graph/scripts/settings.py:572`, `bin/updater.py:564`). The two definitions
 are deliberately kept in step by a test — `test_the_machine_level_home_has_one_definition`,
 `bin/test_backend_setup.py:161` — because a variable that relocated one and not the other would
 isolate a test run's configuration while still writing a throttle stamp into the real home
@@ -140,7 +140,7 @@ on 2026-08-24 with the same three greps, all three still hold:
 | Idiom | Count | Where |
 |---|---|---|
 | `Path.home()` | 6 | `bin/installer.py:37`, `installer.py:38`, `installer.py:521`, `installer.py:818`; `bin/freya_cli.py:258`; `bin/updater.py:566` |
-| `expanduser` | 1 | `skills/freya-code-graph/scripts/settings.py:562` |
+| `expanduser` | 1 | `skills/freya-code-graph/scripts/settings.py:574` |
 | `os.environ['HOME']` / `.get('HOME')` | 0 | — |
 
 The single `expanduser` is the machine-level default's home, and it is the one that
@@ -194,7 +194,7 @@ directory under one is enumerated, so a crossing appears in the graph as an
 
 Both files are optional. Absent, unreadable or malformed all yield defaults rather than an
 error, on the principle that a build must not fail because configuration is missing
-(`skills/freya-code-graph/scripts/settings.py:845`, `settings.py:577`). The defaults are
+(`skills/freya-code-graph/scripts/settings.py:857`, `settings.py:589`). The defaults are
 `substrate.backend: "auto"`, `substrate.symbols: false`, and empty `directories` and `outside`
 maps (`skills/freya-code-graph/scripts/settings.py:148`–`:166`). `outside` is present in
 `DEFAULTS` rather than absent so `load()` type-checks the section and warns on a non-object
@@ -205,10 +205,10 @@ Precedence and what a degrade records are
 [ARCHITECTURE.md § The graph substrate](ARCHITECTURE.md#the-graph-substrate). One distinction
 belongs here because it is a property of the *file*: "absent" and "explicitly `auto`" are
 different states, and an explicit `auto` in a project file means *defer to the machine*
-(`skills/freya-code-graph/scripts/settings.py:741`, `settings.py:751`).
+(`skills/freya-code-graph/scripts/settings.py:753`, `settings.py:763`).
 
 Keys outside the two allowed at machine level are dropped **and reported on stderr**, not
-silently honoured (`skills/freya-code-graph/scripts/settings.py:619`). `directories` is
+silently honoured (`skills/freya-code-graph/scripts/settings.py:631`). `directories` is
 excluded there on purpose: a global `docs: source` would apply to repositories nobody has
 looked at, and a global `node_modules: source` is a 50,000-file graph on every project on the
 machine (`skills/freya-code-graph/scripts/settings.py:98`–`:101`). `outside` is excluded by the
@@ -226,22 +226,22 @@ freya code-graph --use auto --global        # clears the machine default
 
 At machine scope `auto` is not an answer but the absence of one, so `--use auto --global`
 deletes the key rather than writing it — the only way to un-answer the install-time question
-(`skills/freya-code-graph/scripts/settings.py:915`, `settings.py:936`).
+(`skills/freya-code-graph/scripts/settings.py:927`, `settings.py:948`).
 
 The name is validated against the registry at the moment somebody is present to be told they
-typed it wrong (`skills/freya-code-graph/scripts/graph_ops.py:3412`), and the project-scope
+typed it wrong (`skills/freya-code-graph/scripts/graph_ops.py:3437`), and the project-scope
 message asks for the file to be committed so a clone, a colleague and CI all resolve the same
-backend (`skills/freya-code-graph/scripts/graph_ops.py:3447`). The machine-scope message is
+backend (`skills/freya-code-graph/scripts/graph_ops.py:3472`). The machine-scope message is
 careful about what it promises: a project already carrying its own answer keeps it
-(`skills/freya-code-graph/scripts/graph_ops.py:3441`).
+(`skills/freya-code-graph/scripts/graph_ops.py:3466`).
 
 The first `--build` or `--update` in a project that has not decided copies the machine's answer
 into that project's own committed settings
-(`skills/freya-code-graph/scripts/graph_ops.py:3573` → `graph_ops.py:3365` →
-`skills/freya-code-graph/scripts/settings.py:968`), validating it against the registry on the
+(`skills/freya-code-graph/scripts/graph_ops.py:3598` → `graph_ops.py:3390` →
+`skills/freya-code-graph/scripts/settings.py:980`), validating it against the registry on the
 way. A headless run with nothing configured writes nothing. Nothing verifies that the seeded
 file is actually committed — the build prints one line asking for it
-(`skills/freya-code-graph/scripts/graph_ops.py:3389`) and that is the entire mechanism; ADR-019
+(`skills/freya-code-graph/scripts/graph_ops.py:3414`) and that is the entire mechanism; ADR-019
 states this gap rather than implying enforcement.
 
 Read on this worktree on 2026-08-24, `knowledge-base/settings.json` is tracked (committed at
@@ -314,12 +314,12 @@ eight still name it bare, and that list is not hand-maintained — it is what
 
 ```
 bin/check_doc_citations.py:135
-skills/freya-behavior-graph/scripts/behavior_graph.py:699
-skills/freya-behavior-runner/scripts/run_behaviors.py:442
+skills/freya-behavior-graph/scripts/behavior_graph.py:841
+skills/freya-behavior-runner/scripts/run_behaviors.py:471
 skills/freya-code-graph/scripts/graph_ops.py:551
 skills/freya-code-graph/scripts/graph_ops.py:581
-skills/freya-spec-manager/scripts/drift.py:68
-skills/freya-spec-manager/scripts/verify_intent.py:76
+skills/freya-spec-manager/scripts/drift.py:73
+skills/freya-spec-manager/scripts/verify_intent.py:87
 skills/freya-status/scripts/collect_status.py:33
 ```
 
@@ -330,8 +330,8 @@ command rather than trusting the paragraph — the allowlisted census in
 records seven files rather than eight sites because `graph_ops.py` has two.
 
 Every one of the ten treats a missing git as an answer rather than a crash —
-`run_behaviors.py:447` catches `FileNotFoundError` and returns `"unknown"`,
-`behavior_graph.py:704` returns an empty change list, `updater.git` returns `(1, "")` for a
+`run_behaviors.py:476` catches `FileNotFoundError` and returns `"unknown"`,
+`behavior_graph.py:846` returns an empty change list, `updater.git` returns `(1, "")` for a
 missing, refused *or* unresolvable git (`bin/updater.py:167`) — so the toolkit degrades rather
 than failing when git is absent. `freya doctor` is the exception that had to be made: it prints
 `git_program`'s *reason* rather than inferring a repository fact from a git call that never
@@ -340,19 +340,19 @@ happened, because `(1, "")` reads identically as "not a checkout" (`bin/updater.
 **One git site does not degrade, it stops — and the difference is worth a version floor.** The
 G1 declared-intent gate spawns
 `git diff --name-status -M --end-of-options <baseline>^{commit} --`
-(`skills/freya-spec-manager/scripts/verify_intent.py:208`, through `_git` at
-`verify_intent.py:76`), and those tokens are what make a repository-committed marker unable to
-be read as anything but a revision (`verify_intent.py:156`, `:159`). A git that does not
+(`skills/freya-spec-manager/scripts/verify_intent.py:219`, through `_git` at
+`verify_intent.py:87`), and those tokens are what make a repository-committed marker unable to
+be read as anything but a revision (`verify_intent.py:167`, `:170`). A git that does not
 recognise `--end-of-options` treats it as an unknown option, and an unknown option in that slot
 is **rc=129** — measured on this machine on 2026-08-24 with git 2.50.1,
 `git diff --name-status -M --definitely-not-an-option HEAD --` returns 129. `_changed_status`
 reads any non-zero as "git could not answer" and returns `ok=False`
-(`verify_intent.py:211`–`:212`), so on such a host the gate reports a labelled skip and exit 0
+(`verify_intent.py:222`–`:223`), so on such a host the gate reports a labelled skip and exit 0
 on **every** run, for ever, under ADR-009's fail-open. It does not answer less accurately; **it
 stops answering**, and the label is the only place that says so.
 
 The floor that implies is `git 2.24` (November 2019) — recorded in the code rather than measured
-here, since no old git is available to test against (`verify_intent.py:202`). `^{commit}` adds
+here, since no old git is available to test against (`verify_intent.py:213`). `^{commit}` adds
 no floor above it: `<rev>^{<type>}` is gitrevisions syntax from long before that option existed.
 This is the one binary requirement on this page that is about a git *feature* rather than about
 git being present; if a permanent labelled skip is what you are seeing, run
@@ -362,9 +362,9 @@ git being present; if a permanent labelled skip is what you are seeing, run
 hardcodes `["pnpm", "vitest", "run", ...]`
 (`skills/freya-behavior-runner/scripts/run_behaviors.py:228`) and calls it with no exception
 handler (`run_behaviors.py:459`). A failing *test* is handled properly — the fingerprint comes
-back with `reason="test-failed"` and coverage is never faked (`run_behaviors.py:460`–`:463`).
+back with `reason="test-failed"` and coverage is never faked (`run_behaviors.py:501`–`:504`).
 A missing *`pnpm`* is not: `FileNotFoundError` propagates through `fingerprint_behavior`
-(`run_behaviors.py:642`) and `main` (`run_behaviors.py:787`) and ends the run in a traceback,
+(`run_behaviors.py:683`) and `main` (`run_behaviors.py:828`) and ends the run in a traceback,
 and because `behavior-graph` invokes the runner with `check=True`
 (`skills/freya-behavior-graph/scripts/behavior_graph.py:220`) the whole `behavior.json` build
 fails with it. There is also no setting for another package manager or another runner; that
@@ -437,7 +437,7 @@ The reasons a degrade can carry are tabulated in
 **What it writes.** `graphify update <project>` puts its extraction (`graph.json`), an HTML
 viewer (`graph.html`), a report (`GRAPH_REPORT.md`), a manifest and a cache in
 `graphify-out/` at the project root — measured on 0.9.47, over two runs, it keeps no dated
-backups, though `backend_graphify.py:266` and `graph_ops.py:1256` still say it does. That
+backups, though `backend_graphify.py:266` and `graph_ops.py:1281` still say it does. That
 directory is outside `knowledge-base/`, which is
 the only place this toolkit's own ignore rules reach. The backend therefore writes
 `graphify-out/.gitignore` containing `*` after the tool has run

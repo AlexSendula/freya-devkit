@@ -132,8 +132,8 @@ invariant gate uses on every run.
   one is the graph-key path, and that path already has a local body of the same rule:
   `graph_ops.py:724` is `_contain`, which `rel_within` is meant to replace, and the
   `try: relative_to(self.project_dir) / except ValueError: continue` shape it also collapses
-  survives at `:2017`–`:2024` and `:2079`–`:2080`, with unguarded `relative_to` calls at
-  `:2089` and `:2181`. (An earlier draft of this bullet cited a backwards line range that
+  survives at `:2042`–`:2049` and `:2104`–`:2105`, with unguarded `relative_to` calls at
+  `:2114` and `:2206`. (An earlier draft of this bullet cited a backwards line range that
   pointed at neither.) A local body of a containment rule is exactly what the last paragraph of
   the Decision forbids without a `ContainmentParityTest` row, so the migration is owed rather
   than optional. It ships now because the four questions are argued together
@@ -194,7 +194,7 @@ absent at the user's end. That is the worst available failure shape: green here,
 it imports no other skill, and three others already reach *into* it: `freya-behavior-graph`
 (`skills/freya-behavior-graph/scripts/behavior_graph.py:25`), `freya-behavior-runner`
 (`skills/freya-behavior-runner/scripts/run_behaviors.py:25`) and `freya-spec-manager`
-(`skills/freya-spec-manager/scripts/drift.py:37`) each build a path to its `graph_ops.py` and
+(`skills/freya-spec-manager/scripts/drift.py:42`) each build a path to its `graph_ops.py` and
 spawn it as a subprocess. None of the three is an *import* — this change adds the first one — but
 all three already depend on that directory existing at that relative location, which is the
 dependency direction the placement has to be safe in. `bin/backend_setup.py:56` reaches into the

@@ -1233,8 +1233,8 @@ freya behavior-graph --check --base "$BASE" --project .</code></pre>
         behaviour is on purpose but that a named test pins it.</p>
 
         <p>Concretely: a scan flags "this endpoint doesn't verify the user exists" as SEC-001.
-        <code>BEH-003</code> is accepted, its locator names a test file that exists, and its
-        exercised paths include the flagged file — so the finding is downgraded to
+        <code>BEH-003</code> is accepted, its locator names a test file that exists, and an
+        observed run of that test exercised the flagged file — so the finding is downgraded to
         <code>intentional</code> with <code>behavior_ref: BEH-003</code> —
         <strong>annotated, never deleted</strong>, and dropped from
         the outstanding count while staying fully visible in the report. SEC-002, which no accepted
@@ -1243,38 +1243,51 @@ freya behavior-graph --check --base "$BASE" --project .</code></pre>
 
         <div class="callout callout--warn">
           <span class="callout-label">Read this before you trust a <code>behavior_ref</code></span>
-          <p><strong>No test is run.</strong> This page said otherwise until 2026-08-24, and so did
-          ADR-012, and the sentence was wrong in the direction that matters. <code>--covering</code>
-          reads two artifacts and both are supplied by the repository being scanned: the behavior's
-          state and locator out of <code>knowledge-base/specs/</code>, and its exercised paths out of
-          the committed <code>knowledge-base/.graph/behavior.json</code>. It checks that the state is
-          <code>accepted</code> and that a declared locator resolves to a file inside the project. It
-          does not execute anything, so what licenses the downgrade is a <em>claim</em> that a passing
-          test exists — checked for shape, never for truth.</p>
-          <p>That gap is not closed, and closing it properly is worse than leaving it open: the only
-          evidence that would not come from the repository under audit is running that repository's
-          test suite, which is a security tool executing hostile code. So the query labels instead of
-          claiming. It returns an <code>evidence</code> string stating exactly what was trusted, and
-          the scan is instructed to copy that string into the report verbatim and never to write
-          <em>"verified by passing test"</em>. The label a human reads is the whole of the
-          mitigation.</p>
+          <p><strong>Whether a test was actually run depends on one flag.</strong> Plain
+          <code>--covering</code> runs nothing. It re-derives the behavior's state and locator from
+          <code>knowledge-base/specs/</code> and reads its exercised paths from the committed
+          <code>knowledge-base/.graph/behavior.json</code>, and a row only comes back when the state
+          is <code>accepted</code>, a locator resolves to a file inside the project, and the
+          exercised path carries <code>source: observed</code> — a real run with coverage. An edge
+          marked <code>static</code>, inferred from the import graph with no test involved at all,
+          licenses nothing; before 2026-08-24 it licensed a downgrade exactly as a passing test did,
+          and that was the widest hole in this mechanism. The symbols the run touched come back with
+          the row, so the judgement is not made on a file anchor alone.</p>
+          <p><code>--covering --verify</code> <strong>re-runs the linked test</strong> through
+          <code>freya-behavior-runner</code>, in one batched invocation, and a row that fails
+          verification is evidence <em>against</em> the behavior. It is off by default because other
+          callers use this query in a loop, and on for the security scan — the one caller whose
+          answer can stop a finding counting.</p>
+          <p><strong>This page argued the opposite until 2026-08-24, and the way it was wrong is
+          worth keeping.</strong> It said the gap could not be closed, because the only evidence not
+          supplied by the repository under audit would be running that repository's test suite —
+          "a security tool executing hostile code". That is an argument against a capability this
+          toolkit ships as a feature: freya is a tool a developer points at a repository they are
+          working in, having already installed its dependencies and run its suite, and
+          <code>freya-behavior-runner</code> exists to run those tests. Without <code>--verify</code>
+          the answer is still a label rather than a verification — <code>observed</code> means a test
+          passed once, on somebody's machine, at the commit <code>freshness</code> names — and the
+          <code>evidence</code> string the query returns says exactly that, which the scan copies
+          into the report verbatim.</p>
         </div>
 
         <div class="callout callout--why">
           <span class="callout-label">The distinction that carries the weight</span>
           <p>A finding marked intentional can be backed by either of two references, and they are not
           equivalent. <code>spec_ref</code> is a <strong>prose claim</strong> — somebody wrote down that
-          this is on purpose. <code>behavior_ref</code> is <strong>a claim with a named test and a
-          resolving locator behind it</strong> — narrower, harder to write by accident, and checked by
+          this is on purpose. <code>behavior_ref</code> is <strong>a claim with a named test, a
+          resolving locator and an observed run behind it</strong> — narrower, harder to write by
+          accident, and checked by
           deterministic code rather than by an agent's judgement. Where both explain a finding, the
-          behavior reference wins. Neither is a verification.</p>
+          behavior reference wins. Neither is a verification unless <code>--verify</code> ran.</p>
         </div>
 
         <div class="callout callout--info prose-center">
           <span class="callout-label">In the markdown</span>
           <p>Why only an <code>accepted</code> behavior may downgrade a finding, why a downgrade
-          annotates rather than deletes, and — in the dated correction at the top of ADR-012 — what
-          the record originally got wrong about the word "test-backed".</p>
+          annotates rather than deletes, and — in the two dated corrections at the top of ADR-012,
+          the second of which retracts part of the first — what the record got wrong about the word
+          "test-backed", and why the argument that it could never be made right was itself wrong.</p>
           <ul class="md-links">
             <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-012-accepted-behavior-downgrades-findings.md">knowledge-base/decisions/ADR-012-accepted-behavior-downgrades-findings.md</a></li>
             <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/reference/SKILL_REFERENCE.md">knowledge-base/reference/SKILL_REFERENCE.md</a></li>

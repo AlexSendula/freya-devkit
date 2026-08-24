@@ -85,14 +85,17 @@ implementation could quietly stop protecting anything.
 
 **Certainty (85).** As deliberate as anything in this repository: the decision has
 an ADR, the module docstring states each rule and the reason for it, and there are
-thirty-five tests — seventeen when this spec was written, and those seventeen already
+forty-seven tests — seventeen when this spec was written, and those seventeen already
 included a CLI exit-code-plus-JSON contract test and a path-spelling test written
 after a real Windows CI fail-open
-(`skills/freya-spec-manager/scripts/test_verify_intent.py:744` and `:176`, both
+(`skills/freya-spec-manager/scripts/test_verify_intent.py:761` and `:193`, both
 present at `c00b2f4`). The eighteen added on 2026-08-23 are adversarial and are a
 different set: eleven for the marker shapes that got the gate to report itself clean,
 seven for `--advance` — what it refuses, what `--force` overrides, and the one skip it
-still advances over. The deduction is only that this spec
+still advances over. The twelve added on 2026-08-24 are a third set: five for the
+corpus the gate reads (an unreadable spec blocks both Tier-1 gates, a non-record in
+the specs tree does not) and seven for how a locator is spelled, one of which only
+runs on a case-sensitive filesystem and skips elsewhere. The deduction is only that this spec
 is inferred from that material rather than authored alongside it, and that the
 fail-open surface (below) is wider than any single document states in one place.
 
@@ -123,21 +126,21 @@ infrastructure problem as a block — but each one is *labelled*, and the label 
 part of the decision rather than a courtesy. With no `.intent-last-verified`
 marker the run is `skipped: true` with the fresh-repo note (BEH-090). When the
 `git diff` itself fails, `_changed_status` returns `ok=False`
-(`skills/freya-spec-manager/scripts/verify_intent.py:133`) and the run is
+(`skills/freya-spec-manager/scripts/verify_intent.py:144`) and the run is
 `skipped: true` with `intent gate skipped — git could not diff <baseline>..worktree;
-nothing was checked` (`verify_intent.py:359`). A marker that exists and is unusable
+nothing was checked` (`verify_intent.py:441`). A marker that exists and is unusable
 — unreadable, holding an empty `commit:` value, holding no `commit:` line, or
 holding something that is not hash-shaped — is a third labelled skip, and it also
-appends a `warnings` entry naming the file (`_read_baseline`, `verify_intent.py:83`).
+appends a `warnings` entry naming the file (`_read_baseline`, `verify_intent.py:94`).
 
 `--advance` reads those labels and refuses on them. `advance_if_clear`
-(`verify_intent.py:458`) writes the baseline only over a gate that ran and did not
+(`verify_intent.py:547`) writes the baseline only over a gate that ran and did not
 block; over either refusal the CLI exits **2** with the reason on stderr
-(`verify_intent.py:551`, `:561`), and `--force` is the sole override. One carve-out
+(`verify_intent.py:646`, `:656`), and `--force` is the sole override. One carve-out
 survives and it is narrow: an *absent* marker still advances, because writing the
 first marker is how a fresh repository leaves that state. An empty, malformed or
 unresolvable marker does not qualify — the discriminator is structural rather than a
-list of shapes (`_skipped_without_checking`, `verify_intent.py:420`).
+list of shapes (`_skipped_without_checking`, `verify_intent.py:509`).
 
 **Rationale**: the project-wide rule that every check fails open on infrastructure
 failure — never a false clean *and* never a false block — is
@@ -194,10 +197,19 @@ governance track, and human review of the resulting commit is where that happens
 
 ### Locator and record paths are handed to git in git's own spelling
 
-**Decision**: `_git_relpath` converts a filesystem path to a forward-slash,
+**Decision**: two halves, and until 2026-08-24 this section described only one of
+them while its title claimed both.
+
+*Record paths* — `_git_relpath` converts a filesystem path to a forward-slash,
 project-relative path via `PurePath.as_posix()` before it reaches
 `git cat-file -e <commit>:<path>`, rather than passing `os.path.relpath` output
 through.
+
+*Locator paths* — the path a spec declares is reduced with
+`graph_ops.normalize_key`, the same rule that keys the code graph (ADR-030: the
+primitive is imported, not copied), and so is git's side of the comparison. Where
+that leaves two spellings still unequal, `os.path.samefile` decides whether they
+name one file, and only then.
 
 **Rationale**: git matches a `<commit>:<path>` rev-spec against its own
 '/'-separated tree paths verbatim, and `cat-file` cannot distinguish "path I failed
@@ -207,10 +219,24 @@ pre-existing record look new, so a record filed for some past change authorized
 today's edit. Pinned by
 `test_verify_intent.py#VerifyIntentCase.test_record_path_reaches_git_slash_separated`.
 
+The locator half lands on the same permissive side for a different reason. A
+locator written `./tests/test_a.py::test_a` is not an error anywhere else in the
+toolkit — `verify_links` resolves it and so does `behavior_graph` — so the spelling
+passes Tier-1 on the way in, and matching git's map verbatim then skipped the
+behavior and reported `skipped: false, unauthorized: [], exit 0`. Case is the part
+that cannot be settled by a rule: `Tests/x.py` and `tests/x.py` are one file on
+macOS and Windows and two on Linux, so `casefold()` alone would produce a false
+block on the host a governance gate most often runs on. `samefile` puts that to the
+filesystem instead. Its residue is stated where it is decided: a *deleted* accepted
+test whose locator differs in case has no file left to ask about, and it is
+`verify_links` reporting `locator-unresolved` in the same wrap-up phase that
+catches it.
+
 **Security Scan Note**: the `as_posix()` call is load-bearing and platform-agnostic
 by design. A cleanup that "simplifies" it to native path handling reopens a
 silent fail-open on Windows; a scanner flagging the normalization as redundant is
-wrong.
+wrong. The same goes for `samefile`: replacing it with a case-folded string
+comparison looks like a simplification and is a platform-dependent wrong answer.
 
 ### A record naming an unknown behavior is a warning, not an error
 
@@ -219,13 +245,23 @@ a `warnings` entry and does not affect the exit code. A record that is malformed
 missing or empty `behaviors:`, or unparseable frontmatter — is an `error` and does
 block, and authorizes nothing.
 
+A **spec** the gate cannot read is an `error` on the same terms, added
+2026-08-24. It used to drop out of `load_all_specs`, so its `accepted` behaviors
+did not exist as far as this gate was concerned and the run reported
+`skipped: false` with an empty `unauthorized` — the shape of a gate that ran.
+
 **Rationale**: the two failures are different. A stale or mistyped id in a record
 is a bookkeeping problem that should be visible without stopping work, while a
 record the gate cannot read is a record it cannot honour — treating that as an
-authorization would let a broken file wave any edit through.
+authorization would let a broken file wave any edit through. An unreadable spec is
+the same argument one layer out and with a worse consequence, because nothing about
+the run looks unusual: `--advance` then moves the baseline, which does not defer
+the unauthorized edit, it clears it on every future run.
 
 **Security Scan Note**: an unknown-behavior warning is not a suppressed failure;
-the blocking cases are `unauthorized` and `errors`, and both are in the JSON.
+the blocking cases are `unauthorized` and `errors`, and both are in the JSON. An
+`errors` entry naming a file under `knowledge-base/specs/` means the corpus was
+short and this gate says so rather than checking what was left.
 
 ## Related Specs
 
@@ -241,3 +277,4 @@ the blocking cases are `unauthorized` and `errors`, and both are in the JSON.
 | 2026-08-21 | Initial spec (inferred) | Brownfield scan of `skills/freya-spec-manager/scripts/verify_intent.py` |
 | 2026-08-24 | Amended the fail-open decision: a failed `git diff` is a labelled `skipped: true`, not an empty change-set; an unusable marker is a third labelled skip; `--advance` refuses over a block or a skip and exits 2, with the absent-marker carve-out named. Test count 17 → 35. | SEC-001 and SEC-011. The section asserted an invariant the code contradicted: it said an unusable diff passes silently, and the code has reported `skipped: true` with a note since 2026-08-23. A spec blessing a fail-open the code removed is worse than no spec, because it reads as the intended semantics. |
 | 2026-08-24 | Fixed the Certainty paragraph the same day: the CLI-contract and path-spelling tests it named belong to the original seventeen, not to the eighteen added on 2026-08-23. | Set-differencing the two files gives 18 added and 0 removed; both named tests are present at `c00b2f4`. The 11/7 split of the eighteen was correct and is unchanged — only the trailing clause had drifted onto the wrong referent. |
+| 2026-08-24 | Gave the path-spelling decision its second half. The title said "locator and record paths" and the body only ever described `_git_relpath`, which is applied to record paths and was never applied to locators; a locator now goes through `normalize_key`, and `samefile` settles case. Added the unreadable-spec error to the warning-vs-error decision. Test count 35 → 47. | A locator spelled `./tests/x.py` passed every other checker in the suite and never matched git's map, so the gate skipped the behavior and reported `skipped: false, unauthorized: [], exit 0` — the permissive direction, reachable by writing two characters into a spec. The section's own title had been asserting the fix for three days. |
