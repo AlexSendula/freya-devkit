@@ -310,10 +310,48 @@ class ConcurrencyTest(unittest.TestCase):
         audit.make_run(concurrency)(thunks)
         return time.monotonic() - start
 
-    def test_the_pool_beats_the_sequential_floor(self):
-        elapsed = self._elapsed(self.N)
-        self.assertLess(elapsed, self.DELAY * self.N / 2,
-                        "make_run did not parallelize")
+    def test_the_pool_really_runs_them_at_the_same_time(self):
+        """N workers are proved concurrent by a barrier, not by a stopwatch.
+
+        This asserted `elapsed < DELAY * N / 2` until 2026-08-24, when it failed
+        on one CI leg at 0.231s against a 0.150s threshold while the other three
+        legs passed. Nothing was wrong with the pool: a shared runner scheduled
+        six threads across a busy machine, and the margin between "parallel" and
+        "sequential" was three sleeps wide.
+
+        A flaky gate is worse than a missing one, because the failure teaches
+        the next person to re-run until green — and re-running until green is
+        how a real regression gets waved through. That is the same defect class
+        this suite exists to catch, in the suite itself.
+
+        So the property is measured directly instead of through a proxy for it.
+        Every thunk waits at a `Barrier(N)`: it releases only when all N are
+        inside simultaneously, which is exactly what "the pool parallelizes"
+        means. A serial `run` can never get the second thunk to the barrier, so
+        it raises `BrokenBarrierError` on the timeout and the test fails for the
+        real reason. The timeout is generous on purpose — a working pool never
+        reaches it, and a slow machine now makes this test MORE reliable rather
+        than less, which is the direction a timing-sensitive assertion should
+        fail in.
+        """
+        barrier = threading.Barrier(self.N, timeout=10)
+        peak = []
+        lock = threading.Lock()
+
+        def thunk():
+            index = barrier.wait()          # raises BrokenBarrierError if serial
+            with lock:
+                peak.append(index)
+            return index
+
+        try:
+            results = audit.make_run(self.N)([thunk] * self.N)
+        except threading.BrokenBarrierError:
+            self.fail("make_run did not parallelize: %d of %d thunks ever ran "
+                      "at the same time" % (len(peak), self.N))
+        self.assertEqual(len(results), self.N)
+        self.assertEqual(sorted(peak), list(range(self.N)),
+                         "every worker should have passed the barrier exactly once")
 
     def test_concurrency_one_is_sequential(self):
         """Pins the other side: --concurrency 1 must really serialize, or the

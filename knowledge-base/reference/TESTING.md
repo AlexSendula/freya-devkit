@@ -63,30 +63,30 @@ matters less than it used to.
 
 ## What the suite is, measured
 
-`python3 -m pytest -q` from the repo root on 2026-08-24, on the working tree at `9b7a3bc`:
+`python3 -m pytest -q` from the repo root on 2026-08-24, on the working tree at `33ab3a8`:
 
 ```
-2089 passed, 1345 subtests passed in 42.44s
+2178 passed, 1 skipped, 1415 subtests passed in 42.37s
 ```
 
 Broken down by area (`python3 -m pytest <dir> -q` in each, same session):
 
 | Area | Tests | Subtests | Wall clock |
 |---|---:|---:|---:|
-| `bin/` | 652 | 111 | 15.3s |
-| `skills/freya-code-graph/` | 502 | 656 | 17.0s |
-| `skills/freya-spec-manager/` | 323 | 106 | 6.3s |
-| `skills/freya-codebase-security-scan/` | 269 | 138 | 1.4s |
+| `bin/` | 662 | 160 | 14.7s |
+| `skills/freya-code-graph/` | 515 | 669 | 16.2s |
+| `skills/freya-spec-manager/` | 340 (+1 skipped) | 109 | 7.1s |
+| `skills/freya-codebase-security-scan/` | 294 | 140 | 1.4s |
 | `skills/freya-docs-manager/` | 161 | 282 | 0.2s |
-| `skills/freya-behavior-runner/` | 90 | 36 | 0.5s |
-| `skills/freya-behavior-graph/` | 63 | 16 | 0.1s |
-| `skills/freya-status/` | 29 | 0 | 0.1s |
+| `skills/freya-behavior-runner/` | 92 | 36 | 0.5s |
+| `skills/freya-behavior-graph/` | 82 | 16 | 1.0s |
+| `skills/freya-status/` | 32 | 3 | 0.2s |
 
-The eight rows sum to exactly the whole-suite figures, 2089 and 1345, which is the check worth
+The eight rows sum to exactly the whole-suite figures, 2178 and 1415, which is the check worth
 doing: an area that does not add up is a test file pytest is not collecting. The per-area runs
 total ~41s against the whole suite's 42s, so there is no shared setup cost hiding anywhere.
 
-`bin/` and `freya-code-graph/` are 32s of the 41s, and almost all of that is real subprocesses:
+`bin/` and `freya-code-graph/` are 31s of the 41s, and almost all of that is real subprocesses:
 `git` against real repositories, the launcher run end to end, and the `graphify` binary when it
 is installed. The other six areas together finish in under nine seconds, so
 `python3 -m pytest skills/freya-spec-manager -q` while iterating costs nothing.

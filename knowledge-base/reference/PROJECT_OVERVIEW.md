@@ -144,7 +144,7 @@ Counted on 2026-08-21, on the working tree of `test/dogfood-polyglot`:
 | Non-test Python | 16,423 lines | `git ls-files '*.py'` minus `test_`/`conftest`, `wc -l` |
 | Test Python | 22,200 lines | the same list, `test_`/`conftest` only |
 | SKILL.md prose | 5,540 lines across ten files | `git ls-files 'skills/*/SKILL.md' \| xargs wc -l` |
-| Tests | 1,759 passed, 1,012 subtests | `python3 -m pytest bin/ skills/ -q` — wall clock and the per-area breakdown are [TESTING.md](TESTING.md#what-the-suite-is-measured) |
+| Tests | 2,178 passed, 1 skipped, 1,415 subtests | `python3 -m pytest bin/ skills/ -q` — wall clock and the per-area breakdown are [TESTING.md](TESTING.md#what-the-suite-is-measured) |
 | Conformance gate | 13 rules, exit 0 | `python3 bin/check_skill_conformance.py` |
 | Citation gate | 1,311 `path:line` citations resolved | `python3 bin/check_doc_citations.py` |
 | Tree invariants | stdlib-only, no bare-name `subprocess` argv[0] | `python3 bin/check_invariants.py` |
