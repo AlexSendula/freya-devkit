@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "scanned_commit": "11cad13",
+  "scanned_commit": "769acf7",
   "report": "knowledge-base/security/codebase-security/2026-08-21.md",
   "findings": [
     {
@@ -188,6 +188,22 @@
       "status": "resolved",
       "file": "skills/freya-code-graph/scripts/graph_ops.py",
       "line": 1955
+    },
+    {
+      "id": "SEC-024",
+      "title": "_cited_only keeps a credential fused to a cited path, so SEC-016's second cut leaks on a shape it was written to stop",
+      "severity": "low",
+      "status": "open",
+      "file": "skills/freya-codebase-security-scan/scripts/audit_engine.py",
+      "line": 322
+    },
+    {
+      "id": "SEC-025",
+      "title": "drift context and contradictions context exit 1 with empty stdout on an unreadable spec, and both callers are documented fail-open",
+      "severity": "info",
+      "status": "open",
+      "file": "skills/freya-spec-manager/scripts/drift.py",
+      "line": 119
     }
   ]
 }
