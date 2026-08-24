@@ -137,6 +137,10 @@
                 <td><a href="#the-fixes-were-the-unscanned-part">Twenty-three findings closed, so the security work is done</a></td>
                 <td>Two thousand lines of new code had never been scanned — and one of them was the previous fix, applied to one path of two</td>
               </tr>
+              <tr>
+                <td><a href="#the-predicate-and-the-join">The containment rule is one rule</a></td>
+                <td>It asked <code>pathlib</code> and its consumers asked <code>ntpath</code>, and the two libraries answered differently on the interpreter nobody ran locally</td>
+              </tr>
             </tbody>
           </table>
         </div>
@@ -1039,6 +1043,62 @@
           smaller things — twenty-one, then nineteen, then a handful of stale sentences — but no
           round found nothing. The branch stopped on judgement, not on a clean result, and saying
           so is the honest version of "done".
+        </p>
+
+        <h3 id="the-predicate-and-the-join">20 · The predicate and the join disagreed about what a drive is</h3>
+        <p>
+          The branch closed with every gate green and was pushed. The first CI run failed —
+          on Python 3.9, on both Linux and Windows, while 3.13 passed everywhere. The failing
+          value was <code>1:x</code>.
+        </p>
+        <p>
+          <code>escapes</code> is the lexical predicate for a value <em>declared</em> in
+          checked-in data, and the fix two entries above had just routed directory keys through
+          it. It asked <code>PureWindowsPath(rel).drive</code> whether a value carried a Windows
+          drive. That question does not have one answer: <code>pathlib</code> restricted a drive
+          letter to ASCII up to Python 3.11 and delegates to <code>ntpath.splitdrive</code> from
+          3.12, which accepts <em>any</em> character. So <code>PureWindowsPath('1:x').drive</code>
+          is empty on 3.9 and <code>'1:'</code> on 3.12.
+        </p>
+
+        <div class="callout callout--danger">
+          <span class="callout-label">Why that was a hole and not a curiosity</span>
+          <p>The consumers do not join with <code>pathlib</code>. They join with
+          <code>ntpath</code>, and <code>ntpath.join('C:\work\proj', '1:x')</code> is
+          <code>'1:x'</code> — the project root discarded. So on 3.9 through 3.11 the predicate
+          answered <em>does not escape</em> about a value that escaped at the very next line of
+          the code it was guarding.</p>
+        </div>
+
+        <p>
+          The rule now asks <code>ntpath.splitdrive</code> — the same body the consumers join
+          with — so predicate and join cannot disagree by construction rather than by vigilance.
+          That is the whole fix, and it is one line.
+        </p>
+        <p>
+          <strong>The lesson was already in the file, four lines away.</strong> The sibling
+          predicate <code>is_anchored</code> was written not to use <code>os.path.isabs</code>,
+          with a comment naming the reason: Python 3.13 had changed <code>ntpath.isabs</code>, and
+          a rule that moves between interpreter versions is not a security boundary. That cost had
+          already been paid once. It was not carried across to the drive term in the function
+          immediately above it — and the reference page's own table shows the seam, because the
+          <code>is_anchored</code> row said <em>on any host and any supported interpreter</em>
+          while the <code>escapes</code> row beside it did not.
+        </p>
+        <p>
+          <strong>Every local run was on one interpreter</strong>, where the two eras agree, so no
+          amount of care at the keyboard would have surfaced this. The version matrix did — which
+          makes it the one entry here found by a machine rather than by reading. The regression
+          test therefore asserts against the <em>join</em> and not only against the predicate: a
+          predicate agreeing with itself proves nothing about the thing it guards. A second test
+          re-derives the rule with the pre-3.12 semantics simulated, so an edit that reaches for
+          <code>.drive</code> again fails on the interpreter developers actually run.
+        </p>
+        <p>
+          The shape rhymes with the entry above it, one level down. There, the newest work was the
+          unexamined work. Here, the newest work was examined thoroughly — by hand, on one
+          machine, on one interpreter — and the examination was the thing with the blind spot.
+          <strong>A green suite is a claim about the environment that ran it.</strong>
         </p>
       </section>
 

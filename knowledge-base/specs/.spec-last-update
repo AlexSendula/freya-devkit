@@ -1,14 +1,15 @@
 # Spec Manager Last Update
 commit: 34ef702
 timestamp: 2026-08-24T15:50:00Z
-specs_updated: 0
+specs_updated: 1
 specs_created: 0
 
-# Advanced to 34ef702 (the SEC-026 containment fix) after checking the corpus
-# against it: the change refines HOW `escapes` detects a drive and leaves every
-# spec statement about it true — SPEC-011 says "judged in both path flavours",
-# SPEC-001 says the launcher keeps a second body held by a parity test, and both
-# still hold. `specs_updated: 0` is therefore a checked zero, not an unrun one.
+# Advanced to 34ef702 (the SEC-026 containment fix). SPEC-011 owns the refusal
+# that fix restored and now records that it was absent on Python 3.9-3.11;
+# SPEC-001's statement about the launcher's second body and its parity test
+# still holds unchanged. An earlier version of this note claimed `specs_updated:
+# 0` as "a checked zero" — that was a reasoning check, not a corpus pass, and
+# the pass found one spec to update.
 #
 # What this commit claims, and what it does not.
 #

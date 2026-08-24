@@ -239,7 +239,7 @@ what a wrong answer costs; **choose by the question, never by the shape of the a
 
 | Predicate | The question | Symlinks |
 |---|---|---|
-| `escapes(value)` (`containment.py:41`) | a value **declared** in checked-in data — a directory key, a spec locator, a tsconfig target | not consulted; purely lexical, judged in both path flavours, `..` refused outright |
+| `escapes(value)` (`containment.py:41`) | a value **declared** in checked-in data — a directory key, a spec locator, a tsconfig target | not consulted; purely lexical, judged in both path flavours **and on any supported interpreter**, `..` refused outright |
 | `rel_within(root, cand)` (`containment.py:88`) | a resolved filesystem candidate that has to become a **graph key** | preserved, because the key is what three artifacts join on (ADR-025) |
 | `within(root, cand)` (`containment.py:122`) | a **security decision** about a path that exists | followed, because the question is which file will actually be opened or executed |
 | `is_anchored(text)` (`containment.py:166`) | is this string already absolute, on any host and any supported interpreter | n/a; not the negation of `escapes` — `C:x` both escapes and is not anchored |
@@ -251,7 +251,7 @@ cannot import from one (ADR-030). The two are held together by
 carry a third copy with a docstring claiming the two were "deliberately identical" and nothing
 holding them to it; it now imports.
 
-Three findings are what made this a module rather than a habit. The import resolver's
+Four findings are what made this a module rather than a habit. The import resolver's
 containment check was **lexical**, so a `..` in a tsconfig `paths` target resolved outside the
 root (SEC-014). A graphify `source_file` became a graph key with no check at all, and the
 resulting out-of-project node validated completely clean (SEC-015) — so
@@ -260,7 +260,25 @@ resulting out-of-project node validated completely clean (SEC-015) — so
 including ones nobody has written yet. And `normalise_dir_key` refused only the exact strings
 `.` and `..`, so a committed `{"directories": {"../shared": "source"}}` graphed a sibling tree,
 read its contents, and re-entered the project through `..` so every in-project file gained a
-duplicate node — with `validate_graph` clean (SEC-021).
+duplicate node — with `validate_graph` clean (SEC-022).
+
+The fourth arrived through the fix for the third, and it is the reason the `escapes` row above
+says *and on any supported interpreter*. `escapes` asked `PureWindowsPath(rel).drive` whether a
+value carried a Windows drive. `pathlib` restricted a drive letter to ASCII up to Python 3.11
+and delegates to `ntpath.splitdrive` from 3.12, which accepts any character — so
+`PureWindowsPath('1:x').drive` is `''` on 3.9 and `'1:'` on 3.12. The consumers join with
+`ntpath`, where `ntpath.join('C:\\work\\proj', '1:x')` is `'1:x'` with the root discarded, so on
+3.9 through 3.11 the predicate passed a value that escaped at the very next join (SEC-026). The
+rule now asks `ntpath.splitdrive` — the same body the consumers join with, so the two cannot
+disagree by construction rather than by vigilance.
+
+**That one was found by CI and not by review**, and the asymmetry that hid it is worth keeping
+in mind when reading the table: `is_anchored` had carried "any supported interpreter" since it
+was written, because 3.13's change to `ntpath.isabs` had already been paid for once. `escapes`
+sat four lines away with the same exposure and no such wording, and every local run was on a
+single interpreter where the two eras agree. A predicate whose answer depends on the
+interpreter is not a boundary; the version matrix is what makes that checkable rather than
+aspirational.
 
 **The `validate_graph` rule is not a substitute for the refusals, and its own comment says so.**
 By the time it runs, the file has been opened and its contents are already in the artifact being

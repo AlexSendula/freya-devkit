@@ -212,6 +212,15 @@ is `D:` with the project root discarded — which is why the check does not defe
 happens to be running on. A directory key is a value *declared* in checked-in data, so the
 platform reading the file does not get to decide what a committed key means.
 
+**Nor does the interpreter, and that took a second fix.** `escapes` asked
+`PureWindowsPath(rel).drive`, and `pathlib` restricted a drive letter to ASCII up to Python
+3.11 before delegating to `ntpath.splitdrive` from 3.12, which accepts any character. `1:x`
+therefore carried no drive on 3.9 and a drive on 3.12, while the consumers here join with
+`ntpath` on every version — and `ntpath.join('C:\\work\\proj', '1:x')` is `'1:x'`, the root
+discarded. This refusal was therefore absent on three supported interpreters (SEC-026, found
+by CI), which is why the predicate now asks `ntpath.splitdrive`: the same body the consumers
+join with, so predicate and join cannot disagree.
+
 **Folded text, not written text**, and that is the one way this differs from checking a
 locator: `a/../b` and `b` have to be one key (ADR-025), so the question is whether the key the
 consumers will actually join escapes — not whether a `..` appeared on the way to it.
@@ -260,5 +269,6 @@ layers *agree*, not that the contract enforces the tier.
 
 | Date | Change | Reason |
 |------|--------|--------|
+| 2026-08-24 | Recorded that the escape refusal was absent on Python 3.9-3.11 until the predicate stopped asking `pathlib` for the drive | SEC-026, found by CI. `pathlib` and `ntpath` disagree about what a drive letter is, and the consumers join with `ntpath` |
 | 2026-08-24 | Added "A `directories` key that leaves the project is refused, not folded" | SEC-022 (medium). A committed `../shared` key graphed a sibling tree and re-entered the project through `..`, with nothing printed and `validate_graph` clean |
 | 2026-08-21 | Initial spec, inferred from code during brownfield scan | Candidate behaviors recorded as `proposed` for lazy review (ADR-007) |
