@@ -120,7 +120,11 @@ def stale_bucket(project_dir):
     try:
         with open(path, encoding="utf-8") as f:
             behaviors = json.load(f).get("behaviors", {})
-    except (json.JSONDecodeError, OSError):
+    except (OSError, ValueError):
+        # ValueError, not json.JSONDecodeError: that is already a ValueError, and the wider
+        # clause also catches the UnicodeDecodeError one non-UTF-8 byte raises out of the read.
+        # SEC-008 was the same mistake in the other direction — `except OSError` over a decode
+        # — and it turned a swallowed error into an uncaught traceback.
         return [], "behavior.json unreadable"
     head = _git_head(project_dir)
     if not head:
@@ -174,7 +178,10 @@ def security_bucket(project_dir):
     try:
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
-    except (json.JSONDecodeError, OSError):
+    except (OSError, ValueError):
+        # See the note in the behavior bucket: ValueError covers both the JSON parse failure
+        # and a non-UTF-8 byte, and this bucket's whole contract is that it never answers zero
+        # without saying why.
         return [], "findings.json unreadable"
     findings = data.get("findings") if isinstance(data, dict) else None
     if not isinstance(findings, list):

@@ -168,6 +168,25 @@ class SecurityBucketTest(unittest.TestCase):
         with open(os.path.join(self.d, "findings.json"), "w") as f:
             json.dump(obj, f)
 
+    def test_a_findings_file_that_is_not_utf8_is_noted_not_raised(self):
+        """One stray byte used to take the whole census down with a traceback.
+
+        `json.JSONDecodeError` is a `ValueError`, so `except (json.JSONDecodeError,
+        OSError)` reads as though it covers every way a read can fail — and does not
+        cover the `UnicodeDecodeError` that `open(..., encoding="utf-8")` raises
+        first, before any parsing happens. SEC-008 was this same mistake pointing the
+        other way: `except OSError` over a decode, which turned a swallowed error into
+        an uncaught traceback.
+
+        This bucket's whole contract is that it never answers zero without saying why,
+        and a traceback is not a note.
+        """
+        with open(os.path.join(self.d, "findings.json"), "wb") as f:
+            f.write(b'{"findings": [{"id": "SEC-\xff", "status": "open"}]}')
+        findings, note = collect_status.security_bucket(self.tmp.name)
+        self.assertEqual(findings, [])
+        self.assertIn("unreadable", note)
+
     def test_open_findings_only(self):
         self._write({"version": 1, "findings": [
             {"id": "SEC-001", "title": "a", "severity": "high", "status": "open", "file": "x.ts"},
