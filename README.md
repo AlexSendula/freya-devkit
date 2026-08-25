@@ -160,11 +160,6 @@ command tables: [SKILL_REFERENCE.md](knowledge-base/reference/SKILL_REFERENCE.md
 carry a 0–100 certainty score rather than rounding to confident. The exception is the behavior
 layer, where a broken test link or a failing accepted behavior blocks until you deal with it.
 
-**The graph stops at your project root.** Imports resolving outside it come back unresolved, unless
-you declare that directory in the project's settings — worth knowing if your code spans sibling
-checkouts
-([ADR-031](knowledge-base/decisions/ADR-031-crossing-the-root-is-a-declared-act.md)).
-
 **Some of it has never been proven,** listed as risk rather than reassurance. No agent CLI has ever
 run on Windows: CI installs and tests the toolkit there, but no agent runs on that runner. Each
 install mode is exercised on one platform only — symlink on Linux, `--copy` on Windows — which
