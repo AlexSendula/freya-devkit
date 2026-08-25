@@ -6,8 +6,10 @@ what the filters keep. Covers SPEC-017 / BEH-082..086.
 
 This module is the read side every other spec-manager script imports
 (`verify_intent`, `verify_links`, `drift`, `contradictions` all call
-`load_all_specs`/`find_specs_dir`), so a silently shortened corpus here is a
-silently shortened corpus for all of them.
+`load_specs`/`load_all_specs`/`find_specs_dir`), so a silently shortened corpus
+here is a silently shortened corpus for all of them — which is why the cases
+about what happens to an unreadable file are the load-bearing ones in this
+file, not the filter cases.
 
 Run:  python test_search_specs.py
 """
@@ -25,11 +27,13 @@ from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from search_specs import (  # noqa: E402
+    SpecCorpusError,
     find_specs_dir,
     format_json,
     format_paths,
     format_table,
     load_all_specs,
+    load_specs,
     main,
     parse_spec_file,
     search_specs,
@@ -88,11 +92,19 @@ class _SpecFixture(unittest.TestCase):
 
     def _run_main(self, *args):
         """Drive main() with argv and return everything it printed to stdout."""
-        out = io.StringIO()
+        return self._run_cli(*args)[0]
+
+    def _run_cli(self, *args):
+        """(stdout, stderr, exit code) from main(). Exit 0 is falling off the end."""
+        out, err = io.StringIO(), io.StringIO()
+        code = 0
         with mock.patch.object(sys, "argv", ["search_specs.py", *args]):
-            with contextlib.redirect_stdout(out):
-                main()
-        return out.getvalue()
+            with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+                try:
+                    main()
+                except SystemExit as exc:
+                    code = exc.code or 0
+        return out.getvalue(), err.getvalue(), code
 
 
 # A body whose distinctive terms straddle the preview window. `filler ` * 100 is
@@ -398,11 +410,13 @@ class DiscoveryCase(_SpecFixture):
 
     def test_malformed_spec_warns_and_others_load(self):
         """BEH-086. This is the only thing standing between one broken spec file
-        and a silently shortened corpus for every consumer of `load_all_specs` —
+        and a silently shortened corpus for every consumer of the loader —
         `verify_intent`, `verify_links`, `drift` and `contradictions` all read
         through it, and a spec that vanishes from the corpus is a spec whose
-        gates stop firing. So both halves are asserted: the survivors come back,
-        *and* the loss is announced on stderr.
+        gates stop firing. Three halves now, not two: the survivors still come
+        back, the loss is announced on stderr, *and* the exit code disowns the
+        answer. The warning alone was the whole defence until 2026-08-24, and it
+        is written to a stream no skill-to-skill caller reads.
         """
         root = self._root()
         _write(root / "knowledge-base/specs/SPEC-501.md", _spec("SPEC-501"))
@@ -411,48 +425,149 @@ class DiscoveryCase(_SpecFixture):
         _write(root / "knowledge-base/specs/SPEC-503-broken.md",
                "---\nid: SPEC-503\ntitle: Truncated Record\n")
 
-        err = io.StringIO()
-        with contextlib.redirect_stderr(err):
-            specs = load_all_specs(self._specs_dir(root))
+        out, err, code = self._run_cli("--dir", self._specs_dir(root), "--format", "paths")
 
-        self.assertEqual(_ids(specs), ["SPEC-501", "SPEC-502"])
-        warning = err.getvalue()
-        self.assertIn("SPEC-503-broken.md", warning)
-        self.assertIn("Warning", warning)
+        self.assertIn("SPEC-501.md", out)
+        self.assertIn("SPEC-502.md", out)
+        self.assertIn("SPEC-503-broken.md", err)
+        self.assertIn("could not be read", err)
+        self.assertEqual(code, 1, "an answer known to be short may not exit 0")
 
     def test_a_tab_indented_spec_is_also_reported_rather_than_dropped(self):
-        """A second, differently-shaped parse failure, so the warn-and-continue
-        path is not pinned to one error message. Tabs are rejected by the
-        frontmatter grammar outright."""
+        """A second, differently-shaped parse failure, so the alarm is not
+        pinned to one error message. Tabs are rejected by the frontmatter
+        grammar outright."""
         root = self._root()
         _write(root / "knowledge-base/specs/SPEC-501.md", _spec("SPEC-501"))
         _write(root / "knowledge-base/specs/SPEC-504-tabs.md",
                "---\nid: SPEC-504\ntitle: Tabbed\nrelated_code:\n\t- src/a.ts\n---\n\nbody\n")
 
-        err = io.StringIO()
-        with contextlib.redirect_stderr(err):
-            specs = load_all_specs(self._specs_dir(root))
+        specs, unreadable = load_specs(self._specs_dir(root))
 
         self.assertEqual(_ids(specs), ["SPEC-501"])
-        self.assertIn("SPEC-504-tabs.md", err.getvalue())
+        self.assertEqual([Path(u.file_path).name for u in unreadable],
+                         ["SPEC-504-tabs.md"])
+        self.assertIn("tab indentation", unreadable[0].reason)
 
-    def test_a_file_with_no_id_is_skipped_without_a_warning(self):
-        """SPEC-017's third intentional decision. The specs tree legitimately
-        holds non-records, and warning on each of them on every query would
-        train people to ignore the channel BEH-086 depends on. Asserting the
-        *silence* is what stops that from being softened by accident."""
+    def test_a_record_that_lost_its_id_is_an_alarm_not_an_absence(self):
+        """The quietest way into the failure, and the reason it outranks a
+        forgery route: no attacker, one deleted line.
+
+        `id:` is the only field a spec is addressed by, so a hand edit or a
+        merge conflict that drops it used to remove the file from the corpus
+        with nothing printed on any stream — quieter even than the
+        FrontmatterError cases, which at least reached stderr. SPEC-017 raised
+        this as an open question ("should a file with frontmatter but no `id`
+        warn?") and the answer is that a record which lost its id is a record
+        the corpus is missing.
+        """
         root = self._root()
         _write(root / "knowledge-base/specs/SPEC-501.md", _spec("SPEC-501"))
-        _write(root / "knowledge-base/specs/template.md",
-               "---\ntitle: Template With No Id\ncategory: general\n---\n\nbody\n")
+        # Byte-for-byte SPEC-502 with the single line `id: SPEC-502` removed.
+        _write(root / "knowledge-base/specs/SPEC-502.md",
+               _spec("SPEC-502").replace("id: SPEC-502\n", "", 1))
+
+        specs, unreadable = load_specs(self._specs_dir(root))
+
+        self.assertEqual(_ids(specs), ["SPEC-501"])
+        self.assertEqual([Path(u.file_path).name for u in unreadable], ["SPEC-502.md"])
+        self.assertIn("no `id:`", unreadable[0].reason)
+
+    def test_a_fence_that_does_not_start_at_line_one_is_a_broken_record(self):
+        """The `id:` arm above closed one keystroke and left a quieter one open.
+
+        `parse_frontmatter` returns `{}` unless line 1 is exactly `---`, so the
+        `if not frontmatter: return None` discriminator answered "does this file
+        OPEN with a fence", not "does it have one". A spec with a single blank
+        line inserted at the top — or behind a UTF-8 BOM, which Windows editors
+        write by default and which `str.strip()` does not remove — took the prose
+        branch and left the corpus in silence. Both Tier-1 gates then printed
+        their success sentence over a file they never read, and `--advance` moved
+        the baseline across it.
+
+        Measured on the version with only the `id:` arm: inserting one blank line
+        is a whitespace-only diff, and quieter than deleting the `id:` line the
+        arm above was written for.
+        """
+        shapes = {
+            "SPEC-601.md": "\n" + _spec("SPEC-601"),            # one blank line
+            "SPEC-602.md": "﻿" + _spec("SPEC-602"),        # UTF-8 BOM
+            "SPEC-603.md": "﻿\n" + _spec("SPEC-603"),      # both
+        }
+        root = self._root()
+        _write(root / "knowledge-base/specs/SPEC-600.md", _spec("SPEC-600"))
+        for name, text in shapes.items():
+            _write(root / "knowledge-base/specs" / name, text)
+
+        specs, unreadable = load_specs(self._specs_dir(root))
+
+        self.assertEqual(_ids(specs), ["SPEC-600"])
+        self.assertEqual(sorted(Path(u.file_path).name for u in unreadable),
+                         sorted(shapes))
+        for u in unreadable:
+            self.assertIn("does not start at line 1", u.reason)
+
+    def test_a_file_with_no_frontmatter_at_all_is_quietly_not_a_spec(self):
+        """The other side of the discriminator, and the reason it is the
+        frontmatter block rather than the `id`.
+
+        The specs tree legitimately holds non-records — the index README, a
+        prose note, a template — and alarming on each of them on every query
+        would train people to ignore the channel the case above depends on. So
+        `parse_frontmatter` returning an empty mapping stays a silent skip.
+        Asserting the silence is what stops it being 'hardened' into noise.
+        """
+        root = self._root()
+        _write(root / "knowledge-base/specs/SPEC-501.md", _spec("SPEC-501"))
         _write(root / "knowledge-base/specs/notes.md", "Just prose, no frontmatter at all.\n")
+        _write(root / "knowledge-base/specs/checklist.md", "# Checklist\n\n- one\n- two\n")
 
         err = io.StringIO()
         with contextlib.redirect_stderr(err):
-            specs = load_all_specs(self._specs_dir(root))
+            specs, unreadable = load_specs(self._specs_dir(root))
 
         self.assertEqual(_ids(specs), ["SPEC-501"])
+        self.assertEqual(unreadable, [])
         self.assertEqual(err.getvalue(), "")
+        self.assertEqual(_ids(load_all_specs(self._specs_dir(root))), ["SPEC-501"])
+
+    def test_load_all_specs_raises_rather_than_answering_a_short_corpus(self):
+        """The name a new consumer reaches for may not quietly answer a subset.
+
+        `drift` and `contradictions` still call this one, so the exception is
+        what stops them scoping a checkpoint to a corpus they could not read.
+        The exception carries the files, not just the fact, so whoever catches
+        it can name them.
+        """
+        root = self._root()
+        _write(root / "knowledge-base/specs/SPEC-501.md", _spec("SPEC-501"))
+        _write(root / "knowledge-base/specs/SPEC-502-broken.md",
+               "---\nid: SPEC-502\ntitle: Truncated\n")
+
+        with self.assertRaises(SpecCorpusError) as caught:
+            load_all_specs(self._specs_dir(root))
+
+        self.assertEqual([Path(u.file_path).name for u in caught.exception.unreadable],
+                         ["SPEC-502-broken.md"])
+        self.assertIn("SPEC-502-broken.md", str(caught.exception))
+        # The control: a corpus with nothing wrong in it still answers.
+        (root / "knowledge-base/specs/SPEC-502-broken.md").unlink()
+        self.assertEqual(_ids(load_all_specs(self._specs_dir(root))), ["SPEC-501"])
+
+    def test_a_certainty_that_is_not_a_number_is_an_alarm(self):
+        """`certainty: high` reaches `int()` inside the constructor, and the
+        broad `except` around it used to turn that into the same silent drop.
+        A frontmatter field the grammar accepts and the schema does not is the
+        most likely authoring mistake of the four."""
+        root = self._root()
+        _write(root / "knowledge-base/specs/SPEC-501.md", _spec("SPEC-501"))
+        _write(root / "knowledge-base/specs/SPEC-505.md",
+               _spec("SPEC-505").replace("certainty: 50", "certainty: high"))
+
+        specs, unreadable = load_specs(self._specs_dir(root))
+
+        self.assertEqual(_ids(specs), ["SPEC-501"])
+        self.assertEqual([Path(u.file_path).name for u in unreadable], ["SPEC-505.md"])
 
     def test_readme_is_skipped_by_name_even_when_it_carries_an_id(self):
         """The index README is prose about the corpus, not a member of it."""
@@ -479,6 +594,23 @@ class DiscoveryCase(_SpecFixture):
         path = root / "notes.md"
         _write(path, "# Just a note\n")
         self.assertIsNone(parse_spec_file(str(path)))
+
+    def test_parse_spec_file_raises_for_a_record_it_cannot_read(self):
+        """None and an exception are the two answers, and which one a file gets
+        is the whole decision. Asserted at the single-file level as well as
+        through the loader, because `load_specs` is what turns one into the
+        other and a fix applied only there would leave `parse_spec_file` still
+        handing a caller a shortened truth."""
+        root = self._root()
+        no_id = root / "lost-its-id.md"
+        _write(no_id, "---\ntitle: A Record\ncategory: general\nstatus: draft\n---\n\nbody\n")
+        with self.assertRaises(SpecCorpusError):
+            parse_spec_file(str(no_id))
+
+        truncated = root / "truncated.md"
+        _write(truncated, "---\nid: SPEC-900\ntitle: Truncated\n")
+        with self.assertRaises(SpecCorpusError):
+            parse_spec_file(str(truncated))
 
 
 class FormatCase(_SpecFixture):

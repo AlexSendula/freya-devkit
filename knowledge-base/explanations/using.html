@@ -328,11 +328,20 @@ freya doctor          <span class="tok-c"># verify what landed where</span></cod
             relations the built-in one has no notion of.</p>
             <div class="code-block">
               <div class="code-head"><span class="dot"></span><span class="dot"></span><span class="dot"></span>&nbsp; choosing a backend</div>
-              <pre class="code"><code>uv tool install <span class="tok-s">"graphifyy[sql,terraform]"</span>   <span class="tok-c"># or pip install</span>
+              <pre class="code"><code><span class="tok-c"># the package is graphifyy, two y's; the command it installs is graphify, one y</span>
+uv tool install <span class="tok-s">"graphifyy[sql,terraform]==0.9.47"</span>   <span class="tok-c"># or pip, on Python 3.10+</span>
 
 freya code-graph --use graphify            <span class="tok-c"># this project</span>
 freya code-graph --use graphify --global   <span class="tok-c"># and every future one</span></code></pre>
             </div>
+            <p class="muted small">Pinned deliberately, and it is the same line
+            <code>freya install</code> prints. <code>graphifyy</code> is pre-1.0, and
+            <code>0.9.47</code> is the release this toolkit was measured against. The
+            <code>[sql,terraform]</code> extras are not optional decoration either: without them
+            <code>graphify</code> still <em>declares</em> <code>.sql</code>, <code>.tf</code> and
+            <code>.tfvars</code> and parses none of them, and the coverage census — which filters by
+            the running backend's declared extensions — would then affirm that nothing went unread
+            while the graph held no nodes for those files.</p>
             <p><code>freya install</code> asks this once and records the answer as your machine
             default; the first build in a project writes it into that project's committed
             <code>knowledge-base/settings.json</code>, so a clone and CI resolve the same backend you
@@ -353,6 +362,24 @@ freya code-graph --use graphify --global   <span class="tok-c"># and every futur
               imports.</li>
               <li>Monorepos want one graph per subproject, and a <code>tsconfig</code> <code>extends</code>
               chain is not followed.</li>
+              <li><strong>Nothing outside the project root is reached unless you declare it.</strong>
+              An import's <code>..</code>, a tsconfig <code>paths</code> escape and an absolute
+              import all come back <code>unresolved:</code>, and a committed symlink pointing
+              out of the project is refused rather than followed. A symlink that stays inside
+              the project still works. Naming a
+              sibling directory under <code>outside</code> in
+              <code>knowledge-base/settings.json</code> — <code>{"ui": "../packages/ui"}</code> — makes
+              imports that land there resolve to <code>outside:ui/&lt;path&gt;</code> instead of
+              disappearing into a package tag. That is <em>all</em> it buys: the directory is never
+              scanned, walked or globbed, the declaration causes no file under it to be read (the
+              whole reach is a <code>realpath</code>, one <code>is_file()</code> and one cached
+              <code>listdir</code> of the named file's own directory), no file under it becomes a
+              node, and there is still no reverse edge or blast radius on the far side. Relative
+              paths only, and it is a per-project setting — a machine-wide one would point every
+              repository on the machine at one directory. <strong>Only the built-in
+              <code>homegrown</code> resolver honours declarations:</strong> on the
+              <code>graphify</code> backend a declared root reports <code>crossings: 0</code>
+              whether or not anything crossed it, because that backend never consults them.</li>
               <li>On <code>build</code> it classifies directories in the order rules → AI → user, and
               non-interactively an uncertain directory defaults to <strong>source</strong> — so real code is
               never silently dropped, at the cost of occasionally graphing something you would have
@@ -485,8 +512,15 @@ freya code-graph --use graphify --global   <span class="tok-c"># and every futur
             before it is allowed into the report.</p>
             <h4>Limits</h4>
             <ul>
-              <li>Only <strong><code>accepted</code></strong> behaviors downgrade a finding. A verified
-              guarantee beats a prose claim; proposed and confirmed add an advisory note at most.</li>
+              <li>Only <strong><code>accepted</code></strong> behaviors downgrade a finding; proposed
+              and confirmed add an advisory note at most. The query checks that the behavior's state
+              is <code>accepted</code> in the specs, that its locator resolves to a file in the
+              project, and that the exercised path was <code>observed</code> rather than inferred
+              from the import graph — all read from artifacts the scanned repository commits — and
+              returns a sentence saying so, which the report must carry verbatim. <strong>The scan
+              passes <code>--verify</code></strong>, so the linked test is re-run; on the plain
+              query, which runs nothing, that sentence is a label on evidence and not a
+              verification.</li>
               <li>On the driver path, exactly <strong>three</strong> refutation lenses run per finding. (The
               "2–3 lenses" wording elsewhere describes the in-loop <code>update</code> pass, not the
               driver.)</li>
@@ -601,7 +635,18 @@ freya code-graph --use graphify --global   <span class="tok-c"># and every futur
               validate-on-hit will therefore never surface.</li>
               <li>It <strong>never auto-authors a test.</strong> That is the engineer's work, on purpose.</li>
               <li>Every source degrades to a note independently, so a missing or corrupt input narrows the
-              census rather than blocking the command.</li>
+              census rather than blocking the command — and, new since 0.3.0, those notes are carried into
+              the generated <code>BACKLOG.md</code> as well, under a banner saying a section may be
+              empty because its input was missing rather than because it is clean.</li>
+              <li><strong>An unreadable finding counts as open, never as absent.</strong>
+              <code>findings.json</code>'s <code>status</code> vocabulary is
+              <code>open</code>&nbsp;/&nbsp;<code>resolved</code>&nbsp;/&nbsp;<code>intentional</code>,
+              and both ends of that file are written by hand. A fourth value — a capitalisation, a
+              synonym, a missing key — used to be dropped silently, so a file holding three
+              high-severity findings could report <em>zero open findings</em> and say nothing about
+              it. It is now counted as open and named in the note. A silently-zero security bucket
+              reads as clean, not as never scanned, and those are the same number and opposite
+              facts.</li>
             </ul>
             <p class="small muted">Commands and outputs:
             <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/reference/SKILL_REFERENCE.md#status">knowledge-base/reference/SKILL_REFERENCE.md#status</a></p>

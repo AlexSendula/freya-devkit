@@ -74,8 +74,8 @@ long-term path), and `drift gaps` making the un-scopable set inspectable
 (`docs/superpowers/archive/specs/2026-07-01-p4b-declarative-drift-design.md:26`,
 `skills/freya-spec-manager/SKILL.md:55`). The degradation path is shipped as designed:
 `drift.py` returns `"changed-only"` as the `impact_source` when the graph or tool is missing rather
-than an empty set (`skills/freya-spec-manager/scripts/drift.py:98`,
-`skills/freya-spec-manager/scripts/drift.py:135`).
+than an empty set (`skills/freya-spec-manager/scripts/drift.py:103`,
+`skills/freya-spec-manager/scripts/drift.py:152`).
 
 ## Rejected Alternatives
 

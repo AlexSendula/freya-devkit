@@ -16,6 +16,7 @@ from unittest import mock
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import freya_cli  # noqa: E402
 import installer  # noqa: E402
+import updater  # noqa: E402
 
 
 class SuiteRootTest(unittest.TestCase):
@@ -1100,6 +1101,86 @@ class DoctorUpdatesCheckTest(unittest.TestCase):
             self.assertEqual(status[1], "ok")
 
 
+class DoctorCannotRunGitTest(unittest.TestCase):
+    """`updates` when git cannot be spawned at all, rather than when it answers.
+
+    `updater.git` returns `(1, "")` for a missing resolver and for a git it
+    refused, exactly as it does for a real git failure, and `is_git_store` reads
+    `(1, "")` as "not a repository". So `doctor` answered **"the store is not a
+    git checkout"** for a store that was one, while `freya update` on the same
+    machine printed the true reason — two commands, contradictory stories, and
+    the wrong one on the command that exists to explain this state. Both
+    triggers were proved on a real clone; the refusal one is the default outcome
+    on the Windows 3.9-3.11 leg, where `shutil.which` still returns the
+    working-directory hit and `exec_path`'s absoluteness rule is the only
+    control (ADR-030).
+
+    `run=None` throughout, because the whole point is that the ladder is using
+    the real `updater.git`. No git is ever spawned even so: the state under test
+    is precisely the one in which `updater.git` refuses before `subprocess`.
+    """
+
+    def _updates(self, checks):
+        return next(c for c in checks if c[0] == "updates")
+
+    def test_a_resolver_that_could_not_be_loaded_is_named_not_guessed_at(self):
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(updater, "exec_path", None), \
+                mock.patch.object(updater.subprocess, "run") as run:
+            checks = freya_cli.doctor_checks(root=Path(tmp).resolve(), targets={},
+                                             run=None)
+        self.assertEqual(self._updates(checks), ("updates", "fail", updater.NO_RESOLVER))
+        run.assert_not_called()
+
+    def test_a_refused_git_is_reported_as_the_refusal_not_as_a_missing_repository(self):
+        """The Windows 3.9 outcome, spelled the way `exec_path` spells it."""
+        refusal = updater.exec_path.Resolution(
+            None, "git resolved to '.\\git.exe', which is not an absolute path "
+                  "— the working directory would be choosing the binary")
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(updater.exec_path, "resolve", return_value=refusal), \
+                mock.patch.object(updater.subprocess, "run") as run:
+            checks = freya_cli.doctor_checks(root=Path(tmp).resolve(), targets={},
+                                             run=None)
+        label, status, detail = self._updates(checks)
+        self.assertEqual(status, "warn")
+        self.assertEqual(detail, refusal.reason)
+        self.assertNotIn("not a git checkout", detail)
+        run.assert_not_called()
+
+    def test_doctor_and_update_give_the_same_reason(self):
+        """The property, not just the two messages: `doctor`'s row and
+        `preconditions`' first reason come from one body (`updater.git_program`),
+        so they cannot drift back apart. `update` appends its own remedy clause,
+        so the row has to be a prefix of it rather than equal to it."""
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(updater, "exec_path", None):
+            root = Path(tmp).resolve()
+            checks = freya_cli.doctor_checks(root=root, targets={}, run=None)
+            reasons = updater.preconditions(root)
+        self.assertTrue(
+            reasons[0].startswith(self._updates(checks)[2]),
+            f"doctor says {self._updates(checks)[2]!r}, update says {reasons[0]!r}")
+
+    def test_an_injected_runner_still_speaks_for_git(self):
+        """`run=` replaces git wholesale, so the resolver has no say in what
+        those calls return and the row must not describe a spawn that never
+        happens. Without this the guard on the new branch is unpinned: dropping
+        it leaves every other test in this file green on a machine that has git,
+        and turns them all machine-dependent on one that does not."""
+        def answering_run(args, cwd, timeout=None):
+            if args[:2] == ["rev-parse", "--show-toplevel"]:
+                return 0, str(cwd)
+            return 1, ""
+
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(updater, "exec_path", None):
+            checks = freya_cli.doctor_checks(root=Path(tmp).resolve(), targets={},
+                                             run=answering_run)
+        self.assertEqual(self._updates(checks), ("updates", "warn",
+                                                 "this branch has no upstream"))
+
+
 class NotifyWiringTest(unittest.TestCase):
     def test_the_notice_precedes_an_ordinary_command(self):
         # The only positive test of this wiring: every other test in this class
@@ -1242,6 +1323,104 @@ class InitDispatchTest(unittest.TestCase):
             "  init      Write a freya-devkit section into a project's AGENTS.md",
             freya_cli.format_help(),
         )
+
+
+class ContainmentParityTest(unittest.TestCase):
+    """Every bootstrap copy of a containment predicate, held to the canonical one.
+
+    `bin/` keeps its own copies on purpose: `doctor` and `update` exist to
+    diagnose and repair a broken skill tree, and `check_invariants` may be about
+    to condemn one, so neither can import from it (ADR-030). That exception is
+    only defensible while the copies are *gated*. Two byte-identical bodies with
+    a docstring asserting they are identical is what the tree had before, and it
+    was true by luck — no ADR, no spec, no commit message and no test held them
+    to it, which is exactly the hand-maintained duplicate ADR-002 forbids.
+
+    There is deliberately no `skipUnless` here. If `containment.py` cannot be
+    imported these tests ERROR, because a parity test that quietly skips is the
+    precise failure mode it was written to prevent: the canonical module gets
+    moved or renamed, the copies drift, and the gate reports green.
+    """
+
+    #: One row per term of the rule, plus the values that must stay legal. Any
+    #: single-term deletion on either side flips exactly one of the first four.
+    CASES = (
+        "/etc/passwd",                          # posix.is_absolute / win.root
+        "C:x",                                  # win.drive alone
+        "C:\\Windows\\win.ini",                 # win.drive + win.root
+        "\\etc\\passwd",                        # win.root alone
+        "a/../../b",                            # dotdot, posix spelling
+        "a\\..\\b",                             # dotdot, windows spelling
+        "a/../b",                               # dotdot that normalises inside
+        "skills/freya-code-graph/scripts/graph_ops.py",
+        "tests/test_login.py",
+        "a.py",
+        "",
+        ".",
+    )
+
+    def _canonical(self):
+        scripts = freya_cli.suite_root() / "skills" / "freya-code-graph" / "scripts"
+        sys.path.insert(0, str(scripts))
+        try:
+            import containment
+        finally:
+            with contextlib.suppress(ValueError):
+                sys.path.remove(str(scripts))
+        return containment
+
+    def test_the_launchers_rule_matches_the_canonical_one(self):
+        canonical = self._canonical()
+        for value in self.CASES:
+            with self.subTest(value=value):
+                self.assertEqual(freya_cli._escapes(value), canonical.escapes(value))
+
+    def test_the_table_actually_exercises_both_answers(self):
+        """A parity table of all-True or all-False rows would pass against a
+        constant function on either side, which is a green test proving nothing.
+        """
+        answers = {freya_cli._escapes(value) for value in self.CASES}
+        self.assertEqual(answers, {True, False})
+
+    #: The second bootstrap copy: `check_invariants.is_absolute` is the same
+    #: predicate as `containment.is_anchored`. Both spellings of every
+    #: Windows-absolute form are here, because the whole reason the drive-and-
+    #: root shape was chosen over `posixpath.isabs or ntpath.isabs` is that the
+    #: union answers `\tools\git.exe` differently on 3.12 and on 3.13.
+    #:
+    #: `\\server` is the row that survives that divergence. This table asserts
+    #: parity between two bodies, not against expected values, so a mutation
+    #: applied to *both* bodies at once passes here whatever the rows are — the
+    #: absolute answers live in
+    #: `skills/freya-code-graph/scripts/test_containment.py:IsAnchoredTest`,
+    #: and the same row was added there for the same reason. Kept in step with
+    #: that table so a one-sided regression is caught on the same input.
+    ANCHOR_CASES = (
+        "/usr/bin/git",
+        "C:\\tools\\git.exe",
+        "\\\\server\\share\\git.exe",
+        "\\\\?\\C:\\git.exe",
+        "\\\\?\\UNC\\server\\share\\git.exe",
+        "C:git.exe",
+        "\\tools\\git.exe",
+        "\\\\server",
+        ".\\git.exe",
+        "./git",
+        "git",
+        "",
+    )
+
+    def test_the_invariant_checkers_absoluteness_rule_matches_the_canonical_one(self):
+        canonical = self._canonical()
+        import check_invariants
+        for value in self.ANCHOR_CASES:
+            with self.subTest(value=value):
+                self.assertEqual(check_invariants.is_absolute(value),
+                                 canonical.is_anchored(value))
+
+    def test_the_anchor_table_actually_exercises_both_answers(self):
+        answers = {self._canonical().is_anchored(value) for value in self.ANCHOR_CASES}
+        self.assertEqual(answers, {True, False})
 
 
 if __name__ == "__main__":

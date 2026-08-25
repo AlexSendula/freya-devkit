@@ -17,41 +17,42 @@ tags:
 An edge in `graph.json` is an object. Forward it is `{"to": …, "kind": …, "provenance": …}`;
 in the reverse index it is the same object keyed `from`. `kind` is one of the five values in
 `RELATION_KINDS` — `imports`, `re_exports`, `calls`, `inherits`, `references`
-(`skills/freya-code-graph/scripts/substrate.py:45`). `provenance` is one of the **two** values
-in `PROVENANCE` — `extracted` or `inferred` (`substrate.py:57`). `make_edge` raises on anything
-outside either vocabulary (`substrate.py:126`), and `validate_graph` reports an out-of-vocabulary
-kind or provenance on the forward edge (`substrate.py:721`, `:724`) and on its mirror in the
-reverse index (`:773`, `:776`) — a reverse edge is an edge, held to the same vocabulary. An edge
+(`skills/freya-code-graph/scripts/substrate.py:51`). `provenance` is one of the **two** values
+in `PROVENANCE` — `extracted` or `inferred` (`substrate.py:63`). `make_edge` raises on anything
+outside either vocabulary (`substrate.py:161`, `:164`), and `validate_graph` reports an out-of-vocabulary
+kind or provenance on the forward edge (`substrate.py:767`, `:770`) and on its mirror in the
+reverse index (`:819`, `:822`) — a reverse edge is an edge, held to the same vocabulary. An edge
 may also carry the optional symbol refinement, which ADR-024 governs; the file anchor is never
 replaced by it.
 
-The change bumped the artifact's schema from 1 to 2 (`substrate.py:73`). Readers accept both
+The change bumped the artifact's schema from 1 to 2 (`substrate.py:94`). Readers accept both
 shapes: every consumer goes through accessors that take a bare string or an object
-(`substrate.py:142`, `:154`, `:160`), and `upgrade_edges` rewrites string edges in memory on load
-(`substrate.py:209`). An upgraded edge claims `imports` / `extracted`, which is exactly what the
+(`substrate.py:170`, `:182`, `:188`), and `upgrade_edges` rewrites string edges in memory on load
+(`substrate.py:237`). An upgraded edge claims `imports` / `extracted`, which is exactly what the
 string era could express and the only honest reading of it. `upgrade_edges` deliberately does not
-stamp `version` (`substrate.py:229`): that field records what is on disk, and reading is how
+stamp `version` (`substrate.py:257`): that field records what is on disk, and reading is how
 staleness is discovered. A version-1 artifact therefore forces a full rebuild inside
 `CodeGraph.update`, ahead of the "nothing changed" short-circuit that the steady-state workflow
-otherwise takes (`graph_ops.py:2100`).
+otherwise takes (`graph_ops.py:2264`).
 
-The node queries stay in paths. `--impact`, `--dependents` and `--dependencies` answer with path
-strings, projected off the edge objects by `edge_ends` (`graph_ops.py:2242`, `:2306`). Only
-`--query` returns edges, because it is the one query whose question is "tell me about this file"
-(`graph_ops.py:2167`).
+The node queries stay in paths. `--impact` and `--dependents` answer with path strings projected
+off the edge objects by `edge_ends` (`graph_ops.py:2446`, `:2512`), and `--dependencies` uses
+`internal_ends`, which is `edge_ends` with the `external:` / `unresolved:` / `outside:` signals
+dropped (`:2482`). Only `--query` returns edges, because it is the one query whose question is
+"tell me about this file" (`graph_ops.py:2370`, `:2400`).
 
 **Provenance is recorded and read by nothing.** Every edge carries `extracted` or `inferred`
 faithfully: the homegrown resolver stamps `extracted` throughout, because it reads import
-statements out of source text and does nothing else (`graph_ops.py:1968`, `:1981`), and the
+statements out of source text and does nothing else (`graph_ops.py:2127`, `:2140`), and the
 graphify backend maps that backend's own `EXTRACTED`/`INFERRED` tag, defaulting an unrecognised
-confidence to `inferred` (`backend_graphify.py:143`, `:628`, `:657`). Past that, no production
+confidence to `inferred` (`backend_graphify.py:144`, `:670`, `:699`). Past that, no production
 code consults the field. `edge_provenance` has exactly one caller, and it is the reverse-index
-builder copying the value onto the mirrored edge (`substrate.py:360`). The design — stated in the
+builder copying the value onto the mirrored edge (`substrate.py:388`). The design — stated in the
 spec, in the working decision record and on the explainer pages — was that only `extracted` edges
 may gate `wrap-up` and `inferred` ones are advisory. No code implements that filter, so an
 inferred edge reaches blast radius indistinguishable from an extracted one. **The tier is
 designed and unenforced**, and the skill documentation says so out loud
-(`skills/freya-code-graph/SKILL.md:635`). Writing the filter, or striking the promise, is
+(`skills/freya-code-graph/SKILL.md:652`). Writing the filter, or striking the promise, is
 open defect 13 in `knowledge-base/roadmap.md` (§ *Per-edge provenance is recorded and
 enforced by nothing*).
 
@@ -59,6 +60,28 @@ enforced by nothing*).
 where an edge points, not about how it was read, so it is a prefix on the target —
 `unresolved:<raw specifier>`, alongside `external:` (`substrate.py:69`). The edge is kept and
 visible rather than dropped, which is ADR-005's rule applied at edge granularity.
+
+> **Correction, 2026-08-24.** The paragraph above states the target vocabulary as three-way — a
+> project-relative path, `external:`, `unresolved:` — and it is four-way as of 2026-08-23. ADR-031
+> added `outside:<alias>/<path under that root>` for a specifier that resolved to a real file under
+> a root the project declared outside itself (`OUTSIDE_PREFIX`, `substrate.py:79`). The signal tuple
+> the paragraph's citation used to name is now three long (`IMPORT_SIGNALS`, `substrate.py:86`), and
+> `is_internal` states the four answers directly (`substrate.py:102`); `substrate.py:69` is today a
+> comment line inside the `OUTSIDE_PREFIX` block rather than the tuple.
+>
+> The fourth entry is the one that does not fit the sentence above it. `external:` and `unresolved:`
+> both mean "this did not resolve to a file in this project", and the natural reading of the
+> paragraph is that a prefix marks a non-resolution. `outside:` marks the opposite: the specifier
+> *did* resolve, to a file that exists, and is still not a node — because a declaration buys
+> resolution and never a place in the key space. That is what keeps `validate_graph`'s `files`-key
+> rule unconditional, and it is stated in the code at `substrate.py:73`–`:78` rather than left to
+> the reader.
+>
+> Nothing else in this record changes: `is_internal` is false for all three prefixes, so the reverse
+> index, the vocabulary checks and the accessors treat `outside:` exactly as they already treated
+> the other two. Not corrected here because it is code and not this record: the key table at
+> `substrate.py:127` still describes `to`/`from` as "a project-relative path, or an `external:` /
+> `unresolved:` signal".
 
 ## Rationale
 
@@ -96,7 +119,7 @@ Sharper still: the one genuine cross-language mis-wiring this feature actually f
 have been caught by the filter. graphify emits one node per external module, and that node's
 `source_file` is whichever importer it parsed first, so Swift files that each `import Foundation`
 produced edges between *each other* — edges that exist nowhere in the source, in the direction
-that inflates blast radius (`backend_graphify.py:156`). Those links carry `EXTRACTED` confidence —
+that inflates blast radius (`backend_graphify.py:157`). Those links carry `EXTRACTED` confidence —
 checked directly in the recorded extraction the regression test replays,
 `skills/freya-code-graph/scripts/testdata/gate91.json`. They were fixed structurally, by treating an aggregate
 anchor as an `external:` signal, not by any trust tier. So recording provenance is worth doing —
@@ -106,12 +129,12 @@ why this record states the field's real status instead of its intended one.
 
 Two boundaries were drawn at the same time and are load-bearing. Node queries answer in paths
 because their callers do set arithmetic on the answer: `set(data["all_affected"]) | set(changed)`
-in spec-manager's drift check (`drift.py:95`) and `paths & impact` in the behavior graph
-(`behavior_graph.py:267`). An edge object there raises `TypeError: unhashable type: 'dict'` in a
+in spec-manager's drift check (`drift.py:100`) and `paths & impact` in the behavior graph
+(`behavior_graph.py:297`). An edge object there raises `TypeError: unhashable type: 'dict'` in a
 skill that gains nothing from the extra fields; the third consumer, behavior-runner, instead
 rejects any `--dependencies` answer that is not a list of strings and degrades that behaviour to
-coverage-unknown (`run_behaviors.py:346`). All three needed no change at all. The readers that
-open `graph.json` directly did, and `project_shape.py:56` now reads both shapes because
+coverage-unknown (`run_behaviors.py:367`). All three needed no change at all. The readers that
+open `graph.json` directly did, and `project_shape.py:73` now reads both shapes because
 misreading a version-1 artifact would report a wired codebase as greenfield.
 
 And readers stay tolerant of the old shape permanently, until the version says otherwise.
@@ -157,9 +180,9 @@ rather than load-bearing forever.
   `substrate` metadata block entirely, and that block cannot be reconstructed from the artifact —
   only a real build knows which backend ran and what it can see. Stamping the version would have
   frozen the graph permanently claiming no backend and no coverage. A rebuild, not a rewrite,
-  is what ships (`graph_ops.py:2100`), and the persistence path refuses to rewrite a stale
+  is what ships (`graph_ops.py:2265`), and the persistence path refuses to rewrite a stale
   artifact a backend wrongly reported as up to date, saying so on stderr instead
-  (`graph_ops.py:2438`).
+  (`graph_ops.py:2638`).
 
 - **Discard inferred edges entirely and run the second backend in its most conservative mode.**
   This was the first recommendation when the trust question was raised, and it would have removed
@@ -189,8 +212,8 @@ rather than load-bearing forever.
   polyglot repository, not an argument. The concrete trigger is the first project where an
   inferred edge widens a blast radius enough that `wrap-up`'s affected-behaviour re-run
   (`skills/freya-wrap-up/SKILL.md:168`) blocks on a behaviour the change did not touch. If the
-  filter is written, it belongs where blast radius is *consumed* — `behavior_graph.py:243`,
-  `drift.py:76` — not in the graph, which must go on recording every edge it can see.
+  filter is written, it belongs where blast radius is *consumed* — `behavior_graph.py:273`,
+  `drift.py:81` — not in the graph, which must go on recording every edge it can see.
 
 - **A backend arrives whose relations do not fit the five kinds.** `RELATION_KINDS` is fixed
   deliberately so a caller can ask "does this backend give me calls?" portably, and unmappable

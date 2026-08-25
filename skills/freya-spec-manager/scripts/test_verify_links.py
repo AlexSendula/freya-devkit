@@ -496,6 +496,41 @@ class LocatorEscapesProjectCase(_PyLocatorFixture):
         self.assertIn("locator-escapes-project", _kinds(errors))
 
 
+class LocatorNamesNoFileCase(_PyLocatorFixture):
+    """The two shapes that walked through the gate by being *almost* nothing.
+
+    Found on 2026-08-23 not by this gate's own tests but by
+    `behavior_graph.covering()`, which asks the stricter question and had been
+    quietly diverging from Tier 1 as a result. Both shapes made
+    `verify_links` print "OK — all behavior links pass" over a locator that
+    resolved to no test whatsoever.
+    """
+
+    def test_a_locator_with_no_path_part_is_rejected(self):
+        """`#scenario-only` parses to an empty path. `escapes("")` is false and
+        `root / ""` is the project root, which exists — so both guards passed."""
+        self.assertIn("locator-names-no-file", _kinds(self._project("#scenario-only")))
+
+    def test_a_locator_naming_a_directory_is_rejected(self):
+        """`Path.exists` is true for a directory. A locator names a test file."""
+        root = self._root()
+        (root / "tests" / "nested").mkdir(parents=True, exist_ok=True)
+        _write(root / "knowledge-base/specs/auth/SPEC-001-login.md",
+               _spec("SPEC-001", "auth",
+                     _beh_block("BEH-001", "Successful login", "accepted", "pytest",
+                                locator="tests/nested")))
+        self.assertIn("locator-unresolved", _kinds(verify(self._specs_dir(root))))
+
+    def test_an_empty_path_is_not_reported_as_escaping(self):
+        """Its own kind, not a neighbour's. An empty path escapes nothing, and
+        "path does not exist" would send the author to correct a path rather
+        than to write one — a different authoring mistake with a different fix.
+        """
+        kinds = _kinds(self._project("#scenario-only"))
+        self.assertNotIn("locator-escapes-project", kinds)
+        self.assertNotIn("locator-unresolved", kinds)
+
+
 class ReverseScanSkipDirsCase(unittest.TestCase):
     """Every directory the reverse `.feature` scan walks past, one row per declared member.
 

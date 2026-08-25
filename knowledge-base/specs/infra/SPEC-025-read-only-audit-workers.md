@@ -6,7 +6,7 @@ tags: [security, audit, sandboxing, read-only, adapter, portability, agent-cli]
 status: implemented
 certainty: 84
 created: 2026-08-21
-updated: 2026-08-21
+updated: 2026-08-24
 related_code:
   - skills/freya-codebase-security-scan/scripts/audit_adapter.py
   - skills/freya-codebase-security-scan/scripts/audit.py
@@ -67,16 +67,22 @@ Every argv is an allowlist the driver constructs in full — Claude
 `--allow-tool=read --deny-tool=write --deny-tool=shell` — granting reading and searching and
 nothing else. Four blanket-permission flags (`--allow-all-tools`, `--allow-all`,
 `--allow-all-paths`, `--allow-all-urls`) may never appear in any argv, and `_guard`
-(`audit_adapter.py:34`) inspects every token before the argv leaves the module, raising
+(`audit_adapter.py:83`) inspects every token before the argv leaves the module, raising
 `UnsafeInvocation` when one of them is a token or its `=`-form. The prompt travels as a single
 `-p` element of an argv list; nothing on this side is ever handed to a shell.
 
 Which CLI runs is `--agent`, or autodetection in a fixed preference order (`claude`, then
 `copilot`) when the flag is absent. An `--agent` naming an adapter that does not exist is a
-message and exit 2 before anything is spent. When neither CLI is installed, `detect()` returns
+message and exit 2 before anything is spent. When no CLI is **usable**, `detect()` returns
 `None` and the run exits 1 — the single meaning that exit code carries — with a message naming
 the mode that was actually run and pointing at the skill's own in-loop scan, which is a skill
 and not a command a user can type at a shell.
+
+"Usable" carries two routes to that one exit code, not one: the CLI is not installed, or it is
+installed and **refused** because of where it resolved to (below). The message therefore prints
+the per-CLI reason for each name in `PREFERENCE`, because "none was found" is a false sentence
+in the second case and an operator looking at a `claude` on their own PATH would have no way to
+act on it.
 
 ## Why
 
@@ -87,7 +93,7 @@ allowlist non-negotiable and the field evidence that it holds.
 
 The workers are pointed at a repository whose contents nobody here controls, and every skeptic
 call embeds text a previous worker wrote *after* reading that repository (`_skeptic` sends
-`Finding: {finding}` verbatim, `audit_engine.py:321`). What bounds a worker that has been
+`Finding: {finding}` verbatim, `audit_engine.py:496`). What bounds a worker that has been
 talked into something is therefore the argv, not the prompt.
 
 **[NEEDS CLARIFICATION]** — no comment or ADR states that prompt-embedding surface as a
@@ -156,8 +162,44 @@ the `$` figure the run prints and for `Budget.usd`. A copilot-first order would 
 every run's spend unreportable.
 
 **Security Scan Note**: A hardcoded vendor preference is intentional and is not a supply-chain
-smell; `--agent` overrides it, and detection is `shutil.which` against a fixed two-name table,
-not a PATH scan for anything executable.
+smell; `--agent` overrides it, and detection resolves a fixed two-name table rather than
+scanning PATH for anything executable. Detection is **not** a bare `shutil.which` — see below.
+
+### "On PATH" is not the test; where it resolved to is
+
+**Decision**: an agent CLI's location is decided in exactly one place,
+`program_for(name, project_dir)`, which returns an `exec_path.Resolution`: `path` is absolute
+or the worker does not start, and `reason` is a printable sentence naming which refusal
+applied. A CLI that resolves to a **non-absolute** path, or to one **inside the project being
+audited**, is refused. `detect(project_dir)` is that predicate run over `PREFERENCE`, so
+"usable" is strictly narrower than "on PATH".
+
+**Rationale**: added 2026-08-24 (SEC-003, high). `shutil.which` searches the current directory
+ahead of `PATH` on Windows, and the driver runs with `cwd` set to the repository under audit —
+so a clone containing `claude.exe` supplied the very worker that was about to read it. The
+audited repository choosing its own auditor defeats the allowlist above rather than evading it:
+every argv guarantee in this spec is about what the *right* binary is permitted to do.
+
+Split out of `detect` rather than folded into it because `--agent claude` skips detection
+entirely; without a separate resolution step that path reached `make_ask` with no program and
+died on `UnsafeInvocation` once per worker. The program is threaded in at construction, so 73
+workers share one decision and the answer cannot change mid-run.
+
+**Resolution happens before the cost plan prints**, so a refusal spends nothing, and it exits
+`EXIT_NOTHING_TO_DO` — the same code as a missing CLI, which SKILL.md maps to "fall back to
+the in-loop scan". A refusal therefore degrades exactly like an absent CLI rather than
+becoming a new failure mode. Because "none was found" is no longer the only route to that
+message, the per-CLI `reason` for each name in `PREFERENCE` is printed: an operator who can see
+`claude` on their PATH must be told it was *refused*, not told it is missing.
+
+A tree with no `exec_path` module at all — a `--copy` install skips a skill whose target was
+occupied — returns the same refusal shape, so a damaged store tells the operator the store is
+incomplete instead of showing a traceback.
+
+**Security Scan Note**: `program_for` returning `path: None` for a binary the developer can
+see on their PATH is correct, not a portability bug — read `.reason`. Do not "fix" it by
+falling back to the bare name, by joining onto a root, or by absolutising a relative answer:
+absolutising preserves the attacker's choice of file and only changes how it is spelled.
 
 ### `--model` is passed through unchecked against `--agent`
 
@@ -184,6 +226,7 @@ why nothing guards it in code.
 
 | Date | Change | Reason |
 |------|--------|--------|
+| 2026-08-24 | Added "'On PATH' is not the test; where it resolved to is"; corrected the autodetection note, which described detection as a bare `shutil.which` | SEC-003 (high). On Windows `which` searches cwd first, and the driver runs with cwd set to the repository under audit, so a clone could supply its own auditor |
 | 2026-08-21 | Initial spec, inferred from code and tests | Brownfield scan (`freya-spec-manager bootstrap`) |
 
 ---

@@ -3,8 +3,11 @@
 
 import json
 import os
+import shutil
+import subprocess
 import sys
 import tempfile
+import time
 import unittest
 import unittest.mock as mock
 
@@ -104,6 +107,21 @@ class CountGraphTest(unittest.TestCase):
         # external: and unresolved: imports are NOT internal wiring.
         _write_graph(self.proj, {
             "lib/a.ts": {"imports": ["lib/b.ts", "external:react", "unresolved:./missing"]},
+            "lib/b.ts": {"imports": []},
+        })
+        self.assertEqual(project_shape.count_graph(self.proj), (2, 1, True))
+
+    def test_a_crossing_into_a_declared_root_is_not_this_project_s_wiring(self):
+        """`outside:` is the fourth signal, and this file's copy of the list was the third body.
+
+        A crossing resolved to a real file, so it is not `unresolved:` — but the file is in
+        somebody else's repository, and counting it says this checkout is wired when the wiring
+        is not here. Mutation: restore the local `("external:", "unresolved:")` literal and
+        `lib/a.ts` reads as two internal edges instead of one, which is enough to flip a bare
+        scaffold that imports a shared design system from greenfield to brownfield.
+        """
+        _write_graph(self.proj, {
+            "lib/a.ts": {"imports": ["lib/b.ts", "outside:ui/src/Button.tsx"]},
             "lib/b.ts": {"imports": []},
         })
         self.assertEqual(project_shape.count_graph(self.proj), (2, 1, True))
@@ -479,6 +497,143 @@ class RunDetectProjectTest(unittest.TestCase):
         fake_result.returncode = 0
         with mock.patch.object(project_shape.subprocess, "run", return_value=fake_result):
             self.assertEqual(project_shape.run_detect_project("/nope"), {})
+
+    def test_empty_dict_on_timeout(self):
+        """SEC-008's caller half. `TimeoutExpired` derives from `SubprocessError`, not from
+        `OSError`, so it is not covered by anything else in the tuple: adding the timeout
+        without adding the class would have swapped a hang for an uncaught exception out of
+        `classify()`, which is a worse answer than the hang for a caller whose whole contract
+        is "empty dict on any failure".
+        """
+        boom = subprocess.TimeoutExpired(cmd="detect_project.py", timeout=1)
+        with mock.patch.object(project_shape.subprocess, "run", side_effect=boom):
+            self.assertEqual(project_shape.run_detect_project("/nope"), {})
+
+
+#: A stand-in for detect_project.py that never answers. It appends one byte to a heartbeat
+#: file every 10 ms, unbuffered, inside the directory it was handed, so "was this process
+#: still alive after the call returned?" is answered by reading one file size twice — which
+#: behaves the same on all three platforms. `os.kill(pid, 0)` is the obvious probe and is not
+#: usable here: on Windows `os.kill` is `TerminateProcess`, so the probe would kill the thing
+#: it claims to measure. The twenty-second deadline is a leash rather than part of the test —
+#: twenty times the bound the rows below inject — so that a failure cannot leave a process
+#: running on the machine, and so that a mutation which removes the bound goes red in twenty
+#: seconds instead of never.
+_WEDGED_CHILD = """\
+import os, sys, time
+deadline = time.time() + 20
+with open(os.path.join(sys.argv[1], "heartbeat"), "ab", buffering=0) as fh:
+    while time.time() < deadline:
+        fh.write(b".")
+        time.sleep(0.01)
+"""
+
+#: The control: the same shape, answering the way detect_project.py answers.
+_ANSWERING_CHILD = """\
+import sys
+sys.stdout.write('{"runtime": "python"}')
+"""
+
+
+class OverrunningChildTest(unittest.TestCase):
+    """SEC-008's caller half, exercised against a real child instead of inspected on a mock.
+
+    What stood here asserted `run.call_args[1]["timeout"] == project_shape._DETECT_TIMEOUT`:
+    the value the caller passed, compared against the constant the caller read it from. It
+    could not fail while the module compiled, and its docstring claimed it was the row that
+    made the pair mean "the child is bounded". Measured 2026-08-23, with `_DETECT_TIMEOUT`
+    set to `None` — which is `subprocess.run(..., timeout=None)`, the unbounded wait the
+    finding is about — this module stayed at 38 passed.
+
+    So the bound is spent rather than read. `_WEDGED_CHILD` overruns it and the control
+    answers inside it; without the control, `{}` out of the overrun row would prove only that
+    this harness produces `{}`, which every other failure path in `run_detect_project` also
+    does. This class injects a one-second bound so it costs about a second, which makes it
+    deliberately blind to what the shipped number is — `ShippedBoundTest` below is that half.
+    """
+
+    #: Long enough that a cold interpreter on the slowest runner in the CI matrix has started
+    #: and written its first byte before the kill, short enough that the row costs a second.
+    BOUND = 1.0
+
+    #: Thirty heartbeats' worth. A child that survived the call grows the file during this
+    #: window; the assertion is that it does not grow by one byte.
+    SETTLE = 0.3
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.project = os.path.join(self.tmp, "project")
+        os.makedirs(self.project)
+
+    def _stand_in(self, source):
+        path = os.path.join(self.tmp, "child.py")
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(source)
+        return path
+
+    def _beats(self):
+        path = os.path.join(self.project, "heartbeat")
+        return os.path.getsize(path) if os.path.exists(path) else 0
+
+    def test_a_child_that_answers_inside_the_bound_is_left_alone(self):
+        with mock.patch.object(project_shape, "_DETECT_PROJECT",
+                               self._stand_in(_ANSWERING_CHILD)), \
+                mock.patch.object(project_shape, "_DETECT_TIMEOUT", self.BOUND):
+            self.assertEqual(project_shape.run_detect_project(self.project),
+                             {"runtime": "python"})
+
+    def test_an_overrunning_child_is_killed_and_the_caller_answers_empty(self):
+        with mock.patch.object(project_shape, "_DETECT_PROJECT",
+                               self._stand_in(_WEDGED_CHILD)), \
+                mock.patch.object(project_shape, "_DETECT_TIMEOUT", self.BOUND):
+            started = time.monotonic()
+            result = project_shape.run_detect_project(self.project)
+            elapsed = time.monotonic() - started
+
+        self.assertEqual(result, {})
+        # Half the stand-in's own leash: the row must not be able to pass by outlasting the
+        # child, which is what "no timeout at all" looks like from out here.
+        self.assertLess(elapsed, 10, "the caller waited for the child rather than bounding it")
+        beats = self._beats()
+        self.assertGreater(beats, 0, "the stand-in never ran; this row would prove nothing")
+        time.sleep(self.SETTLE)
+        self.assertEqual(self._beats(), beats,
+                         "the child outlived the call that gave up waiting for it")
+
+
+class ShippedBoundTest(unittest.TestCase):
+    """The number that actually ships, which the class above deliberately does not use.
+
+    `OverrunningChildTest` injects a one-second bound so it can run in a second, and is
+    therefore green with `_DETECT_TIMEOUT = None`. These two rows are the other half: what
+    the shipped value has to be, and that it is the value the child is given.
+    """
+
+    def test_the_shipped_bound_is_a_finite_number_of_seconds(self):
+        """Both ends, with a failure behind each. Too small and the bound fires on healthy
+        repositories — a cold interpreter plus a walk of up to
+        `detect_project._WALK_FILE_LIMIT` files is not instant — and `run_detect_project`
+        answers `{}`, which bootstrap reads as "no stack detected" rather than as an error.
+        Too large and it is a bound to a type checker and a hang to the engineer waiting on
+        `freya spec bootstrap`; ten minutes is an order of magnitude past the shipped sixty.
+        """
+        bound = project_shape._DETECT_TIMEOUT
+        self.assertIsInstance(bound, (int, float))
+        self.assertGreaterEqual(bound, 5)
+        self.assertLessEqual(bound, 600)
+
+    def test_that_bound_and_no_other_is_what_reaches_the_child(self):
+        """The wiring, and only the wiring: this says the kwarg is there and carries the
+        module's own constant. It is the row above that says the constant is a bound, and
+        keeping the two apart is what stopped the pair being circular."""
+        fake_result = mock.MagicMock()
+        fake_result.stdout = "{}"
+        fake_result.returncode = 0
+        with mock.patch.object(project_shape.subprocess, "run",
+                               return_value=fake_result) as run:
+            project_shape.run_detect_project("/nope")
+        self.assertEqual(run.call_args[1]["timeout"], project_shape._DETECT_TIMEOUT)
 
 
 if __name__ == "__main__":

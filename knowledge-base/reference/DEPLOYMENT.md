@@ -47,7 +47,7 @@ install logic is in one Python file, which is why the two platforms cannot drift
 
 Use **one path or the other** on Claude Code. With both, every skill is registered twice —
 once namespaced by the plugin and once from the personal directory — and `freya doctor`
-warns about it (`bin/freya_cli.py:495-504`).
+warns about it (`bin/freya_cli.py:539-515`).
 
 ## The canonical store (ADR-014)
 
@@ -179,7 +179,7 @@ ways to fail quietly.
 
 Two files, both at the repo root under `.claude-plugin/`:
 
-- `plugin.json` — `name: freya-devkit`, `version: 0.3.0` (`plugin.json:2-3`), description, author
+- `plugin.json` — `name: freya-devkit`, `version: 0.3.1` (`plugin.json:2-3`), description, author
   `github@alexsendula.com`, MIT, keywords. There is no `skills` key; the plugin relies on the
   host loading the repository's `skills/` directory by convention.
 - `marketplace.json` — one plugin entry whose `"source": "."` (`marketplace.json:11`) makes the repository
@@ -208,7 +208,7 @@ shows it is added by convention rather than discovered
 ([ADR-013:35](../decisions/ADR-013-single-freya-launcher.md)). It is undocumented host behaviour
 that nothing here tests. It *is* observable, though: doctor's `freya on PATH` row reports
 whichever launcher `shutil.which` resolves, from any store and without going through the
-launcher it is reporting on (`bin/freya_cli.py:333-345`), so running `doctor` from a second
+launcher it is reporting on (`bin/freya_cli.py:354-356`), so running `doctor` from a second
 checkout names the plugin-cache launcher when the convention is holding — measured that way on
 2026-08-21, see
 [TROUBLESHOOTING.md § `freya: command not found`](TROUBLESHOOTING.md#freya-command-not-found).
@@ -222,7 +222,7 @@ name.
 
 `freya doctor` detects a plugin install by reading
 `~/.claude/plugins/installed_plugins.json` and requiring an `installPath` that still exists
-(`bin/freya_cli.py:234-264`) — not by probing `plugins/marketplaces/`, which survives
+(`bin/freya_cli.py:255-275`) — not by probing `plugins/marketplaces/`, which survives
 `/plugin uninstall` and so warned at users who had only added the marketplace.
 
 ## `freya update`
@@ -233,39 +233,39 @@ freya update --dry-run  # report what would happen; writes nothing
 ```
 
 **Which ref it follows: the current branch's own upstream, `@{u}`** — resolved at
-`bin/updater.py:86-89` and used for both the fetch and the merge (`:204-205`, `:242`). It is
+`bin/updater.py:196-155` and used for both the fetch and the merge (`:322-281`, `:360`). It is
 not hardcoded to `main`. For a default clone of this repository that resolves to
 `origin/main`; for a store parked on a feature branch it is that branch's upstream, and for
-a branch with no upstream `update` refuses and says how to set one (`:175-176`).
+a branch with no upstream `update` refuses and says how to set one (`:293-294`).
 
-The sequence, all of it in `update()` (`bin/updater.py:191-279`):
+The sequence, all of it in `update()` (`bin/updater.py:309-279`):
 
-1. **Preconditions, short-circuiting, at most one reason returned** (`:150-188`): git not on
+1. **Preconditions, short-circuiting, at most one reason returned** (`:260-306`): git not on
    `PATH`; the store is not itself a git work tree (equality-checked, so a checkout nested
-   inside another repository cannot make `update` fast-forward the wrong project, `:67-83`);
+   inside another repository cannot make `update` fast-forward the wrong project, `:177-193`);
    detached `HEAD`; no upstream; an upstream that is a *local* branch; a dirty tree.
-2. `git fetch <remote>` under a 60 s bound (`:228`, `FETCH_TIMEOUT` at `:30`). An unreachable
+2. `git fetch <remote>` under a 60 s bound (`:346`, `FETCH_TIMEOUT` at `:97`). An unreachable
    remote exits 2 — without this guard the flow reached `merge-base` against the stale local
    ref and reported "already up to date" over a store that was not current.
-3. `merge-base --is-ancestor HEAD <tracking>` (`:236`) asks "can this fast-forward?" before
+3. `merge-base --is-ancestor HEAD <tracking>` (`:354`) asks "can this fast-forward?" before
    attempting it, so a diverged store gets its own message instead of git's.
-4. `git merge --ff-only <tracking>` (`:242`). **Fast-forward only, by design** — no rebase,
+4. `git merge --ff-only <tracking>` (`:360`). **Fast-forward only, by design** — no rebase,
    no merge commit, no stash. A store that has diverged is a situation only its owner can
    resolve.
-5. **Re-link** (`:255`, `relink` at `:300-347`). Pulling is not enough: a symlink picks up an
+5. **Re-link** (`:373`, `relink` at `:418-465`). Pulling is not enough: a symlink picks up an
    edit for free, but a skill *added* upstream has no link at all, one *deleted* leaves a
    dangling link, and a copy tracks nothing. An agent with zero `ok` entries is skipped
    entirely — a guard that is load-bearing twice over, because a store whose `skills/` went
-   missing would otherwise audit every entry as an orphan and prune the lot (`:318-328`).
-6. **Reload hint**, printed only when the store actually moved (`:46-49`, `:254`). Agents
+   missing would otherwise audit every entry as an orphan and prune the lot (`:436-446`).
+6. **Reload hint**, printed only when the store actually moved (`:113-116`, `:372`). Agents
    snapshot their skill list at session start, so an update applied mid-session is invisible
    until the session reloads: Claude Code `/reload-skills`, Copilot `/skills`, or a new
    session.
 7. The backend question again, guarded and silent for anyone who has already answered
-   (`:267-278`).
+   (`:385-396`).
 
 Exit codes: `2` for any refusal, `1` if the re-link failed for an agent (the store itself is
-already updated, so the message says which agent to retry, `:345-346`), `0` otherwise.
+already updated, so the message says which agent to retry, `:463-464`), `0` otherwise.
 
 **It cannot roll a store back.** Fast-forward only means there is no downgrade command:
 `git checkout <ref>` in the store by hand, then re-run the installer.
@@ -273,21 +273,21 @@ already updated, so the message says which agent to retry, `:345-346`), `0` othe
 ### The staleness notice
 
 Any `freya` command except `help`, `update`, `install`, `uninstall` and `doctor`
-(`bin/freya_cli.py:21`, checked at `:524`) may first print one line to stderr:
-`freya: an update is available — run freya update` (`bin/updater.py:453`).
+(`bin/freya_cli.py:22`, checked at `:558`) may first print one line to stderr:
+`freya: an update is available — run freya update` (`bin/updater.py:571`).
 
 - Notify-only. Nothing is ever downloaded or applied on its own.
-- Throttled to roughly one network call a day (`CHECK_INTERVAL`, `bin/updater.py:449`), via
-  `git ls-remote` under a hard 2 s timeout (`:31`, `:120`). Both the query and the answer are
+- Throttled to roughly one network call a day (`CHECK_INTERVAL`, `bin/updater.py:567`), via
+  `git ls-remote` under a hard 2 s timeout (`:98`, `:230`). Both the query and the answer are
   fully qualified as `refs/heads/<branch>`, because a bare pattern matches the tail of every
   advertised ref and an origin holding `dev/main` answered a query for `main` with the wrong
   SHA.
-- "Behind" is `merge-base --is-ancestor`, not SHA inequality (`:130-147`). A contributor with
+- "Behind" is `merge-base --is-ancestor`, not SHA inequality (`:240-257`). A contributor with
   a local commit is *ahead*, and answering "an update is available" there produced a daily
   notice for an update that then refused with "your store has diverged".
 - A failure stamps the clock exactly as a success does, so an offline machine goes quiet for
-  a day rather than paying the timeout on every command (`:512-520`).
-- `notify()` (`:524-557`) contains the single justified bare `except` in the suite: a
+  a day rather than paying the timeout on every command (`:630-638`).
+- `notify()` (`:642-675`) contains the single justified bare `except` in the suite: a
   notification that can break the command it precedes is worse than no notification. The
   write is *inside* the guard. `FREYA_DEBUG` opts into the traceback, because a permanently
   broken check is otherwise indistinguishable from "no update, ever".
@@ -295,7 +295,7 @@ Any `freya` command except `help`, `update`, `install`, `uninstall` and `doctor`
 ## `freya doctor`
 
 The health check. It prints one row per check and returns 1 if any row is `FAIL`; warnings do
-not fail it (`bin/freya_cli.py:508-514`).
+not fail it (`bin/freya_cli.py:552-525`).
 
 | Row | `ok` when | Notes |
 |---|---|---|
@@ -303,17 +303,17 @@ not fail it (`bin/freya_cli.py:508-514`).
 | `manifest` | `commands.json` loads and shadows no built-in | `fail` also when an entry's name is one `main` dispatches itself |
 | `scripts` | every manifest target exists | `warn` "not evaluated" when the manifest was unusable |
 | `python` | `>= 3.9` | prints the running version |
-| `freya on PATH` | `shutil.which("freya")` finds a launcher that resolves *under this store* | `warn` both when nothing is found (this is the `~/.local/bin` step) and when what is found is a different copy — finding *a* `freya` is not finding *this* one (`:333-345`) |
+| `freya on PATH` | `shutil.which("freya")` finds a launcher that resolves *under this store* | `warn` both when nothing is found (this is the `~/.local/bin` step) and when what is found is a different copy — finding *a* `freya` is not finding *this* one (`:344-356`) |
 | `store skills` | (only appears on failure) | the store's own `skills/` could not be listed |
 | `agent: <name>` | (only appears on failure) | the agent's directory could not be audited |
 | `agents` | at least one agent has `ok` entries | reports count and mode, e.g. `claude (10, symlink), copilot (10, copy)` |
-| `orphaned entries` | none | four distinct clauses with four distinct remedies: `stale-store`, `orphan-skill`, shadowing `foreign`, shadowing `occupied` (`:413-441`) |
-| `updates` | up to date, or ahead | run **unthrottled** — a diagnostic reporting a cached answer is not diagnosing anything (`:457-478`) |
-| `duplicate install` | not both plugin and personal | `:495-504` |
+| `orphaned entries` | none | four distinct clauses with four distinct remedies: `stale-store`, `orphan-skill`, shadowing `foreign`, shadowing `occupied` (`:424-452`) |
+| `updates` | up to date, or ahead | run **unthrottled** — a diagnostic reporting a cached answer is not diagnosing anything (`:491-512`) |
+| `duplicate install` | not both plugin and personal | `:529-538` |
 
 Every read `doctor` makes is one that can fail on exactly the broken installation it was run
-to explain, so each degrades to a row rather than a traceback (`:310-315`, `:352-357`,
-`:366-374`).
+to explain, so each degrades to a row rather than a traceback (`:321-326`, `:363-368`,
+`:377-385`).
 
 ## Continuous integration
 
@@ -322,7 +322,7 @@ to explain, so each degrades to a row rather than a traceback (`:310-315`, `:352
 What it runs is [TESTING.md § CI](TESTING.md#ci); the matrix is
 [CONTRIBUTING.md § Tests and the CI gate](../../CONTRIBUTING.md#tests-and-the-ci-gate). One
 deployment-shaped detail is its own: the `install` job drives `install.sh` / `install.ps1` end
-to end into `$RUNNER_TEMP` and resolves the launcher **by name off `PATH`** (`ci.yml:151-244`), which
+to end into `$RUNNER_TEMP` and resolves the launcher **by name off `PATH`** (`ci.yml:157-250`), which
 is the only automated proof that either install path still works.
 
 **These commits have not been through CI.** The last CI run was on `main` at `51bdadb`
@@ -368,7 +368,7 @@ and triggers a deploy on its own. Last successful deploy: run `32155951130`,
 
 ## Versioning and release
 
-**The current version is `0.3.0`** (`.claude-plugin/plugin.json:3`).
+**The current version is `0.3.1`** (`.claude-plugin/plugin.json:3`).
 
 **It matches the newest CHANGELOG heading**, `## 0.3.0 — the polyglot substrate, and the
 toolkit run on itself (2026-08-23)` (`CHANGELOG.md:9`). The previous release heading,

@@ -23,9 +23,9 @@ whatever it produces is kept as ordinary graph content and nothing is done with 
 
 What that comes to in the shipped code is narrower than the sentence above suggests, and it is
 worth stating exactly. The floor reads six extensions — `.ts`, `.tsx`, `.js`, `.jsx`, `.py`,
-`.go` (`FILE_PATTERNS`, `graph_ops.py:34`). The graphify backend declares ninety-three, among
+`.go` (`FILE_PATTERNS`, `graph_ops.py:35`). The graphify backend declares ninety-three, among
 them `.sql`, `.tf`, `.tfvars` and `.hcl`, plus `.json` and `.xml` as manifests only
-(`backend_graphify.py:202`, `:224`). Neither has a YAML extractor, and neither has a `.prisma`
+(`backend_graphify.py:203`, `:225`). Neither has a YAML extractor, and neither has a `.prisma`
 extractor: verified on 2026-08-21 by reading `graphify.extract._DISPATCH` out of graphifyy
 0.9.47's own interpreter, where `.yaml`, `.yml` and `.prisma` all dispatch to nothing. So of the
 four schema forms the working record listed, Django models are graphed as ordinary Python by
@@ -35,25 +35,41 @@ because they are `.java`; `*.sql` is declared by graphify behind its optional `s
 
 A file no backend reads is *declared* unread rather than passed over in silence, and the two
 tiers of that census (ADR-029) are where this decision shows up in the artifact. `.prisma`,
-`.tf`, `.tfvars` and `.hcl` are tier-1 program source (`substrate.py:845`) and are reported
-unconditionally. `.sql` is tier 2 (`substrate.py:852`), reported only when the unread count
+`.tf`, `.tfvars` and `.hcl` are tier-1 program source (`substrate.py:887`) and are reported
+unconditionally. `.sql` is tier 2 (`substrate.py:894`), reported only when the unread count
 beats both the graphed file count and a floor of two (`material_extensions`,
-`substrate.py:884`), so a handful of migrations beside an application never fires the caveat and
+`substrate.py:926`), so a handful of migrations beside an application never fires the caveat and
 a repository that genuinely is stored procedures does (`test_substrate.py:475`). YAML and
 generic JSON are in neither tier, so an unread `deployment.yaml` produces no report of any kind
 (`test_substrate.py:483`) — config is out of scope by construction, and deliberately silently
 so. The one config-identifier relation a backend hands us, graphify's `requires_env`, is mapped
-to nothing on purpose rather than by omission (`backend_graphify.py:128`).
+to nothing on purpose rather than by omission (`backend_graphify.py:129`).
 
 One clause of the working record is not implemented and must not be read as if it were. It said
 that where a project has only migrations and no schema file, the current schema is emitted as
 `unresolved`. No code does this, and nothing in today's model could: `unresolved:` is a prefix on
 an import *target*, meaning the source named something project-local that resolves to no file
-(`substrate.py:69`, `:747`), and a "current schema" is not a file and has no node to hang the
+(`substrate.py:69`, `:789`), and a "current schema" is not a file and has no node to hang the
 signal on. What actually happens to a migration-only project is the census — its `.sql` files
 are graphed as isolated nodes when graphify runs with the extra, and named as unread by the
 floor once they dominate. That is the honest answer the clause was reaching for, arrived at by a
 different mechanism.
+
+> **Correction, 2026-08-24.** `substrate.py:69` in the paragraph above named the tuple of target
+> prefixes when this record was written and names a comment line today. The tuple is
+> `IMPORT_SIGNALS` at `substrate.py:86`, and it gained a third member on 2026-08-23:
+> `outside:<alias>/<path>`, for a specifier resolved under a root the project declared outside
+> itself (ADR-031, `OUTSIDE_PREFIX`, `substrate.py:79`). `is_internal` enumerates the four target
+> forms at `substrate.py:102`.
+>
+> This record's conclusion is unchanged and the new prefix is not a way in for config. A declared
+> root buys resolution and not traversal — no file under one is opened, and no directory under one
+> is discovered by walking it (ADR-031 states the exact residue: one cached `listdir` of the
+> directory a resolved reference already landed in). So a declaration produces edge targets, never
+> nodes, and it says nothing about which *extensions* a backend parses, which is the whole of what
+> this record turns on. The reasoning above is stated against `unresolved:` specifically and stays
+> correct: there is still no node for a "current schema" to hang on, and `outside:` does not
+> supply one.
 
 ## Rationale
 
@@ -90,7 +106,7 @@ fifteen nodes and fifteen links. Ten links are `contains`. The other five are re
 relations — one foreign-key `references`, two view `reads_from`, one
 `aws_cloudfront_distribution.cdn → aws_s3_bucket.assets` interpolation, and one `package.json`
 dependency — and all five have the same file at both ends. The contract projects symbol links
-onto file pairs and drops anything intra-file (ADR-023, `backend_graphify.py:634`), so the graph
+onto file pairs and drops anything intra-file (ADR-023, `backend_graphify.py:676`), so the graph
 freya writes for that fixture is four file nodes and **zero edges**. "graphify parses it" and "the graph gains something" are different
 claims; only the first was ever true here.
 
@@ -137,7 +153,7 @@ it was skipped.
   dropped on the YAML premise above, which was false. It stays dropped on the surviving grounds:
   the question has no *programmatic* caller, so nothing in the toolkit would read the table, and
   we already discard the single identifier relation a backend offers us (`requires_env`,
-  `backend_graphify.py:128`) rather than lacking one. This is the alternative in this record
+  `backend_graphify.py:129`) rather than lacking one. This is the alternative in this record
   whose case was never argued at full strength. If it returns it should return on its own merits.
 
 - **Parsing Terraform HCL ourselves.** Terraform is the one genuine branching DAG in the config
@@ -145,7 +161,7 @@ it was skipped.
   proposal that most nearly beat the transitive-closure test. Rejected because `terraform graph`
   already emits that DAG: consume it if it is ever wanted, never hand-roll HCL. Note that this
   rejects *our* parser and not the data. `.tf` and `.hcl` are tier-1 census material
-  (`substrate.py:845`) and graphify parses them behind its `terraform` extra; a future consumer
+  (`substrate.py:887`) and graphify parses them behind its `terraform` extra; a future consumer
   should arrive that way.
 
 - **Graph migrations as a chain.** Cheap to the point of free — the order is in the filenames and
@@ -165,7 +181,7 @@ it was skipped.
   instead of a boundary: anything the backend did not read gets named, and "we do not graph your
   Kubernetes manifests" becomes explicit rather than implicit. Rejected because the census is
   only worth having if it is believed, and a field that fires on every repository with a compose
-  file is one an agent learns to skip inside a single context window (`substrate.py:818`). "I
+  file is one an agent learns to skip inside a single context window (`substrate.py:860`). "I
   could not read this" and "this is not in scope" are different sentences, and config is the
   second. ADR-029 owns the general form of that rule; the extension lists are where the two
   decisions meet.
@@ -187,7 +203,7 @@ it was skipped.
   measured rather than argued.
 
 - **Intra-file links become representable.** File-level self-edges are dropped today for want of
-  a node type below the file (`backend_graphify.py:641`, ADR-023). If a symbol-level graph lands,
+  a node type below the file (`backend_graphify.py:683`, ADR-023). If a symbol-level graph lands,
   the SQL foreign keys, view reads and Terraform interpolations graphify already extracts stop
   being discarded, and config starts contributing content without anyone deciding it should.
   Re-derive the zero measured above rather than assuming it still holds.

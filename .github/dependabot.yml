@@ -1,0 +1,39 @@
+# The other half of the SHA pin, not an extra.
+#
+# A pin does not update itself. Left unwatched it trades one supply-chain
+# failure for the opposite one: nothing here would ever move off
+# actions/checkout@3d3c42e5 again, and the day that commit is the one with the
+# advisory, the pin is what keeps it running. Pinning without an update path is
+# a decision to stop patching, so the two ship together.
+#
+# github-actions and nothing else, deliberately. INV-1 (bin/check_invariants.py)
+# makes the standard library the whole runtime, so this repository has no
+# requirements.txt, package.json or pyproject for another ecosystem to read;
+# pytest is installed by a `run:` line in ci.yml, which Dependabot does not
+# parse. An ecosystem entry with no manifest behind it produces nothing but a
+# config file that looks maintained.
+#
+# Dependabot rewrites the trailing `# vN.N.N` comment along with the SHA it
+# annotates. That is the mechanical reason every pin carries one, and why
+# bin/test_workflow_pins.py asserts the comment as well as the SHA.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    # "/" means the repository, not the repository root as a directory to search:
+    # for this ecosystem Dependabot resolves it to .github/workflows/ itself. A
+    # literal ".github/workflows" here matches nothing and fails silently.
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 3
+    # One grouped pull request instead of five. Five actions moving
+    # independently is five CI runs, five reviews and five chances to merge a
+    # pin nobody read, for what is a single decision: take this month's actions.
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    # `type(scope): summary`, the format every commit in this repository uses
+    # (knowledge-base/reference/STYLE_GUIDE.md § Commits).
+    commit-message:
+      prefix: "chore(ci)"

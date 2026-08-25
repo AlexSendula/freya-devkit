@@ -13,6 +13,8 @@ applied — and none of it should require an external tool to verify.
 Run: python test_backend_graphify.py
 """
 
+import contextlib
+import io
 import json
 import os
 import pathlib
@@ -31,6 +33,27 @@ from backend_graphify import GraphifyBackend, GraphifyUnavailable  # noqa: E402
 HAVE_GRAPHIFY = shutil.which(backend_graphify.BINARY) is not None
 needs_graphify = unittest.skipUnless(
     HAVE_GRAPHIFY, 'the graphify binary is not installed on this machine')
+
+#: Somewhere no test's temporary project can contain, which is the whole point:
+#: a graphify the operator installed, not one the scanned repository shipped.
+RESOLVED_BINARY = os.path.join(os.path.abspath(os.sep), 'opt', 'tools',
+                               backend_graphify.BINARY)
+
+
+def stub_resolution(case, path=RESOLVED_BINARY, reason=None):
+    """Answer `exec_path.resolve` with a fixed verdict for the length of `case`.
+
+    This replaces the older `self.backend.available = lambda: True`, and the
+    replacement is not cosmetic. `_extract` used to ask `available()` and then
+    spawn the bare name; it now resolves once and spawns what it resolved, so
+    the resolver is the seam. A test still stubbing the predicate leaves the run
+    site searching PATH for a graphify the CI machine does not have, and fails
+    with 'not on PATH' from a line it was not testing.
+    """
+    original = backend_graphify.exec_path.resolve
+    case.addCleanup(setattr, backend_graphify.exec_path, 'resolve', original)
+    backend_graphify.exec_path.resolve = (
+        lambda name, project_dir=None: backend_graphify.exec_path.Resolution(path, reason))
 
 
 def graphify_module_source(dotted):
@@ -755,17 +778,116 @@ class TestTheContractIsSatisfied(Base):
                          second['files']['src/a.py']['imports'])
 
 
+class TestTheScannedProjectDoesNotChooseTheBinary(Base):
+    """SEC-002. Every subprocess this backend spawns runs with `cwd=self.project_dir`, a
+    repository the operator merely pointed at. A bare `graphify` or `git` in that position asks
+    the operating system to search, and on Windows `CreateProcess` searches the working
+    directory before PATH — so the repository being analysed picks the program.
+
+    The two halves are tested separately on purpose. Hardening `available()` while the run site
+    still spawns a bare name reads as a complete fix and mitigates nothing, because the check
+    and the spawn resolve independently.
+    """
+
+    def _plant(self, name):
+        """An executable `name` at the project root, plus the `.exe` Windows would find."""
+        written = [os.path.join(self.tmp, name)]
+        if os.name == 'nt':
+            written.append(os.path.join(self.tmp, name + '.exe'))
+        for path in written:
+            with open(path, 'w', encoding='utf-8') as handle:
+                handle.write('#!/bin/sh\nexit 0\n')
+            os.chmod(path, 0o755)
+        return written[0]
+
+    @contextlib.contextmanager
+    def _only_the_project_on_path(self):
+        original = os.environ.get('PATH')
+        os.environ['PATH'] = self.tmp
+        try:
+            yield
+        finally:
+            if original is None:
+                os.environ.pop('PATH', None)
+            else:
+                os.environ['PATH'] = original
+
+    def _spy_on_subprocess(self):
+        """Record every argv spawned and answer with a trivially successful run."""
+        seen = []
+        original = subprocess.run
+
+        def fake(argv, *a, **kw):
+            seen.append(list(argv))
+            return original([sys.executable, '-c', ''], capture_output=True, text=True)
+
+        backend_graphify.subprocess.run = fake
+        self.addCleanup(setattr, backend_graphify.subprocess, 'run', original)
+        return seen
+
+    def test_the_binary_is_run_by_the_resolved_path_not_by_name(self):
+        """The run site, which is the half that matters.
+
+        `available()` returning True is not what makes the spawn safe — the string in argv[0]
+        is. This asserts the resolved path reaches the call, so reverting the run site to
+        `[BINARY, ...]` fails here even with the availability check left strict.
+        """
+        os.makedirs(os.path.join(self.tmp, backend_graphify.OUTPUT_DIR))
+        with open(self.backend.output_path(), 'w', encoding='utf-8') as handle:
+            json.dump({'nodes': [node('a', 'src/a.py')], 'links': []}, handle)
+        stub_resolution(self)
+        seen = self._spy_on_subprocess()
+        self.backend.build()
+        self.assertEqual(seen[0][0], RESOLVED_BINARY)
+        self.assertEqual(seen[0][1:], ['update', self.tmp])
+
+    def test_a_graphify_inside_the_scanned_project_is_neither_available_nor_run(self):
+        """The defect end to end, through the real `shutil.which`.
+
+        A repository that commits `graphify` and puts its own root on PATH — direnv, a
+        `node_modules/.bin`, or simply Windows searching the working directory — is refused at
+        both seams. Failing here means `project_dir` is not reaching the resolver, which is the
+        likeliest way this fix gets half-applied.
+        """
+        self._plant(backend_graphify.BINARY)
+        seen = self._spy_on_subprocess()
+        with self._only_the_project_on_path():
+            if shutil.which(backend_graphify.BINARY) is None:
+                self.skipTest("this host's shutil.which will not find the planted file")
+            self.assertFalse(self.backend.available())
+            with self.assertRaises(GraphifyUnavailable) as ctx:
+                self.backend.build()
+        self.assertIn('inside the project being scanned', str(ctx.exception))
+        self.assertEqual(seen, [])
+
+    def test_the_graph_commit_stamp_does_not_run_a_project_supplied_git(self):
+        """The fourth instance of the same defect, unfiled and in the same file as SEC-002.
+
+        `_git_commit` stamps a graph with the repository's HEAD; it gates nothing. So no git,
+        or a git the project could have chosen, is simply no stamp — and the important half is
+        that nothing is spawned, because a planted `git` here runs with the scanned repository
+        as its working directory on POSIX too, not only on Windows.
+        """
+        self._plant('git')
+        seen = self._spy_on_subprocess()
+        with self._only_the_project_on_path():
+            if shutil.which('git') is None:
+                self.skipTest("this host's shutil.which will not find the planted file")
+            self.assertIsNone(self.backend._git_commit())
+        self.assertEqual(seen, [])
+
+
 class TestFailureIsReportedNotSwallowed(Base):
     """A backend that cannot produce a graph must say so. Returning an empty one is the
     confident-empty failure the whole contract exists to remove."""
 
     def test_a_missing_binary_raises_rather_than_returning_nothing(self):
-        self.backend.available = lambda: False
+        stub_resolution(self, path=None, reason='graphify is not on PATH')
         with self.assertRaises(GraphifyUnavailable):
             self.backend.build()
 
     def test_success_with_no_output_file_is_a_failure(self):
-        self.backend.available = lambda: True
+        stub_resolution(self)
         self.backend._run = lambda: None
         original = subprocess.run
 
@@ -808,7 +930,7 @@ class TestFailureIsReportedNotSwallowed(Base):
         os.makedirs(os.path.join(self.tmp, backend_graphify.OUTPUT_DIR))
         with open(self.backend.output_path(), 'w', encoding='utf-8') as handle:
             json.dump({'nodes': [node('a', 'src/a.py')], 'edges': []}, handle)
-        self.backend.available = lambda: True
+        stub_resolution(self)
         original = subprocess.run
 
         def fake(*a, **kw):
@@ -826,7 +948,7 @@ class TestFailureIsReportedNotSwallowed(Base):
         os.makedirs(os.path.join(self.tmp, backend_graphify.OUTPUT_DIR))
         with open(self.backend.output_path(), 'w', encoding='utf-8') as handle:
             json.dump({'nodes': [node('a', 'src/a.py')], 'links': []}, handle)
-        self.backend.available = lambda: True
+        stub_resolution(self)
         original = subprocess.run
 
         def fake(*a, **kw):
@@ -1309,6 +1431,176 @@ class TestTheDeclaredCoverageMatchesTheTool(unittest.TestCase):
             graph = backend.translate({'nodes': [node('a', path)], 'links': []})
             produced.add(graph['files'][path]['language'])
         self.assertEqual(set(backend_graphify.LANGUAGES), produced)
+
+
+class TestASourceFileOutsideTheProjectIsNotAGraphKey(Base):
+    """A backend-supplied `source_file` became a graph key with no containment check.
+
+    Worse than no check: `lstrip('/')` *laundered* the value, so `/etc/passwd` entered the
+    artifact as the key `etc/passwd` — a string that reads as project-relative to every
+    downstream reader and to `validate_graph`, which is why the poisoned graph came back
+    conforming (SEC-015).
+    """
+
+    def test_an_absolute_source_file_outside_the_project_is_dropped_not_rebased(self):
+        """The rebased spelling is asserted explicitly, because that is the shape of the
+        original defect: a guard bolted on *after* the `lstrip` would leave it intact and
+        still satisfy an assertion that only looked for `/etc/passwd`."""
+        g = self.translate([node('a', 'src/a.py'), node('p', '/etc/passwd')], [])
+        self.assertNotIn('/etc/passwd', g['files'])
+        self.assertNotIn('etc/passwd', g['files'])
+        self.assertEqual(sorted(g['files']), ['src/a.py'])
+
+    def test_a_dotdot_source_file_is_dropped_and_the_graph_then_validates(self):
+        """The end-to-end half. Before the fix the key `../../outside/secret.py` was in
+        `files` *and* `validate_graph` returned `[]` for it — the finding is as much about
+        the clean bill of health as about the key."""
+        g = self.translate([node('a', 'src/a.py'),
+                            node('d', '../../outside/secret.py')], [])
+        self.assertEqual(sorted(g['files']), ['src/a.py'])
+        substrate.link_dependents(g)
+        self.assertEqual(substrate.validate_graph(g, self.backend.coverage()), [])
+
+    def test_an_absolute_source_file_inside_the_project_is_rebased_not_dropped(self):
+        """Why the check is `rel_within` and not the lexical `escapes` rule.
+
+        A backend may legitimately name a real in-project file by absolute path. Judged
+        lexically, every one of those is an escape, and the graph comes back thin — a thin
+        repository is exactly the answer ADR-005 exists to stop being given confidently. This
+        row is what stops the check being 'simplified' into `if escapes(value): drop`.
+        """
+        g = self.translate([node('a', os.path.join(self.tmp, 'src', 'a.py'))], [])
+        self.assertEqual(sorted(g['files']), ['src/a.py'])
+
+    def test_the_rebased_absolute_key_costs_no_direction_warning(self):
+        """Every site that spells a key has to ask the containment question the same way.
+
+        The row above has no links in it, and that is how this got shipped. `_misdirected`
+        cross-checks a link's own `source_file` against its source node's key, and it used to
+        normalise its side with the `lstrip('/')` fold the key site also used — two copies of
+        one expression, so they agreed by construction. Rebasing one and not the other made
+        an absolute in-project `source_file` — the exact class the row above blesses — read
+        as a disagreement: a clean graph came back saying `direction_warnings: 1` and telling
+        its caller on stderr that its own edge direction was unreliable. A trust signal that
+        cries wolf is worth less than no signal, so the false alarm is the defect.
+        """
+        absolute = link('a', 'b', 'imports')
+        absolute['source_file'] = os.path.join(self.tmp, 'src', 'a.py')
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            g = self.translate([node('a', os.path.join(self.tmp, 'src', 'a.py')),
+                                node('b', 'src/b.py')], [absolute])
+        self.assertEqual(self.edges(g, 'src/a.py'),
+                         [{'to': 'src/b.py', 'kind': 'imports', 'provenance': 'extracted'}])
+        self.assertNotIn('direction_warnings', g['substrate'])
+        self.assertEqual(err.getvalue(), '')
+
+    def test_a_link_whose_own_source_file_leaves_the_project_still_warns(self):
+        """The other half, and the reason the fix is not `if key is None: return False`.
+
+        `_project_key` answers None for a path that escapes. Here the source *node* stayed
+        inside the project and the link claims the edge leaves from `/etc/passwd`, so the two
+        genuinely disagree about where the edge starts — a None has to keep counting, or
+        making the two sides agree would quietly buy that agreement by excusing the one
+        disagreement that matters most.
+        """
+        with contextlib.redirect_stderr(io.StringIO()):
+            escaping = link('a', 'b', 'imports')
+            escaping['source_file'] = '/etc/passwd'
+            g = self.translate([node('a', 'src/a.py'), node('b', 'src/b.py')], [escaping])
+        self.assertEqual(g['substrate']['direction_warnings'], 1)
+
+    def test_a_windows_flavoured_source_file_is_refused_rather_than_reported(self):
+        """`C:/Windows/win.ini` is *relative* to posixpath, so containment alone lets it in.
+
+        The composition, in the drop direction. `rel_within` needs a root and can therefore
+        only answer for the host it runs on; this value joins inside a POSIX root and comes
+        back looking like a key. The docstring used to hand the case to
+        `substrate.validate_graph` one layer up — which does report it, and then
+        `graph_ops.run_build` writes the graph anyway and files the errors under
+        `substrate.validation`. A graph.json shipped with that key, read on Windows, joins
+        against the reader's root and lands on the drive root, so "reported" was not enough
+        and the value has to be refused where the key is made.
+        """
+        with contextlib.redirect_stderr(io.StringIO()):
+            g = self.translate([node('a', 'src/a.py'),
+                                node('w', 'C:/Windows/win.ini'),
+                                node('v', 'C:\\Windows\\win.ini')], [])
+        self.assertEqual(sorted(g['files']), ['src/a.py'])
+        self.assertEqual(g['substrate']['out_of_project_nodes']['count'], 2)
+        substrate.link_dependents(g)
+        self.assertEqual(substrate.validate_graph(g, self.backend.coverage()), [])
+
+    def test_the_rebased_absolute_key_is_one_validate_graph_accepts(self):
+        """The same composition in the keep direction, which is what stops the refusal above
+        being 'simplified' into dropping every absolute path. The rebase has to produce a key
+        the layer above agrees is a key, or the two predicates are not holding one rule."""
+        g = self.translate([node('a', os.path.join(self.tmp, 'src', 'a.py')),
+                            node('b', 'src/b.py')], [link('a', 'b', 'imports')])
+        self.assertEqual(sorted(g['files']), ['src/a.py', 'src/b.py'])
+        substrate.link_dependents(g)
+        self.assertEqual(substrate.validate_graph(g, self.backend.coverage()), [])
+
+    def test_the_drop_is_counted_and_announced(self):
+        """A dropped node must read as a drop and not as a smaller repository.
+
+        `_refuse_to_erase` catches the total wipe; nothing catches a handful, so the count
+        and the stderr line are the only trace a node was refused (obligation 2, ADR-029).
+        """
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            g = self.translate([node('a', 'src/a.py'),
+                                node('p1', '/etc/passwd'), node('p2', '/etc/passwd'),
+                                node('d', '../outside/secret.py')], [])
+        self.assertEqual(g['substrate']['out_of_project_nodes'],
+                         {'count': 3, 'paths': ['../outside/secret.py', '/etc/passwd']})
+        self.assertIn('outside the project', err.getvalue())
+
+    def test_the_recorded_sample_is_capped_but_the_count_is_not(self):
+        """Enough to diagnose, not enough to turn the graph into a log file. The count is
+        the number that must stay honest; the path list is a sample and says so by being
+        capped at the same figure `graph_ops` uses for validation errors."""
+        cap = backend_graphify._MAX_RECORDED_ESCAPED_PATHS
+        with contextlib.redirect_stderr(io.StringIO()):
+            g = self.translate([node('n%d' % i, '/outside/%d.py' % i)
+                                for i in range(cap + 5)], [])
+        block = g['substrate']['out_of_project_nodes']
+        self.assertEqual(block['count'], cap + 5)
+        self.assertEqual(len(block['paths']), cap)
+
+    def test_the_cap_is_the_same_number_graph_ops_uses_for_validation_errors(self):
+        """The constant claims parity in its own comment; this is what holds it.
+
+        `_MAX_RECORDED_ESCAPED_PATHS` is a literal rather than an import on purpose — the
+        dependency runs the other way, `graph_ops` reaches the backends and a backend must
+        not reach back into the module that selects it. That leaves a hand-maintained
+        duplicate, which is exactly the shape `containment.py:29` calls out when it says its
+        own parity with `bin/freya_cli.py:_escapes` is held "by
+        `bin/test_freya_cli.py::ContainmentParityTest`, not by hope". The sibling test above
+        reads the cap symbolically and so cannot see the value drift; a test may import both
+        modules even where the modules must not import each other, so the assertion lives
+        here. Both literals as well as the comparison, because two constants that have
+        drifted to a matching wrong number are still a defect.
+        """
+        self.assertEqual(backend_graphify._MAX_RECORDED_ESCAPED_PATHS,
+                         graph_ops._MAX_RECORDED_VALIDATION_ERRORS)
+        self.assertEqual(backend_graphify._MAX_RECORDED_ESCAPED_PATHS, 20)
+
+    def test_an_ordinary_relative_source_file_is_still_a_key_and_still_excludable(self):
+        """The anti-vacuity control for the whole class, and it pins the *order* as well.
+
+        An exclusion pattern is written against a project-relative key, so containment has to
+        run first — ask `excludes` about a path that has not been rebased yet and it answers
+        the wrong question, which is why the third node below is `vendor/` spelled
+        absolutely. And an excluded file must not be miscounted as an escaped one, or every
+        `vendor/` in the repository reads as an attempted escape.
+        """
+        g = self.translate([node('a', 'src/a.py'), node('v', 'vendor/lib.py'),
+                            node('w', os.path.join(self.tmp, 'vendor', 'other.py'))],
+                           [link('a', 'v', 'imports')],
+                           exclusions=substrate.Exclusions(directories=['vendor']))
+        self.assertEqual(sorted(g['files']), ['src/a.py'])
+        self.assertNotIn('out_of_project_nodes', g['substrate'])
 
 
 if __name__ == '__main__':

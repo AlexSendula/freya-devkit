@@ -14,16 +14,16 @@ tags:
 
 ## Decision
 
-The directory name lists in `_get_exclusion_rules` (`graph_ops.py:1120`) are defaults, and a
+The directory name lists in `_get_exclusion_rules` (`graph_ops.py:1252`) are defaults, and a
 project can overrule any of them. A directory verdict outranks the lists in two tiers
-(`graph_ops.py:169`). A `user` verdict — which is what a directory declared in the committed
-`knowledge-base/settings.json` becomes (`graph_ops.py:1463`) — beats everything, including the
-artifact-tree names matched at any depth (`graph_ops.py:1124`) and `.gitignore`. An `ai` verdict
-beats the root convention names (`graph_ops.py:1180`) and `.gitignore`, and never an artifact
+(`graph_ops.py:171`). A `user` verdict — which is what a directory declared in the committed
+`knowledge-base/settings.json` becomes (`graph_ops.py:1595`) — beats everything, including the
+artifact-tree names matched at any depth (`graph_ops.py:1256`) and `.gitignore`. An `ai` verdict
+beats the root convention names (`graph_ops.py:1312`) and `.gitignore`, and never an artifact
 tree. A `rule` or `gitignore` verdict overrides nothing: those are the lists' own output, so
 letting one override them would be circular. Precedence is stated once and implemented once — a
 stated verdict beats a derived one at any depth, and among equals the deepest wins
-(`_stated_verdict`, `graph_ops.py:1237`).
+(`_stated_verdict`, `graph_ops.py:1369`).
 
 Committed verdicts live in `knowledge-base/settings.json` under `directories`, alongside the
 backend choice ADR-019 put there:
@@ -33,20 +33,57 @@ backend choice ADR-019 put there:
 ```
 
 `knowledge-base/.graph/classifications.json` keeps only the derived and model-authored verdicts.
-It is gitignored regenerable cache (`CACHE_IGNORED`, `graph_ops.py:243`), and a settings-declared
-verdict is deliberately kept *out* of it (`_save_classifications`, `graph_ops.py:1512`). Keys on
+It is gitignored regenerable cache (`CACHE_IGNORED`, `graph_ops.py:245`), and a settings-declared
+verdict is deliberately kept *out* of it (`_save_classifications`, `graph_ops.py:1644`). Keys on
 both paths are folded to one form, so `docs`, `docs/`, `./docs` and `docs\lit` name what the
-person meant (`normalise_dir_key`, `settings.py:109`; `_parse_directories`, `settings.py:324`).
+person meant (`normalise_dir_key`, `settings.py:169`; `_parse_directories`, `settings.py:795`).
 
 An override widens scope *at* the directory it names; it does not switch off what is excluded
 beneath it. The artifact-tree names are re-matched against the path below the override root, in
-the floor's file filter (`graph_ops.py:1341`) and in the `Exclusions` object the contract hands
-to every backend (`_excluded_under_override`, `substrate.py:513`). So `{"packages": "source"}`
+the floor's file filter (`graph_ops.py:1473`) and in the `Exclusions` object the contract hands
+to every backend (`_excluded_under_override`, `substrate.py:537`). So `{"packages": "source"}`
 admits `packages/app/src/` and still refuses `packages/app/node_modules/`.
 
 Two things no verdict overrides: file-kind patterns — `*.d.ts`, `*.min.js`, `*.map` — which are
 claims about what a *file* is rather than about which directories are in scope, and a more
 specific stated verdict beneath the override.
+
+> **Correction, 2026-08-24.** There is a **third**, added 2026-08-23 by SEC-021: a `directories`
+> key that does not fold to a path *inside* this project is dropped, whatever verdict it carries.
+> `normalise_dir_key` returns `''` for it (`settings.py:169`), judged by `containment.escapes` on
+> the folded text (`settings.py:240`) and therefore in both path flavours, so a committed key means
+> the same thing on every host. Measured on this tree today: `../shared`, `..`, `.` and `D:/secrets`
+> all fold to `''`, while `docs/`, `./docs`, `/docs/`, `docs\lit` and `a/../b` keep folding to the
+> keys the paragraph above promises. The cache is folded through the same call, so a key that
+> reached `classifications.json` is refused on the same line rather than by a second rule.
+>
+> This is not an exclusion default being made unarguable; it is the key space being closed. Every
+> consumer joins a `directories` key onto the project root or matches it as the prefix of a
+> project-relative path, so a key that escapes has no reading at all — and before the refusal the
+> build did not fail on one, it succeeded wrongly. The measurement is in `normalise_dir_key`'s own
+> docstring, pinned to `abd1de3`: `{"directories": {"../shared": "source"}}` graphed a sibling tree,
+> read its file contents, and re-entered through `..` so every in-project file gained a second node,
+> with `validate_graph` clean and nothing printed.
+>
+> **Symlinks are not a fourth tier here, and this record should not be read as if they were.** The
+> non-overridable symlink refusal SEC-008 established is `_refuses_descent`
+> (`skills/freya-docs-manager/scripts/detect_project.py:352`), in docs-manager's project-stack walk
+> — which never reads `directories`, so no verdict in this record reaches it. Separately, a
+> declaration under ADR-031 never re-authorises a crossing made through a symlink
+> (`settings.py:303`, pinned by `test_graph_ops.py:3397`), and that is `outside`, not `directories`.
+> What is true of the graph's own scope is narrower than it first looks, and the narrow version is
+> the one worth writing down. `Path.glob` does not follow a directory symlink it meets *during*
+> recursion, and the census walk takes `os.walk`'s `followlinks=False` default
+> (`graph_ops.py:2840`). But `_scan_files` roots its globs at the classified source directories
+> (`graph_ops.py:2007`-`:2010`), and a glob whose **root** is itself a symlink does traverse it —
+> measured on Python 3.12.5: a symlinked directory reached mid-recursion yields nothing, the same
+> directory used as the glob root yields its files. So a `directories` verdict of `source` naming
+> a symlinked top-level directory is followed, and this record's own mechanism is the way in.
+>
+> That is an observation about current library behaviour, not a guarantee this record makes, and
+> it is deliberately stated as the weaker claim: the earlier draft of this paragraph asserted that
+> no walk descends a directory symlink at all, which is the false-containment shape ADR-031 and
+> SEC-008 were both written against.
 
 ## Rationale
 
@@ -68,9 +105,9 @@ floor beneath it was shipped and measured on a two-package npm-workspaces fixtur
 `{"directories": {"packages": "source"}}` pulled every `packages/*/node_modules/**` into the
 graph. Nothing could switch it back off, either, because the classifier does not descend into a
 directory whose ancestor already carries a stated verdict (`_inherits_a_stated_verdict`,
-`graph_ops.py:1263`), so no nested `exclude` is ever derived to catch it. The two filters now
+`graph_ops.py:1395`), so no nested `exclude` is ever derived to catch it. The two filters now
 agree on that case by test rather than by inspection
-(`test_graph_ops.py:2139`).
+(`test_graph_ops.py:2158`).
 
 The location is the other half of this decision, and it was settled before the override existed
 and then not applied to it. Three properties were needed at once: the verdict has to survive a
@@ -83,14 +120,14 @@ ADR-017 draws inside `.graph/` applies here — a decision and a parse cache are
 of file, and this one is a decision.
 
 Keeping the two stores separate needs enforcement in both directions. `_load_classifications`
-folds the committed verdicts over the cached ones so a build sees both (`graph_ops.py:1468`), and
+folds the committed verdicts over the cached ones so a build sees both (`graph_ops.py:1600`), and
 persisting that result baked them into the cache as ordinary `user` entries, where they outlived
 the file that declared them: deleting `"docs": "source"` from `settings.json` changed nothing,
 because the cached copy still outranked every rule, survived the `RULES_VERSION` discard and
-survived `--clear`, which deliberately keeps `classifications.json` (`graph_ops.py:2345`). The
+survived `--clear`, which deliberately keeps `classifications.json` (`graph_ops.py:2545`). The
 cache now never holds a settings-declared verdict.
 
-`RULES_VERSION` (`graph_ops.py:150`, currently `'2026-08-20b'`) is what lets the defaults change
+`RULES_VERSION` (`graph_ops.py:152`, currently `'2026-08-20b'`) is what lets the defaults change
 at all. The classifier skips any directory already present in the cache, so without a version
 stamp a corrected rule reached only fresh clones. On a mismatch the cached `rule` and `gitignore`
 verdicts are discarded and re-derived; `user` and `ai` ones are judgements about the project that
@@ -98,8 +135,8 @@ no rule change invalidates, and they stay.
 
 **What the code does not do.** The `ai` tier is enforced in the floor's file filter and not in
 the `Exclusions` object the contract passes to other backends: `project_exclusions`
-(`graph_ops.py:437`) puts `user` and `ai` source verdicts into `overrides` alike, while
-`_override_root` (`graph_ops.py:1222`) recognises only `user`. Verified on 2026-08-21 with a
+(`graph_ops.py:465`) puts `user` and `ai` source verdicts into `overrides` alike, while
+`_override_root` (`graph_ops.py:1354`) recognises only `user`. Verified on 2026-08-21 with a
 cached `{"target": {"type": "source", "source": "ai"}}`: `_should_exclude('target/a.ts')` returns
 `True` and `Exclusions.excludes('target/a.ts')` returns `False`, so the same repository is scoped
 one way on the floor and another under graphify, which post-filters its output through that
@@ -113,7 +150,7 @@ code-graph --use` writes `substrate.backend` only (`bin/backend_setup.py:153`, m
 than replacing so it never discards a verdict), and `set_classification` has no CLI surface and
 writes to the cache, not to the committed file. The machine-level `~/.freya/settings.json`
 deliberately cannot carry `directories` at all, and says so on stderr when someone tries
-(`GLOBAL_KEYS`, `settings.py:69`).
+(`GLOBAL_KEYS`, `settings.py:102`).
 
 ## Rejected Alternatives
 

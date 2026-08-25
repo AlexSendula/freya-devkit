@@ -6,6 +6,7 @@ instead of Claude-specific `${CLAUDE_PLUGIN_ROOT}` script paths. Logic lives
 here (importable, testable); `bin/freya` is the executable shim.
 """
 import json
+import ntpath
 import os
 import shutil
 import subprocess
@@ -66,11 +67,31 @@ def _escapes(rel):
 
     So: reject a POSIX-absolute path, a Windows drive (`C:x` is drive-relative
     and still not ours), a Windows root, and any `..` in either spelling.
+
+    This is the second and last body of that rule. The canonical one is
+    `skills/freya-code-graph/scripts/containment.py:escapes`, and everything
+    else in the tree imports it from there. The launcher deliberately does not:
+    `doctor` and `update` are the commands that diagnose and repair a skill
+    tree, so they have to run when that tree is missing, half-installed or
+    broken — and `load_manifest` is reached by `doctor_checks` on nearly every
+    `freya` invocation, which would make the bootstrap depend on the payload it
+    installs. ADR-030 records the exception; the two bodies are held together by
+    `bin/test_freya_cli.py::ContainmentParityTest`, which errors rather than
+    skips if the canonical module cannot be imported.
+
+    The drive question goes to `ntpath` and not to `pathlib`: `PureWindowsPath`
+    restricted a drive letter to ASCII up to 3.11 and delegates to
+    `ntpath.splitdrive` from 3.12, so `PureWindowsPath('1:x').drive` changes
+    answer with the interpreter while `ntpath.splitdrive` does not. The
+    canonical body carries the measurement; this copy carries the same rule
+    because `ContainmentParityTest` compares them value by value.
     """
-    win, posix = PureWindowsPath(rel), PurePosixPath(rel)
+    posix = PurePosixPath(rel)
+    win_parts = PureWindowsPath(rel).parts
+    drive, rest = ntpath.splitdrive(str(rel))
     return bool(
-        posix.is_absolute() or win.drive or win.root
-        or ".." in win.parts or ".." in posix.parts
+        posix.is_absolute() or drive or rest[:1] in ("\\", "/")
+        or ".." in win_parts or ".." in posix.parts
     )
 
 
@@ -449,8 +470,31 @@ def doctor_checks(root=None, targets=None, run=None):
     # without ever reaching the real network.
     git_run = updater.git if run is None else run
 
+    # Why git cannot run *at all*, asked before any git answer is interpreted as
+    # a fact about the repository. `updater.git` returns (1, "") for a missing
+    # resolver and for a git it refused, and `is_git_store` reads (1, "") as
+    # "not a checkout" — so this row used to answer "the store is not a git
+    # checkout" for a store that was one, while `freya update` on the same
+    # machine printed the real reason. Two commands, contradictory stories, and
+    # the wrong one on the command that exists to explain this state. Asked of
+    # `updater.git_program`, which is the body `update` prints from, so they
+    # cannot disagree again.
+    #
+    # Only when the ladder will actually use `updater.git`: an injected `run=`
+    # replaces git wholesale, so the resolver has no say in what those calls
+    # return and reporting on it would describe a spawn that never happens.
+    git_reason = updater.git_program()[1] if git_run is updater.git else None
+
     if os.environ.get(updater.OPT_OUT):
         checks.append(("updates", "ok", f"not checked ({updater.OPT_OUT} is set)"))
+    elif git_reason is not None:
+        # `fail` when the resolver itself is gone, `warn` otherwise: every other
+        # reason on this ladder describes the operator's repository, PATH or
+        # network, and this one describes a tracked file of the store that is
+        # missing — the one state on the list that makes the store, not the
+        # environment, the broken thing.
+        checks.append(("updates", "fail" if updater.exec_path is None else "warn",
+                       git_reason))
     elif not updater.is_git_store(root, run=git_run):
         checks.append(("updates", "warn",
                        "the store is not a git checkout — `freya update` cannot run"))

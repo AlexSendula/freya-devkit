@@ -6,7 +6,7 @@ tags: [code-graph, query, impact, empty-answer, adr-005]
 status: implemented
 certainty: 85
 created: 2026-08-21
-updated: 2026-08-21
+updated: 2026-08-24
 related_code:
   - skills/freya-code-graph/scripts/graph_ops.py
   - skills/freya-code-graph/scripts/substrate.py
@@ -14,6 +14,7 @@ intentional_decisions:
   - "An unknown file and an empty result are different answers, and only the first is a refusal"
   - "The four query surfaces deliberately answer in three different shapes, and one of them qualifies itself on stderr"
   - "Impact analysis over a missing graph returns exactly an empty object, with no caveat keys added"
+  - "A file set shortened by a symlink leaving the project is recorded in the artifact as substrate.escaping_links, absent rather than empty when nothing escaped"
 behaviors:
   - behavior_id: BEH-024
     title: An empty but real dependents or dependencies answer is worded as an answer
@@ -162,6 +163,35 @@ with nothing going red — the failure is silent and repository-wide.
 **Security Scan Note**: the branch that returns `{}` while its sibling returns a fully
 annotated object is not an inconsistency to normalise. It is a sentinel with a named consumer.
 
+### A file set that is short says so in the artifact, not only on stderr
+
+**Decision**: a discovery candidate whose realpath leaves the project is not graphed, and the
+refusal is recorded at `graph['substrate']['escaping_links']` — two counts (`refused`,
+`crossed`), a capped `sample` of each, and an `advice` string. The key is **absent** rather
+than empty when nothing escaped, so a repository with no symlinks produces byte-identical
+output to one built before the field existed.
+
+**Rationale**: added 2026-08-24 (SEC-023). This is the same principle as the rest of this
+spec, on a surface that did not have it: a symlink pointing out of the tree used to be silently
+*included* — opened, parsed, its exports published as a project node — and the fix removes it
+from the graph. Removing it without recording it would trade a disclosure bug for an ADR-029
+one, because a silently shorter file set is a blast radius that is quietly too small, and every
+downstream answer (docs impact, drift scope, incremental security scope) is computed from it.
+stderr does not cover this: these skills call each other as subprocesses, so stderr is dead
+skill-to-skill, and the reader of a graph is usually not the process that built it.
+
+The two buckets are two different events. `refused` is a link out of the project with nothing
+declaring the target — not opened, not parsed, not a node. `crossed` is one whose target sits
+under a declared `outside` root (ADR-031) — also not a node, but legitimate, and named with the
+same `outside:<alias>/<tail>` token an *import* into that root produces, so both routes into a
+declared root read identically.
+
+**Security Scan Note**: read `escaping_links` as a **completeness caveat, not a security
+verdict**. A `refused` entry means the graph is smaller than a file listing suggests; it does
+not mean anything hostile happened, and a monorepo checkout containing a symlink out of the
+project is entirely ordinary. Do not collapse the two buckets, and do not switch the key to an
+empty block when nothing escaped — the absence is what keeps the artifact stable.
+
 ## Certainty
 
 85. The distinctions above are stated explicitly in ADR-005 and ADR-029, restated in the
@@ -180,4 +210,5 @@ their exact text is intent or an artifact of the fix is a judgement a human stil
 
 | Date | Change | Reason |
 |------|--------|--------|
+| 2026-08-24 | Added "A file set that is short says so in the artifact, not only on stderr" — the `substrate.escaping_links` block | SEC-023. Refusing an out-of-project symlink shortens the graph, and an undisclosed shortening is the ADR-029 failure this spec exists to prevent |
 | 2026-08-21 | Initial spec, inferred from code and tests | Brownfield scan of the code-graph query surface |

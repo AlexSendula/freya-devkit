@@ -24,6 +24,73 @@ from pathlib import Path
 
 import installer
 
+#: The shared program resolver lives in the code-graph skill, not next to this
+#: file: `bin/` is not copied into an agent's skills directory (ADR-030), so a
+#: helper here could not be imported from an installed skill. Reaching the other
+#: way — from `bin/` into the store's skill tree — is the shape
+#: `bin/backend_setup.py:56` already uses, and it is safe for this module
+#: specifically because `updater` only ever runs from the store: `freya_cli`
+#: imports it as a `bin/` sibling and hands it `suite_root()`.
+#:
+#: The import is guarded, and that guard is the whole reason this comment is
+#: long. `freya_cli` imports this module *inside* `doctor_checks`
+#: (`bin/freya_cli.py:359`) and inside the `update` branch (`:592`), and neither
+#: import is wrapped — only the `notify` one is (`:560`). So a bare
+#: `import exec_path` here makes a missing skill tree raise
+#: `ModuleNotFoundError` out of `freya doctor` and `freya update`: a traceback
+#: from the two commands whose entire job is to diagnose and repair that exact
+#: state. Measured, not reasoned about — with `exec_path.py` moved aside, both
+#: commands died at `bin/updater.py`'s import line, while every other command
+#: survived on `notify`'s existing `except Exception`.
+#:
+#: That is the same argument ADR-030 makes for the two bootstrap copies in
+#: `bin/`, and an earlier draft of this module got it backwards: it reasoned
+#: that `exec_path.py` travels in the same checkout at the same commit, so a
+#: store missing it is a hand-broken clone that `git pull` fixes. The circle is
+#: that `git pull` is spelled `freya update` here, and `freya update` was the
+#: command that crashed.
+#:
+#: What the guard does *not* do is fall back to a bare `"git"`. There is no
+#: degraded resolver and no third body of the absoluteness rule — the resolver
+#: is either present and authoritative or absent and the git-backed features
+#: refuse with a stated reason. A fallback that searched PATH would reinstate
+#: the defect precisely when the tree is already damaged.
+#:
+#: `except Exception`, not `except ImportError`, and the width is the point:
+#: the state being guarded against is "the store's skill tree is damaged", and
+#: *missing* is only its tidiest spelling. A truncated `exec_path.py` from an
+#: interrupted checkout raises `SyntaxError`, which is not an `ImportError` and
+#: which `bin/freya_cli.py:618` does not catch either, so the narrow form let
+#: the traceback back out of `doctor` and `update` — the exact outcome this
+#: guard exists to prevent, reachable by a more likely accident than deletion.
+#: Measured both halves on a scratch store: deleted file, and a one-line
+#: invalid `exec_path.py`. `bin/backend_setup.py:77` is the precedent and it
+#: already reads this way. The insert is guarded on `isdir` and on absence for
+#: the same reason `bin/backend_setup.py:69` is: this runs at import of a module
+#: nearly every `freya` command loads, and an unconditional prepend puts a
+#: directory that may not exist ahead of `bin/` for the life of the process.
+_SCRIPTS = Path(__file__).resolve().parents[1] / "skills" / "freya-code-graph" / "scripts"
+if _SCRIPTS.is_dir() and str(_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(_SCRIPTS))
+try:
+    import exec_path  # noqa: E402
+except Exception:  # noqa: BLE001 — a damaged skill tree must not fail a diagnostic
+    exec_path = None
+
+#: Said when the store cannot answer where git is. It names the file rather than
+#: the symptom because the operator's next move is to restore it, and the
+#: message has to survive being the only thing `freya update` prints.
+#:
+#: "could not be loaded" rather than "is missing": the guard above catches a
+#: corrupt file as well as an absent one, and a message that says "missing"
+#: about a file the operator can see sends them to look for the wrong problem.
+#: The remedy is the same for both, which is why one sentence covers both.
+NO_RESOLVER = (
+    "the store is incomplete: skills/freya-code-graph/scripts/exec_path.py "
+    "could not be loaded, and it is what decides which git is safe to run. "
+    "Re-clone the repository, or restore the file with `git checkout -- skills/`"
+)
+
 #: Local git commands are instant; a fetch is not, and ls-remote sits in front
 #: of an ordinary command the user is waiting on, so it gets the tight bound.
 DEFAULT_TIMEOUT = 10
@@ -49,15 +116,58 @@ RELOAD_HINT = (
 )
 
 
+def git_program():
+    """`(path, reason)` for git: where it is, or why it must not be run.
+
+    The one body of that question, and it is one body because three callers ask
+    it and a disagreement between them is a lie told to the operator. `git()`
+    spawns with the path; `preconditions` prints the reason; `freya doctor`'s
+    updates row prints the reason too, instead of inferring a repository fact
+    from a git call that never happened. That inference was the defect: `git()`
+    returns `(1, "")` for a refused or unresolvable git exactly as it does for a
+    real failure, and `is_git_store` reads `(1, "")` as "not a checkout", so
+    `doctor` answered "the store is not a git checkout" for a store that was
+    one — on the one command whose purpose is to explain that state, and by
+    default on the Windows 3.9-3.11 leg where a refusal is the expected outcome
+    of a repository-local `git.exe`.
+
+    A plain pair rather than an `exec_path.Resolution`: the resolver-absent
+    answer has to be expressible when the resolver is absent.
+    """
+    if exec_path is None:
+        return None, NO_RESOLVER
+    found = exec_path.resolve("git")
+    return found.path, found.reason
+
+
 def git(args, cwd, timeout=DEFAULT_TIMEOUT):
     """Run git in `cwd`; return (returncode, stripped stdout).
 
-    Never raises. A missing git, a timeout or a killed process all come back as
-    a non-zero code, because every caller's next move is the same either way and
-    an update check must not be able to crash the command it precedes.
+    Never raises. A missing git, a refused one, a timeout or a killed process
+    all come back as a non-zero code, because every caller's next move is the
+    same either way and an update check must not be able to crash the command it
+    precedes.
     """
+    # Resolved, never searched — and `cwd=` is not what makes that necessary.
+    # On Windows `CreateProcess` searches the *parent* process's working
+    # directory before PATH, and Python documents that the program is not looked
+    # up relative to `cwd=`, so passing the store here protects nothing on the
+    # platform the attack targets. What matters is where the operator is
+    # standing: this function is reached by the throttled staleness check on
+    # nearly every `freya` command, so a `git.exe` committed to a repository
+    # would run as the operator on every invocation from inside it — `freya
+    # status`, not just `freya update`.
+    #
+    # A store with no resolver is the same event as a missing git, and comes
+    # back as the same `(1, "")` every caller already branches on. It is not a
+    # licence to search: see `NO_RESOLVER`. The *reason* is thrown away here and
+    # nowhere else — `git_program` is what `preconditions` and `doctor` print,
+    # so the reason still reaches the operator through them.
+    program, _ = git_program()
+    if program is None:
+        return 1, ""
     try:
-        proc = subprocess.run(["git", *args], cwd=str(cwd), capture_output=True,
+        proc = subprocess.run([program, *args], cwd=str(cwd), capture_output=True,
                               text=True, timeout=timeout)
     except (OSError, subprocess.SubprocessError):
         return 1, ""
@@ -155,8 +265,16 @@ def preconditions(store, run=git):
     fetched. At most one reason comes back, which keeps the CLI's output to the
     one thing the user has to fix next.
     """
-    if shutil.which("git") is None:
-        return ["git is not on PATH — freya update refreshes the store with git."]
+    # First, because it is the only reason on this list the operator cannot fix
+    # by editing their own repository, and because every reason below it is
+    # measured with a `run=` that cannot run. Asked of `git_program`, the same
+    # body `git()` spawns from and `doctor` prints from, so a precondition
+    # cannot pass on a git the spawn would then refuse. On the common path the
+    # message is byte-identical to the old one, because "git is not on PATH" is
+    # the wording `exec_path` returns for a missing program.
+    _, reason = git_program()
+    if reason is not None:
+        return [f"{reason} — freya update refreshes the store with git."]
     if not is_git_store(store, run=run):
         return [f"{store} is not a git checkout — freya update refreshes the store "
                 "with git. Re-clone the repository and run the installer again."]

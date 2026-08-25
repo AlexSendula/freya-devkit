@@ -4,9 +4,9 @@ title: Blast radius in both directions, and the uncovered-code audit
 category: features
 tags: [behavior-layer, behavior-graph, blast-radius, coverage-gaps, security-cross-reference, adr-001, adr-004]
 status: implemented
-certainty: 75
+certainty: 80
 created: 2026-08-21
-updated: 2026-08-21
+updated: 2026-08-24
 related_code:
   - skills/freya-behavior-graph/scripts/behavior_graph.py
   - skills/freya-behavior-runner/scripts/run_behaviors.py
@@ -60,9 +60,13 @@ Four read-only questions answered from the committed `behavior.json`, each a sin
   plus their direct and transitive dependents), and every behavior whose `exercises` paths
   intersect that set is returned, sorted.
 - **`--implements <BEH-NNN>` (Direction B)** — which project files a behavior exercises.
-- **`--covering <file>`** — which *accepted* behaviors exercise a given file. This is the
-  cross-reference a security finding is checked against: a finding in a file that a verified
-  behavior deliberately exercises is a different thing from a finding in unguarded code.
+- **`--covering <file>` (`--verify` optional)** — which *accepted* behaviors exercise a given
+  file. This is the cross-reference a security finding is checked against: a finding in a file
+  that a verified behavior deliberately exercises is a different thing from a finding in
+  unguarded code. A returned behavior must **declare a locator** that stays inside the project
+  and names a file that exists; a behavior declaring none is refused rather than returned.
+  With `--verify`, each returned behavior's linked test is handed to `freya-behavior-runner`
+  and re-run, and the row carries the verdict.
 - **`--gaps`** — the whole-repo recall audit: every source file the code graph indexed that no
   behavior covers. "Covers" is the union of two things, exercised paths from the graph and
   `entry:` values declared on specs — and the second half is read from specs in **every** state,
@@ -150,6 +154,55 @@ is a claim that no *verified* behavior guards it. Do not use it as a coverage me
 "fix" the asymmetry with `--gaps` by aligning the two filters; that would either let unverified
 intent downgrade a finding or make every confirmed behavior's file report as a recall gap.
 
+### A declared locator is required, not merely checked when present
+
+**Decision**: `--covering` refuses a behavior that declares no `locator` at all, alongside the
+ones whose locator escapes the project or names no file.
+
+**Rationale**: added 2026-08-24. The check previously read only what was declared, so a
+behavior declaring *nothing* skipped the predicate entirely — an `accepted` behavior with
+`adapter: vitest` and no locator, and the query returned it. Tier 1 refused exactly that shape
+(`missing-locator`), so a repository the gate would have blocked could still license an
+ADR-012 downgrade here. It is the hole that needed no forgery, only an omission, which is why
+it is worth a decision entry of its own rather than a line in the table above.
+
+The residual, stated because it runs the other way: a `.py` fragment naming no symbol is
+refused by Tier 1 and **returned** here — this check stops at the file, so "the locator
+resolves" means the file is there, not that the named test is. Running the gate is therefore
+worth strictly more than running this query.
+
+**Security Scan Note**: a refusal here is the safe direction — the finding stays open. Do not
+relax it to "resolve the locator if one is declared"; that is the pre-2026-08-24 behaviour.
+
+### `--verify` re-runs the test, and `test-failed` still means two things
+
+**Decision**: without `--verify`, `source: observed` is a **label on evidence, not a
+verification of it** — a test passed once, on somebody's machine, at the commit `freshness`
+names, and both inputs come from the repository being scanned. `--verify` re-runs each
+returned behavior's linked test through `freya-behavior-runner`. A row whose test did not pass
+is `passed: false`, and so is every inability to run: "could not determine" must never read as
+"verified".
+
+**Rationale**: added 2026-08-24, when ADR-012 retracted the argument this surface used to
+carry. `covering()`'s docstring had held that running a scanned repository's suite was "worse
+than the problem it would solve" — an argument against a capability this toolkit ships as a
+feature, in a sibling skill this module imports. It imported a hostile-clone threat model that
+does not describe what freya is: a developer runs it on a repository they already trust.
+
+**What `--verify` does not establish** is the part to carry into a report.
+`freya-behavior-runner` spells **any** non-zero exit from the test command `test-failed`, so a
+red test, an uninstalled vitest and a project with no package manifest arrive as one token,
+and nothing in this module separates them. Measured 2026-08-24 on a checkout with no JS
+toolchain: every row came back `test-failed` while the evidence string said the tests had been
+re-run and none passed. `test-failed` therefore carries a `note` naming the second meaning, and
+only that reason does — a caveat printed on every row is one nobody reads on the row that
+needed it. The runner's stderr is forwarded rather than swallowed, because it is the only place
+the difference is visible.
+
+**Security Scan Note**: do not report "this repository asserts an accepted behavior whose test
+does not pass" from a `test-failed` row alone. Read `verified.reason` and the runner's stderr
+first; on a machine where nothing was installed, that sentence is false.
+
 ### A file the graph indexed is not necessarily code a behavior could cover
 
 **Decision**: `--gaps` excludes graph nodes whose recorded language is `json`, `xml` or
@@ -204,3 +257,4 @@ case above is an open question rather than a documented choice.
 | Date | Change | Reason |
 |------|--------|--------|
 | 2026-08-21 | Initial spec, inferred from code and tests | Brownfield scan of the behavior layer |
+| 2026-08-24 | `--covering` documented as requiring a declared locator; `--verify` added to the query surface with two new decision entries — the locator requirement and what re-running does and does not establish | Sync against `fix/security-findings-0-3-1`. Both are SEC remediations: the locator hole let an omission license an ADR-012 downgrade, and `--verify` exists because ADR-012 retracted the hostile-clone argument this spec's surface used to rest on |

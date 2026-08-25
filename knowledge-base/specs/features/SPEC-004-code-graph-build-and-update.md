@@ -6,7 +6,7 @@ tags: [code-graph, build, incremental, git, cache]
 status: implemented
 certainty: 82
 created: 2026-08-21
-updated: 2026-08-21
+updated: 2026-08-24
 related_code:
   - skills/freya-code-graph/scripts/graph_ops.py
   - skills/freya-code-graph/scripts/substrate.py
@@ -15,6 +15,7 @@ intentional_decisions:
   - "Rename detection is switched off and diff paths are project-relative, so a moved file leaves no ghost node"
   - "A build whose result would empty a populated graph refuses, keeps the previous artifact and exits non-zero"
   - "git runs as a fixed-argv subprocess and every git failure degrades to cannot-tell rather than raising"
+  - "A discovery candidate whose realpath leaves the project is refused on all three routes — the walk, the workspace glob and the incremental update — never opened and never keyed"
 behaviors:
   - behavior_id: BEH-016
     title: A build from scratch says what it scanned and where it cached the graph
@@ -193,6 +194,47 @@ inside it.
 **Security Scan Note**: exit 1 with the old artifact still on disk is the intended outcome,
 not a failed cleanup or a partially written file. Nothing here is a resource leak.
 
+### Discovery asks where a candidate really is, on every route into the graph
+
+**Decision**: a discovery candidate becomes a node only if `containment.within(project_dir,
+candidate)` holds — the realpath'd, normcase'd question, not a lexical one. This is asked at
+**all three** routes: the `_scan_files` walk, the workspace-manifest glob, and the incremental
+`update` loop. A candidate that fails is not opened, not parsed and not keyed; the refusal is
+recorded in `substrate.escaping_links` (SPEC-005).
+
+**Rationale**: added 2026-08-24 (SEC-023). A symlink committed *inside* the project whose
+target is outside it was picked up, opened, parsed, and its declarations published as a
+project node's `exports` — a file outside the root reached by `git clone` plus
+`freya code-graph`, with nothing declared and nothing on stderr.
+
+Three routes and not one, because the first fix reached only `_scan_files`, and the two it
+missed were the ones that mattered more. `update` is the path `freya-wrap-up` runs, so
+`--build` is the cold start and the incremental loop is the steady state; it admitted the same
+link on a bare `full_path.exists()`, which *follows* the link. And the resulting key is
+project-relative, so `validate_graph` passed it clean — which is why the hole could not be
+found by checking the artifact.
+
+**Refusal, not "skip every symlink"**, and the distinction is the behaviour change worth
+knowing about: a link whose realpath stays inside the project is a node exactly as before,
+which is what a monorepo linking a package into place relies on. Only a link that *leaves* the
+project changes, and it lands where an import to the same place lands — refused when nothing
+declares the target, reported as `outside:<alias>/<tail>` when an `outside` root does
+(ADR-031). A project whose source tree is reached through a symlink out of the project will see
+those files leave the graph until it declares the target.
+
+**Security Scan Note**: `containment.within` here is realpath-based on purpose and is **not**
+interchangeable with the lexical `containment.rel_within` used elsewhere in this module. The
+lexical one does not resolve symlinks, so it answers "inside" for exactly the file this rule
+exists to exclude — the two predicates are asking different questions and consolidating them
+re-opens SEC-023 whichever one wins.
+
+Why the other site is lexical is a separate argument and is worth not conflating with this one:
+the three graph artifacts share one key space, the project-relative POSIX path, and joining them
+is a plain set operation on that key (ADR-025). A key therefore has to fold the same way it was
+spelled — `a/../b` and `b` are one key — which is what `rel_within` is for. ADR-025 states the
+shared key space; it does not state a symlink rule, and this spec should not be read as saying
+it does.
+
 ## Certainty
 
 82. Inferred from code and tests rather than authored, so not 100. High within that band
@@ -211,4 +253,5 @@ inferences about intent, not statements the code makes about itself.
 
 | Date | Change | Reason |
 |------|--------|--------|
+| 2026-08-24 | Added "Discovery asks where a candidate really is, on every route into the graph" | SEC-023. A committed symlink out of the project was opened, parsed and published as a project node; the containment rule now guards `_scan_files`, the workspace glob and `update` |
 | 2026-08-21 | Initial spec, inferred from code and tests | Brownfield scan of the code-graph build/update surface |

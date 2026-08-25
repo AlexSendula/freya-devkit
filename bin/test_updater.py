@@ -6,6 +6,7 @@ import io
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 import unittest.mock
@@ -132,6 +133,189 @@ class PreconditionsTest(unittest.TestCase):
             _, _, store = make_origin(Path(tmp).resolve())
             with unittest.mock.patch("shutil.which", return_value=None):
                 self.assertIn("git is not on PATH", updater.preconditions(store)[0])
+
+    def test_a_refused_git_says_which_refusal_rather_than_missing(self):
+        """The precondition has to agree with what `git()` will actually do.
+
+        Reporting "not on PATH" for a git that is on PATH and refused sends the
+        operator off to install one they already have.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            _, _, store = make_origin(Path(tmp).resolve())
+            with unittest.mock.patch("shutil.which", return_value=".\\git.exe"):
+                reason = updater.preconditions(store)[0]
+        self.assertIn("not an absolute path", reason)
+        self.assertIn("refreshes the store with git", reason)
+
+
+class SpawnTest(unittest.TestCase):
+    """`git()` names its program by path, never by name.
+
+    This function is reached by the throttled staleness check on nearly every
+    `freya` command, so it runs from wherever the operator happens to be
+    standing — and on Windows `CreateProcess` searches the *parent* process's
+    working directory before PATH, whatever `cwd=` says. `cwd=store` is
+    therefore no protection at all on the platform the attack targets: a
+    `git.exe` committed to a repository would run on every `freya` invocation
+    from inside it.
+    """
+
+    @unittest.skipUnless(HAS_GIT, "git is not installed")
+    def test_git_is_spawned_by_an_absolute_path(self):
+        captured = {}
+
+        def fake(argv, *a, **kw):
+            captured["argv"] = list(argv)
+            return unittest.mock.Mock(returncode=0, stdout="", stderr="")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with unittest.mock.patch.object(updater.subprocess, "run", fake):
+                updater.git(["rev-parse", "--show-toplevel"], tmp)
+        argv0 = captured["argv"][0]
+        # `os.path.isabs` is the right predicate *here* and only here: this is a
+        # real git found on the host the test is running on, so the host's own
+        # rules are the ones that decide. The version-and-platform-stable
+        # `containment.is_anchored` is what the production code uses, because it
+        # judges strings that came from somewhere else.
+        self.assertTrue(os.path.isabs(argv0), argv0)
+        # The basename as well, so the test cannot pass on some other program
+        # that merely happened to resolve.
+        self.assertIn(os.path.basename(argv0).lower(), ("git", "git.exe"))
+        self.assertEqual(captured["argv"][1:], ["rev-parse", "--show-toplevel"])
+
+    def test_an_unresolvable_git_is_a_non_zero_code_not_a_crash(self):
+        """The documented "never raises" contract survives a refusal.
+
+        Both spellings come back identical, which is the point: to every caller
+        a refused git is indistinguishable from a missing one, and `(1, "")` is
+        already what they all branch on.
+        """
+        for found in (None, ".\\git.exe"):
+            with self.subTest(found=found):
+                with unittest.mock.patch("shutil.which", return_value=found), \
+                        unittest.mock.patch.object(updater.subprocess, "run") as run:
+                    self.assertEqual(updater.git(["status"], "."), (1, ""))
+                run.assert_not_called()
+
+
+class MissingResolverTest(unittest.TestCase):
+    """A store whose skill tree is gone must still be diagnosable.
+
+    `bin/freya_cli.py` imports this module inside `doctor_checks` (`:359`) and
+    inside the `update` branch (`:592`), and neither import is guarded — only
+    `notify`'s is (`:560`). So an unguarded `import exec_path` at this module's
+    top level turns a missing `skills/freya-code-graph/scripts/exec_path.py`
+    into a `ModuleNotFoundError` raised out of `freya doctor` and
+    `freya update`: a traceback from the two commands that exist to diagnose
+    and repair exactly that state, which is the case ADR-030 keeps the two
+    `bin/` bootstrap copies for.
+
+    The resolver is set to None rather than deleted from `sys.modules`, because
+    the state under test is the one the module lands in after its own
+    `except Exception` — not the import machinery's behaviour.
+    """
+
+    @contextlib.contextmanager
+    def no_resolver(self):
+        with unittest.mock.patch.object(updater, "exec_path", None):
+            yield
+
+    def test_git_refuses_rather_than_raising_when_the_resolver_is_absent(self):
+        with self.no_resolver():
+            with unittest.mock.patch.object(updater.subprocess, "run") as run:
+                self.assertEqual(updater.git(["status"], "."), (1, ""))
+        run.assert_not_called()
+
+    def test_the_absent_resolver_is_never_a_fallback_to_a_bare_name(self):
+        """The failure mode this whole wave exists to prevent, at the one place
+        it would be most tempting to reintroduce: a damaged tree is exactly when
+        "just search PATH" looks like graceful degradation. `shutil.which` is
+        made to succeed with a plausible absolute git, so the only thing that
+        can stop a spawn is the refusal itself."""
+        with self.no_resolver():
+            with unittest.mock.patch("shutil.which", return_value="/usr/bin/git"), \
+                    unittest.mock.patch.object(updater.subprocess, "run") as run:
+                self.assertEqual(updater.git(["status"], "."), (1, ""))
+        run.assert_not_called()
+
+    def test_preconditions_names_the_missing_file_not_a_missing_git(self):
+        """"git is not on PATH" would send the operator to install a git they
+        already have. The reason has to name the file that is actually absent,
+        and it is reported ahead of every other precondition because it is the
+        only one whose measurement would itself need a working `git()`."""
+        with self.no_resolver():
+            reasons = updater.preconditions("/nonexistent-store")
+        self.assertEqual(len(reasons), 1)
+        self.assertIn("exec_path.py", reasons[0])
+        self.assertNotIn("is not on PATH", reasons[0])
+
+    def _damaged_store(self, tmp, scripts_content=None):
+        """A real store on disk whose `freya-code-graph/scripts` is damaged.
+
+        `scripts_content` maps a filename to its text; anything not named is
+        simply absent. Returns the `bin/` directory to import from.
+        """
+        store = Path(tmp) / "store"
+        (store / "bin").mkdir(parents=True)
+        scripts = store / "skills" / "freya-code-graph" / "scripts"
+        scripts.mkdir(parents=True)
+        for name in ("updater.py", "installer.py"):
+            shutil.copy(Path(updater.__file__).parent / name, store / "bin" / name)
+        for name, text in (scripts_content or {}).items():
+            (scripts / name).write_text(text, encoding="utf-8")
+        return store / "bin"
+
+    def test_a_damaged_resolver_does_not_raise_however_it_is_damaged(self):
+        """The regression itself, exercised the way the operator meets it: a
+        real store on disk, re-imported from scratch in a subprocess so the
+        assertion is about import and not about this process's warm
+        `sys.modules`.
+
+        Three shapes, because the guard has to be wider than the tidiest one.
+        *Absent* is what a hand-broken clone looks like; *corrupt* is what an
+        interrupted checkout, a partial download or a bad merge looks like, and
+        it raises `SyntaxError`, which is not an `ImportError` and which
+        `bin/freya_cli.py:618` does not catch either — so under the narrow guard
+        it escaped as a traceback from `doctor` and `update`, the exact outcome
+        the guard exists to prevent. *Dependency missing* is the shape where
+        `exec_path.py` itself is intact and `containment.py`, which it imports,
+        is not.
+        """
+        real = Path(updater.__file__).resolve().parents[1] / "skills" \
+            / "freya-code-graph" / "scripts"
+        shapes = {
+            "absent": None,
+            "corrupt": {"exec_path.py": "def resolve(name, project_dir=None:\n"},
+            "dependency missing": {
+                "exec_path.py": (real / "exec_path.py").read_text(encoding="utf-8")},
+        }
+        for shape, content in shapes.items():
+            with self.subTest(shape=shape):
+                with tempfile.TemporaryDirectory() as tmp:
+                    where = self._damaged_store(tmp, content)
+                    proc = subprocess.run(
+                        [sys.executable, "-c", "import updater; print(updater.exec_path)"],
+                        cwd=str(where), capture_output=True, text=True)
+                self.assertEqual(proc.returncode, 0, proc.stderr)
+                self.assertEqual(proc.stdout.strip(), "None")
+
+    def test_a_healthy_store_still_gets_a_real_resolver(self):
+        """The other half of the guard, and the reason `except Exception` is not
+        simply a way to make the test above pass: a guard wide enough to swallow
+        a real resolver's own bug would report every store as damaged, and every
+        assertion in this class would still be green."""
+        real = Path(updater.__file__).resolve().parents[1] / "skills" \
+            / "freya-code-graph" / "scripts"
+        content = {name: (real / name).read_text(encoding="utf-8")
+                   for name in ("exec_path.py", "containment.py")}
+        with tempfile.TemporaryDirectory() as tmp:
+            where = self._damaged_store(tmp, content)
+            proc = subprocess.run(
+                [sys.executable, "-c",
+                 "import updater; print(updater.exec_path.__name__)"],
+                cwd=str(where), capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertEqual(proc.stdout.strip(), "exec_path")
 
 
 @unittest.skipUnless(HAS_GIT, "git is not installed")

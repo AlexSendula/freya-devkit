@@ -5,7 +5,7 @@ Phase 2 of the portability track removed ${CLAUDE_PLUGIN_ROOT} invocations,
 /freya-devkit: slash references, /loop slash-command mentions, and "plan mode"
 prose from skills/**/*.md (and, for the substring checks, skills/**/*.py).
 This checker is what keeps them out: it is a regression gate, not a one-off
-migration script.
+migration script. R14 rides along: same shape, but a secrets rule, not portability.
 """
 
 from __future__ import annotations
@@ -47,6 +47,9 @@ RULES = {
            "letters, digits and single hyphens only",
     "R13": "Claude-only location — `~/.claude`, `.claude/`, `.claude-plugin` and "
            "CLAUDE_* env vars do not exist under another agent",
+    "R14": "a skill that sends a worker at secret-bearing material must state the "
+           "redaction rule — \"never write a real secret value\" *and* the placeholder to "
+           "write instead ([REDACTED], <redacted ...>) — and restate it in a copied-source slot",
 }
 
 #: Length limits from the Agent Skills specification. These are not advisory:
@@ -186,6 +189,74 @@ SEQUENTIAL_FALLBACK = ("one at a time", "one by one", "sequentially", "in sequen
 #: hyphens. R8 only ever compared the name to its directory, so a directory and
 #: a name that agreed on `Freya_Demo--X` passed both.
 NAME_GRAMMAR = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+
+#: Material a worker can only have got by reading somebody's real secrets.
+#:
+#: Two skills send a worker at it and then have that worker write a git-tracked
+#: document about what it saw. The security scan's report template took an
+#: unconstrained `{code snippet}`, and for a Secrets-category finding the
+#: vulnerable code *is* the credential. The docs-manager ENVIRONMENT worker was
+#: asked for a "complete environment variable reference" built from
+#: `.env.example`, configuration files and the project's secrets-management
+#: approach, and nothing in the file forbade transcribing a value. `freya-wrap-up`
+#: commits both outputs, so a key that lived only in a gitignored file becomes a
+#: blob that outlives rotating the key.
+#:
+#: Deliberately not a secret *detector*: it matches the prose that describes
+#: reading secrets, not the secrets. `\btokens?\b` and `\bpasswords?\b` are
+#: excluded for the usual reason — "7× the tokens of a sequential pass",
+#: "token validation", "No Password Fallback" are all ordinary sentences in
+#: three other skills, and a rule that fires on them is a rule someone turns off.
+SECRET_MATERIAL = re.compile(
+    r"\.env\b"
+    r"|\bhardcoded\s+(?:secret|credential|api[- ]?key|password|token)"
+    r"|\bexposed\s+secrets?\b"
+    r"|\bapi[- ]keys?\b|\bprivate\s+keys?\b"
+    r"|\bsecrets?\s*(?:&|and)\s*sensitive\s+data\b"
+    r"|\bsecrets?\s+(?:management|scanning|detection)\b"
+    r"|\b(?:secret|credential|password|token)\s+values?\b",
+    re.IGNORECASE,
+)
+
+#: The prohibition itself, stated where the writer will read it. A prose rule
+#: cannot import a redaction helper; what binds the writer is the rule being in
+#: the file the writer is handed, so this is what the gate can check.
+REDACTION_SENTINEL = "never write a real secret value"
+
+#: ...and what to write instead. Same lesson as SEQUENTIAL_FALLBACK above: a bare
+#: "don't include secrets" says what not to do and leaves the writer to invent
+#: the alternative, and an evidence block left empty loses the finding it was
+#: evidence for. A delimiter is required so ordinary prose ("the value is
+#: redacted") does not satisfy the rule — what has to appear is the token the
+#: writer types. Three of them, because the two writers legitimately differ: the
+#: docs template shows `[REDACTED]`, the security report a fingerprint
+#: `<redacted len=44 prefix='sk-p' sha256=9f2c1ab4>`.
+REDACTION_PLACEHOLDER = re.compile(r"[\[<{]redacted", re.IGNORECASE)
+
+#: A template slot the writer fills by copying source out of the scanned project.
+#:
+#: This is the half of R14 that can tell a rule from an echo. Stating the rule
+#: *somewhere* is satisfiable by a paragraph three sections away from the place
+#: the writer is actually typing, and SEC-009 was exactly that shape: the report
+#: template's evidence block took a bare `{code snippet}`, and for a Secrets
+#: finding the vulnerable code *is* the credential. So the reminder has to be in
+#: the slot, not merely in the file.
+#:
+#: Narrow on purpose, and measured. Over the ten shipped `SKILL.md` files at
+#: `f61cfbd`: 33 lines are a `{...}` slot standing on a line of its own, and
+#: exactly one of them names copied source — the security scan's evidence block,
+#: which is the finding itself. The other 32 take no verbatim source: they
+#: prompt for a description or a command, mark a template branch, or are JSON in
+#: a fenced example. A rule that cries wolf gets switched off.
+#:
+#: `.*` rather than `[^{}]*` inside the braces, so the fixed line still matches:
+#: the remediation spells the fingerprint out as `<redacted len={n} ...>`, which
+#: nests braces one deep, and a slot that stops being checked the moment somebody
+#: fixes it is a gate that only ever guards the past.
+COPIED_SLOT = re.compile(
+    r"^\s*\{.*\b(?:code|snippet|secret|credential|literal)\b.*\}\s*$",
+    re.IGNORECASE,
+)
 
 
 def code_spans(lines):
@@ -359,6 +430,52 @@ def check_file(path, rel, allowed, markdown=True):
                 if FANOUT.search(line):
                     violations.append((rel, lineno, "R9", line.strip()))
                     break  # one violation per file: the clause fixes them all at once
+
+    # SKILL.md only, and not because reference files are safe. SKILL.md is the
+    # one file the Agent Skills spec guarantees a host loads, so it is the only
+    # place a stated rule is certain to reach the writer. Widen this to every
+    # markdown file under skills/ and `references/templates.md` alone trips the
+    # rule on 18 lines (15 of them a `.env` mention, 17 mentions in all) —
+    # scaffolding inside a fenced template, instructing nobody. The keyword on
+    # its own means nothing anywhere: measured at `f61cfbd` over
+    # `skills/**/*.py`, all three hits are names rather than instructions — a
+    # `.env` entry in an extension list (project_shape.py:145) and a
+    # `.env.local` graph fixture with the comment explaining it
+    # (test_graph_ops.py:2090, :2095) — and all three are already out of scope
+    # at the markdown-only return above. A rule that cries wolf gets switched
+    # off, which is worse than no rule.
+    if path.name == "SKILL.md":
+        reads_secrets = [
+            lineno for lineno, line in enumerate(lines, 1) if SECRET_MATERIAL.search(line)
+        ]
+        stated = (
+            REDACTION_SENTINEL in text.lower()
+            and REDACTION_PLACEHOLDER.search(text) is not None
+        )
+        if reads_secrets and not stated:
+            first = reads_secrets[0]
+            # one violation per file: one clause covers every mention
+            violations.append((rel, first, "R14", lines[first - 1].strip()))
+
+        # ...and the rule has to be where the writing happens. `stated` is a
+        # presence check over the whole file, so on its own it cannot tell a rule
+        # from an echo of one: the security scan's SKILL.md states it twice, and
+        # before this clause existed, reverting the evidence block to a bare
+        # `{code snippet}` and deleting the whole `### Redaction` section each
+        # left the gate at exit 0. This clause closes the first — measured
+        # 2026-08-23 on a tree copy, that revert now reports `SKILL.md:871: R14`.
+        # **The second still passes**, because the sentinel inside the slot keeps
+        # `stated` true; counting surfaces is not something a presence gate can
+        # do. Not conditioned on `stated` — prose elsewhere is the SEC-009 excuse.
+        if reads_secrets:
+            for lineno, line in enumerate(lines, 1):
+                if not COPIED_SLOT.match(line):
+                    continue
+                if REDACTION_PLACEHOLDER.search(line):
+                    continue
+                if REDACTION_SENTINEL in line.lower():
+                    continue
+                violations.append((rel, lineno, "R14", line.strip()))
 
     return violations
 

@@ -5,6 +5,14 @@ Both rules exist because the defect they name is invisible where it is
 committed: an `import yaml` works on the machine that has yaml, and a bare
 `subprocess.run(["git", ...])` works everywhere except a Windows box whose
 working directory is a repository someone else wrote.
+
+**`check_invariants.is_absolute` is deliberately not tested here.** It is one of
+the two bootstrap copies ADR-030 permits, and the only thing worth asserting
+about it is that it still agrees with the canonical
+`skills/freya-code-graph/scripts/containment.py:is_anchored`. That is a parity
+claim about two modules, so it lives with the other one:
+`bin/test_freya_cli.py:ContainmentParityTest`. Running only this file after
+editing `is_absolute` will report green — run that class too.
 """
 
 import ast
@@ -226,12 +234,18 @@ class ImportRuleTest(unittest.TestCase):
         self.assertIn("INV1", rules_hit(root))
 
     def test_a_third_party_import_guarded_by_except_importerror_is_still_flagged(self):
-        """Decided exclusion, measured before it was decided: on 2026-08-21 the
-        tree contained no optional-dependency import at all — the one
-        `except ImportError` in the suite (`bin/freya_cli.py:184`) guards
-        `import installer`, a module of this checkout. Exempting a shape nothing
-        uses would only build the hole a future `try: import yaml` walks
-        through; a real optional dependency here is an ADR."""
+        """Decided exclusion, and the measurement it rested on has since moved
+        without moving the decision. On 2026-08-21 the tree held exactly one
+        guarded import; on 2026-08-23 it holds four, and all four still guard a
+        module of *this checkout* rather than an optional dependency —
+        `bin/freya_cli.py:195`, `bin/updater.py:77`,
+        `skills/freya-codebase-security-scan/scripts/audit_adapter.py:55` and
+        `skills/freya-behavior-runner/scripts/run_behaviors.py:271`.
+
+        Which is the argument: the shape is not evidence of anything, so a
+        carve-out keyed on it would exempt a future `try: import yaml` on the
+        strength of a syntax four first-party bootstrap guards already use. A
+        real optional dependency here is an ADR."""
         root = self._root("try:\n    import yaml\nexcept ImportError:\n    yaml = None\n")
         self.assertIn("INV1", rules_hit(root))
 
@@ -472,16 +486,28 @@ class ShippedTreeTest(unittest.TestCase):
                            for rel, line, _, excerpt in violations)
         self.assertEqual(violations, [], "unaccounted argv[0] sites:\n" + detail)
 
-    def test_every_bare_binary_site_in_the_shipped_tree_names_git_or_graphify(self):
-        """The census the allowlist records, asserted on composition rather than
-        on a total so it survives the files moving underneath it. Measured
-        2026-08-21: eleven sites, ten `git` and one `graphify` (SEC-002). A
-        twelfth naming anything else — `claude`, `npm`, `node` — is a new class
-        of exposure and should not slip in under a count."""
+    def test_every_bare_binary_site_in_the_shipped_tree_names_git(self):
+        """The census the allowlist records, re-measured after the G2 fix:
+        2026-08-23, eight sites, all `git`, in seven files, none of them a filed
+        finding. SEC-002's `graphify` and the two bare `git` sites that shared
+        its files now go through `exec_path.resolve`, so `graphify` has left the
+        census entirely.
+
+        `assertEqual`, not `assertGreaterEqual`. The `>=` was written so the
+        number would survive files moving, and it cannot survive a fix in the
+        right direction — it would have called a census of eight green while the
+        allowlist still claimed eleven. Both directions have to bite, which is
+        the same property `apply_allowlist` gives per file.
+
+        A ninth site, or one naming anything else — `claude`, `npm`, `node` — is
+        a new class of exposure and should not slip in under a count."""
         sites = ci.scan(self.ROOT, rules={"INV2"}, allow={})
         names = sorted({item[3].split("argv[0]=")[1].split(" ")[0] for item in sites})
-        self.assertEqual(names, ["'git'", "'graphify'"])
-        self.assertGreaterEqual(len(sites), 10)
+        detail = "\n".join("%s:%d: %s" % (rel, line, excerpt)
+                           for rel, line, _, excerpt in sites)
+        self.assertEqual(names, ["'git'"], detail)
+        self.assertEqual(len(sites), 8, detail)
+        self.assertEqual(len({rel for rel, _, _, _ in sites}), 7, detail)
 
     def test_the_shipped_tree_actually_has_modules_to_scan(self):
         """A guard against the whole suite above passing on an empty file list:
@@ -530,12 +556,15 @@ class MainTest(unittest.TestCase):
         self.assertEqual(code, 0, out)
 
     def test_no_allowlist_reports_the_debt_the_default_run_hides(self):
-        """The census mode. The same tree the line above calls clean has eleven
+        """The census mode. The same tree the line above calls clean has eight
         real bare-name sites in it, and the allowlist is a marker for them, not
-        an argument that they are fine."""
+        an argument that they are fine.
+
+        Exact, for the reason `ShippedTreeTest` gives: paying the debt down has
+        to move this number, or the marker rots into a licence."""
         code, out, _ = run_main(["--no-allowlist", "--rule", "INV2"])
         self.assertEqual(code, 1)
-        self.assertGreaterEqual(out.count("INV2"), 10)
+        self.assertEqual(out.count("INV2"), 8, out)
 
 
 if __name__ == "__main__":

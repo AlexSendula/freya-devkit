@@ -4,6 +4,7 @@
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -11,6 +12,7 @@ from pathlib import Path
 from unittest import mock
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import drift  # noqa: E402  — `_GRAPH_OPS`, for the tests that run the real child CLI
 from drift import append_resolution, active_prior, build_drift_context, compute_impact, drift_gaps, RESOLUTIONS_RELPATH  # noqa: E402
 
 
@@ -132,6 +134,68 @@ class ComputeImpactCase(unittest.TestCase):
         self.assertEqual(impact, set())
 
 
+class ImpactArgvCase(unittest.TestCase):
+    """A name git reports is a filename, and the child CLI has to read it as one.
+
+    `git diff --name-only` will happily print `--build`. It is a legal filename on every
+    platform this runs on, and `git add -- --build` is all it takes to get one into a
+    repository. Those names went into the code-graph child's argv as bare positional
+    values, where argparse read them as flags — and `--build` sits in the same mutually
+    exclusive group as `--impact`, so the child exited rc=2, the `CalledProcessError` was
+    swallowed one frame up, and `compute_impact` returned `changed-only`. Every dependent
+    dropped out of the blast radius, and the run reported success. One filename turns the
+    declarative-drift gate into a check of the changed files and nothing else.
+
+    Two changes went in, and only one of them is load-bearing. Said plainly, because a
+    docstring that credits both would leave the next reader unable to tell which:
+
+      - each path is spelled `./<path>`. argparse cannot mistake that for a flag, and
+        `normalize_key` (posixpath.normpath) strips it again on the way in, so the graph is
+        keyed exactly as before. This is the fix. Drop it, with or without the reorder, and
+        the second test below goes red.
+      - `--impact` moved last, so its `nargs='+'` has no `--dir` or `--format` behind it
+        left to swallow. Defence in depth, and labelled as such: with the `./` in place no
+        input reaches the greedy case, so reverting this alone leaves both tests green. The
+        security report claims both halves are required; measured, they are not.
+
+    Neither is asserted through argv shape. An `assertLess(argv.index(...), ...)` passes
+    with either half missing, which is exactly how this defect survived review the first
+    time.
+
+    These run the real child process against a real graph on purpose. Mocking
+    `subprocess.run` here would assert the argv this file already believes in, which is the
+    thing in question.
+    """
+
+    def _project(self):
+        """Two Python files, b importing a, with a real graph built on disk."""
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, ignore_errors=True)
+        _write(Path(d) / "a.py", "A = 1\n")
+        _write(Path(d) / "b.py", "from a import A\nB = A\n")
+        built = subprocess.run(
+            [sys.executable, drift._GRAPH_OPS, "--build", "--dir", d,
+             "--format", "json", "--non-interactive"], capture_output=True, text=True)
+        self.assertEqual(built.returncode, 0, built.stderr)
+        return d
+
+    def test_an_ordinary_change_still_gets_its_dependents(self):
+        """The `./` prefix must not cost anything: `normalize_key` strips it, so the keys
+        the child answers with are the keys the graph holds."""
+        proj = self._project()
+        with mock.patch("drift.changed_files", return_value=["a.py"]):
+            impact, source = compute_impact(proj, "BASE")
+        self.assertEqual(source, "code-graph")
+        self.assertEqual(impact, {"a.py", "b.py"})
+
+    def test_a_leading_dash_filename_does_not_collapse_the_blast_radius(self):
+        proj = self._project()
+        with mock.patch("drift.changed_files", return_value=["a.py", "--build"]):
+            impact, source = compute_impact(proj, "BASE")
+        self.assertEqual(source, "code-graph")
+        self.assertIn("b.py", impact)
+
+
 class ContextCase(unittest.TestCase):
     def _root(self):
         d = tempfile.mkdtemp()
@@ -147,6 +211,31 @@ class ContextCase(unittest.TestCase):
         self.assertEqual(ids, ["SPEC-001"])
         self.assertEqual(ctx["targets"][0]["hit_paths"], ["lib/webauthn.ts"])
         self.assertEqual(ctx["targets"][0]["decisions"], ["userVerification preferred"])
+
+    def test_a_declared_path_spelled_differently_from_gits_still_hits(self):
+        """`impact` holds git's spelling; `related_code` holds whatever the author typed.
+
+        Compared verbatim, an ordinary `./lib/webauthn.ts` never matched
+        `lib/webauthn.ts`, so the spec dropped out of the P4b drift checkpoint's
+        target set — silently, from a resolve-to-proceed gate. That is a
+        confidently short answer, which is worse than a wrong one because
+        nothing about the output says it is short.
+
+        The same defect as the G1 locator comparison, one file over. That one
+        was found and this one was not, because the sibling survey asked who
+        resolves a LOCATOR rather than who compares a DECLARED PATH to git — so
+        the ADR row below is here to make the pair testable together.
+        """
+        for declared in ("./lib/webauthn.ts", "lib//webauthn.ts", "lib/x/../webauthn.ts"):
+            with self.subTest(declared=declared):
+                root = self._root()
+                _write(root / "knowledge-base/specs/auth/SPEC-001.md",
+                       _spec("SPEC-001", "auth", ["userVerification preferred"], [declared]))
+                _adr(root, "ADR-001", [declared])
+                ctx = build_drift_context(str(root), "BASE",
+                                          impact={"lib/webauthn.ts"}, source="test")
+                self.assertEqual(sorted(t["item"] for t in ctx["targets"]),
+                                 ["ADR-001", "SPEC-001"])
 
     def test_no_target_when_no_intersection(self):
         root = self._root()

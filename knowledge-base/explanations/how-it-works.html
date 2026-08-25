@@ -161,11 +161,21 @@
 
         <p>The load-bearing detail sits one level down, in <code>graph_ops.py</code>'s
         <code>_classify_import</code> and its <code>IMPORT_SIGNALS</code> constant. Every import edge is
-        tagged exactly one of three ways: <strong>internal</strong> (no prefix — it resolved to a real
+        tagged exactly one of four ways: <strong>internal</strong> (no prefix — it resolved to a real
         file in your project), <strong><code>external:&lt;pkg&gt;</code></strong> (a third-party
-        package, recorded as a leaf and never traversed), or
+        package, recorded as a leaf and never traversed),
         <strong><code>unresolved:&lt;import&gt;</code></strong> (it looked internal but could not be
-        mapped to a real file). An edge counts as internal <em>only when it carries neither prefix</em>
+        mapped to a real file), or — new since 0.3.0 —
+        <strong><code>outside:&lt;alias&gt;/&lt;path&gt;</code></strong> (it resolved to a real file
+        under a directory the project <em>declared</em> outside its own root; see
+        <a href="decisions.html">ADR-031</a>). That fourth one is the interesting case, because it
+        <em>did</em> resolve and is still not a node: a declaration buys resolution, never a place in
+        the graph's key space — nothing under a declared root is scanned, walked or globbed, and the
+        declaration causes no file under one to be read. Only the built-in <code>homegrown</code> resolver
+        emits that tag: <code>graphify</code> does not consult declarations, so on that backend a
+        declared root reports <code>crossings: 0</code> whether or not anything crossed it, and the
+        zero means "never looked" rather than "nothing there".
+        An edge counts as internal <em>only when it carries none of the three prefixes</em>
         — a single predicate, reused well beyond the graph. <code>spec-manager</code>'s onboarding
         detector uses it to tell a real codebase from a boilerplate scaffold by counting internal edges
         rather than files. And an import that cannot be resolved is <strong>surfaced, not silently
@@ -1218,30 +1228,66 @@ freya behavior-graph --check --base "$BASE" --project .</code></pre>
       <section>
         <h2 id="when-a-behavior-meets-a-security-finding">When a behavior meets a security finding</h2>
         <p>This is the cross-skill payoff that justifies the apparatus. Once a behavior is
-        <code>accepted</code>, its passing test is the <strong>strongest possible "this is
-        intentional" evidence a security scan can cite</strong> — a verified guarantee rather than a
-        prose claim.</p>
+        <code>accepted</code>, it is the <strong>strongest "this is intentional" evidence a security
+        scan can cite</strong> — stronger than a spec, because somebody has said not just that the
+        behaviour is on purpose but that a named test pins it.</p>
 
         <p>Concretely: a scan flags "this endpoint doesn't verify the user exists" as SEC-001.
-        <code>BEH-003</code>'s passing test proves the uniform response <em>is</em> the intended
-        anti-enumeration guarantee, so the finding is downgraded to <code>intentional</code> with
-        <code>behavior_ref: BEH-003</code> — <strong>annotated, never deleted</strong>, and dropped from
+        <code>BEH-003</code> is accepted, its locator names a test file that exists, and an
+        observed run of that test exercised the flagged file — so the finding is downgraded to
+        <code>intentional</code> with <code>behavior_ref: BEH-003</code> —
+        <strong>annotated, never deleted</strong>, and dropped from
         the outstanding count while staying fully visible in the report. SEC-002, which no accepted
         behavior covers, stays open. And a merely <code>confirmed</code> behavior at most adds an
-        advisory note; the finding stays open until a test actually verifies it.</p>
+        advisory note; the finding stays open.</p>
+
+        <div class="callout callout--warn">
+          <span class="callout-label">Read this before you trust a <code>behavior_ref</code></span>
+          <p><strong>Whether a test was actually run depends on one flag.</strong> Plain
+          <code>--covering</code> runs nothing. It re-derives the behavior's state and locator from
+          <code>knowledge-base/specs/</code> and reads its exercised paths from the committed
+          <code>knowledge-base/.graph/behavior.json</code>, and a row only comes back when the state
+          is <code>accepted</code>, a locator resolves to a file inside the project, and the
+          exercised path carries <code>source: observed</code> — a real run with coverage. An edge
+          marked <code>static</code>, inferred from the import graph with no test involved at all,
+          licenses nothing; before 2026-08-24 it licensed a downgrade exactly as a passing test did,
+          and that was the widest hole in this mechanism. The symbols the run touched come back with
+          the row, so the judgement is not made on a file anchor alone.</p>
+          <p><code>--covering --verify</code> <strong>re-runs the linked test</strong> through
+          <code>freya-behavior-runner</code>, in one batched invocation, and a row that fails
+          verification is evidence <em>against</em> the behavior. It is off by default because other
+          callers use this query in a loop, and on for the security scan — the one caller whose
+          answer can stop a finding counting.</p>
+          <p><strong>This page argued the opposite until 2026-08-24, and the way it was wrong is
+          worth keeping.</strong> It said the gap could not be closed, because the only evidence not
+          supplied by the repository under audit would be running that repository's test suite —
+          "a security tool executing hostile code". That is an argument against a capability this
+          toolkit ships as a feature: freya is a tool a developer points at a repository they are
+          working in, having already installed its dependencies and run its suite, and
+          <code>freya-behavior-runner</code> exists to run those tests. Without <code>--verify</code>
+          the answer is still a label rather than a verification — <code>observed</code> means a test
+          passed once, on somebody's machine, at the commit <code>freshness</code> names — and the
+          <code>evidence</code> string the query returns says exactly that, which the scan copies
+          into the report verbatim.</p>
+        </div>
 
         <div class="callout callout--why">
           <span class="callout-label">The distinction that carries the weight</span>
           <p>A finding marked intentional can be backed by either of two references, and they are not
           equivalent. <code>spec_ref</code> is a <strong>prose claim</strong> — somebody wrote down that
-          this is on purpose. <code>behavior_ref</code> is a <strong>test-backed guarantee</strong> —
-          something runs, and it passed. Where both explain a finding, the behavior reference wins.</p>
+          this is on purpose. <code>behavior_ref</code> is <strong>a claim with a named test, a
+          resolving locator and an observed run behind it</strong> — narrower, harder to write by
+          accident, and checked by
+          deterministic code rather than by an agent's judgement. Where both explain a finding, the
+          behavior reference wins. Neither is a verification unless <code>--verify</code> ran.</p>
         </div>
 
         <div class="callout callout--info prose-center">
           <span class="callout-label">In the markdown</span>
-          <p>Why only an accepted, test-backed behavior may downgrade a finding, and why a downgrade
-          annotates rather than deletes.</p>
+          <p>Why only an <code>accepted</code> behavior may downgrade a finding, why a downgrade
+          annotates rather than deletes, and — in the two dated corrections at the top of ADR-012,
+          the second of which retracts part of the first — what the record got wrong about the word
+          "test-backed", and why the argument that it could never be made right was itself wrong.</p>
           <ul class="md-links">
             <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-012-accepted-behavior-downgrades-findings.md">knowledge-base/decisions/ADR-012-accepted-behavior-downgrades-findings.md</a></li>
             <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/reference/SKILL_REFERENCE.md">knowledge-base/reference/SKILL_REFERENCE.md</a></li>
@@ -1682,12 +1728,12 @@ freya behavior-graph --check --base "$BASE" --project .</code></pre>
           cmp: "behavior locators and <code>@SPEC</code>/<code>@BEH</code> tags vs the files and specs they point at",
           guards: "traceability of executable behaviors",
           kind: "deterministic", block: true,
-          note: "Cheap and certain: an unresolved locator, a missing reverse tag, an accepted-but-still-scaffold, a duplicate BEH-NNN, an orphan tag." },
+          note: "Cheap and certain: an unresolved locator, a missing reverse tag, an accepted-but-still-scaffold, a duplicate BEH-NNN, an orphan tag. It also refuses a locator or an <code>entry</code> that escapes the project root — an absolute path or a <code>..</code> in spec frontmatter used to make this gate stat and read files outside the project it was pointed at; that refusal shipped in 0.3.0, and what is new since is that the rule is now the shared <code>containment.escapes</code> instead of a hand-maintained copy, and that a locator with no path part at all (<code>#scenario-only</code>) or one naming a directory is refused here too." },
         { id: "G1 intent",
           cmp: "an edit to an accepted behavior's test vs an <code>INTENT-NNN</code> record naming it",
           guards: "changes to an accepted behavior's guarantee",
           kind: "deterministic", block: true,
-          note: "Plugs the edit-both-and-stay-green hole. The gate's own question is a fact, which is what earns it the right to block. Scoped temporally: the record must be new in the change-set." },
+          note: "Plugs the edit-both-and-stay-green hole. The gate's own question is a fact, which is what earns it the right to block. Scoped temporally: the record must be new in the change-set. <strong>Read <code>skipped</code> before you trust exit 0</strong>: the baseline is a hash the repository commits, and a marker that is absent, empty, malformed or unresolvable makes the gate fail open — always saying so, <code>skipped: true</code> with a note, never as a quiet pass. New since 0.3.0, <code>--advance</code> also refuses to move the baseline when the gate skipped because a marker was <em>unusable</em> — empty, malformed or unresolvable — which is what stops a hostile marker from erasing the edit it was supposed to report. <strong>The fourth skip, no marker at all, still advances</strong>, because writing the first marker is how a fresh repository stops being fresh (BEH-090) — so deleting the committed marker is still a way to baseline an unauthorized edit away, and that deletion is what review has to catch." },
         { id: "G2 principles",
           cmp: "the code diff vs <code>principles.md</code>",
           guards: "project-wide principles — the constitution",

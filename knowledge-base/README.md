@@ -37,7 +37,7 @@ that reads the Agent Skills standard. Every bundled script is invoked through on
 | [reference/TROUBLESHOOTING.md](reference/TROUBLESHOOTING.md) | Real failure modes, how to confirm each one, and the fix | `docs-manager` |
 | [philosophy.md](philosophy.md) | Why skills exist, core concepts, the mental model | hand-written |
 | [patterns.md](patterns.md) | Reusable patterns — coordinator + workers, the two-commit rule, incremental updates | hand-written |
-| [decisions/](decisions/) | **Architecture Decision Records.** What was decided, why, and what was rejected. Twenty-nine records covering the behavior layer, the graph substrate and its backends, governance and portability. | hand-written |
+| [decisions/](decisions/) | **Architecture Decision Records.** What was decided, why, and what was rejected. Thirty records covering the behavior layer, the graph substrate and its backends, governance and portability. | hand-written |
 | [roadmap.md](roadmap.md) | **The single live backlog.** Next initiative, deferred capabilities, verified open defects. Nothing outstanding lives anywhere else. | hand-written |
 | [migrations/](migrations/) | Runnable recipes for projects adopting a new version. **Run these**, don't just read them. | hand-written |
 | [explanations/](explanations/) | Source of the published explainer site. Uploaded verbatim as the GitHub Pages site root, so anything added here is published; the seven page filenames — `index`, `using`, `how-it-works`, `extending`, `reference`, `decisions`, `evolution` — are pinned URLs. | hand-written |
@@ -76,7 +76,7 @@ which.** freya-devkit runs against itself, so this tree is the same `knowledge-b
 the toolkit creates in any adopting project. Three paths are the toolkit's to write and
 nothing hand-authored may live at them: `README.md`, `reference/`, and `BACKLOG.md`. Only one
 of those is enforced in code — `freya status` opens `BACKLOG.md` with mode `w`
-(`collect_status.py:226`), so anything there is destroyed on the next run without warning. The
+(`collect_status.py:366`), so anything there is destroyed on the next run without warning. The
 other two are written by an agent following `docs-manager`'s SKILL.md, which means they are a
 convention an agent can be talked out of, not a guarantee. Everything else here the toolkit
 reads or ignores. Until 2026-08-21 this repo kept a hand-written `docs/`

@@ -26,6 +26,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import containment  # noqa: E402  — the one body of the path-containment rules (ADR-030)
 import settings  # noqa: E402  — knowledge-base/settings.json, the committed half
 import substrate  # noqa: E402  — the contract this module's CodeGraph implements
 
@@ -141,9 +142,10 @@ EXPORT_PATTERNS = {
 }
 
 
-# Import edges that name a *specifier*, not a file in this project. Their tail is
-# whatever the source file wrote, so it is reported verbatim and never re-keyed.
-IMPORT_SIGNALS = ('external:', 'unresolved:')
+# Import edges that name a *specifier*, not a file in this project, are `substrate`'s
+# vocabulary and are read from there. This module used to carry its own copy of the tuple,
+# which is how `normalize_import` and `is_internal` come to disagree about what a signal is —
+# and they would have, the moment `outside:` was added to one of them (ADR-031).
 
 # Bump whenever the directory rules below change meaning. Cached `rule`/`gitignore`
 # verdicts in classifications.json are discarded on a mismatch, so a rule fix reaches
@@ -339,8 +341,14 @@ def normalize_key(path: Any) -> str:
 
 
 def normalize_import(value: str) -> str:
-    """Normalize a resolved import edge; `external:`/`unresolved:` pass through."""
-    return value if value.startswith(IMPORT_SIGNALS) else normalize_key(value)
+    """Normalize a resolved import edge; a signal target passes through untouched.
+
+    `substrate.IMPORT_SIGNALS` and not a local copy: the tail of a signal is whatever the
+    source file wrote, or an alias the project chose, and re-keying either would be wrong —
+    but the *list* of what counts as a signal has to be the same one `substrate.is_internal`
+    reads, or this function normalises a target that function then treats as a node.
+    """
+    return value if value.startswith(substrate.IMPORT_SIGNALS) else normalize_key(value)
 
 
 def migrate_separators(graph: Dict[str, Any]) -> Dict[str, Any]:
@@ -401,6 +409,26 @@ class CodeGraph:
         self._dir_listing_cache: Dict[Path, Any] = {}
         # workspace package name -> directory; None until the manifests are read once
         self._workspace_cache: Optional[Dict[str, Path]] = None
+        # The declared out-of-tree roots (ADR-031); None until settings.json is read once.
+        # Empty is both the default and the common case, and an empty one answers every
+        # containment question without a single filesystem call.
+        self._outside_cache: Optional[settings.OutsideRoots] = None
+        # Discovery candidates whose realpath left the project (SEC-023), as
+        # {rel_path: crossing-token-or-None}. Populated by `_scan_files` and drained into
+        # the artifact by `_escaping_links_report`, because a silently shrinking file set
+        # produces a blast radius that is quietly too small — the failure ADR-029 exists
+        # against — and because stderr is dead skill-to-skill.
+        self._escaping_links: Dict[str, Optional[str]] = {}
+
+    def _record_escaping_link(self, rel_path: str, crossing: Optional[str]) -> None:
+        """Note a discovery candidate that resolved out of the project, once.
+
+        `crossing` is `outside:<alias>/<tail>` when a declared root covers the target and
+        None when nothing did. Both are recorded: the declared one is legitimate and is
+        reported as a crossing, the undeclared one is refused — and a reader needs to be able
+        to tell which happened without re-running the build.
+        """
+        self._escaping_links.setdefault(rel_path, crossing)
 
     # -------------------------------------------------------------------------
     # The substrate contract (see substrate.py). This class is freya's first
@@ -559,8 +587,8 @@ class CodeGraph:
                 # matched, `update()` found nothing to do and reported success. The graph then
                 # froze at the last full build while continuing to answer confidently.
                 # A no-op at the repository root, so it cannot regress the common case.
-                ['git', 'diff', f'{since_commit}..HEAD', '--name-only', '--no-renames',
-                 '--relative'],
+                ['git', 'diff', '--name-only', '--no-renames', '--relative',
+                 '--end-of-options', f'{since_commit}..HEAD'],
                 cwd=self.project_dir,
                 capture_output=True,
                 text=True,
@@ -672,6 +700,87 @@ class CodeGraph:
                 return True
         return False
 
+    def _outside_roots(self) -> settings.OutsideRoots:
+        """The out-of-tree roots this project declared, read once (ADR-031).
+
+        Cached on the instance for the reason `_alias_cache` is: `_contain` runs once per
+        candidate per import, and this reads a file. Read here rather than off the back of
+        `_declared_directories`, which is the other reader of this file, because that runs only
+        on the classification path — a `--update` or a `--query` resolves imports without going
+        near it, and a declaration that applied on `--build` and not on `--update` would be the
+        worst possible version of this feature.
+
+        The warnings are announced here as well as there. `_announce_once` makes the overlap
+        free, and a refused declaration that printed on one entry point and not the other is
+        the silence this whole section is written against.
+        """
+        if self._outside_cache is None:
+            conf = settings.load(str(self.project_dir))
+            for warning in conf.warnings:
+                _announce_once('code-graph: %s' % warning)
+            self._outside_cache = conf.outside
+        return self._outside_cache
+
+    def _contain(self, candidate: Path) -> Optional[str]:
+        """The graph key for `candidate`, or None when it is not this project's to resolve.
+
+        Two questions, asked in this order, and deliberately not the same question twice.
+        First: is it inside the project? That is **lexical** — `containment.rel_within`, which
+        normalises and does not resolve. Only if the answer is no is the second question asked:
+        is it under a root this project *declared* outside itself? That one is **resolved** on
+        both sides, because it is a security decision rather than a key derivation.
+
+        A method rather than a bare call at each site, and this is the change it was written
+        for: the out-of-tree branch lands in one place instead of being copied into
+        `_resolve_fs` and `_resolve_python_module`, where the two would eventually disagree
+        about what the project is.
+
+        What the caller gets back is a **key or a signal**, not a path. An out-of-tree file has
+        no project-relative spelling — that is the whole reason `../shared` corrupted the graph
+        when it was allowed as a directory key — so it comes back as `outside:<alias>/<rel>`,
+        which is a signal (`substrate.IMPORT_SIGNALS`) and never a node.
+
+        The caller's next question is `_is_real_file`, and it is still asked in that order.
+        State the guarantee that buys with its condition attached, because the unqualified
+        version is false: containment runs before any `is_file()` and before any `listdir`, so
+        nothing that is neither in the project nor declared is ever **opened or enumerated** —
+        but the candidate has already been realpathed by the time it arrives here, declared or
+        not. `_resolve_import_path` builds it with `(from_dir / import_path).resolve()`, which
+        `lstat`s every component of a `../..` specifier whether or not this project has ever
+        declared anything. That is pre-existing, it is the one `realpath` ADR-031's Rationale
+        prices, and it is why the test that pins this measures `_dir_listing_cache` — the
+        record of every `listdir` — rather than claiming no syscall leaves the root.
+
+        `containment.rel_within`, deliberately, and not either of its neighbours:
+
+          - not `escapes`, which judges a value **declared** in checked-in data. What
+            arrives here is a `Path` this resolver just built out of a tsconfig target, a
+            workspace root or a Python search base. The join has already happened, and the
+            escape this exists to catch is only visible once it has.
+          - not `within`, which realpaths both sides. The return value becomes a graph key,
+            and `graph.json`, `behavior.json` and `docs.json` are joined on that key by set
+            intersection (ADR-025), so resolving would re-key a legitimately symlinked
+            in-project file to its realpath — the file would not join wrongly, it would stop
+            joining at all and a blast radius would come back quietly short. The candidate
+            also need not exist yet; `_is_real_file` is the next question, not this one.
+
+        What it fixes: `relative_to` compares *parts*, so `/proj/../outside/secret.ts`
+        relative to `/proj` succeeded and handed back `../outside/secret.ts` — a path
+        `normalize_key` cannot collapse, recorded as an internal edge target (SEC-014).
+        Measured on a project whose tsconfig maps `@evil/*` to `../outside/*`: the edge was
+        `../outside/secret.ts` and is now `unresolved:@evil/secret`. `rel_within` normalises
+        before it compares, which is what makes the question answerable at all.
+
+        And `containment.within` for the second question, for the opposite reason: the answer
+        there decides whether a path outside the project is reached at all, so a symlink under
+        a declared root that points somewhere else must not be followed into. A symlink is an
+        implicit crossing and a declaration never re-authorises one (SEC-008).
+        """
+        rel = containment.rel_within(self.project_dir, candidate)
+        if rel is not None:
+            return normalize_key(rel)
+        return self._outside_roots().key_for(candidate)
+
     def _resolve_fs(self, resolved: Path) -> Optional[str]:
         """Resolve a base path to a real project-relative source file (suffixes/index)."""
         candidates = [
@@ -688,9 +797,8 @@ class CodeGraph:
             resolved / '__init__.py',
         ]
         for candidate in candidates:
-            try:
-                rel = candidate.relative_to(self.project_dir)
-            except ValueError:
+            key = self._contain(candidate)
+            if key is None:
                 continue
             # A file, and spelled the way it is spelled on disk. Two separate traps:
             # the bare path is the first candidate and a *directory* satisfies exists(),
@@ -698,7 +806,7 @@ class CodeGraph:
             # its index; and on a case-insensitive filesystem `./Utils` matches utils.ts,
             # producing an edge that names no node in the graph.
             if self._is_real_file(candidate):
-                return normalize_key(rel)
+                return key
         return None
 
     def _load_workspace_packages(self) -> Dict[str, Path]:
@@ -742,6 +850,31 @@ class CodeGraph:
                 # third-party import resolved as internal and came back `unresolved:react` —
                 # the graph asserting that a real dependency is a missing local file.
                 if any(part in _NEVER_A_WORKSPACE for part in directory.parts):
+                    continue
+                # SEC-023's third route, and the one `_scan_files` and `update` did not cover.
+                # `Path.glob` follows a directory symlink, so a match can be a package whose
+                # files live outside the project — and everything below opens its manifest and
+                # then hands `_resolve_fs` a root under it, where `_contain` is lexical by
+                # design (ADR-025) and mints `pkglink/ui/src/index.ts` for a file `_scan_files`
+                # has already refused. That is two predicates disagreeing about one file in one
+                # build, which is why `validate_graph` could only report the symptom ("names no
+                # file in the graph").
+                #
+                # Same rule and same record as its two siblings: `containment.within` decides;
+                # a declared target is a crossing rather than an intruder and is still not
+                # adopted, because a declaration grants resolution and never re-authorises the
+                # implicit crossing a symlink is (SEC-008); and the refusal goes into
+                # `substrate.escaping_links`, because stderr is dead skill-to-skill (ADR-029).
+                # Stated with its limit attached: `glob` has already listed that directory to
+                # produce this candidate, and what stops here is opening, parsing and keying.
+                # A glob match is lexically under the root by construction, so the `rel_within`
+                # guard decides only whether the refusal is *disclosed*, never whether it
+                # happens — the `continue` is not reached through it.
+                if not containment.within(self.project_dir, directory):
+                    rel = containment.rel_within(self.project_dir, directory)
+                    if rel is not None:
+                        self._record_escaping_link(normalize_key(rel),
+                                                   self._outside_roots().key_for(directory))
                     continue
                 manifest = directory / 'package.json'
                 if not manifest.is_file():
@@ -889,12 +1022,11 @@ class CodeGraph:
         for part in parts:
             target = target / part
         for candidate in (target.with_suffix('.py'), target / '__init__.py'):
-            try:
-                rel = candidate.relative_to(self.project_dir)
-            except ValueError:
-                continue  # escaped the project; not ours to resolve
+            key = self._contain(candidate)
+            if key is None:
+                continue  # neither in the project nor under a declared root; not ours
             if self._is_real_file(candidate):
-                return normalize_key(rel)
+                return key
         return None
 
     def _python_search_bases(self, from_dir: Path) -> List[Path]:
@@ -1919,8 +2051,35 @@ Respond with ONLY a JSON object, no markdown formatting:
                 # One decision, in one place. The ancestor walk used to be inlined here and
                 # again in `update()`, each consulting only `exclude` verdicts — so a
                 # `source` verdict was accepted, written to disk and never read by anything.
-                if not self._should_exclude(rel_path, gitignore_patterns, classified_dirs):
-                    filtered.append(f)
+                if self._should_exclude(rel_path, gitignore_patterns, classified_dirs):
+                    continue
+
+                # SEC-023. Discovery is where a symlink crossed the root, and ADR-031's
+                # "crossing is a declared act" was true of imports and false here: a symlink
+                # committed *inside* the project whose target is outside it was globbed,
+                # opened, parsed, and its declarations published as this node's `exports` —
+                # no declaration, nothing on stderr. It is SEC-008's defect on the other
+                # traversal; that one bounded docs-manager's YAML walk, and this walk never
+                # got the same rule.
+                #
+                # `containment.within`, not `os.path.islink`: the question is not "is this a
+                # link" but "does the file this names live inside the project". An in-project
+                # symlink is legitimate and common — a monorepo links a package into place —
+                # and blanket-refusing links would empty those graphs. `within` realpaths both
+                # sides and catches the ValueError `commonpath` raises across Windows drives.
+                #
+                # Read the polarity carefully: `within` returning False is the *permissive*
+                # branch for `exec_path.resolve` ("not the scanned repo's own binary, so run
+                # it") and the *refusing* branch here. Same predicate, opposite question.
+                if not containment.within(self.project_dir, f):
+                    # Declared, so it is a crossing rather than an intruder — and it lands on
+                    # the same side of the line as an import into a declared root: reported,
+                    # never a node. Otherwise the declaration would buy strictly more through
+                    # a symlink than through an import, which is incoherent.
+                    self._record_escaping_link(rel_path, self._outside_roots().key_for(f))
+                    continue
+
+                filtered.append(f)
             except ValueError:
                 continue
 
@@ -2083,9 +2242,9 @@ Respond with ONLY a JSON object, no markdown formatting:
             return self.build(non_interactive=non_interactive, exclusions=exclusions,
                               selection_metadata=selection_metadata)
 
-        last_commit = graph.get('commit')
-        if not last_commit:
-            print('No commit info in cached graph. Running full build...', file=sys.stderr)
+        last_commit = str(graph.get('commit') or '')
+        if not re.fullmatch(r'[0-9a-fA-F]{7,64}', last_commit):
+            print('No usable commit in cached graph. Running full build...', file=sys.stderr)
             return self.build(non_interactive=non_interactive, exclusions=exclusions,
                               selection_metadata=selection_metadata)
 
@@ -2117,6 +2276,31 @@ Respond with ONLY a JSON object, no markdown formatting:
             return self.build(non_interactive=non_interactive, exclusions=exclusions,
                               selection_metadata=selection_metadata)
 
+        declared_then = _declared_roots(_outside_block(graph))
+        declared_now = _declared_roots(self._outside_roots().to_dict())
+        if declared_then != declared_now:
+            # A declaration is not a per-file change, so per-file incrementality cannot see it.
+            # `_get_changed_files` names what git says moved, and every *other* file keeps the
+            # edges it was given under the old `outside` section — so the artifact ends up
+            # holding one import specifier classified two ways, and `_outside_report`, which
+            # reads the live settings file, stamps a `crossings` count over edges that were
+            # never re-resolved. Both directions were reachable and both lie: remove a
+            # declaration and the graph keeps `outside:` targets under no declaration at all,
+            # which is the shape ADR-031 defers to "a second backend starts emitting
+            # `outside:` tokens"; add one and the report says `crossings: 0` — a number
+            # `_outside_report` defines as "a typo or a leftover" — over a file that does
+            # cross. This is the same reason `RULES_VERSION` discards cached directory
+            # verdicts: a rule change is not a file change.
+            #
+            # The comparison is over the declarations, not over what they resolve to. A root
+            # whose target is replaced on disk between two runs keeps the same signature and
+            # does not force a rebuild — git cannot see outside the project, so nothing here
+            # could notice that, and the bound is stated rather than implied.
+            print('The declared out-of-tree roots changed since the cached graph. '
+                  'Running full build...', file=sys.stderr)
+            return self.build(non_interactive=non_interactive, exclusions=exclusions,
+                              selection_metadata=selection_metadata)
+
         changed_files = self._get_changed_files(last_commit)
         if changed_files is None:
             print('Cannot resolve %s against HEAD. Running full build...' % last_commit,
@@ -2145,7 +2329,21 @@ Respond with ONLY a JSON object, no markdown formatting:
 
         for file_path in map(normalize_key, changed_files):
             full_path = self.project_dir / file_path
-            if full_path.exists() and not out_of_scope(file_path):
+            # SEC-023 again, on the path the first fix did not reach. `_scan_files` refuses a
+            # candidate whose realpath leaves the project; this loop never calls `_scan_files`,
+            # so a committed symlink out of the tree was admitted here on `full_path.exists()`
+            # — which follows the link — and `_build_file_info` then read the outside file and
+            # published its exports as this node's. Worse than the hole it re-opened: `--build`
+            # printed a line and recorded `escaping_links`, this printed nothing; and the
+            # resulting key IS project-relative, so `validate_graph` passed it clean.
+            #
+            # It is also the path that matters most: `--update` is what `freya-wrap-up` runs, so
+            # `--build` is the cold start and this is the steady state. Fixing discovery and not
+            # the incremental loop fixed the rarer half.
+            escaped = full_path.exists() and not containment.within(self.project_dir, full_path)
+            if escaped:
+                self._record_escaping_link(file_path, self._outside_roots().key_for(full_path))
+            if full_path.exists() and not escaped and not out_of_scope(file_path):
                 # Check if it's a source file
                 if self._detect_language(full_path):
                     graph['files'][file_path] = self._build_file_info(full_path)
@@ -2259,6 +2457,7 @@ Respond with ONLY a JSON object, no markdown formatting:
         # run and contradicted an answer that was already qualified correctly.
         if announce:
             _announce_unmapped(graph)
+            _announce_outside(graph)
         return result
 
     def get_dependencies(self, file_path: str,
@@ -2288,6 +2487,7 @@ Respond with ONLY a JSON object, no markdown formatting:
         # A bare array has nowhere to qualify itself, so the caveat goes to stderr. See
         # `_announce_unmapped` for why the shape must not change instead.
         _announce_unmapped(graph)
+        _announce_outside(graph)
         return result
 
     def get_impact(self, file_paths: List[str]) -> Dict[str, Set[str]]:
@@ -2493,6 +2693,25 @@ def _finalise(backend: Any, result: Any,
     if census.get('advice'):
         _announce_once('code-graph: %s' % census['advice'])
 
+    # The same funnel, for the same reason, and the analogue of the census rather than a
+    # second mechanism: ADR-029 obliges an answer to say what it could not read, and ADR-031
+    # obliges it to say what it read from outside the project.
+    crossed = _outside_report(backend.project_dir, graph)
+    if crossed:
+        graph['substrate']['outside_roots'] = crossed
+        sentence = _outside_sentence(crossed)
+        if sentence:
+            _announce_once('code-graph: %s' % sentence)
+
+    # SEC-023, and the third instance of the same funnel rather than a fourth mechanism: a
+    # file this build declined to scan is a fact about the answer's completeness, exactly as
+    # an unparseable source is. Absent, not empty, when nothing escaped — so a repository
+    # with no symlinks produces byte-identical output (ADR-029).
+    escaped = _escaping_links_report(backend)
+    if escaped:
+        graph['substrate']['escaping_links'] = escaped
+        _announce_once('code-graph: %s' % _escaping_links_sentence(escaped))
+
     cached_to = persist_graph(backend.project_dir, backend.name, graph)
 
     if result.status != substrate.Result.BUILT:
@@ -2689,8 +2908,222 @@ def _answer_caveats(graph: Optional[Dict[str, Any]], full: bool = False) -> Dict
     byte-identical to what they were before this existed, so nobody pays tokens for a field
     that would always read the same.
     """
+    caveats = {}  # type: Dict[str, Any]
     digest = substrate.unmapped_digest(_census_block(graph), full=full)
-    return {'unmapped_source': digest} if digest else {}
+    if digest:
+        caveats['unmapped_source'] = digest
+    crossed = _outside_block(graph)
+    if crossed:
+        # An answer computed over a graph with edges leaving the repository is not the same
+        # sentence as one that is entirely in-tree, and it goes in the payload for the reason
+        # ADR-029 puts the census there: the consumer is another skill reading `--format
+        # json`, and stderr is dead skill-to-skill.
+        #
+        # Carried verbatim rather than digested, which is where this differs from
+        # `unmapped_source`. That block has a prose `advice` sentence and a `readable_by`
+        # recommendation worth trimming out of a per-file answer; this one is a handful of
+        # aliases and counts, and a digest of it would be the same object with a different
+        # name. It is repository-level on a per-file surface, deliberately — the fact being
+        # qualified is the graph the answer was computed from, not the file asked about.
+        caveats['outside_roots'] = crossed
+    return caveats
+
+
+#: Escaping links named individually in the artifact. A cap for the same reason
+#: `_MAX_RECORDED_VALIDATION_ERRORS` has one — the count is the fact, the sample is the lead —
+#: and pinned to that constant by a test rather than by this comment, because a parity claim
+#: nothing checks is how the two drift.
+_MAX_RECORDED_ESCAPING_LINKS = 20
+
+
+def _escaping_links_report(backend: Any) -> Optional[Dict[str, Any]]:
+    """Discovery candidates whose realpath left the project, or None when none did.
+
+    None — the key absent rather than an empty block — so a repository with no symlinks
+    produces byte-identical output to one built before this existed (ADR-029).
+
+    Two buckets, because they are two different events and collapsing them would hide the
+    one that matters. `refused` is a symlink that pointed out of the project with nothing
+    declaring the target: it was not opened, not parsed, and is not a node. `crossed` is one
+    whose target sits under a declared `outside` root (ADR-031): also not a node, but
+    legitimate, and named with the same `outside:<alias>/<tail>` token an import into that
+    root produces — so the two routes into a declared root read identically in the artifact,
+    which is the point.
+
+    Read as a completeness caveat and not as a security verdict. A `refused` entry means the
+    graph is *smaller* than the file listing suggests, which is what a reader needs in order
+    to know the blast radius is short. It does not mean anything hostile happened: a symlink
+    out of the project is a perfectly ordinary thing for a monorepo checkout to contain.
+    """
+    escaping = getattr(backend, '_escaping_links', None)
+    if not escaping:
+        return None
+    refused = sorted(rel for rel, crossing in escaping.items() if crossing is None)
+    crossed = sorted(rel for rel, crossing in escaping.items() if crossing is not None)
+    return {
+        'refused': len(refused),
+        'crossed': len(crossed),
+        'sample': {
+            'refused': refused[:_MAX_RECORDED_ESCAPING_LINKS],
+            'crossed': {rel: escaping[rel] for rel in crossed[:_MAX_RECORDED_ESCAPING_LINKS]},
+        },
+        'advice': ('a symlink under this project resolves outside it; declare its target under '
+                   '`outside` in knowledge-base/settings.json to have the crossing named, or '
+                   'leave it refused'),
+    }
+
+
+def _escaping_links_sentence(block: Dict[str, Any]) -> str:
+    """One line for the stderr surface, naming both counts.
+
+    Both, always, even when one is zero: the reader's question is "is anything missing from
+    this graph", and `refused: 0, crossed: 3` answers it as usefully as the other way round.
+    """
+    return ('%d symlink(s) resolve outside the project — %d refused, %d declared as crossings'
+            % (block['refused'] + block['crossed'], block['refused'], block['crossed']))
+
+
+def _outside_report(project_dir: Any, graph: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """What this build declared outside the project root and how far it got, or None.
+
+    None — the key absent, not empty — when the project has no `outside` section, so a
+    repository that has never used this produces byte-identical output (ADR-029).
+
+    A declared root that nothing imported is reported with `crossings: 0` rather than dropped.
+    A declaration that resolves nothing is usually a typo or a leftover, and configuration with
+    no effect and no message is the defect this file has already paid for twice — in
+    `classifications.json`, and in the dead directory keys `normalise_dir_key` was written to
+    fold. A *refused* declaration is carried for the same reason: its warning goes to stderr,
+    and stderr is dead skill-to-skill.
+
+    "Usually", with the exception stated rather than left for the reader to hit: where two
+    declared roots nest, `OutsideRoots.key_for` names a file under the *inner* one, so the
+    outer root reads `crossings: 0` while covering everything the inner one does not. A zero
+    therefore means "no edge was reported under this alias", which is a typo or a leftover
+    unless another declared root contains this one. Advice that says "delete it" without that
+    clause tells somebody to delete a working declaration.
+
+    A count here is a fact about the edges in this artifact, and it is only in step with the
+    settings file because `CodeGraph.update` forces a full rebuild when the declarations
+    change. Without that it was recomputed from fresh settings over stale edges and was
+    positively false in both directions.
+
+    Counted off the edges rather than through a counter threaded down the resolver. The number
+    is then derivable by anyone holding the artifact and cannot drift from what is in it, which
+    is the property a count plumbed through the resolver would not have.
+    """
+    block = settings.load(str(project_dir)).outside.to_dict()
+    if not block:
+        return None
+    counts = {}  # type: Dict[str, int]
+    files = graph.get('files') if isinstance(graph, dict) else None
+    for info in (files or {}).values():
+        if not isinstance(info, dict):
+            continue
+        for edge in info.get('imports') or []:
+            target = substrate.edge_other(edge)
+            if not isinstance(target, str) or not target.startswith(substrate.OUTSIDE_PREFIX):
+                continue
+            alias = target[len(substrate.OUTSIDE_PREFIX):].split('/', 1)[0]
+            counts[alias] = counts.get(alias, 0) + 1
+    for entry in block.get('declared') or []:
+        entry['crossings'] = counts.get(entry['alias'], 0)
+    block['crossings'] = sum(counts.values())
+    return block
+
+
+def _outside_sentence(block: Dict[str, Any]) -> str:
+    """One line naming each declared root and how many edges reached it, or ''.
+
+    Empty when every declaration was refused: each refusal already produced its own warning
+    through `Settings.warnings`, and saying it twice in one run trains a reader to skim both.
+
+    **Two sentences, because there are two facts and only one of them was being told.** The
+    claim "this graph leaves the project root" is about the *edges*, and it was gated on a
+    declaration merely being in force — so the commonest state of a new declaration, one
+    nobody has imported through yet, printed a sentence that was simply false, on `--build`
+    and again on every `--dependents`. Worse on graphify, which never consults declarations at
+    all: there the zero is not even a measurement, and the sentence asserted a crossing on a
+    backend that never looked. So a total of zero says the roots were *not reached*, which is
+    the true statement and also the one that reads as an invitation to check the declaration.
+
+    Tolerant of a `declared` list that is not a list of dicts, via `_declared_entries`: this
+    runs on `--dependents` and `--dependencies` over a persisted artifact, and ADR-031 requires
+    those two to break closed rather than raise.
+    """
+    declared = _declared_entries(block)
+    if not declared:
+        return ''
+    total = _outside_total(block)
+    where = 'Declared in %s/%s; nothing outside the root is read, only resolved (ADR-031).' % (
+        settings.SETTINGS_DIRNAME, settings.SETTINGS_FILENAME)
+    if not total:
+        return ('this graph does not leave the project root: nothing crossed to %s. %s'
+                % ('; '.join('%r (%s)' % (entry.get('alias'), entry.get('path'))
+                             for entry in declared),
+                   where))
+    return ('this graph leaves the project root: %s. %s'
+            % ('; '.join('%d edge(s) into %r (%s)'
+                         % (entry.get('crossings', 0), entry.get('alias'), entry.get('path'))
+                         for entry in declared),
+               where))
+
+
+def _outside_block(graph: Optional[Dict[str, Any]]) -> Any:
+    """The `outside_roots` block, tolerating any artifact shape.
+
+    `isinstance` throughout, and for the reason `_census_block` records: a truthy non-dict
+    `substrate` reached `.get` and raised, on a read path added without the guard the write
+    path already had.
+    """
+    if not isinstance(graph, dict):
+        return None
+    block = graph.get('substrate')
+    if not isinstance(block, dict):
+        return None
+    crossed = block.get('outside_roots')
+    return crossed if isinstance(crossed, dict) else None
+
+
+def _declared_entries(block: Any) -> List[Dict[str, Any]]:
+    """The usable `declared` rows of an `outside_roots` block, in order, or `[]`.
+
+    One tolerance rule for both readers of that list. `_outside_block` guards the outer dict
+    and stopped there, so a persisted `{"declared": ["ui"]}` — or `"ui"`, which is truthy and
+    iterates into characters — reached `.get` one level down and raised `AttributeError`, on
+    `--dependents` and `--dependencies`, which ADR-031 requires to break *closed*. That is the
+    same defect `_census_block`'s docstring records, one level deeper in the same block.
+    """
+    declared = block.get('declared') if isinstance(block, dict) else None
+    if not isinstance(declared, list):
+        return []
+    return [entry for entry in declared if isinstance(entry, dict)]
+
+
+def _declared_roots(block: Any) -> Tuple[Tuple[Any, Any], ...]:
+    """The `(alias, path)` pairs a block says are in force — the declaration's identity.
+
+    Deliberately not the `crossings` counts, which are a fact about the graph rather than about
+    the declaration, and deliberately not the resolved paths, which `to_dict` does not carry
+    into an artifact. One body, called on both sides of the `--update` comparison: the block
+    persisted in the cached graph, and `OutsideRoots.to_dict()` for the settings file as it
+    reads now. `OutsideRoots` sorts its roots, so the order is a function of the declarations
+    and not of how the file spelled them, and this can compare tuples rather than sets.
+    """
+    return tuple((entry.get('alias'), entry.get('path')) for entry in _declared_entries(block))
+
+
+def _outside_total(block: Any) -> int:
+    """How many edges crossed, summed off the per-alias counts rather than off `crossings`.
+
+    Derived from the rows the sentence is about to print, so the two can never disagree — the
+    same argument `_outside_report` makes for counting off the edges instead of threading a
+    counter down the resolver. A row whose count is missing or not an integer contributes
+    nothing rather than raising: this runs over a persisted artifact on a surface that must
+    break closed.
+    """
+    return sum(n for n in (entry.get('crossings') for entry in _declared_entries(block))
+               if isinstance(n, int))
 
 
 def _census_block(graph: Optional[Dict[str, Any]]) -> Any:
@@ -2740,6 +3173,37 @@ def _announce_unmapped(graph: Optional[Dict[str, Any]]) -> None:
            ', '.join(sorted(block.get('extensions') or {})), where))
 
 
+def _announce_outside(graph: Optional[Dict[str, Any]]) -> None:
+    """The crossing caveat for the two surfaces that answer with a bare array.
+
+    Same channel and same reasoning as `_announce_unmapped`, which says why the shape of
+    `--dependents`/`--dependencies` must not change instead: `run_behaviors` validates the
+    answer with `isinstance(data, list)`, and an envelope there breaks *closed* across the
+    whole repository.
+
+    Worth saying on those two surfaces in particular. They answer in project-relative keys, and
+    an `outside:` target is filtered out of both by `substrate.internal_ends` — correctly,
+    since it names no node to walk to. So the one place a crossing is structurally invisible is
+    exactly where a reader is most likely to conclude a change is contained.
+    """
+    block = _outside_block(graph)
+    if not isinstance(block, dict):
+        return
+    sentence = _outside_sentence(block)
+    if not sentence:
+        return
+    if not _outside_total(block):
+        # Nothing crossed, so the second line has nothing to qualify. Printed unconditionally
+        # it read as a warning about this answer — "a file under a declared root is resolved
+        # to" — for an answer in which no file was.
+        _announce_once('code-graph: %s' % sentence)
+        return
+    _announce_once('code-graph: %s\n'
+                   '  --dependents/--dependencies answer over this project\'s own files '
+                   'only; a file under a declared root is resolved to, never graphed.'
+                   % sentence)
+
+
 def _edge_annotation(edge: Any) -> str:
     """The `[kind]` / `[kind: from → to]` tail on one printed edge.
 
@@ -2777,6 +3241,31 @@ def _unmapped_line(data: Any, indent: str = '  - ') -> str:
             % (indent, block['files'], ', '.join(exts[:3]), tail))
 
 
+def _outside_line(data: Any, indent: str = '  - ') -> str:
+    """The crossing line for `--format summary`, or `''` when there is nothing to say.
+
+    `_unmapped_line`'s counterpart, at the same five call sites — `--build`, both shapes of
+    `--update`, `--query` and `--impact` — and for the same reason. ADR-029
+    splits the caveat by audience — the payload for a skill, stderr for a person — and this
+    surface fell through the split: `--query --format summary` printed an `outside:` target with
+    no qualification at all, and `--impact --format summary` printed a blast radius with
+    nothing on either stream, while both carried the block in `--format json`. That inverts the
+    ADR: the machine was told and the person was not.
+
+    All four sites, including the two whose stderr already carries the sentence, and that
+    repetition is deliberate. `_announce_once` dedupes for the life of the process, so in any
+    caller that has already said this — `run_update` falling back to a full build says it once
+    for the build and would then be silent for the update — the stderr line is not there to be
+    read. This one always is.
+
+    The wording is `_outside_sentence`'s and not a second one, so a reader who does see both in
+    a run reads the same claim twice rather than wondering whether they differ.
+    """
+    block = data.get('outside_roots') if isinstance(data, dict) else None
+    sentence = _outside_sentence(block) if isinstance(block, dict) else ''
+    return '%s%s' % (indent, sentence[:1].upper() + sentence[1:]) if sentence else ''
+
+
 def format_summary(data: Any, operation: str) -> str:
     """Format output as human-readable summary."""
     if operation == 'build':
@@ -2784,23 +3273,21 @@ def format_summary(data: Any, operation: str) -> str:
   - {data['files_scanned']} files scanned
   - {data['total_imports']} import relationships
   - {data['total_exports']} export declarations"""]
-        unmapped = _unmapped_line(data)
-        if unmapped:
-            lines.append(unmapped)
+        lines.extend(x for x in (_unmapped_line(data), _outside_line(data)) if x)
         lines.append(f"  - Cached to {data['cached_to']}")
         return '\n'.join(lines)
 
     elif operation == 'update':
         if data.get('status') == 'up_to_date':
             return '\n'.join(x for x in ["Graph is up to date. No changes detected.",
-                                         _unmapped_line(data)] if x)
+                                         _unmapped_line(data), _outside_line(data)] if x)
         if data.get('status') == substrate.Result.BUILT:
             # `--update` falls back to a full build when there is no usable cache.
             return format_summary(data, 'build')
         return '\n'.join(x for x in [f"""Updated dependency graph:
   - {data['files_changed']} files changed since last build
   - Graph updated at commit {data.get('commit', 'unknown')}""",
-                                     _unmapped_line(data)] if x)
+                                     _unmapped_line(data), _outside_line(data)] if x)
 
     elif operation == 'query':
         if not data:
@@ -2818,7 +3305,14 @@ def format_summary(data: Any, operation: str) -> str:
             lines.append("Dependencies (imports from):")
             for edge in data['imports']:
                 target = substrate.edge_other(edge)
-                arrow = "" if target.startswith('external:') else " →"
+                # No arrow for a package, and none for a file under a declared root either:
+                # the arrow says "this points at something in the graph", and a crossing
+                # resolves to a real file that is deliberately not a node (ADR-031). A fourth
+                # ad-hoc tuple of prefixes is what `substrate.IMPORT_SIGNALS` exists to stop,
+                # but `is_internal` is the wrong test here — `unresolved:` is a signal and has
+                # always printed with the arrow, and changing that is not this change's to make.
+                arrow = "" if target.startswith(
+                    ('external:', substrate.OUTSIDE_PREFIX)) else " →"
                 lines.append(f"  -{arrow} {target}{_edge_annotation(edge)}")
             lines.append("")
 
@@ -2830,9 +3324,9 @@ def format_summary(data: Any, operation: str) -> str:
 
         if data.get('language'):
             lines.append(f"Language: {data['language']}")
-        unmapped = _unmapped_line(data, indent='')
-        if unmapped:
-            lines.extend(["", unmapped])
+        for caveat in (_unmapped_line(data, indent=''), _outside_line(data, indent='')):
+            if caveat:
+                lines.extend(["", caveat])
         return '\n'.join(lines)
 
     elif operation == 'impact':
@@ -2859,9 +3353,9 @@ def format_summary(data: Any, operation: str) -> str:
                          f"no blast radius could be computed for these:")
             for path in sorted(data['not_in_graph']):
                 lines.append(f"  - {path}")
-        unmapped = _unmapped_line(data, indent='')
-        if unmapped:
-            lines.extend(["", unmapped])
+        for caveat in (_unmapped_line(data, indent=''), _outside_line(data, indent='')):
+            if caveat:
+                lines.extend(["", caveat])
         return '\n'.join(lines)
 
     elif operation == 'dependents':

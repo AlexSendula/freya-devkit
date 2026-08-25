@@ -20,6 +20,17 @@ from pathlib import Path
 _DETECT_PROJECT = (Path(__file__).resolve().parents[2]
                    / "freya-docs-manager" / "scripts" / "detect_project.py")
 
+# The signal prefixes are owned by freya-code-graph's substrate contract and imported, not
+# copied (ADR-030, the same rule and the same sibling pattern `verify_links.py` uses for
+# `containment`). This file carried its own `("external:", "unresolved:")` literal, and the
+# comment above that constant in `substrate.py` had already named the cost: a fourth prefix
+# added without updating every copy is counted as an internal edge. `outside:` was the fourth,
+# and this copy would have counted every crossing as project wiring — inflating the one number
+# `classify` uses to call a repository brownfield.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]
+                       / "freya-code-graph" / "scripts"))
+from substrate import IMPORT_SIGNALS  # noqa: E402
+
 
 def _graph_path(project_dir):
     return os.path.join(project_dir, "knowledge-base", ".graph", "graph.json")
@@ -28,18 +39,24 @@ def _graph_path(project_dir):
 def count_graph(project_dir):
     """Return (source_files, internal_edges, graph_present).
 
-    An internal edge is an import code-graph resolved to a project file — i.e.
-    NOT tagged `external:` or `unresolved:`. Internal edges (real wiring) are the
+    An internal edge is an import code-graph resolved to a project file — i.e. one that
+    carries none of `substrate.IMPORT_SIGNALS`. Internal edges (real wiring) are the
     brownfield signal; raw file count is not (a bare scaffold can have many
     boilerplate files yet zero internal wiring).
+
+    A file under a root the project declared outside itself is `outside:<alias>/<path>`, and
+    it is a signal for this purpose too. It resolved to a real file, but not to one in this
+    repository, so counting it would say a checkout is wired when the wiring is somebody
+    else's (ADR-031).
 
     An edge is `{"to": ..., "kind": ..., "provenance": ...}` since 2026-08-20, and was a
     bare string before that. Both are read, because a graph.json written by an older build
     is still on disk until something rebuilds it — and misreading it would report a wired
     codebase as `greenfield`, which is the exact wrong answer this function exists to avoid.
-    The projection is duplicated here rather than imported: `substrate.edge_other` is the
-    definition, and reaching into another skill's scripts for one expression would couple
-    them harder than the shared artifact already does.
+    That *projection* is still duplicated here rather than imported — `substrate.edge_other`
+    is its definition, and it is two lines of shape-tolerance over an artifact this file
+    already reads directly. The prefix list is not: it is a vocabulary that grows, and the
+    copy of it that lived here was already out of date by one entry.
     """
     path = _graph_path(project_dir)
     if not os.path.exists(path):
@@ -54,22 +71,39 @@ def count_graph(project_dir):
     for info in files.values():
         for imp in info.get("imports", []):
             target = imp.get("to", "") if isinstance(imp, dict) else imp
-            if isinstance(target, str) and target and not target.startswith(
-                    ("external:", "unresolved:")):
+            if isinstance(target, str) and target and not target.startswith(IMPORT_SIGNALS):
                 internal_edges += 1
     return len(files), internal_edges, True
 
 
+#: How long a stack detection may run before this caller stops waiting. A detection is a
+#: bounded walk of one repository, so sixty seconds is orders of magnitude of headroom and
+#: still short enough that a wedged child is noticed rather than waited on. There was no
+#: timeout at all until SEC-008: whatever `detect_project` did — including, through a
+#: committed `vendor -> /` symlink, walking the operator's whole filesystem — this call
+#: waited for it, with `capture_output=True` so nothing reached the operator meanwhile.
+#: The child bounds its own walk now (`detect_project._WALK_FILE_LIMIT`), so this is defence
+#: in depth — and it has to be, for the next unbounded scan somebody adds over there.
+_DETECT_TIMEOUT = 60
+
+
 def run_detect_project(project_dir):
-    """Return detect_project.py's stack dict (empty dict on any failure)."""
+    """Return detect_project.py's stack dict (empty dict on any failure).
+
+    `subprocess.TimeoutExpired` is in the except tuple and is not redundant with the `OSError`
+    beside it: it derives from `SubprocessError`, so adding the timeout without adding the
+    class would have swapped a hang for an uncaught exception out of `classify()` — worse than
+    the hang, for a caller whose entire contract is "empty dict on any failure".
+    """
     try:
         out = subprocess.run(
             [sys.executable, str(_DETECT_PROJECT), project_dir],
-            capture_output=True, text=True, check=True,
+            capture_output=True, text=True, check=True, timeout=_DETECT_TIMEOUT,
         )
         data = json.loads(out.stdout)
         return data if isinstance(data, dict) else {}
-    except (subprocess.CalledProcessError, json.JSONDecodeError, FileNotFoundError, OSError):
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired,
+            json.JSONDecodeError, FileNotFoundError, OSError):
         return {}
 
 

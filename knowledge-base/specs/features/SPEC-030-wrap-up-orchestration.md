@@ -6,7 +6,7 @@ tags: [wrap-up, orchestration, two-commit, gates, ordering, declarative]
 status: implemented
 certainty: 70
 created: 2026-08-21
-updated: 2026-08-21
+updated: 2026-08-24
 related_code:
   - skills/freya-wrap-up/SKILL.md
   - skills/freya-spec-manager/scripts/verify_links.py
@@ -137,6 +137,34 @@ available outcome for a regression gate, because it is indistinguishable from a 
 **Security Scan Note**: The `&&` is load-bearing. Splitting the two commands, or continuing past
 a build failure to "at least run the check", converts a hard gate into a rubber stamp.
 
+### A spec the corpus could not read blocks at Phase 3.5, ahead of every fail-open step
+
+**Decision**: `verify_links` reports an unreadable spec as a `spec-unreadable` error row and
+exits non-zero, so it hard-blocks at Phase 3.5 step 1. `verify_intent` reports the same file
+in `errors`, which blocks and stops `--advance` moving the baseline over it.
+
+**Rationale**: added 2026-08-24. A spec that failed to parse used to drop silently out of the
+corpus, and both Tier-1 gates then printed their success sentence over a file neither had read.
+Measured: delete the single line `id: SPEC-001` from a spec whose `accepted` behavior's test
+had just been edited with no authorizing record, and `verify_intent` printed `OK` at exit 0,
+`verify_links` printed `OK` at exit 0, and `--advance` then moved the baseline — which does not
+defer that finding but clears it on every future run. One deleted line, two certifications of a
+file nobody read (ADR-005).
+
+**The ordering is what makes this safe, and it is worth naming as a dependency rather than a
+coincidence.** The three model-judgment checkpoints reach the corpus through
+`freya drift context` and `freya contradictions context`, both of which still call
+`load_all_specs` and therefore *raise* on an unreadable spec — exit 1, empty stdout. G3 and P4b
+are documented fail-open on a tooling error, so on their own they would turn a
+resolve-to-proceed checkpoint into a silent no-op. They are never reached with a bad corpus
+only because steps 1 and 2 block four steps earlier. Recorded as **SEC-025** (info, open).
+
+**Security Scan Note**: do not reorder Phase 3.5 to put a governance checkpoint ahead of
+`verify_links`, and do not relax `spec-unreadable` to a warning. Either change makes SEC-025
+live. The durable fix is the one `load_all_specs`' own docstring names — move `drift` and
+`contradictions` to `load_specs` and surface the loss as `spec_warnings` beside the
+`adr_warnings` those contexts already carry.
+
 ## Related Specs
 
 - [SPEC-028: The Status Census](./SPEC-028-the-status-census.md) — the read-only counterpart,
@@ -148,6 +176,7 @@ a build failure to "at least run the check", converts a hard gate into a rubber 
 
 | Date | Change | Reason |
 |------|--------|--------|
+| 2026-08-24 | Added "A spec the corpus could not read blocks at Phase 3.5, ahead of every fail-open step", naming the ordering dependency it rests on | The two Tier-1 gates gained a `spec-unreadable` block; the G3/P4b contexts did not, so the property holds by ordering rather than by construction (SEC-025) |
 | 2026-08-21 | Initial spec, inferred from the skill and the scripts it calls | Brownfield scan (`freya-spec-manager bootstrap`) |
 
 ---

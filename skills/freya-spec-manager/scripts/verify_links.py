@@ -30,10 +30,17 @@ import ast
 import json
 import os
 import sys
-from pathlib import Path, PurePosixPath, PureWindowsPath
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from search_specs import load_all_specs, find_specs_dir  # noqa: E402
+# The containment rule is owned by freya-code-graph and imported, not copied
+# (ADR-030). This file used to carry its own body with a docstring claiming the
+# two were "deliberately identical" — nothing held them to it, and a
+# hand-maintained duplicate of a security predicate is the thing ADR-002 forbids.
+_GRAPH_SCRIPTS = Path(__file__).resolve().parents[2] / "freya-code-graph" / "scripts"
+sys.path.insert(0, str(_GRAPH_SCRIPTS))
+from containment import escapes as _escapes  # noqa: E402
+from search_specs import load_specs, find_specs_dir  # noqa: E402
 from adapters import (  # noqa: E402
     parse_locator,
     has_scaffold_marker,
@@ -49,27 +56,6 @@ SKIP_DIRS = {".git", "node_modules", ".venv", "venv", "__pycache__", "knowledge-
 
 def _err(spec_id, behavior_id, kind, message):
     return {"spec_id": spec_id, "behavior_id": behavior_id, "kind": kind, "message": message}
-
-
-def _escapes(rel):
-    """Could this spec-supplied path name anything but a file under the project?
-
-    Deliberately identical to `bin/freya_cli.py:_escapes` — one containment rule
-    for the repo, not two that disagree at the margin (ADR-002). Both path
-    flavours are judged on every host because a spec is checked-in data read on
-    all of them: `os.path.isabs` alone is not enough, as Python 3.13 changed
-    `ntpath.isabs` so a rooted path with no drive is no longer absolute on
-    Windows, and the first Windows CI run caught it there.
-
-    `..` is rejected outright even when it would normalise back inside. No
-    honest locator needs it, and a rule you can state in one sentence is worth
-    more than the handful of paths it turns away.
-    """
-    win, posix = PureWindowsPath(rel), PurePosixPath(rel)
-    return bool(
-        posix.is_absolute() or win.drive or win.root
-        or ".." in win.parts or ".." in posix.parts
-    )
 
 
 def _py_symbols(path: Path):
@@ -129,8 +115,24 @@ def _iter_feature_files(root: Path):
 def verify(specs_dir: str = None) -> list:
     specs_dir = specs_dir or find_specs_dir()
     root = _project_root(specs_dir)
-    specs = load_all_specs(specs_dir)
+    specs, unreadable = load_specs(specs_dir)
     errors = []
+
+    # A spec that could not be parsed is an error here rather than an absence.
+    # Every check below is "this behavior's link resolves", and a spec missing
+    # from the corpus has no behaviors to check — so without this row the gate
+    # prints its OK sentence over a file it never read, which is the one thing
+    # a Tier-1 hard-block is not allowed to do (ADR-005). SPEC-017 already noted
+    # the asymmetry it was on the wrong side of: a bad ADR is an error in
+    # `verify_adrs`, a bad spec was a warning nobody saw.
+    #
+    # The project-relative path goes in the `spec_id` slot because this row has
+    # no spec id to put there — that is frequently the whole complaint — and the
+    # `orphan-spec-tag` row sets the precedent of filling it with the closest
+    # thing to an identifier the error has.
+    for u in unreadable:
+        errors.append(_err(os.path.relpath(u.file_path, str(root)), None,
+                           "spec-unreadable", u.reason))
 
     spec_ids = {s.id for s in specs if s.id}
 
@@ -188,12 +190,34 @@ def verify(specs_dir: str = None) -> list:
                 continue
 
             rel_path, frag = parse_locator(locator)
+            # Two shapes used to walk straight through here, and both did it by
+            # being *almost* nothing rather than by being hostile. A locator of
+            # `#scenario-only` parses to an empty path: `escapes("")` is false
+            # and `root / ""` is the project root, which exists — so the gate
+            # resolved a locator that names no file and reported OK. And a
+            # locator naming a directory passed `Path.exists` for the same
+            # reason. Both were found by `behavior_graph.covering()`, which asks
+            # the stricter question and was diverging from this gate as a result.
+            #
+            # The empty case gets its own kind rather than being folded into
+            # either neighbour. `is_file` below would catch it, but it would be
+            # reported as "path does not exist", and a locator that names
+            # nothing at all is a different authoring mistake from one that
+            # names the wrong thing — the fix is to write a path, not to correct
+            # one. Reusing `locator-escapes-project` would be worse still: an
+            # empty path escapes nothing.
+            if not rel_path:
+                errors.append(_err(s.id, bid, "locator-names-no-file",
+                                   f"locator has no path part: {locator!r}"))
+                continue
             if _escapes(rel_path):
                 errors.append(_err(s.id, bid, "locator-escapes-project",
                                    f"locator names a path outside the project: {rel_path}"))
                 continue
             abs_path = root / rel_path
-            if not abs_path.exists():
+            # `is_file`, not `exists`: a locator names a test file, and a
+            # directory that happens to sit at that path is not one.
+            if not abs_path.is_file():
                 errors.append(_err(s.id, bid, "locator-unresolved",
                                    f"locator path does not exist: {rel_path}"))
                 continue

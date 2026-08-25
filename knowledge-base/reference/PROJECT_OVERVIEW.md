@@ -41,11 +41,11 @@ The supervising human is a first-class constraint, not an afterthought:
 - AI-inferred specs carry a 0–100 certainty score with a review action attached to each band
   ([patterns.md](../patterns.md#pattern-certainty-scoring)).
 - The security driver spends real money and says so before it does: it prints a cost plan
-  (`skills/freya-codebase-security-scan/scripts/audit.py:418`) and, with no tty to prompt at,
-  refuses rather than defaulting to yes (`audit.py:427`).
+  (`skills/freya-codebase-security-scan/scripts/audit.py:443`) and, with no tty to prompt at,
+  refuses rather than defaulting to yes (`audit.py:452`).
 - Which graph backend to use is a person's answer: asked once per machine at install
   (`bin/backend_setup.py:104`), resolved project-then-machine-then-floor
-  (`skills/freya-code-graph/scripts/settings.py:282`), and never scored automatically —
+  (`skills/freya-code-graph/scripts/settings.py:753`), and never scored automatically —
   `auto` means the floor and nothing else (`skills/freya-code-graph/scripts/backends.py:166`,
   [ADR-019](../decisions/ADR-019-the-floor-and-choosing-a-backend.md)).
 - Model-judgment checks are *resolve-to-proceed* procedures, not script exit codes; only
@@ -125,9 +125,9 @@ runtime dependency: every import in `bin/` and `skills/` is stdlib. The test sui
 | `git` | Incremental updates, the two commits, `freya update` | Yes, in practice |
 | An Agent Skills host | Reading the skills. `install.sh` knows two targets by name: `~/.claude/skills` and the shared `~/.agents/skills` (`bin/installer.py:36`) | Yes |
 | `claude` / `copilot` CLI | The security driver's headless workers only; without one it exits 1, which the skill reads as "fall back to the in-loop scan" (`skills/freya-codebase-security-scan/scripts/audit.py:66`) | No |
-| `graphify` | The optional graph backend — 40 languages (`skills/freya-code-graph/scripts/backend_graphify.py:226`) across 93 extensions (`skills/freya-code-graph/scripts/backend_graphify.py:202`), against the built-in floor's 4 languages across 6 (`skills/freya-code-graph/scripts/graph_ops.py:34`) | No |
+| `graphify` | The optional graph backend — 40 languages (`skills/freya-code-graph/scripts/backend_graphify.py:227`) across 93 extensions (`skills/freya-code-graph/scripts/backend_graphify.py:203`), against the built-in floor's 4 languages across 6 (`skills/freya-code-graph/scripts/graph_ops.py:35`) | No |
 | `npm` / `yarn` / `pnpm` | `freya-dependency-vulnerability-check`, which detects the package manager from the lockfile and tells the user it needs a Node project when there is none (`skills/freya-dependency-vulnerability-check/SKILL.md:43`, `:49`) | No |
-| The git remote | `freya update`, and a throttled `ls-remote` behind the daily update notice, opt-out via `FREYA_NO_UPDATE_CHECK` (`bin/updater.py:450`) | No |
+| The git remote | `freya update`, and a throttled `ls-remote` behind the daily update notice, opt-out via `FREYA_NO_UPDATE_CHECK` (`bin/updater.py:568`) | No |
 
 Three install paths: `./install.sh` and `install.ps1` for any agent (the checkout is the store;
 skills are symlinked into the agent's directory, or copied with `--copy`), and a Claude Code
@@ -140,11 +140,11 @@ Counted on 2026-08-21, on the working tree of `test/dogfood-polyglot`:
 | Measure | Value | How it was measured |
 |---|---|---|
 | Skills | 10 | `ls skills/` |
-| Launcher commands | 17 in the manifest, plus 6 built into the launcher (`help`, `doctor`, `init`, `install`, `update`, `uninstall`) | `bin/commands.json`; `bin/freya_cli.py:26` |
+| Launcher commands | 17 in the manifest, plus 6 built into the launcher (`help`, `doctor`, `init`, `install`, `update`, `uninstall`) | `bin/commands.json`; `bin/freya_cli.py:27` |
 | Non-test Python | 16,423 lines | `git ls-files '*.py'` minus `test_`/`conftest`, `wc -l` |
 | Test Python | 22,200 lines | the same list, `test_`/`conftest` only |
 | SKILL.md prose | 5,540 lines across ten files | `git ls-files 'skills/*/SKILL.md' \| xargs wc -l` |
-| Tests | 1,759 passed, 1,012 subtests | `python3 -m pytest bin/ skills/ -q` — wall clock and the per-area breakdown are [TESTING.md](TESTING.md#what-the-suite-is-measured) |
+| Tests | 2,178 passed, 1 skipped, 1,415 subtests | `python3 -m pytest bin/ skills/ -q` — wall clock and the per-area breakdown are [TESTING.md](TESTING.md#what-the-suite-is-measured) |
 | Conformance gate | 13 rules, exit 0 | `python3 bin/check_skill_conformance.py` |
 | Citation gate | 1,311 `path:line` citations resolved | `python3 bin/check_doc_citations.py` |
 | Tree invariants | stdlib-only, no bare-name `subprocess` argv[0] | `python3 bin/check_invariants.py` |
@@ -176,7 +176,7 @@ CI runs the suite, three static gates and an end-to-end install → launcher →
   nothing makes the run stop there. Python, Go, Java and the rest
   have no equivalent here.
 - **Not multi-repo.** A graph is built from one `project_dir`
-  (`skills/freya-code-graph/scripts/graph_ops.py:388`) and every path in it is relative to that
+  (`skills/freya-code-graph/scripts/graph_ops.py:396`) and every path in it is relative to that
   root, so a system split across repositories gets one graph per repo and no edge between them
   (open defect 12 in [roadmap.md](../roadmap.md)).
 - **Not autonomous.** It does not call a model on its own except in the security driver, which
@@ -188,7 +188,7 @@ CI runs the suite, three static gates and an end-to-end install → launcher →
 
 ## Project status
 
-- **Version:** 0.3.0 (`.claude-plugin/plugin.json`). `freya update` consumers do not see
+- **Version:** 0.3.1 (`.claude-plugin/plugin.json`). `freya update` consumers do not see
   versions at all — that path fast-forwards the checkout, so every pushed commit is live for
   them.
 - **First commit:** 2026-06-19.
@@ -211,5 +211,5 @@ CI runs the suite, three static gates and an end-to-end install → launcher →
   writes
 - [DEVELOPER.md](DEVELOPER.md) — the conventions a new skill has to fit
 - [patterns.md](../patterns.md) — the two-commit pattern, certainty scoring, resolve-to-proceed
-- [decisions/](../decisions/) — twenty-nine ADRs, each with the alternative it beat
+- [decisions/](../decisions/) — thirty ADRs, each with the alternative it beat
 - [roadmap.md](../roadmap.md) — the single live backlog, including open defects

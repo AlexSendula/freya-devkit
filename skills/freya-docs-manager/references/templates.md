@@ -1137,8 +1137,8 @@ nano .env
 | `[AUTH_SECRET]` | Signing secret for sessions or tokens | `random-32-char-string` | Generate with `openssl rand -base64 32` |
 | `[APP_URL]` | Base URL of the app | `http://localhost:3000` | The app's own URL |
 
-> Use this project's real variable names. The rows above are placeholders — read them from
-> `.env.example`, the config loader, or wherever the app actually reads its environment.
+> Use this project's real variable names. The rows above are placeholders — read them from `.env.example`, the config loader, or
+> wherever the app reads its environment. Names only: the Example column takes `your-secret-here` or `[REDACTED]`, never a live value.
 
 ### Optional Variables
 
@@ -1156,6 +1156,10 @@ nano .env
 | `FEATURE_ANALYTICS` | Enable analytics tracking | `false` |
 
 ## Secrets Management
+
+> Names and locations, never values. If a section below needs to show a value, show a fake one
+> (`your-secret-here`) or `[REDACTED]`. A live credential written into this file becomes a
+> committed blob, and rotating the credential does not remove it.
 
 ### Development
 

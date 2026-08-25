@@ -73,11 +73,24 @@ That is the honest state of the runner today, against a SKILL.md table and an ad
 pytest, unittest, manual) that describe the model rather than what executes.
 
 **What an unmeasurable run says.** Every failure path returns `unknown` with a `reason`, never
-an empty pass and never a guess: `test-failed`, `no-coverage`, `coverage-outside-project`,
-`no-entry`, `entry-missing`, `no-graph`, `graph-degraded: …`, `graph-query-failed: …`,
-`level-deferred`, `not-run`. The reason is what the merge in SPEC-022 dispatches on, and it is
-written into a committed file, which is why the detail spliced into `graph-query-failed` is
-stripped of machine-specific paths first.
+an empty pass and never a guess: `test-failed`, `toolchain-missing: …`,
+`locator-selected-nothing`, `no-coverage`, `coverage-outside-project`, `no-entry`,
+`entry-missing`, `no-graph`, `graph-degraded: …`, `graph-query-failed: …`, `level-deferred`,
+`not-run`. The reason is what the merge in SPEC-022 dispatches on, and it is written into a
+committed file, which is why the detail spliced into `graph-query-failed` is stripped of
+machine-specific paths first.
+
+**`test-failed` is the only reason that destroys.** SPEC-022's merge preserves the prior
+fingerprint for every other one, so the boundary between `test-failed` and its neighbours is
+the whole of that rule — and two reasons exist purely to stay on the safe side of it.
+`locator-selected-nothing` was carved out first, for a renamed test method. `toolchain-missing:
+<program>` was carved out on 2026-08-24 for the same reason and after it had already gone
+wrong: a machine with no pytest installed makes `python -m pytest` exit non-zero, which the
+runner called `test-failed` — so a fresh clone with nothing installed hard-blocked wrap-up AND
+rewrote the committed `behavior.json` to `exercises: []`, after which `--covering` on those
+files answered empty for good and a legitimate ADR-012 downgrade stopped working. Both halves
+are asked *before* spawning, not inferred from an exit code afterwards, because a missing
+program and a failing test are indistinguishable from the code alone.
 
 **What a scaffold contains.** When a behavior needs a new Gherkin test, `freya adapters
 gherkin-scaffold` emits a skeleton: the `@SPEC-NNN` tag on the Feature, an `@BEH-NNN` tag on
@@ -220,3 +233,4 @@ unanswered anywhere, and a project on npm or yarn would find out at run time.
 | Date | Change | Reason |
 |------|--------|--------|
 | 2026-08-21 | Initial spec, inferred from code and tests | Brownfield scan of the behavior layer |
+| 2026-08-24 | Added `toolchain-missing: …` and `locator-selected-nothing` to the reason vocabulary, and stated that `test-failed` is the only reason SPEC-022's merge treats as destroying. | The vocabulary listed ten reasons and not these two, while the boundary between `test-failed` and everything else is what SPEC-022's whole decision turns on. Not an error in the spec — an omission that hid why a missing toolchain must not be called a red test, which is the mistake that rewrote a committed `behavior.json` to `exercises: []`. |

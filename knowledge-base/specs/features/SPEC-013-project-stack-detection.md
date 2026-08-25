@@ -6,7 +6,7 @@ tags: [docs-manager, detection, polyglot, bootstrap, project-shape]
 status: implemented
 certainty: 80
 created: 2026-08-21
-updated: 2026-08-21
+updated: 2026-08-24
 related_code:
   - skills/freya-docs-manager/scripts/detect_project.py
   - skills/freya-docs-manager/scripts/test_detect_project.py
@@ -16,6 +16,7 @@ intentional_decisions:
   - "Framework detection runs most-specific-first, so branches that look unreachable (react after react-native) are deliberate"
   - "A pnpm-workspace.yaml that declares no packages is not a workspace root"
   - "An unrecognised project reports an empty runtime block rather than a default runtime"
+  - "Every existence question over the whole tree goes through walk_project's contained, pruned, capped walk — the extension census keeps its own os.walk, contained only by followlinks=False — and a manifest reachable only through a symlink is deliberately not detected"
 behaviors:
   - behavior_id: BEH-061
     title: A repo whose manifest declares its stack reports that runtime and the package manager its lockfile implies
@@ -53,6 +54,36 @@ behaviors:
     level: unit
     adapter: manual
     locator: skills/freya-docs-manager/scripts/test_detect_project.py#TestRunnerDetectionTest.test_a_project_with_no_test_tooling_reports_an_empty_runner_list
+  - behavior_id: BEH-154
+    title: A directory the walk reads as a symlink is never descended into
+    state: proposed
+    level: unit
+    adapter: unittest
+    locator: skills/freya-docs-manager/scripts/test_detect_project.py#WalkContainmentTest.test_a_directory_the_walk_reads_as_a_symlink_is_never_descended
+  - behavior_id: BEH-155
+    title: A manifest reachable only through a symlinked directory is deliberately not detected
+    state: proposed
+    level: unit
+    adapter: unittest
+    locator: skills/freya-docs-manager/scripts/test_detect_project.py#WalkContainmentTest.test_a_manifest_reached_only_through_a_symlinked_directory_is_not_detected
+  - behavior_id: BEH-156
+    title: The whole-tree walk stops at its file limit
+    state: proposed
+    level: unit
+    adapter: unittest
+    locator: skills/freya-docs-manager/scripts/test_detect_project.py#WalkBoundsTest.test_the_walk_stops_at_its_file_limit
+  - behavior_id: BEH-157
+    title: The ceilings that ship are the ones the bound tests only simulate
+    state: proposed
+    level: unit
+    adapter: unittest
+    locator: skills/freya-docs-manager/scripts/test_detect_project.py#WalkBoundsTest.test_the_shipped_ceilings_are_the_ones_the_rows_above_only_simulate
+  - behavior_id: BEH-158
+    title: A YAML file that is not valid UTF-8 is skipped and the scan carries on
+    state: proposed
+    level: unit
+    adapter: unittest
+    locator: skills/freya-docs-manager/scripts/test_detect_project.py#InfrastructureReadTest.test_a_yaml_that_is_not_valid_utf8_is_skipped_rather_than_fatal
 ---
 
 # Project Stack Detection
@@ -77,8 +108,25 @@ The same call also reports whether the repo declares workspaces (npm `workspaces
 the evidence for each. Existing-documentation detection is part of the same output and is
 specified separately in [SPEC-014](./SPEC-014-existing-docs-detection.md).
 
+**Every *existence* question over the whole tree goes through one bounded walk — the
+extension census at `detect_project.py:98` is the module's other whole-tree walk and keeps its
+own, bounded at 5,000 (see "Every existence question over the whole tree goes through one
+bounded walk" below).** `walk_project`
+(`skills/freya-docs-manager/scripts/detect_project.py:375`) yields this project's files —
+contained, pruned, capped and in a stable order — and it replaced five `glob(**/…)` call
+sites that had none of those four properties. It refuses to descend a directory that is a
+symlink and never yields a file that is one (`_refuses_descent`, `detect_project.py:352`),
+prunes `_CENSUS_SKIP` and dot-directories, stops at 20,000 files
+(`_WALK_FILE_LIMIT`, `detect_project.py:326`), and sorts both lists so a walk that stops at a
+cap examines the same files twice running. `glob_search` survives for root-only patterns and
+says in its docstring that a `**` pattern must not come back
+(`detect_project.py:307`). Infrastructure detection reads file *bytes* on top of that, under
+three further ceilings: 64 KiB per YAML file, 500 files, and a 4 MiB whole-scan budget
+(`detect_project.py:347`–`:349`). The caller that shells out to this command bounds it once
+more, at 60 seconds (`project_shape.py:87`).
+
 Consumers are `freya-docs-manager` (which doc templates to plan) and
-`freya project-shape` (`skills/freya-spec-manager/scripts/project_shape.py:221`), which folds
+`freya project-shape` (`skills/freya-spec-manager/scripts/project_shape.py:255`), which folds
 the stack summary into the greenfield/brownfield recommendation that `spec-manager bootstrap`
 shows before it branches.
 
@@ -106,6 +154,22 @@ nothing when it knows nothing.
 | BEH-064 A manifest outranks the census | proposed | `test_detect_project.py#ManifestlessProjectTest.test_a_manifest_always_beats_the_file_census` (unittest) |
 | BEH-065 An unrecognised repo reports nothing, not a default | proposed | `test_detect_project.py#RuntimeDetectionTest.test_an_unrecognised_project_reports_nothing_rather_than_guessing` (unittest) |
 | BEH-066 No test tooling → an explicit empty runner list | proposed | **no test** — `detect_test_runners` is uncovered (manual) |
+| BEH-154 A directory the walk reads as a symlink is never descended into | proposed | `test_detect_project.py#WalkContainmentTest.test_a_directory_the_walk_reads_as_a_symlink_is_never_descended` (unittest) |
+| BEH-155 A manifest reachable only through a symlinked directory is deliberately not detected | proposed | `test_detect_project.py#WalkContainmentTest.test_a_manifest_reached_only_through_a_symlinked_directory_is_not_detected` (unittest) |
+| BEH-156 The whole-tree walk stops at its file limit | proposed | `test_detect_project.py#WalkBoundsTest.test_the_walk_stops_at_its_file_limit` (unittest) |
+| BEH-157 The ceilings that ship are the ones the bound tests only simulate | proposed | `test_detect_project.py#WalkBoundsTest.test_the_shipped_ceilings_are_the_ones_the_rows_above_only_simulate` (unittest) |
+| BEH-158 A YAML file that is not valid UTF-8 is skipped and the scan carries on | proposed | `test_detect_project.py#InfrastructureReadTest.test_a_yaml_that_is_not_valid_utf8_is_skipped_rather_than_fatal` (unittest) |
+
+BEH-155 is the accepted cost of BEH-154 and is recorded as a behavior rather than as a
+caveat, because it is the one user-visible thing this module stopped doing. BEH-157 exists
+because the other bound rows all inject their own cap: measured 2026-08-23, setting all
+three shipped ceilings to `10 ** 15` left the module's suite green, so without it the
+unbounded traversal was one token away with nothing red. Two further containment rows are
+covered by the same classes and not listed separately — a file that is itself a symlink is
+never opened (`WalkContainmentTest.test_a_file_the_walk_reads_as_a_symlink_is_never_opened`)
+and `walk_project`'s own prune is load-bearing independently of `os.walk`'s
+`followlinks=False` default
+(`WalkContainmentTest.test_the_modules_own_refusal_is_what_prunes_a_symlinked_directory`).
 
 Sibling scenarios already covered by the same test classes, and folded into the behaviors
 above rather than listed separately: Python/Go/Rust manifests (`RuntimeDetectionTest`), Gradle
@@ -131,6 +195,11 @@ scale with a dependency tree rather than with the project.
 
 **Security Scan Note**: The unbounded-looking `os.walk` is bounded by both the skip set and the
 5,000-file limit, and it only reads filenames — no file contents are opened during the census.
+Read that as a claim about *this* walk and not about the module: the census is one of two
+whole-tree walks and the smaller one. The other is `walk_project`, which stops at 20,000
+because it answers existence questions where the deciding file can be the last in sorted
+order, and the infrastructure detector reads bytes through it under three more ceilings. The
+two limits differ on purpose and the difference is argued at `detect_project.py:319`–`:326`.
 
 ### Framework checks are ordered most-specific-first
 
@@ -186,6 +255,46 @@ avoids a cached answer surviving the moment a runner is added.
 
 **Security Scan Note**: Not security-relevant.
 
+### Every existence question over the whole tree goes through one bounded walk
+
+**Decision**: `walk_project` is the only way this module answers an *existence* question over
+the whole tree — it is not the module's only whole-tree traversal, and the qualifier is load-
+bearing. It refuses to descend a directory that is a symlink, never yields a file that is one
+(`_refuses_descent`, `skills/freya-docs-manager/scripts/detect_project.py:352`), prunes
+`_CENSUS_SKIP` and dot-directories, stops at 20,000 files and sorts both lists. Infrastructure
+detection reads *bytes* through it — never text — under a 64 KiB per-file prefix, a 500-file
+cap and a 4 MiB whole-scan budget. Errors are caught as `OSError` only, which is sufficient
+precisely because the read is bytes. The **extension census keeps its own `os.walk`**
+(`infer_runtime_from_sources`, `detect_project.py:98`, walk at `:102`): it prunes the same
+`_CENSUS_SKIP` and dot-directories inline, stops at 5,000, and reads filenames only — but it
+never calls `_refuses_descent`, so its containment is `os.walk`'s `followlinks=False` default
+and nothing else. That default holds today and is not a guarantee this project states
+(ADR-022's correction declines to promise library defaults); the census is contained by it,
+not by the rule this section names. `glob_search` (`detect_project.py:307`) also survives, and
+does not reach the tree only because its one live call site passes root-only patterns
+(`detect_project.py:559`) and its docstring forbids a `**`.
+
+**Rationale**: the five `**` globs this replaced descended directory symlinks, pruned nothing
+and stopped at nothing, so a committed `vendor -> /` made every one of them walk the
+operator's whole filesystem and read files outside the tree it was pointed at (SEC-008). One
+link to a big tree is the vector; no cycle is needed. Fixing only the YAML site — which is
+the one the finding named — would have left the same denial of service under four other
+pattern strings, so the replacement is one bounded walk rather than five patched globs. The
+dot-directory skip is the clause that had to be *kept* rather than added: `glob` never
+returned anything under `.git`, and `os.walk` walks straight into it, so omitting it would
+have widened the read surface to `.git`, `.ssh` and `.aws` — the fix making the finding
+worse.
+
+**Security Scan Note**: the byte-reading is deliberate and is not a missed decoding step. The
+obvious repair — keep the text read and swap the bare `except:` for `except OSError` — does
+not work: one undecodable byte raises `UnicodeDecodeError`, which is a `ValueError`, so that
+change would have turned a swallowed error into an uncaught traceback out of
+`analyze_project` with no JSON on stdout (BEH-158). Two costs are accepted and stated rather
+than hidden: a manifest reachable only through a symlinked directory is no longer detected
+(BEH-155), and the case-folding `any_project_file` applies means the four replaced patterns
+now match names on POSIX that `glob` did not — a tree whose only model file is `Models.py`
+reports the Django ORM where it used to report none.
+
 ## Related Specs
 
 - [SPEC-014: Existing Documentation Detection](./SPEC-014-existing-docs-detection.md) — the
@@ -206,3 +315,5 @@ reads back out of it.
 | Date | Change | Reason |
 |------|--------|--------|
 | 2026-08-21 | Initial spec, inferred by brownfield scan | Behaviors recorded as `proposed`; no human has confirmed this intent yet |
+| 2026-08-24 | Recorded the bounded walk: `walk_project`, its containment/prune/cap rules, the three byte ceilings on infrastructure reads and the 60-second timeout on the shelled-out call. Five behaviors added (BEH-154…BEH-158), and the census's Security Scan Note narrowed to the walk it is actually about. | SEC-008. The module gained one bounded walk in place of five unbounded `**` globs, and the spec described a detector whose only stated bound was the 5,000-file census — which a reader would reasonably have taken as covering the whole module. |
+| 2026-08-24 | Narrowed the same decision the same day: "`walk_project` is the only way this module reaches the whole tree" was false and is now scoped to *existence* questions, with the extension census's own `os.walk` and its `followlinks=False`-only containment named in the Decision. Heading and frontmatter entry follow it. | The correction wrote a new false invariant into an authoritative document. `grep -n "os.walk("` on `detect_project.py` returns `:102` inside `infer_runtime_from_sources` as well as `:405` inside `walk_project`, and `:102` never calls `_refuses_descent` — so a reader took away that one guard covers traversals it does not touch. |

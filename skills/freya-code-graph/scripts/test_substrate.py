@@ -715,8 +715,63 @@ class TestIsInternal(unittest.TestCase):
     def test_signals_are_not_internal(self):
         self.assertFalse(is_internal('external:react'))
         self.assertFalse(is_internal('unresolved:./x'))
+        self.assertFalse(is_internal('outside:ui/src/Button.tsx'))
         self.assertFalse(is_internal(''))
         self.assertTrue(is_internal('src/a.ts'))
+
+
+class TestADeclaredCrossingIsASignalAndNotANode(unittest.TestCase):
+    """`outside:` is the fourth edge classification, and the contract has to agree with itself.
+
+    A crossing resolved to a real file, which is what makes it different from the other three
+    signals and what makes this worth pinning at the contract layer rather than only where it
+    is produced. It is still not a node: a declaration buys resolution and never a place in the
+    key space (ADR-031, ADR-025). So the contract must ask no node of it, build it no reverse
+    edge, and — the part the key rule depends on — never see it as a `files` key.
+    """
+
+    def graph(self, target):
+        return {
+            'substrate': graph_metadata('stub', Coverage(['typescript'], ['.ts'],
+                                                         ['imports'], True)),
+            'files': {'a.ts': {'imports': [substrate.make_edge(target)], 'dependents': []}},
+        }
+
+    def test_it_needs_no_node_and_gets_no_reverse_edge(self):
+        """Mutation: remove `OUTSIDE_PREFIX` from `IMPORT_SIGNALS`. `is_internal` becomes true,
+        and `validate_graph` reports an edge naming no file in the graph — which would be the
+        correct complaint about any other resolved target, and is why the prefix has to be in
+        the tuple rather than special-cased at each reader."""
+        graph = self.graph('outside:ui/src/Button.tsx')
+        substrate.link_dependents(graph)
+        self.assertEqual(validate_graph(graph), [])
+        self.assertEqual(list(graph['files']), ['a.ts'])
+        self.assertEqual(graph['files']['a.ts']['dependents'], [])
+
+    def test_the_files_key_rule_stays_unconditional(self):
+        """The other half, and the reason the resolution-only grant was worth its constraint.
+
+        Because no file under a declared root ever becomes a key, the check that binds every
+        backend present and future needs no exception for declarations. A backend that writes
+        one as a key is wrong, declared or not.
+        """
+        graph = self.graph('outside:ui/src/Button.tsx')
+        graph['files']['../packages/ui/src/Button.tsx'] = {'imports': [], 'dependents': []}
+        errors = validate_graph(graph)
+        self.assertEqual(len(errors), 1)
+        self.assertIn('not a project-relative path', errors[0])
+
+    def test_a_crossing_is_never_re_keyed_on_the_way_in(self):
+        """`normalize_import` and `is_internal` read one tuple, so they cannot disagree.
+
+        They did have two copies of it, in `graph_ops` and in `substrate`, and this is the
+        change that would have made them differ: `normalize_key` on `outside:ui/./x.ts` would
+        collapse the token into something no reader recognises.
+        """
+        from graph_ops import normalize_import
+        self.assertEqual(normalize_import('outside:ui/./Button.tsx'),
+                         'outside:ui/./Button.tsx')
+        self.assertEqual(normalize_import('src/./a.ts'), 'src/a.ts')
 
 
 class MachineHome(unittest.TestCase):
@@ -1691,6 +1746,50 @@ class TestTheTwoCacheGitignoreWritersAgree(unittest.TestCase):
                 if ln.strip() and not ln.startswith('#')]
         self.assertNotIn('behavior.json', body)
         self.assertNotIn('*', body)
+
+
+class TestAGraphKeyIsProjectRelative(unittest.TestCase):
+    """The key was the one thing `validate_graph` never looked at.
+
+    Every edge was validated and never the key the edge hangs off, so a backend could put an
+    out-of-project path in `files` and the graph came back conforming. `backend_graphify` did
+    exactly that: its `lstrip('/')` turned `/etc/passwd` into the key `etc/passwd`, which
+    reads as project-relative to every downstream reader (SEC-015). The check belongs here
+    rather than only in that backend because this is the only place it binds a backend nobody
+    has written yet.
+    """
+
+    #: The same builder `TestGraphValidation` uses, borrowed rather than copied. This class
+    #: sits at the end of the file so that no existing line moves, not because it is asking a
+    #: different kind of question.
+    graph = TestGraphValidation.graph
+
+    def test_a_key_that_is_not_project_relative_is_a_contract_violation(self):
+        """Both path flavours, on whichever host is running.
+
+        A graph.json is read on machines that did not write it, so a Windows-written key
+        arrives on Linux and back again; `escapes` judges both spellings for that reason, and
+        because `ntpath.isabs` changed in 3.13 so a rooted path with no drive stopped being
+        absolute there.
+        """
+        for key in ('../outside/secret.py', '/etc/passwd', '\\Windows\\win.ini',
+                    'C:/x.ts', 'C:x.ts', 'src/../a.ts'):
+            with self.subTest(key=key):
+                errors = validate_graph(self.graph({key: {'imports': []}}))
+                self.assertTrue(any('not a project-relative path' in e for e in errors),
+                                errors)
+
+    def test_an_ordinary_key_is_not_flagged(self):
+        """The discrimination the pair exists for.
+
+        With the rule replaced by `return True` this row goes red while the row above stays
+        green, so "reports every key" cannot pass itself off as "reports escaping keys".
+        """
+        self.assertEqual(validate_graph(self.graph({
+            'src/a.ts': {'imports': []},
+            'bin/freya': {'imports': []},
+            'a b/c.ts': {'imports': []},
+        })), [])
 
 
 if __name__ == '__main__':

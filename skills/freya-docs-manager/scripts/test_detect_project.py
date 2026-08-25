@@ -16,10 +16,16 @@ import shutil
 import sys
 import tempfile
 import unittest
+import unittest.mock as mock
 from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# `_WALK_FILE_LIMIT` claims to be `substrate.CENSUS_LIMIT`; the claim is asserted rather than
+# restated, so the constant is imported by the ADR-030 sibling pattern (`verify_links.py:40`)
+# instead of copied here as a literal that would agree forever whatever the original became.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "freya-code-graph" / "scripts"))
 import detect_project  # noqa: E402
+import substrate  # noqa: E402
 
 
 class Base(unittest.TestCase):
@@ -1116,6 +1122,404 @@ class CliEntryPointTest(Base):
         os.chdir(d)
         printed = self.run_main(["detect_project.py"])
         self.assertEqual(json.loads(printed)["project_dir"], os.getcwd())
+
+
+def _symlinks_are_creatable():
+    """Can this process make a directory symlink at all?
+
+    Windows needs `SeCreateSymbolicLinkPrivilege` for one, and a CI runner may not have it.
+    Probed once rather than guessed from `os.name`, because Developer Mode grants it.
+    """
+    d = tempfile.mkdtemp()
+    try:
+        os.mkdir(os.path.join(d, "target"))
+        os.symlink(os.path.join(d, "target"), os.path.join(d, "link"),
+                   target_is_directory=True)
+        return os.path.islink(os.path.join(d, "link"))
+    except (OSError, NotImplementedError, AttributeError):
+        return False
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
+
+
+SYMLINKS_CREATABLE = _symlinks_are_creatable()
+
+
+def _islink_claiming(*names):
+    """An `os.path.islink` that says True for these basenames and defers for everything else.
+
+    This is what keeps the containment rows below from being a class that skips itself out of
+    existence on a host with no symlink privilege. It also isolates the one clause under test:
+    the entry is an ordinary directory, so `os.walk`'s own `followlinks=False` cannot be what
+    refuses to descend it — only `_refuses_descent` can.
+    """
+    real = os.path.islink
+
+    def fake(path):
+        return os.path.basename(os.path.normpath(path)) in names or real(path)
+
+    return fake
+
+
+class WalkContainmentTest(Base):
+    """SEC-008: the stack detector stays inside the tree it was pointed at.
+
+    `glob.glob(..., recursive=True)` descends directory symlinks — measured identical on 3.9,
+    3.12 and 3.13 — so a repository committing `vendor -> /` made this module read the
+    operator's filesystem and take as long as that took. No cycle was needed; one link to a
+    big tree was the whole vector.
+
+    The accepted price, agreed before the change: a manifest reachable only through a
+    symlinked directory is no longer detected. Every row is paired with a control that puts
+    the same manifest somewhere ordinary, because a containment test whose fixture was never
+    readable in the first place is green for the wrong reason.
+    """
+
+    MANIFEST = "apiVersion: apps/v1\nkind: Deployment\n"
+
+    def containerization(self, directory):
+        return detect_project.detect_infrastructure(directory)["containerization"]
+
+    def outside_and_project(self):
+        """A project directory with a sibling — not a child — holding a real manifest."""
+        parent = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, parent, ignore_errors=True)
+        outside = Path(parent) / "outside" / "sub"
+        outside.mkdir(parents=True)
+        (outside / "app.yaml").write_text(self.MANIFEST, encoding="utf-8")
+        project = Path(parent) / "proj"
+        project.mkdir()
+        return outside, project
+
+    def test_the_control_a_manifest_inside_the_project_is_detected(self):
+        """Without this row every refusal below is satisfied by "nothing is ever detected"."""
+        d = self.mk({"deploy/app.yaml": self.MANIFEST})
+        self.assertIn("kubernetes", self.containerization(d))
+
+    def test_a_directory_the_walk_reads_as_a_symlink_is_never_descended(self):
+        """The portable half, and the one that carries the proof on Windows."""
+        d = self.mk({"linkdir/app.yaml": self.MANIFEST})
+        self.assertIn("kubernetes", self.containerization(d))
+        with mock.patch("os.path.islink", _islink_claiming("linkdir")):
+            self.assertEqual(self.containerization(d), [])
+
+    def test_the_modules_own_refusal_is_what_prunes_a_symlinked_directory(self):
+        """The row above cannot tell which of two redundant guards did the work.
+
+        `os.walk` refuses a symlinked directory by itself, because `followlinks` defaults to
+        False, and it re-reads `os.path.islink` while it recurses — so with the default in
+        place the explicit `_refuses_descent` prune can be deleted and every other row here
+        stays green. A redundant guard nobody can falsify is a guard that gets deleted by the
+        next reader. This row forces `followlinks=True` so that `walk_project`'s own refusal
+        is the only thing left that can prune, and pairs it with the same walk unpatched.
+        """
+        d = self.mk({"linkdir/app.yaml": self.MANIFEST})
+        real_walk = os.walk
+
+        def always_descend(top, **kwargs):
+            kwargs["followlinks"] = True
+            return real_walk(top, **kwargs)
+
+        with mock.patch("os.walk", always_descend):
+            self.assertIn("kubernetes", self.containerization(d))
+            with mock.patch("os.path.islink", _islink_claiming("linkdir")):
+                self.assertEqual(self.containerization(d), [])
+
+    def test_a_file_the_walk_reads_as_a_symlink_is_never_opened(self):
+        """The file half of the same trick, portably. A `*.yaml` that is itself a link is the
+        way out of the tree that pruning directories does not close — and in text mode
+        `link.yaml -> /dev/zero` is an endless source, which is the MemoryError the bare
+        `except:` used to swallow.
+        """
+        d = self.mk({"deploy/app.yaml": self.MANIFEST})
+        self.assertIn("kubernetes", self.containerization(d))
+        with mock.patch("os.path.islink", _islink_claiming("app.yaml")):
+            self.assertEqual(self.containerization(d), [])
+
+    @unittest.skipUnless(SYMLINKS_CREATABLE, "this host cannot create a symlink")
+    def test_a_manifest_reached_only_through_a_symlinked_directory_is_not_detected(self):
+        """The accepted behavior change, against a real link rather than a claimed one.
+
+        Two clauses have to be removed together to turn this red — the `_refuses_descent`
+        prune and `followlinks=False` — because they are deliberately redundant. The row
+        above is what proves the prune alone is load-bearing.
+        """
+        outside, project = self.outside_and_project()
+        os.symlink(str(outside.parent), str(project / "linkdir"), target_is_directory=True)
+        self.assertEqual(self.containerization(str(project)), [])
+
+        (project / "deploy").mkdir()
+        (project / "deploy" / "app.yaml").write_text(self.MANIFEST, encoding="utf-8")
+        self.assertIn("kubernetes", self.containerization(str(project)))
+
+    @unittest.skipUnless(SYMLINKS_CREATABLE, "this host cannot create a symlink")
+    def test_a_yaml_that_is_itself_a_symlink_out_of_the_tree_is_not_read(self):
+        """Deliberately a link to an ordinary manifest and not to `/dev/zero`: the claim is
+        containment, and an out-of-memory test would prove it by dying."""
+        outside, project = self.outside_and_project()
+        os.symlink(str(outside / "app.yaml"), str(project / "app.yaml"))
+        self.assertEqual(self.containerization(str(project)), [])
+
+
+class InfrastructureReadTest(Base):
+    """What `detect_infrastructure` opens, how much of it, and what it does when a read fails.
+
+    The handler replaced here was the last literal bare `except:` in the tree, and it hid
+    everything from a permission error to MemoryError.
+    """
+
+    def test_a_yaml_that_is_not_valid_utf8_is_skipped_rather_than_fatal(self):
+        """The correction to SEC-008's own remediation, which said to swap the bare `except:`
+        for `except OSError` over the same text read. `open(path, 'r')` decodes with the
+        platform encoding, so one undecodable byte raises UnicodeDecodeError — a ValueError,
+        not an OSError — and that repair would have turned a swallowed error into an uncaught
+        traceback out of `analyze_project` with no JSON on stdout. Reading bytes is what makes
+        `except OSError` sufficient.
+
+        Sorted walk order reaches `a-bad.yaml` first, so this also proves the scan carried on
+        past the file it could not read rather than stopping there.
+        """
+        d = self.mk({"b-good.yaml": "apiVersion: v1\nkind: Pod\n"})
+        (Path(d) / "a-bad.yaml").write_bytes(b"\xff\xfe not text\n")
+        self.assertIn("kubernetes",
+                      detect_project.detect_infrastructure(d)["containerization"])
+
+    def test_only_the_first_64k_of_a_yaml_is_examined(self):
+        """The per-file cap, in both directions.
+
+        The miss in the first row is deliberate and is documented on `_YAML_PREFIX`: a
+        manifest that puts 64 KiB in front of a required top-level key is not worth an
+        unbounded read of every YAML file in a repository. The second row is what stops the
+        first being satisfied by "nothing is ever detected".
+        """
+        rows = [
+            ("past the prefix", detect_project._YAML_PREFIX + 4096, False),
+            ("inside the prefix", detect_project._YAML_PREFIX - 100, True),
+        ]
+        for name, offset, expected in rows:
+            with self.subTest(name):
+                d = self.mk({})
+                padding = b"# " + b"p" * (offset - 3) + b"\n"
+                (Path(d) / "big.yaml").write_bytes(padding + b"apiVersion: v1\n")
+                found = detect_project.detect_infrastructure(d)["containerization"]
+                self.assertEqual("kubernetes" in found, expected)
+
+    def test_the_tree_is_walked_once_not_twice(self):
+        """The guard this replaced re-ran the identical whole-tree glob whenever the repo held
+        YAML and had no `k8s/` directory, and decided nothing with it — the loop it guarded is
+        already empty when the traversal is.
+        """
+        d = self.mk({"config/settings.yaml": "log_level: debug\n"})
+        self.assertFalse(os.path.exists(os.path.join(d, "k8s")))
+        with mock.patch.object(detect_project, "walk_project",
+                               wraps=detect_project.walk_project) as walk:
+            detect_project.detect_infrastructure(d)
+        self.assertEqual(walk.call_count, 1)
+
+    def test_the_extension_test_no_longer_depends_on_the_platform(self):
+        """`glob` matched through `os.path.normcase`, so `APP.YAML` was examined on Windows
+        and skipped on POSIX. One answer everywhere is worth more than either of them."""
+        d = self.mk({"deploy/APP.YAML": "apiVersion: v1\n"})
+        self.assertIn("kubernetes",
+                      detect_project.detect_infrastructure(d)["containerization"])
+
+
+class WalkPruningTest(Base):
+    """What the bounded walk refuses to look at, and what each refusal is worth.
+
+    Two separate rules do the pruning and they need separate rows, or one covers for the
+    other: membership in `_CENSUS_SKIP`, and the leading dot. The dot rule is the one the
+    switch from `glob` to `os.walk` had to *keep* to stay a refactor — `glob` never returned
+    anything under `.git`, and `os.walk` walks straight in, so leaving it out would have made
+    the repair widen the very read surface the finding is about.
+    """
+
+    MANIFEST = "apiVersion: apps/v1\nkind: Deployment\n"
+
+    def test_the_control_the_same_manifest_under_an_ordinary_name_is_found(self):
+        self.assertNotIn("lib", detect_project._CENSUS_SKIP)
+        d = self.mk({"lib/chart/app.yaml": self.MANIFEST})
+        self.assertIn("kubernetes",
+                      detect_project.detect_infrastructure(d)["containerization"])
+
+    def test_no_pruned_directory_can_claim_the_project_runs_on_kubernetes(self):
+        self.assertTrue(detect_project._CENSUS_SKIP,
+                        "the skip list is empty — every row below would be vacuous")
+        for directory in sorted(detect_project._CENSUS_SKIP):
+            with self.subTest(directory=directory):
+                d = self.mk({directory + "/chart/app.yaml": self.MANIFEST})
+                self.assertEqual(
+                    detect_project.detect_infrastructure(d)["containerization"], [])
+
+    def test_a_dot_directory_is_never_walked_into(self):
+        """`.cache` is named in no list anywhere; it is skipped for its leading dot alone."""
+        self.assertNotIn(".cache", detect_project._CENSUS_SKIP)
+        d = self.mk({".cache/app.yaml": self.MANIFEST})
+        self.assertEqual(detect_project.detect_infrastructure(d)["containerization"], [])
+
+
+class WalkBoundsTest(Base):
+    """The caps are load-bearing, not decorative. Each row is paired with the same tree under
+    a cap that admits it, because a bound proves nothing without the case it lets through.
+    """
+
+    def test_the_walk_stops_at_its_file_limit(self):
+        d = self.mk({"f%02d.txt" % i: "" for i in range(10)})
+        self.assertEqual(len(list(detect_project.walk_project(d, limit=3))), 3)
+        self.assertEqual(len(list(detect_project.walk_project(d))), 10)
+
+    def test_the_yaml_scan_stops_at_its_file_cap(self):
+        """Five YAML files where only the last in sorted order carries the key, so the cap is
+        what decides the answer rather than the contents."""
+        files = {"a%d.yaml" % i: "log: %d\n" % i for i in range(4)}
+        files["z.yaml"] = "apiVersion: v1\n"
+        d = self.mk(files)
+        with mock.patch.object(detect_project, "_YAML_FILE_CAP", 2):
+            self.assertEqual(detect_project.detect_infrastructure(d)["containerization"], [])
+        with mock.patch.object(detect_project, "_YAML_FILE_CAP", 10):
+            self.assertIn("kubernetes",
+                          detect_project.detect_infrastructure(d)["containerization"])
+
+    def test_the_yaml_scan_stops_at_its_whole_scan_byte_budget(self):
+        """The file cap alone still allows 500 x 64 KiB. The budget is the second ceiling, and
+        it is spent on bytes actually read rather than on files counted."""
+        d = self.mk({"a.yaml": "log: one\n", "z.yaml": "apiVersion: v1\n"})
+        with mock.patch.object(detect_project, "_YAML_BYTE_BUDGET", 5):
+            self.assertEqual(detect_project.detect_infrastructure(d)["containerization"], [])
+        self.assertIn("kubernetes",
+                      detect_project.detect_infrastructure(d)["containerization"])
+
+    def test_the_shipped_ceilings_are_the_ones_the_rows_above_only_simulate(self):
+        """Every row above injects its own cap, so all three prove the mechanism and none of
+        them pins the number that ships. Measured 2026-08-23: setting `_WALK_FILE_LIMIT`,
+        `_YAML_FILE_CAP` and `_YAML_BYTE_BUDGET` to `10 ** 15` left this module at 115 passed,
+        i.e. the unbounded traversal SEC-008 is about was one token away with the suite green.
+        Setting them to 1 was green too, which is the same hole from the other end.
+
+        The assertions are relationships, not the literals, so retuning a ceiling stays a
+        one-line change and removing one does not.
+        """
+        walk = detect_project._WALK_FILE_LIMIT
+        files = detect_project._YAML_FILE_CAP
+        budget = detect_project._YAML_BYTE_BUDGET
+        for name, value in (("_WALK_FILE_LIMIT", walk), ("_YAML_FILE_CAP", files),
+                            ("_YAML_BYTE_BUDGET", budget)):
+            with self.subTest(name):
+                self.assertIsInstance(value, int)
+
+        # The claim `_WALK_FILE_LIMIT`'s own comment makes, as an assertion.
+        self.assertEqual(walk, substrate.CENSUS_LIMIT)
+
+        # A cap larger than the walk that feeds it is not a cap; below about fifty files a
+        # rendered Helm chart or a kustomize overlay tree stops being examined to the end,
+        # and `apiVersion` can be in the last file in sorted order.
+        self.assertLessEqual(files, walk)
+        self.assertGreaterEqual(files, 50)
+
+        # The budget is the *second* ceiling and only means something strictly under what the
+        # file cap alone already permits — the row above says so in prose. At the other end it
+        # has to pay for the cap at a kilobyte a manifest, or the file cap is dead code.
+        self.assertLess(budget, files * detect_project._YAML_PREFIX)
+        self.assertGreaterEqual(budget, files * 1024)
+
+
+class VendoredTreeContainmentTest(Base):
+    """The four `**` globs SEC-008 did not name.
+
+    The finding described `**/*.yaml`. `**/models.py`, `**/*models*.py`, `**/test_*.py` /
+    `**/*_test.py` and `**/*.feature` were the identical defect under a different pattern
+    string — a committed `vendor -> /` made every one of them walk the operator's filesystem
+    — so all five were routed through the same bounded walk.
+
+    That changes their answers on real repositories, and this class is that change written
+    down: a vendored Django is not this project's ORM, and a dependency's test files are not
+    this project's test runner. It is the judgement `infer_runtime_from_sources` has always
+    made about the same directories, applied to the other four traversals.
+    """
+
+    def test_a_vendored_models_py_no_longer_names_the_orm(self):
+        self.assertEqual(
+            detect_project.detect_database(self.mk({"app/models.py": "x = 1\n"}))["orm"],
+            "django_orm")
+        d = self.mk({"node_modules/dj/models.py": "x = 1\n"})
+        self.assertIsNone(detect_project.detect_database(d)["orm"])
+
+    def test_a_vendored_sqlalchemy_model_no_longer_names_the_orm(self):
+        self.assertEqual(
+            detect_project.detect_database(self.mk({"app/user_models.py": "x = 1\n"}))["orm"],
+            "sqlalchemy")
+        d = self.mk({"vendor/pkg/user_models.py": "x = 1\n"})
+        self.assertIsNone(detect_project.detect_database(d)["orm"])
+
+    def test_a_vendored_test_file_no_longer_names_the_runner(self):
+        self.assertIn("unittest", detect_project.detect_test_runners(
+            self.mk({"tests/test_app.py": "x = 1\n"}))["runners"])
+        d = self.mk({"node_modules/pkg/test_app.py": "x = 1\n"})
+        self.assertEqual(detect_project.detect_test_runners(d)["runners"], [])
+
+    def test_both_unittest_file_spellings_are_still_recognised(self):
+        """Two globs became one predicate, and that is exactly where a spelling gets lost."""
+        for name in ("tests/test_app.py", "tests/app_test.py"):
+            with self.subTest(name):
+                d = self.mk({name: "x = 1\n"})
+                self.assertIn("unittest", detect_project.detect_test_runners(d)["runners"])
+
+    def test_a_vendored_feature_file_no_longer_names_gherkin(self):
+        self.assertIn("gherkin", detect_project.detect_test_runners(
+            self.mk({"features/login.feature": "Feature: login\n"}))["runners"])
+        d = self.mk({"node_modules/pkg/x.feature": "Feature: x\n"})
+        self.assertEqual(detect_project.detect_test_runners(d)["runners"], [])
+
+
+class CaseFoldedMatchTest(Base):
+    """The narrowing the switch away from `glob` did not mean to make, and the choice about it.
+
+    `glob` matches through `os.path.normcase`. On Windows that made all four of these
+    patterns case-insensitive, and `**/models.py` is a literal — resolved by `_glob0`/
+    `_lexists` rather than by `fnmatch` — so it was case-insensitive on default macOS APFS as
+    well. The predicates that replaced them were case-sensitive on every host, which is a
+    silent behaviour change on two platforms of three in the direction that loses answers.
+
+    Measured 2026-08-23 on this APFS host, fixture `app/Models.py`:
+    `glob.glob(d + "/**/models.py", recursive=True)` returned `['.../app/models.py']` while
+    `detect_database(d)["orm"]` returned `None` where it had returned `"django_orm"`. The
+    three wildcard patterns were already case-sensitive on POSIX, so on macOS the loss was
+    that one; on Windows it was all four.
+
+    The decision recorded here is to fold everywhere, matching the call
+    `test_the_extension_test_no_longer_depends_on_the_platform` records for `**/*.yaml` a
+    class above. The accepted cost is the other direction on POSIX: these four now match
+    names `glob` did not, so `Models.py` alone names the Django ORM where it previously named
+    nothing. Detection is a heuristic whose false positive costs one wrong section in a
+    generated document; an answer that depends on the host costs more than that.
+    """
+
+    def test_the_predicate_is_handed_a_folded_name(self):
+        """The fold is in `any_project_file` and nowhere else, which is what lets the four
+        predicates stay written against lower-case literals — and what makes a fifth predicate
+        written against an upper-case one silently dead. This row is where that is said."""
+        seen = []
+        detect_project.any_project_file(
+            self.mk({"pkg/README.MD": ""}), lambda n: seen.append(n) or False)
+        self.assertEqual(seen, ["readme.md"])
+
+    def test_an_upper_cased_name_is_read_the_same_way_on_every_host(self):
+        def orm(d):
+            return detect_project.detect_database(d)["orm"]
+
+        def runners(d):
+            return detect_project.detect_test_runners(d)["runners"]
+
+        rows = [
+            ("app/Models.py", orm, "django_orm"),
+            ("app/User_Models.PY", orm, "sqlalchemy"),
+            ("tests/Test_App.PY", runners, ["unittest"]),
+            ("tests/App_Test.PY", runners, ["unittest"]),
+            ("features/Login.FEATURE", runners, ["gherkin"]),
+        ]
+        for name, call, expected in rows:
+            with self.subTest(name):
+                self.assertEqual(call(self.mk({name: "x = 1\n"})), expected)
 
 
 if __name__ == "__main__":

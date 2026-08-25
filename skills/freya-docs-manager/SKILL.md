@@ -290,12 +290,12 @@ Each worker agent receives project context and focuses only on its assigned docu
 
 ### ENVIRONMENT Worker
 **Context to gather:**
-- .env.example files
+- .env.example files (the example, not the real `.env` sitting next to it)
 - Environment variable usage in code
 - Configuration files
-- Secrets management approach
+- Secrets management approach — where secrets live and how they load, not what they are
 
-**Output:** Complete environment variable reference
+**Output:** Complete environment variable reference: every variable's name, what it is for, and where the reader gets their own. Never write a real secret value into it — see [Redaction](#redaction).
 
 ### DEPLOYMENT Worker
 **Context to gather:**
@@ -304,7 +304,7 @@ Each worker agent receives project context and focuses only on its assigned docu
 - Build process
 - Deployment scripts
 
-**Output:** Step-by-step deployment guide
+**Output:** Step-by-step deployment guide. CI/CD configuration holds deploy tokens, so [Redaction](#redaction) applies here too.
 
 ### DEVELOPER Worker
 **Context to gather:**
@@ -547,6 +547,22 @@ Recommended workflow:
 ## Documentation Templates
 
 Each documentation file follows a consistent structure. See `references/templates.md` for detailed templates for each document type.
+
+## Redaction
+
+Two workers are pointed straight at secret-bearing material: ENVIRONMENT reads
+`.env.example`, configuration files and however the project manages its secrets, and
+DEPLOYMENT reads CI/CD configuration. Everything both of them write lands in
+`knowledge-base/reference/`, which `freya-wrap-up` then commits.
+
+**Never write a real secret value into a doc.** The variable's name, what it is for, and
+where the reader obtains their own is the whole job — a value adds nothing a reader can
+use and turns a rotatable credential into a blob in the history that outlives rotating
+it. Where an example helps, use the placeholder form the template already models
+(`your-secret-here`, `random-32-char-string`), or write `[REDACTED]`.
+
+If a live credential is already committed in the project, do not restate it here. Note
+the file and the line, and leave it to the security scan.
 
 ## Best Practices
 

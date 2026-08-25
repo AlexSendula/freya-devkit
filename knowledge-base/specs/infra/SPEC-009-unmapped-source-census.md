@@ -6,7 +6,7 @@ tags: [substrate, code-graph, coverage, honesty, polyglot, agent-surface]
 status: implemented
 certainty: 82
 created: 2026-08-21
-updated: 2026-08-21
+updated: 2026-08-24
 related_code:
   - skills/freya-code-graph/scripts/substrate.py
   - skills/freya-code-graph/scripts/graph_ops.py
@@ -62,7 +62,7 @@ Every answer the code graph gives says what it could not read.
 
 Each build or update that writes a graph performs one pruned tree walk over the project and
 records the result at `graph["substrate"]["unmapped_source"]` (`graph_ops._census`,
-`graph_ops.py:2643`): how many in-scope source files the running backend does not read, which
+`graph_ops.py:2862`): how many in-scope source files the running backend does not read, which
 extensions they are, and which directories to grep instead. `--build` and `--update` carry the
 whole block in their JSON answer, including a prose `advice` sentence and — on a run that did
 not degrade — a `readable_by` recommendation naming a backend that would read them. `--query`
@@ -70,16 +70,16 @@ and `--impact` carry a structured digest of `files`, `extensions`, `directories`
 truncation markers. `--dependents` and `--dependencies` keep their bare arrays and say the same
 thing on stderr.
 
-What counts as unread source is a two-tier model (`substrate.py:825` and `:852`). Tier one is
+What counts as unread source is a two-tier model (`substrate.py:867` and `:894`). Tier one is
 program source a backend could reasonably be expected to graph, and any of it is material.
 Tier two is script and schema extensions — shell, PowerShell, SQL, batch — which are material
 only when they outnumber both the graphed file count and a floor of two
-(`SCRIPT_MATERIALITY_FLOOR`, `substrate.py:860`). Anything on neither list is never reported.
+(`SCRIPT_MATERIALITY_FLOOR`, `substrate.py:902`). Anything on neither list is never reported.
 
 Three states are expressible and distinguishable: a populated block, `{"files": 0}` meaning
 the census ran and found nothing, and `{"files": null, "error": …}` meaning it could not run.
 Only the first reaches an answer — `unmapped_digest` returns `None` for the second
-(`substrate.py:1012`), so the key is absent rather than empty.
+(`substrate.py:1054`), so the key is absent rather than empty.
 
 ## Why
 
@@ -120,7 +120,7 @@ worth having if both directions hold.
 
 BEH-045 is the gap. `backends.readable_by` is deliberately availability-blind — it answers "is
 there a remedy at all?", which matters most on a machine that has never installed one — and
-`_census` suppresses it on a degraded run (`graph_ops.py:2666`–`:2673`) so the answer does not
+`_census` suppresses it on a degraded run (`graph_ops.py:2885`–`:2892`) so the answer does not
 recommend `--use graphify` in the same breath as "graphify is unavailable". Nothing asserts
 that suppression: no test in this repository constructs a degraded build and inspects the
 census block. A regression would produce advice that contradicts the stderr line directly above
@@ -159,7 +159,7 @@ is a new entry in the frozenset, not a default case.
 
 ### The census re-derives the build's scope rule instead of reading the recorded exclusions
 
-**Decision**: `_unmapped_source_paths` (`graph_ops.py:2595`) filters using
+**Decision**: `_unmapped_source_paths` (`graph_ops.py:2846`) filters using
 `CodeGraph._should_exclude` plus the caller's `Exclusions` — the two layers `build()` itself
 applies — rather than the `substrate.exclusions` block recorded in the artifact.
 
@@ -190,6 +190,26 @@ from the API response computed from it — is deliberate. `test_a_clean_repo_pay
 asserts the answer's key set exactly rather than asserting an absence, so adding a
 harmless-looking empty `unmapped_source: {}` to the clean path is a test failure by design.
 
+> **Correction (2026-08-24, dated append per ADR-016).** The decision above stands in full —
+> the absent-not-empty rule, the sentinel, and the exact-key-set test are all unchanged. What
+> has moved is the *scope* of the sentence "`_answer_caveats` returns `{}`": that was true when
+> `unmapped_source` was the only caveat it could carry, and it now builds a dict that may also
+> hold **`outside_roots`** when the graph has edges leaving the repository (ADR-031). The rule
+> is the same one, applied twice — each key is present only when it has something to say, so a
+> monoglot in-tree repository still emits exactly the pre-feature key set.
+>
+> `outside_roots` is carried **verbatim rather than digested**, which is where it differs from
+> `unmapped_source`. That block has a prose `advice` sentence and a `readable_by`
+> recommendation worth trimming out of a per-file answer; this one is a handful of aliases and
+> counts, and a digest of it would be the same object under a different name. It is
+> repository-level data on a per-file surface, deliberately: an answer computed over a graph
+> with edges leaving the repository is not the same sentence as one that is entirely in-tree,
+> and it goes in the payload for exactly the reason the census does — the consumer is another
+> skill reading `--format json`, and stderr is dead skill-to-skill (ADR-029).
+>
+> Read alongside `substrate.escaping_links` (SPEC-005), which is the other half: `outside_roots`
+> says what this graph *reached* outside the project, `escaping_links` says what it *refused*.
+
 ## Related Specs
 
 - [SPEC-007: Substrate Backend Selection](./SPEC-007-substrate-backend-selection.md) — which
@@ -201,6 +221,7 @@ harmless-looking empty `unmapped_source: {}` to the clean path is a test failure
 
 | Date | Change | Reason |
 |------|--------|--------|
+| 2026-08-24 | Dated correction on "Absent, not empty": `_answer_caveats` may now also carry `outside_roots` | ADR-031 crossings joined the caveat payload. The absent-not-empty rule is unchanged; the sentence naming `unmapped_source` as the only key was scoped to a one-key version of the function |
 | 2026-08-21 | Initial spec, inferred from code and tests | Brownfield scan (`freya-spec-manager bootstrap`) |
 
 ---

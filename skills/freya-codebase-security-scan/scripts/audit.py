@@ -206,8 +206,15 @@ def failure_reason(adapter, completed):
 
 
 def make_ask(adapter_name, budget, *, model=None, retries=DEFAULT_RETRIES,
-             timeout=DEFAULT_TIMEOUT, cwd=None, health=None):
-    """Build the `ask` callable the engine uses for one LLM task."""
+             timeout=DEFAULT_TIMEOUT, cwd=None, health=None, program=None):
+    """Build the `ask` callable the engine uses for one LLM task.
+
+    `program` is the absolute path `main()` resolved for this adapter. It only
+    looks optional: `audit_adapter._guard` refuses an argv[0] that is not an
+    absolute path, so omitting it raises rather than falling back to a search.
+    It is threaded in at construction rather than looked up per call so that 73
+    workers share one decision and the answer cannot change mid-run.
+    """
     adapter = audit_adapter.ADAPTERS[adapter_name]
     health = health if health is not None else Health()
 
@@ -231,7 +238,7 @@ def make_ask(adapter_name, budget, *, model=None, retries=DEFAULT_RETRIES,
             health.attempted()
             try:
                 completed = subprocess.run(
-                    adapter.build_argv(contract, model=model),
+                    adapter.build_argv(contract, model=model, program=program),
                     capture_output=True, text=True,
                     # Explicit, and lenient. `text=True` alone decodes with the
                     # locale's codec and errors="strict": on Windows that is the
@@ -368,16 +375,34 @@ def main(argv=None):
         say(f"not a directory: {args.project}")
         return EXIT_FAILED
 
-    agent_name = args.agent or audit_adapter.detect()
+    agent_name = args.agent or audit_adapter.detect(args.project)
     if agent_name is None:
         # `mode.name`, not a hardcoded "audit": `scan` reached this line too and
         # was told that *audit* needed a CLI. And the remedy names no binary,
         # because `freya-codebase-security-scan` is a skill, not a command — a
         # user who typed the old text at a shell got `command not found`.
+        #
+        # The per-CLI reasons are printed because "none was found" is no longer
+        # the only way to get here: a CLI that resolves inside the repository
+        # being audited is refused, and an operator who can see `claude` on PATH
+        # has to be told that rather than told it is missing.
+        reasons = "\n".join(f"  {audit_adapter.program_for(n, args.project).reason}"
+                            for n in audit_adapter.PREFERENCE)
         say(f"{mode.name} needs an agent CLI on PATH (claude or copilot) and none "
-            "was found.\nThere is no other binary to run: the portable fallback is "
-            "the freya-codebase-security-scan skill's own in-loop scan, which the "
-            "agent performs itself and which is what wrap-up uses.")
+            f"was usable.\n{reasons}\nThere is no other binary to run: the portable "
+            "fallback is the freya-codebase-security-scan skill's own in-loop scan, "
+            "which the agent performs itself and which is what wrap-up uses.")
+        return EXIT_NOTHING_TO_DO
+
+    # Resolved once, here, before the cost plan prints — so a refusal costs
+    # nothing and arrives explained. This also covers `--agent claude`, which
+    # skipped `detect` entirely: without it that path reaches `make_ask` with no
+    # program and dies on `UnsafeInvocation` once per worker. EXIT_NOTHING_TO_DO
+    # is what SKILL.md maps to "fall back to the in-loop scan", so a refusal
+    # degrades exactly like a missing CLI.
+    program = audit_adapter.program_for(agent_name, args.project)
+    if program.path is None:
+        say(f"{program.reason}.")
         return EXIT_NOTHING_TO_DO
 
     # --max-calls is the only cost knob; --max-findings is derived from it so the
@@ -444,7 +469,7 @@ def main(argv=None):
     budget = Budget(args.max_calls)
     health = Health()
     ask = make_ask(agent_name, budget, model=args.model, timeout=args.timeout,
-                   cwd=args.project, health=health)
+                   cwd=args.project, health=health, program=program.path)
 
     def on_round(round_no, fresh, total, dry):
         # The dry counter is meaningless at one round — nothing follows it —

@@ -6,7 +6,7 @@ tags: [security, audit, exit-codes, honesty, findings, disposition, driver]
 status: implemented
 certainty: 78
 created: 2026-08-21
-updated: 2026-08-21
+updated: 2026-08-24
 related_code:
   - skills/freya-codebase-security-scan/scripts/audit.py
   - skills/freya-codebase-security-scan/scripts/audit_engine.py
@@ -17,7 +17,7 @@ intentional_decisions:
   - "Zero verdicts settles as needs-review — a finding is never deleted for lack of information"
   - "A spec citation the project cannot corroborate is ignored rather than trusted"
   - "Findings sharing a location under different categories are annotated, never silently merged"
-  - "A downgrade reclassifies a finding in place; nothing ever removes one from the report"
+  - "A downgrade reclassifies a finding in place; nothing ever removes one from the report, and the evidence is labelled rather than verified unless the scan passed --verify"
   - "`mitigated` is a documented disposition that no code path currently emits"
 behaviors:
   - behavior_id: BEH-131
@@ -48,7 +48,7 @@ behaviors:
     adapter: unittest
     locator: skills/freya-codebase-security-scan/scripts/test_audit_engine.py#DispositionTest.test_no_verdicts_is_needs_review_not_drop
   - behavior_id: BEH-135
-    title: A finding explained by an accepted, test-backed behavior is reclassified in place — status intentional with a behavior_ref, still listed in the report and in findings.json — and is never deleted
+    title: A finding explained by an accepted behavior is reclassified in place — status intentional with a behavior_ref and the query's evidence label, still listed in the report and in findings.json — and is never deleted
     state: proposed
     level: e2e
     adapter: manual
@@ -86,9 +86,28 @@ A `spec-intentional` refutation may outrank the majority and reclassify a findin
 `intentional-design`, but only when it cites something the project actually contains.
 
 One layer further out, in the report the skill writes, the same shape again: a finding that an
-`accepted`, test-backed behavior explains becomes `status: intentional` with a `behavior_ref`
+`accepted` behavior explains becomes `status: intentional` with a `behavior_ref`
 and drops out of the outstanding count, while staying fully visible in the prose report and in
 `findings.json`.
+
+That last one is the place this spec's own rule is hardest to hold, so state what the evidence
+is worth. **Whether a test ran depends on one flag, and this spec's rule is that the answer has
+to say which.** Plain `--covering` runs nothing: `covering()`, in
+`skills/freya-behavior-graph/scripts/behavior_graph.py`, re-derives state and locator from
+`knowledge-base/specs/` and reads exercised paths from the committed
+`knowledge-base/.graph/behavior.json`, and both of those are files the repository under audit
+writes. What it requires of them is narrow: an `accepted` state, a locator that resolves, and an
+exercised path carrying `source: observed`. An edge inferred from the import graph licenses
+nothing, where until 2026-08-24 it silenced a finding exactly as a recorded run did.
+`--covering --verify` re-runs the linked test through `freya-behavior-runner`, and the scan
+passes that flag (`skills/freya-codebase-security-scan/SKILL.md:421`). Either way the query
+returns an `evidence` string saying exactly what it trusted, the skill copies that string into
+the note verbatim, and writing *"verified by passing test"* over a row that was not verified is
+forbidden in as many words (`skills/freya-codebase-security-scan/SKILL.md:436`). Unverified, a
+downgrade is the strongest evidence on offer and is still a labelled claim rather than a
+verification — which is exactly the distinction this spec exists to keep visible, applied to the
+scan's own reasoning rather than to a worker's. ADR-012 carries the full argument and both of
+its dated corrections, the second retracting part of the first.
 
 ## Why
 
@@ -119,7 +138,7 @@ vulnerabilities.
 | BEH-132 A run where only some tasks answered is reported INCOMPLETE at exit 3 — naming how many, the last error, and how much of the surviving evidence completed verification — with the survivors still printed | proposed | `test_audit.py#DegradedRunTest.test_a_mostly_failed_run_is_reported_as_incomplete` (unittest) |
 | BEH-133 A run whose discovery was cut short — by the findings cap or by the call ceiling — exits 3 saying what it discarded and that the remaining rounds never ran, and still reports what it had already paid to verify | proposed | `test_audit.py#TruncatedDiscoveryTest.test_a_cap_that_discarded_findings_is_never_reported_as_complete` (unittest) |
 | BEH-134 A finding is never dropped for lack of information — with no verdicts it settles as needs-review, and only a unanimous refutation removes it | proposed | `test_audit_engine.py#DispositionTest.test_no_verdicts_is_needs_review_not_drop` (unittest) |
-| BEH-135 A finding explained by an accepted, test-backed behavior is reclassified in place — `status: intentional` with a `behavior_ref`, still listed in the report and in `findings.json` — and is never deleted | proposed | **no test** — `test_findings_index.py#DowngradeTest.test_a_behavior_explained_finding_is_reclassified_not_removed` is where one belongs (manual) |
+| BEH-135 A finding explained by an accepted behavior is reclassified in place — `status: intentional` with a `behavior_ref` and the query's evidence label, still listed in the report and in `findings.json` — and is never deleted | proposed | **no test** — `test_findings_index.py#DowngradeTest.test_a_behavior_explained_finding_is_reclassified_not_removed` is where one belongs (manual) |
 
 Each of the first four is one guarantee with several edges:
 
@@ -214,17 +233,23 @@ finding the skeptics just deleted.
 
 ### A downgrade reclassifies; nothing deletes a finding from the report
 
-**Decision**: The strongest evidence available — an `accepted`, test-backed behavior — changes a
-finding's `status` to `intentional` and attaches a `behavior_ref`. It does not remove the
+**Decision**: The strongest evidence available — an `accepted` behavior whose locator resolves
+to a file in the project and whose exercised path was `observed` rather than inferred — changes
+a finding's `status` to `intentional` and attaches
+a `behavior_ref` plus the query's `evidence` string, copied verbatim. It does not remove the
 finding from the prose report or from `findings.json`, and `proposed`/`confirmed` behaviors may
 annotate but never silence.
 
-**Rationale**: ADR-012.
+**Rationale**: ADR-012, and its two 2026-08-24 corrections for what the evidence is and is not.
 
 **Security Scan Note**: A finding that a scan has already explained still appearing in the
 report is the audit trail working as designed. Its absence from the *outstanding* count is
-where the silencing shows up, and it is reversible because the named behavior and its test are
-both checkable.
+where the silencing shows up, and it is reversible because the named behavior, its locator and
+the symbols the run touched are all recorded for a reader to check. On a row the scan did not
+verify, that is still a different and weaker claim than "its test passed": both inputs came from
+the repository being audited, and `observed` means a test passed once, on somebody's machine, at
+the commit `freshness` names. Read `verified.passed` before reading a `behavior_ref` as
+verification — on a row where it is false, the behavior is evidence against itself.
 
 ## Related Specs
 
@@ -238,6 +263,8 @@ both checkable.
 | Date | Change | Reason |
 |------|--------|--------|
 | 2026-08-21 | Initial spec, inferred from code and tests | Brownfield scan (`freya-spec-manager bootstrap`) |
+| 2026-08-24 | Struck "test-backed" from the downgrade rule in three places (BEH-135's title, the *What* section and the design decision) and replaced it with what `--covering` actually establishes: state and a resolving locator re-derived from project-supplied files, carried into the report as a labelled `evidence` string. | SEC-006. This spec exists to stop a run claiming more than it checked, and its own downgrade rule was doing exactly that — no test is run by a downgrade, and every consumer that inherited the phrase from ADR-012 read it as one. |
+| 2026-08-24 (later) | Rewrote the *What* section and the design decision again: a downgrade now also requires `source: observed` and a locator that is present rather than merely valid-if-declared, and `--covering --verify` re-runs the linked test, which the scan passes. | The row above was written on the premise that no better evidence could exist, because running the audited repository's tests would be arbitrary code execution. The user overturned that premise: freya is pointed at a repository its operator works in, and `freya-behavior-runner` ships to run that repository's tests. Closing SEC-006 properly then found the wider hole — a `static` edge, inferred from the import graph with no test involved, licensed a downgrade exactly as a recorded run did. |
 
 ---
 

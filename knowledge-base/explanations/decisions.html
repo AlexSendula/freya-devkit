@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Decisions — freya-devkit</title>
-  <meta name="description" content="The twenty-nine architecture decision records behind freya-devkit: what was decided, what it costs you, what was rejected, and the promise not yet implemented.">
+  <meta name="description" content="The thirty-one architecture decision records behind freya-devkit: what was decided, what it costs you, what was rejected, and the promise not yet implemented.">
   <link rel="stylesheet" href="assets/styles.css">
   <script src="assets/site.js"></script>
 </head>
@@ -16,7 +16,7 @@
 
     <div class="doc-body">
       <span class="eyebrow">Why it is built this way</span>
-      <h1>Twenty-nine decisions, and what each one refused.</h1>
+      <h1>Thirty-one decisions, and what each one refused.</h1>
       <p class="lead">
         Every load-bearing choice in this toolkit is written down as an architecture decision
         record — with the alternative it beat. This page is a way <em>into</em> those records:
@@ -379,8 +379,21 @@
             evidence available: it marks the finding intentional and drops it from the outstanding
             count, while the finding stays fully visible in the report.</p>
             <p class="muted small"><strong>Rejected —</strong> letting <code>proposed</code> or
-            <code>confirmed</code> behaviors explain findings: intent without a test is an unverified
-            claim, so a bootstrap guess could clear a real vulnerability.</p>
+            <code>confirmed</code> behaviors explain findings: intent that nobody has claimed a test
+            for is weaker still, so a bootstrap guess could clear a real vulnerability.</p>
+            <p class="muted small"><strong>Corrected twice on 2026-08-24, the second retracting
+            part of the first —</strong> the title's "test-backed" was the record's own false
+            premise, and the ADR carries both readings at the top. Plain <code>--covering</code>
+            runs no test: it re-derives state and locator from the specs and reads exercised paths
+            from the committed <code>behavior.json</code>. What it now requires is stricter than
+            what the first correction described — the state must be <code>accepted</code>, a
+            locator is <em>required</em> and must resolve, and the exercised path must carry
+            <code>source: observed</code>, so an edge inferred from the import graph licenses
+            nothing. Read "test-backed" as "accepted, with a locator that resolves and an observed
+            run behind it". The first correction also argued the gap could never be closed, because
+            running the repository's own tests would be arbitrary code execution; that is an
+            argument against <code>freya-behavior-runner</code>, which ships to do exactly that, and
+            <code>--covering --verify</code> now re-runs the linked test.</p>
             <p><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-012-accepted-behavior-downgrades-findings.md">knowledge-base/decisions/ADR-012-accepted-behavior-downgrades-findings.md</a></p>
           </div>
 
@@ -457,7 +470,7 @@
 
       <section>
         <p class="small muted prose-center">
-          Twenty of the twenty-nine are on this page. The nine not shown —
+          Twenty of the thirty-one are on this page. The eleven not shown —
           <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-017-behavior-json-is-committed.md">ADR-017</a>,
           <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-020-the-contract-persists-the-graph.md">ADR-020</a>,
           <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-022-every-exclusion-default-is-arguable.md">ADR-022</a>,
@@ -465,9 +478,11 @@
           <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-024-symbols-refine-an-anchor-never-replace-it.md">ADR-024</a>,
           <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-025-three-artifacts-joined-on-file-path.md">ADR-025</a>,
           <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-026-the-docs-graph-anchored-at-section.md">ADR-026</a>,
-          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-027-what-is-not-graph-material.md">ADR-027</a> and
-          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-028-graphs-are-stored-per-backend.md">ADR-028</a>
-          — are narrower calls about artifacts, symbols and scope. They are linked here rather than
+          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-027-what-is-not-graph-material.md">ADR-027</a>,
+          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-028-graphs-are-stored-per-backend.md">ADR-028</a>,
+          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-030-shared-primitives-live-in-a-skill.md">ADR-030</a> and
+          <a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/knowledge-base/decisions/ADR-031-crossing-the-root-is-a-declared-act.md">ADR-031</a>
+          — are narrower calls about artifacts, symbols, scope and where shared code lives. They are linked here rather than
           summarised because this page is a way <em>into</em> the records, not a replacement for
           them, and a card that flattens a decision to two sentences is worse than a link.
           The full index is in

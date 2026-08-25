@@ -8,13 +8,13 @@ It replaces the two backlogs that used to sit inside the historical design tree
 (`design/notes.md` and `design/behavior-layer/parking-lot.md`). Those were written mid-flight
 and accumulated entries that have since shipped. Every item below was re-verified against
 shipped code on **2026-08-19**; delivered work was dropped rather than carried. Current
-release: **0.3.0** (2026-08-23).
+release: **0.3.1** (2026-08-24).
 
 Each item says *what*, *why it was deferred*, and *how to pick it up*. Keep it that way —
 an item nobody can act on is noise.
 
 > **Why `roadmap.md` and not `backlog.md`.** `freya status --write-backlog` writes
-> `knowledge-base/BACKLOG.md` by full overwrite (`collect_status.py:226`), and on a
+> `knowledge-base/BACKLOG.md` by full overwrite (`collect_status.py:366`), and on a
 > case-insensitive filesystem that is the same path as `backlog.md`. This file is
 > hand-maintained and was renamed on 2026-08-21 to keep the toolkit from destroying it.
 > `BACKLOG.md` beside it is the generated census — behaviors to confirm, tests owed,
@@ -299,7 +299,7 @@ day: 9 and 10 by the Track B Phase 0 spike, 11 by the review of the repair it pr
 
 ### 1. A `--copy` install is re-copied on every `update`, even when nothing changed
 
-`bin/updater.py:371` queues every non-symlink `ok` entry for refresh unconditionally — no
+`bin/updater.py:501`–`:506` queues every non-symlink `ok` entry for refresh unconditionally — no
 content comparison and no HEAD comparison. It cannot do better with what it has: the install
 marker written at `bin/installer.py:422` contains only `str(source)`, the source path, with no
 commit stamp. Correct by design in the sense that a copy tracks nothing, but `--copy` is the
@@ -310,20 +310,31 @@ compare, or compare content.
 ### 2. `uninstall` is missing from the conformance checker's `BUILTIN_COMMANDS`
 
 `bin/check_skill_conformance.py:20` lists only `install`, `update`, `doctor`, `init`, `help`.
-`bin/freya_cli.py:26-27` also ships `uninstall`, and `bin/commands.json` does not list it
+`bin/freya_cli.py:27-27` also ships `uninstall`, and `bin/commands.json` does not list it
 either (it holds only manifest subcommands). The allowed set is built from the union of both at
-`check_skill_conformance.py:371`, so the first SKILL.md to write `freya uninstall` in a code
-span trips rule **R3** ("unknown freya command") at `:323`. That is a trap, not a rule — a
+`check_skill_conformance.py:488`, so the first SKILL.md to write `freya uninstall` in a code
+span trips rule **R3** ("unknown freya command") at `:394`. That is a trap, not a rule — a
 documented, working command fails the gate.
 
 ### 3. `mitigated` is an unreachable disposition
 
-`skills/freya-codebase-security-scan/SKILL.md:605` maps `mitigated` → MITIGATED in its
-disposition table, and `:569` lists it among the valid values. `disposition()` in
-`skills/freya-codebase-security-scan/scripts/audit_engine.py:199-246` only ever returns
+`skills/freya-codebase-security-scan/SKILL.md:624` maps `mitigated` → MITIGATED in its
+disposition table, and `:588` lists it among the valid values. `disposition()` in
+`skills/freya-codebase-security-scan/scripts/audit_engine.py:364`–`:411` only ever returns
 `intentional-design`, `needs-review`, `confirmed`, or `drop`. Neither the original JS engine
 nor the Python port ever emitted `mitigated`. Either wire it up or remove it from the table and
 the value list.
+
+Re-checked 2026-08-24, and there is now a second reason to settle it. `findings.json`'s
+`status` vocabulary (`skills/freya-codebase-security-scan/references/findings-schema.md:32`–`:37`)
+is `open` / `resolved` / `intentional` — three values, none of them `mitigated` — and since
+SEC-007 a fourth value is not silently ignored: `collect_status.security_bucket` names it in a
+note (`skills/freya-status/scripts/collect_status.py:214`) and still counts it as **open**
+(`:217`). So the two vocabularies are not the same list and cannot be made one by adding a
+value to either. The
+post-0.3.0 security pass hit this directly: SEC-006 is mitigated and not closed, and had to be left `open`
+in the index because there is no state that says so. Whichever way `mitigated` goes in the
+disposition table, say in the schema what a mitigated-but-not-closed finding is spelled as.
 
 ### 4. `status` and `review` are advertised but undefined (security-resolver)
 
@@ -345,15 +356,16 @@ with a phase and an example, or remove them from the table.
 
 `install.sh --force` without `--copy` replaces copy directories with links. That is what the
 flags ask for, but the orphan remedy that sends users there —
-`bin/freya_cli.py:384-390`, "the checkout moved; re-run `freya install --force`" — carries no
-mode warning, so a Windows user repairing an orphaned install flips modes without noticing.
+`bin/freya_cli.py:437-431`, "the checkout moved; re-run `freya install --force`" at `:430` —
+carries no mode warning, so a Windows user repairing an orphaned install flips modes without
+noticing.
 `doctor` reports the mode, which makes it discoverable *after* the fact; a clause in the remedy
 would make it discoverable before.
 
 ### 6. Two `doctor` lines read oddly together
 
 A moved checkout produces `agents: the suite is not installed for any agent`
-(`bin/freya_cli.py:370`) beside `orphaned entries: 20 …` (`:386-390`). Each line is accurate —
+(`bin/freya_cli.py:421`) beside `orphaned entries: 20 …` (`:453`). Each line is accurate —
 no entry points at *this* store — but the pair invites the reading "nothing is installed, and
 also twenty things are". The orphan line carries the remedy, so this is wording, not behaviour.
 
@@ -511,6 +523,23 @@ gap from an absence.
 Blocked on nothing but a decision. Worth revisiting once Phase 2 has settled what a backend is
 allowed to see outside its own root.
 
+**Update 2026-08-24 — the blocking question is answered, and the "honest floor" above shipped.**
+ADR-031 settled what a build may see outside its root: nothing, unless the project declared it
+in `knowledge-base/settings.json` under `outside`, and then only enough to *resolve* a
+reference in-project code already wrote. An import landing under a declared root becomes the
+edge target `outside:<alias>/<rel>` (`skills/freya-code-graph/scripts/substrate.py:79`), which
+is exactly the "say it is a known sibling rather than a third-party package" this item asked
+for — `is_internal` is false for it (`skills/freya-code-graph/scripts/substrate.py:102`), so it
+distinguishes itself from `external:` without pretending to be a node.
+
+What is **not** done, and is what remains of this item: there is still one graph per repository
+and no edge *between* them. A declaration produces no reverse edge, no node and no blast radius
+on the far side — `link_dependents` builds nothing for an `outside:` target and `validate_graph`
+demands no node for it — and the sibling still has to be checked out for the reference to
+resolve at all, at whatever commit it happens to be on. The two problems this item named as
+unsolved (no single tree, two sides at different commits) are untouched. So: the labelling half
+is shipped, the traversal half is still a decision nobody has made.
+
 ### 13. Per-edge provenance is recorded and enforced by nothing
 
 Found 2026-08-20 by the closing review of Track B.
@@ -622,8 +651,11 @@ resolution of imports that cross a `sys.path` boundary.
 
 Found 2026-08-21, running the scan on this repository.
 
-The driver has **no write path**. `grep -n "open(" skills/freya-codebase-security-scan/scripts/*.py`
-returns exactly one hit, and it is a read. 73 agent calls produced 22 verified findings, and the
+The driver has **no write path**. `grep -n "open(" skills/freya-codebase-security-scan/scripts/*.py
+| grep -v test_` returns exactly one hit, and it is a read — re-measured 2026-08-24, still one
+(`skills/freya-codebase-security-scan/scripts/audit_engine.py:254`). *(The `| grep -v test_` is
+new: the post-0.3.0 security pass added test files that make the recipe as first written return
+eight, none of them a driver write.)* 73 agent calls produced 22 verified findings, and the
 only durable record was the shell redirect the caller happened to add. Without `> file` the
 whole run is lost when the terminal scrolls.
 
@@ -670,8 +702,8 @@ python3 -c "import json,glob,re,os; g=json.load(open('knowledge-base/.graph/grap
 
 **The number reached the user.** `knowledge-base/BACKLOG.md` is git-tracked and regenerated by
 `freya status --write-backlog`, so 57 was printed twice in the report the toolkit hands its
-operator — once in the census line (`collect_status.py:188`) and again as the coverage-gap
-section header (`collect_status.py:208`) — with 33 of the 57 permanently unactionable. That is
+operator — once in the census line (`collect_status.py:310`) and again as the coverage-gap
+section header (`collect_status.py:347`) — with 33 of the 57 permanently unactionable. That is
 exactly the cry-wolf failure item 15 named, now with the arithmetic. The committed
 `BACKLOG.md` still carries 57 until the next regeneration, which is wrap-up Phase 5's job
 (`skills/freya-wrap-up/SKILL.md:467`).

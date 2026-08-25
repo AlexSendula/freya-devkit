@@ -100,10 +100,18 @@ of `gaps` are all documented — ADR-011 cites `drift.py` by line, the module
 docstring names the design document, and `SKILL.md` declares itself the single
 source for the P4b procedure. Held at 80 by the target filters: excluding
 deprecated specs and specs with no `intentional_decisions` (BEH-102) is a
-consequential scope choice that no ADR argues for, and the `related_code`
-intersection is a plain string match on project-relative paths, so a path spelled
-differently in a spec than in `git diff` output silently drops a target — behavior
-that looks decided but may only be incidental.
+consequential scope choice that no ADR argues for.
+
+The `related_code` intersection was a plain string match on project-relative paths,
+and this section named the consequence as a suspicion — *"a path spelled differently
+in a spec than in `git diff` output silently drops a target"*. It was not a
+suspicion. Measured 2026-08-24: a spec declaring `./src/b.py` never matched git's
+`src/b.py`, so it was absent from the target set of a resolve-to-proceed gate with
+nothing printed — a confidently short answer, which is worse than a wrong one
+because the output gives a reader no way to notice. Both sides now go through
+`normalize_key`, the same spelling rule `verify_intent` uses for the sibling
+comparison, so `./`, doubled separators and `..` segments all resolve. What remains
+genuinely incidental is the scope choice above it, not the matching.
 
 ## Behavior
 
@@ -213,3 +221,4 @@ operation. An audit that wants to know what governance cannot see has to run
 | Date | Change | Reason |
 |------|--------|--------|
 | 2026-08-21 | Initial spec (inferred) | Brownfield scan of `skills/freya-spec-manager/scripts/drift.py` |
+| 2026-08-24 | `related_code` and the blast radius are both normalised through `normalize_key` before intersecting. | This section had already named the risk as a suspicion; it was real. A declared `./src/b.py` never matched git's `src/b.py`, so the spec dropped out of the P4b target set silently. Same defect as the G1 locator comparison one file over, missed because the sibling survey asked who resolves a LOCATOR rather than who compares a DECLARED PATH to git. |

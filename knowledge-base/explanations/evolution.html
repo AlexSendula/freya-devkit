@@ -129,6 +129,18 @@
                 <td><a href="#the-gate-that-checked-the-file">The link gate said every behavior link passed</a></td>
                 <td>It had never looked at the half of the link that names the test</td>
               </tr>
+              <tr>
+                <td><a href="#the-remediation-was-wrong">Discovery was the hard part; applying the fix is bookkeeping</a></td>
+                <td>The top finding took five fixes, and four remediations would have made things worse</td>
+              </tr>
+              <tr>
+                <td><a href="#the-fixes-were-the-unscanned-part">Twenty-three findings closed, so the security work is done</a></td>
+                <td>Two thousand lines of new code had never been scanned — and one of them was the previous fix, applied to one path of two</td>
+              </tr>
+              <tr>
+                <td><a href="#the-predicate-and-the-join">The containment rule is one rule</a></td>
+                <td>It asked <code>pathlib</code> and its consumers asked <code>ntpath</code>, and the two libraries answered differently on the interpreter nobody ran locally</td>
+              </tr>
             </tbody>
           </table>
         </div>
@@ -838,8 +850,8 @@
 
         <p>
           <strong>The same day, the security scan found the shape in the code as well as in the
-          gate.</strong> It raised twenty-two findings against the toolkit; the two most severe were
-          the same defect twice. <code>audit.py</code> runs every scan worker with
+          gate.</strong> It raised twenty-two findings against the toolkit, two of which merged into
+          one, so twenty-one were filed; the two most severe were the same defect twice. <code>audit.py</code> runs every scan worker with
           <code>cwd=&lt;the scanned project&gt;</code> and invokes it by the bare name
           <code>claude</code>. On Windows, <code>CreateProcess</code> searches the working directory
           first — so a repository you scan can supply its own <code>claude.exe</code> and have it
@@ -873,6 +885,221 @@
           nowhere, which is the exact defect class the toolkit exists to find in other people's
           repositories.</p>
         </div>
+
+        <h3 id="the-remediation-was-wrong">18 · The report told us how to fix it, and the instructions were wrong</h3>
+        <p>
+          <strong>The belief.</strong> Three days later the twenty-one filed findings were worked
+          through (two more, SEC-022 and SEC-023, were found during that work rather than by the
+          scan).
+          Each one arrived with a <em>Remediation</em> paragraph written by the same adversarially
+          verified pipeline that found it — specific, plausible, citing the line. The belief was that
+          the expensive part was over: discovery had been done, and what remained was application.
+        </p>
+
+        <div class="callout callout--danger">
+          <span class="callout-label">The highest-severity finding took five fixes, and each one passed the fix before it</span>
+          <p>SEC-001 is a hash the scanned repository commits to a marker file, interpolated into
+          <code>git diff</code>'s argv by the gate that decides whether an accepted test was edited
+          without authorisation. Every round below was found by <em>running the attack against the
+          previous fix</em>, never by reading it:</p>
+          <ol>
+            <li><code>--output=/tmp/victim</code> — <code>git diff</code> accepts it, and truncates
+            the file. Closed by validating the value as a hash.</li>
+            <li><strong>Forty zeros.</strong> Valid hex, so the new validation passes it; git then
+            fails <code>rc=128</code> and the empty output was read as "nothing changed". Closed by
+            telling a git failure apart from an empty diff and labelling it a skip.</li>
+            <li><strong>A committed file named <code>deadbeef</code>.</strong> Pure hex, so it walks
+            through the regex — and git resolves it as a <em>pathspec</em>, at <code>rc=0</code>.
+            Closed by <code>--</code>, which forces the revision reading. (A <code>--</code>
+            <em>before</em> the argument makes it a path; after it, the opposite. Getting that
+            backwards is what left this open a round longer.)</li>
+            <li><strong>A tree hash</strong> from <code>git rev-parse HEAD:knowledge-base</code>.
+            Forty hex characters, a real object, and not a commit — it walks past the regex, past
+            <code>--end-of-options</code> and past <code>--</code> alike. Closed by peeling
+            <code>^{commit}</code>.</li>
+            <li><strong>A marker holding <code>commit:</code> with no value</strong>, or no
+            <code>commit:</code> line, or zero bytes. Each returned a bare <code>None</code> — which
+            is the exact fingerprint of a repository that has never run the gate, so
+            <code>--advance</code> exited 0 and erased the finding it should have reported.</li>
+          </ol>
+          <p>The argv that survives all five is
+          <code>git diff --name-status -M --end-of-options &lt;baseline&gt;^{commit} --</code>.</p>
+        </div>
+
+        <div class="callout callout--warn">
+          <span class="callout-label">Four remediations that would have made things worse</span>
+          <p>Applying the report literally was tested rather than assumed, and four of its
+          instructions failed:</p>
+          <ul>
+            <li><strong>"Resolve the binary to an absolute path"</strong> is the fix backwards. On
+            Windows <code>shutil.which</code> returns the working-directory hit first, so
+            <code>abspath</code>-ing it hands <code>CreateProcess</code> a fully-qualified path to the
+            attacker's binary, spelled more convincingly. The rule has to be <strong>refuse</strong>,
+            not absolutise.</li>
+            <li><strong>"Add <code>--end-of-options</code> before the revision"</strong> in the
+            code-graph's incremental diff produces <em>"fatal: option '--name-only' must come before
+            non-option arguments"</em>. Every <code>--update</code> would have degraded to a full
+            rebuild, permanently and quietly.</li>
+            <li><strong>"Replace the bare <code>except:</code> with <code>except OSError</code>"</strong>
+            does not catch <code>UnicodeDecodeError</code>, which is a <code>ValueError</code> — so
+            one non-UTF-8 byte in one YAML file would have converted a swallowed error into an
+            uncaught traceback out of the whole detector. The fix was to read bytes.</li>
+            <li><strong>"Narrowing the pattern can only make the guard stricter"</strong> — true, and
+            not enough. After narrowing, a made-up <code>SPEC-999</code> still corroborated itself on
+            this repository, because the corroboration search included the scanner's own report
+            directory and found the sentence in it describing the test that says it must not.</li>
+          </ul>
+        </div>
+
+        <div class="callout callout--why">
+          <span class="callout-label">Why it was not caught by reading</span>
+          <p>Each of those instructions is <em>locally reasonable</em>. They are the sentences a
+          careful reviewer writes, and three of the four cite the right line. What separates them
+          from correct is one command: reproduce the attack against the proposed fix, on a real
+          repository, before believing it. Discovery had been adversarially verified three ways;
+          the remediation had been verified not at all, and nothing in the pipeline was shaped to
+          notice the difference.</p>
+        </div>
+
+        <div class="callout callout--danger">
+          <span class="callout-label">And one finding was declared unfixable, on a threat model that was not this tool's</span>
+          <p>SEC-006 is the mechanism that lets an <code>accepted</code> behavior silence a security
+          finding. The record authorising it said the behavior's <em>passing test</em> is
+          <em>"verified evidence rather than a prose claim"</em>, and no test was being run — so the
+          claim was false and deleting it was right. What came next was not. The finding was closed
+          as <strong>mitigated and left open on purpose</strong>, arguing that no better evidence
+          could exist: the only evidence not committed by the repository under audit would be
+          executing that repository's test suite, "a security tool running hostile code".</p>
+          <p><strong>That argument was overturned the same day, and it is the most useful thing this
+          pass produced.</strong> It is an argument against a capability this toolkit ships as a
+          feature — <code>freya-behavior-runner</code> exists to run the project's tests, and
+          <code>regression_check</code>, in the same module as the query being reasoned about,
+          already re-ran accepted behaviors. The reasoning had imported a hostile-clone threat model
+          that does not match what freya is: a tool a developer points at a repository they are
+          working in, having already installed its dependencies and run its suite. The premise was
+          never checked against the sibling skill sitting next to it.</p>
+          <p>Closing it properly found a hole wider than the finding described and one no forgery
+          was needed to reach: the query never read whether an exercised path came from a real run
+          or was <em>inferred from the import graph</em>, and both licensed a downgrade identically.
+          A downgrade now requires an observed run and a resolving locator, carries the symbols that
+          actually executed, and <code>--verify</code> re-runs the linked test for the one caller
+          whose answer can silence a finding. A false safety invariant that reads as true is the
+          most expensive kind of documentation there is — and so is a confident argument that the
+          gap behind it can never be closed.</p>
+        </div>
+      </section>
+
+      <section class="entry">
+        <h3 id="the-fixes-were-the-unscanned-part">19 · Then we scanned the fixes</h3>
+        <p>
+          <strong>The belief.</strong> Twenty-three findings closed, every gate green, the toolkit
+          run on itself. The work was the fixes; the fixes were the product. What remained was
+          paperwork.
+        </p>
+        <p>
+          <strong>Two thousand lines had been written and never scanned.</strong> Closing the
+          findings had meant new code — path containment, a binary resolver, a redaction helper, a
+          declaration mechanism, a hardened gate — and no scan had ever seen any of it. Running one
+          over that surface returned twenty-four candidates. Five did not survive refutation.
+          Nineteen did.
+        </p>
+        <p>
+          <strong>The most severe was the previous fix, half-applied.</strong> SEC-023 — a symlink
+          committed inside a project, pointing outside it, followed and read with nothing declared —
+          had been fixed in discovery. The incremental path never got the guard. So the symlink was
+          refused on a cold <code>--build</code> and read on every <code>--update</code> after it,
+          and <code>--update</code> is the one wrap-up runs. The cold start was fixed and the steady
+          state was not. Worse than the hole it reopened, three ways: the build path printed a
+          warning and recorded the refusal where the update path did neither; the key it produced
+          <em>is</em> project-relative, so the contract validator passed the artefact clean; and the
+          regression class written to prevent exactly this proved its claim on five cases, none of
+          them incremental.
+        </p>
+        <p>
+          <strong>One of them destroyed a tracked file.</strong> <code>test-failed</code> is the
+          runner's word for any non-zero exit, and the merge treats that reason — and only that
+          reason — as invalidating. On a machine with no toolchain installed,
+          <code>python -m pytest</code> exits non-zero. So a fresh clone with nothing installed
+          blocked the commit <em>and</em> rewrote the committed behaviour graph to an empty
+          exercise set, after which the downgrade path it feeds answered empty for good. The
+          argument for not doing this was already in the file, ten lines above the bug, written for
+          the neighbouring case: calling a renamed test method <code>test-failed</code> "would wipe
+          committed edges and block a commit over a rename". The reasoning was right and had not
+          been carried one case sideways.
+        </p>
+        <p>
+          <strong>And the pass whose entire job was accuracy wrote three false safety claims of its
+          own.</strong> That <em>validate_graph</em> "rejects" a non-project-relative key — it
+          reports one, and the graph is written anyway. That <em>every</em> containment question
+          goes through one module — one deliberately does not, and its docstring says why. That
+          <em>no</em> symlink crosses the root on its own — one did, which is how SEC-023 was found
+          at all. Each was true on the path its author checked.
+        </p>
+        <p>
+          The recurring shape of this project is a confidently empty answer. This entry is its
+          reflexive form: <strong>the newest work is the unexamined work, and the pass that just
+          finished is the least likely thing to be checked.</strong> It applies to a fix, to a
+          correction of a fix, and to a scan of the corrections. Each round here found fewer and
+          smaller things — twenty-one, then nineteen, then a handful of stale sentences — but no
+          round found nothing. The branch stopped on judgement, not on a clean result, and saying
+          so is the honest version of "done".
+        </p>
+
+        <h3 id="the-predicate-and-the-join">20 · The predicate and the join disagreed about what a drive is</h3>
+        <p>
+          The branch closed with every gate green and was pushed. The first CI run failed —
+          on Python 3.9, on both Linux and Windows, while 3.13 passed everywhere. The failing
+          value was <code>1:x</code>.
+        </p>
+        <p>
+          <code>escapes</code> is the lexical predicate for a value <em>declared</em> in
+          checked-in data, and the fix two entries above had just routed directory keys through
+          it. It asked <code>PureWindowsPath(rel).drive</code> whether a value carried a Windows
+          drive. That question does not have one answer: <code>pathlib</code> restricted a drive
+          letter to ASCII up to Python 3.11 and delegates to <code>ntpath.splitdrive</code> from
+          3.12, which accepts <em>any</em> character. So <code>PureWindowsPath('1:x').drive</code>
+          is empty on 3.9 and <code>'1:'</code> on 3.12.
+        </p>
+
+        <div class="callout callout--danger">
+          <span class="callout-label">Why that was a hole and not a curiosity</span>
+          <p>The consumers do not join with <code>pathlib</code>. They join with
+          <code>ntpath</code>, and <code>ntpath.join('C:\work\proj', '1:x')</code> is
+          <code>'1:x'</code> — the project root discarded. So on 3.9 through 3.11 the predicate
+          answered <em>does not escape</em> about a value that escaped at the very next line of
+          the code it was guarding.</p>
+        </div>
+
+        <p>
+          The rule now asks <code>ntpath.splitdrive</code> — the same body the consumers join
+          with — so predicate and join cannot disagree by construction rather than by vigilance.
+          That is the whole fix, and it is one line.
+        </p>
+        <p>
+          <strong>The lesson was already in the file, four lines away.</strong> The sibling
+          predicate <code>is_anchored</code> was written not to use <code>os.path.isabs</code>,
+          with a comment naming the reason: Python 3.13 had changed <code>ntpath.isabs</code>, and
+          a rule that moves between interpreter versions is not a security boundary. That cost had
+          already been paid once. It was not carried across to the drive term in the function
+          immediately above it — and the reference page's own table shows the seam, because the
+          <code>is_anchored</code> row said <em>on any host and any supported interpreter</em>
+          while the <code>escapes</code> row beside it did not.
+        </p>
+        <p>
+          <strong>Every local run was on one interpreter</strong>, where the two eras agree, so no
+          amount of care at the keyboard would have surfaced this. The version matrix did — which
+          makes it the one entry here found by a machine rather than by reading. The regression
+          test therefore asserts against the <em>join</em> and not only against the predicate: a
+          predicate agreeing with itself proves nothing about the thing it guards. A second test
+          re-derives the rule with the pre-3.12 semantics simulated, so an edit that reaches for
+          <code>.drive</code> again fails on the interpreter developers actually run.
+        </p>
+        <p>
+          The shape rhymes with the entry above it, one level down. There, the newest work was the
+          unexamined work. Here, the newest work was examined thoroughly — by hand, on one
+          machine, on one interpreter — and the examination was the thing with the blind spot.
+          <strong>A green suite is a claim about the environment that ran it.</strong>
+        </p>
       </section>
 
       <!-- ==================== META ==================== -->

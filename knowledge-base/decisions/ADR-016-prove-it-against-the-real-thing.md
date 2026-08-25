@@ -36,9 +36,9 @@ cover fast-forward, dirty refusal, missing upstream, non-git store and a diverge
 cleanly when `git` is absent (`bin/test_updater.py`). The injected-runner exception is drawn on the
 same principle rather than against it: a hang cannot be produced honestly any other way, so the
 notify check takes an injected runner and asserts that a fresh cache makes no network call
-(`bin/test_updater.py:945`), that a stale one checks again (`bin/test_updater.py:956`), that an
-unreachable remote stays silent while still stamping the clock (`bin/test_updater.py:979`), and
-that a raising runner cannot change the command's exit code (`bin/test_updater.py:1019`). The audit
+(`bin/test_updater.py:1129`), that a stale one checks again (`bin/test_updater.py:1140`), that an
+unreachable remote stays silent while still stamping the clock (`bin/test_updater.py:1163`), and
+that a raising runner cannot change the command's exit code (`bin/test_updater.py:1203`). The audit
 driver's `ask` is injected for the same reason: real calls cost money and are non-deterministic.
 
 **Dogfooding over isolated proof.** Building horizontal infrastructure or governance ahead of

@@ -6,10 +6,12 @@ The rejected alternatives are the point. Anyone can read the code to learn what 
 does; only these records say what it could have been and why it isn't. When a question comes
 back around, start here so it doesn't get re-litigated from scratch.
 
-These twenty-nine records were distilled from the design documents, specs and implementation
-plans accumulated between 2026-06 and 2026-08 — roughly fifty files that mixed decisions with
-tasks, status and superseded reasoning — and, for ADR-018 onward, from Track B's own working
-record. The originals are in git history; what mattered is here.
+Twenty-nine of these thirty-one records were distilled from the design documents, specs and
+implementation plans accumulated between 2026-06 and 2026-08 — roughly fifty files that mixed
+decisions with tasks, status and superseded reasoning — and, for ADR-018 onward, from Track B's
+own working record. The originals are in git history; what mattered is here. ADR-030 and
+ADR-031 are the two that were not distilled from anything: each records a decision made while
+the code that raised it was being written.
 
 **Distillation is not transcription.** Every record was re-verified against the code as it was
 written, and several claims did not survive: behaviour asserted in the present tense that no
@@ -37,7 +39,7 @@ tags: [...]
 
 **The tooling sees this directory.** `adr.py` reads `knowledge-base/decisions/`
 (`DECISIONS_RELDIR`, `adr.py:29`), which is where these records now live, so
-`freya adr verify --project .` checks all twenty-nine and `freya adr list` prints them.
+`freya adr verify --project .` checks all thirty-one and `freya adr list` prints them.
 Until 2026-08-21 they sat in a hand-written `docs/decisions/` the tooling could not reach,
 and schema conformance was something you had to remember to check by hand. New records are
 still written by hand — `adr.py` verifies and lists, it does not author.
@@ -113,12 +115,14 @@ add one rather than rewriting history.
 | [ADR-027](ADR-027-what-is-not-graph-material.md) | Config-as-code and migrations are not graph material |
 | [ADR-028](ADR-028-graphs-are-stored-per-backend.md) | Each backend writes its own graph beside the active one |
 | [ADR-029](ADR-029-an-answer-says-what-it-could-not-read.md) | Every answer says what the backend could not read, and it is never a refusal |
+| [ADR-031](ADR-031-crossing-the-root-is-a-declared-act.md) | Crossing the project root is a declared act, and it buys resolution only |
 
 ADR-018 through ADR-029 are the polyglot substrate (Track B), distilled from a working record
 of twenty-seven candidate decisions. Twelve records rather than twenty-seven because several
 entries answered one question in parts, and five recorded the order of the feature's own phases
 rather than anything that outlives it. Read ADR-018 first; ADR-019 and ADR-029 are the two a
-reader is most likely to need.
+reader is most likely to need. ADR-031 is the same track and not part of that distillation: it
+was written on 2026-08-23 alongside the feature it records.
 
 ### Adoption and governance
 
@@ -138,6 +142,7 @@ reader is most likely to need.
 | [ADR-013](ADR-013-single-freya-launcher.md) | One self-locating `freya` launcher is the sole command surface |
 | [ADR-014](ADR-014-canonical-store-install-contract.md) | Install the whole suite from a canonical store by symlink, prefix in the repo, and touch only what we created |
 | [ADR-015](ADR-015-driver-owned-fan-out.md) | Own the fan-out in our own driver, and run its workers under a read-only allowlist that excludes the shell |
+| [ADR-030](ADR-030-shared-primitives-live-in-a-skill.md) | Shared primitives live in a skill, and the two bootstrap copies are gated |
 
 ### Process
 

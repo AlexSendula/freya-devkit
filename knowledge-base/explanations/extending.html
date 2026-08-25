@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Extending it — freya-devkit</title>
-  <meta name="description" content="Writing a conforming skill: the frontmatter contract, the freya launcher, the thirteen-rule gate, portable fan-out, and the repo's testing discipline.">
+  <meta name="description" content="Writing a conforming skill: the frontmatter contract, the freya launcher, the fourteen-rule gate, portable fan-out, and the repo's testing discipline.">
   <link rel="stylesheet" href="assets/styles.css">
   <script src="assets/site.js"></script>
 </head>
@@ -196,13 +196,24 @@ freya-code-graph</code></pre>
 
       <!-- =========================== THE GATE =========================== -->
       <section>
-        <h2 id="the-gate">The gate: thirteen rules, no exemptions</h2>
+        <h2 id="the-gate">The gate: fourteen rules, no exemptions</h2>
         <p>
           <code>bin/check_skill_conformance.py</code> runs over <code>skills/**/*.md</code> and
-          <code>skills/**/*.py</code> and exits non-zero on a single host-specific construct. Thirteen
+          <code>skills/**/*.py</code> and exits non-zero on a single host-specific construct. Fourteen
           rules, each one added <strong>red, against a real violation</strong> — none speculative, none
           decorative. It runs on every push, separately from the test suite, because a shipped
-          <code>SKILL.md</code> can violate most of the thirteen with the whole suite green.
+          <code>SKILL.md</code> can violate most of the fourteen with the whole suite green.
+        </p>
+        <p>
+          <strong>One of the fourteen is not about portability.</strong> <code>R14</code> arrived in
+          the post-0.3.0 security pass and rides along on the same machinery for the same reason — it is a
+          whole-tree property of prose that no unit test can express. It requires a skill that sends
+          a worker at secret-bearing material to state the redaction rule, <em>and</em> to restate it
+          inside the template slot the writer actually fills by copying source out of the scanned
+          project. Stating it three sections away is what the rule exists to catch: that was the
+          shape of SEC-009, where the report template's evidence block took a bare
+          <code>{code snippet}</code> and, for a Secrets finding, the vulnerable code <em>is</em> the
+          credential.
         </p>
 
         <div class="callout callout--success">
@@ -225,7 +236,8 @@ freya-code-graph</code></pre>
           <p>A find-and-replace pass has no natural end. You stop when you stop seeing hits, which is
           exactly when the remaining hits are the ones your search missed. A checker inverts that: the
           job is done when a program says so, and every miss it catches becomes a permanent rule rather
-          than a one-off correction. The rule set grew from seven to thirteen while the work ran, and
+          than a one-off correction. The rule set grew from seven to thirteen while the work ran (the
+          fourteenth came later, from a different pass), and
           the checker was widened mid-flight to scan <code>skills/**/*.py</code> as well as markdown,
           after a Python file was caught writing a Claude-only command into its generated output — a
           regression class markdown-only scanning could never see.</p>
@@ -257,7 +269,7 @@ freya-code-graph</code></pre>
         <div class="callout callout--info">
           <span class="callout-label">In the markdown</span>
           <p>The rules themselves are not reproduced here on purpose: the checker is its own source of
-          truth, it will grow, and a copy of R1–R13 on a web page is a copy that will be wrong. Read
+          truth, it will grow, and a copy of R1–R14 on a web page is a copy that will be wrong. Read
           the <code>RULES</code> dict at the top of the file — it is written to be read.</p>
           <ul class="md-links">
             <li><a class="md-link" href="https://github.com/AlexSendula/freya-devkit/blob/main/bin/check_skill_conformance.py">bin/check_skill_conformance.py</a></li>
@@ -292,8 +304,10 @@ freya-code-graph</code></pre>
             imports an agent, never spawns a process, and never knows its host. In production
             <code>ask</code> shells out; in tests it is three lines returning canned JSON, which is why
             the entire driver suite runs offline and free. The per-agent surface is one small module —
-            <code>audit_adapter.py</code>, 116 lines — holding argv, envelope parsing, cost telemetry
-            and CLI detection. Adding a third host means an argv builder and a stdout parser.</p>
+            <code>audit_adapter.py</code>, 224 lines — holding argv, envelope parsing, cost telemetry
+            and CLI detection. Adding a third host means an argv builder and a stdout parser.
+            (It was 116 until the post-0.3.0 security pass; the growth is the binary resolver and its
+            reasoning, not a second host.)</p>
           </div>
         </div>
 
@@ -358,23 +372,57 @@ freya-code-graph</code></pre>
           exit.
         </p>
         <p>
-          The three gates read what the suite cannot. <code>check_skill_conformance.py</code> scans the
-          shipped skill layer for host-specific constructs. <code>check_doc_citations.py</code> resolves
-          every <code>path:line</code> citation in the prose — 1,311 of them — because a citation that
-          rots is a document quietly lying about the code.
-          <code>check_invariants.py</code> reads the AST for two properties no single unit test owns:
-          that every import is stdlib or a sibling, and that no <code>subprocess</code> call takes a
-          bare-name <code>argv[0]</code>.
+          One of the three gates reads something the suite cannot; the other two overlap it on
+          purpose. <code>check_skill_conformance.py</code> scans the shipped skill layer for
+          host-specific constructs, and <code>check_invariants.py</code> reads the AST for two
+          whole-tree properties: that every import is stdlib or a sibling, and that no
+          <code>subprocess</code> call takes a bare-name <code>argv[0]</code> unless that site is on
+          an explicit allowlist. Both of those <em>also</em> run from inside pytest — each has a
+          <code>ShippedTreeTest</code> driving the same scan over the same tree — so they are kept
+          for the report they print, naming the file, line and rule, not because the suite would
+          miss the violation. <code>check_doc_citations.py</code> is the one that genuinely stands
+          alone: its repo-level test pins only the rule that no document cites an untracked path,
+          leaving the other two rules to the script. It resolves every <code>path:line</code>
+          citation in the prose — a four-figure count the gate prints on each run, and one that
+          moves with every commit, which is why the number belongs in that output and not on this
+          page — because a citation that rots is a document quietly lying about the code.
+          It catches three things and only three: a cited file that is not in the tracked tree, a
+          line past the end of that file, and a citation landing on a blank line. <strong>A citation
+          that has drifted onto the wrong <em>non-blank</em> line stays green</strong>, so a passing
+          run is not evidence that a number is right — which is why the post-0.3.0 pass re-derived
+          every moved citation by matching the cited text rather than by trusting the gate.
         </p>
         <div class="callout">
-          <span class="callout-label">Why those two are AST checks and not tests</span>
-          <p>Both are properties of the <em>whole tree</em>, and a per-file test cannot see them. The
+          <span class="callout-label">Why those two are AST checks over the whole tree</span>
+          <p>Both are properties of the <em>whole tree</em>, and a per-file test cannot see them —
+          which is why the tests that do cover them are whole-tree scans calling the same code. The
           stdlib rule fails invisibly on the machine that breaks it — you write
           <code>import yaml</code>, it works for you because you happen to have it, and it breaks for
           everyone else. The argv rule is the shape of two high-severity findings this toolkit's own
           security scan raised against it: a worker invoked as bare <code>claude</code> with the scanned
           repository as its working directory is, on Windows, an invitation for that repository to
-          supply its own <code>claude.exe</code>.</p>
+          supply its own <code>claude.exe</code>. Both of those two findings are fixed — the agent
+          CLIs and <code>graphify</code> are resolved to an absolute path or refused — which is a
+          narrower statement than "every external program", and the callout below says why.</p>
+        </div>
+        <div class="callout callout--warn">
+          <span class="callout-label">What the argv rule does not say</span>
+          <p>It is not "no bare names remain". <strong>Eight sites still spawn a bare
+          <code>git</code></strong>, across seven files, and they are carried in an explicit
+          allowlist that the gate reads. That list is a debt marker, not an approval: the gate goes
+          red the moment a ninth appears or one of them names anything other than <code>git</code>,
+          and a test pins the census at exactly eight. There is a second, subtler limit — a site that
+          gets <em>fixed</em> stops being visible to the rule at all, because
+          <code>subprocess.run([exec_path.resolve(...).path, …])</code> is a call expression the AST
+          check cannot evaluate. Fixed sites therefore <em>leave</em> the census rather than passing
+          it, which is why a fixed site's allowlist entry is deleted in the same commit instead of
+          being left behind as cover. The same blindness cuts the other way, and it is worth knowing
+          before you read the census as a total: an argv built into a variable first is invisible
+          too, so <code>run_behaviors.py:228</code>'s <code>["pnpm", "vitest", …]</code>, spawned at
+          <code>:459</code> with the scanned project as its working directory, is a bare name the
+          gate never counted — neither resolved nor allowlisted. Running a project's own test command
+          means executing that project's code regardless, so it is left as it is; the point is that
+          "eight" is eight <em>the rule can see</em>.</p>
         </div>
         <div class="callout callout--warn">
           <span class="callout-label">Read the green tick precisely</span>

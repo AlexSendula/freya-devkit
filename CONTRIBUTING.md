@@ -94,10 +94,10 @@ Know the two limits before you rely on it:
     `freya-codebase-security-scan` does **not** carry the canonical block, and that
     is correct: since phase 7 its fan-out belongs to the `freya security scan`
     driver, which schedules its own worker processes and gives no agent a vote.
-    The shorter form there (`skills/freya-codebase-security-scan/SKILL.md:171-177`)
+    The shorter form there (`skills/freya-codebase-security-scan/SKILL.md:178-184`)
     covers only the no-agent-CLI fallback path. Don't "fix" it to match, and don't
     copy it as the reference for a prose fan-out — it keeps the token-cost note, and
-    states the 7× cost separately at line 239 in driver terms, but drops the
+    states the 7× cost separately at line 246 in driver terms, but drops the
     per-agent parenthetical on purpose, because that path is the exception.
 
   What the gate actually enforces: `python3 bin/check_skill_conformance.py` rule R9
@@ -132,21 +132,54 @@ pytest is the only thing that is ever installed — everything under test is std
 and stays that way. `python3 -m unittest discover -s bin -p 'test_*.py'` works too, per
 directory, if you'd rather not install a runner.
 
-The conformance gate is **separate and not redundant**:
+Four more gates run beside it, and two of them read something `pytest` alone would let through:
+the C2/C3 half of doc citations, and verify-links. The other two — conformance and invariants —
+overlap the suite deliberately, because each has a `ShippedTreeTest` that runs the same scan
+over the same tree from inside pytest; they are kept because they name the file, line and rule
+where a test gives you an assertion. All four must exit 0:
 
 ```bash
-python3 bin/check_skill_conformance.py     # must exit 0
+python3 bin/check_skill_conformance.py                      # the skill layer, R1–R14
+python3 bin/check_doc_citations.py                          # every `path.py:NNN` in tracked .md
+python3 bin/check_invariants.py                             # INV-1 stdlib-only, INV-2 argv[0]
+python3 skills/freya-spec-manager/scripts/verify_links.py   # Tier-1 behavior link integrity
 ```
 
-A shipped `SKILL.md` violation fails **both**: `ShippedTreeTest`
-([`bin/test_check_skill_conformance.py:928`](bin/test_check_skill_conformance.py)) runs the
-same scan over the same tree from inside pytest. Run this script anyway — it names the file,
-line and rule, where the test gives you an assertion. *(This paragraph used to say the suite
-stays green with a shipped violation. It was written in the same commit that added
-`ShippedTreeTest` and was never true; re-checked by mutation on 2026-08-21.)*
+- **Conformance** scans `skills/` for Claude-only constructs. It carries **fourteen** rules.
+  R14 is the odd one out and worth knowing before you trip it: it is a *secrets* rule, not a
+  portability one. A skill that sends a worker at secret-bearing material must state the
+  redaction rule — *"never write a real secret value"* **and** the placeholder to write
+  instead — **and restate it inside the copied-source slot**, because a rule stated three
+  sections away from the line the writer is typing is where SEC-009 came from.
+- **Doc citations** covers what conformance does not: that gate hardcodes `(root / "skills")`,
+  so every ADR, spec and reference page under `knowledge-base/` and at the repo root had no
+  gate at all. It catches three things only — a cited file that is not in the tracked tree, a
+  line past EOF, and a citation landing on a blank line. **A citation that drifts onto the
+  wrong *non-blank* line stays green**, so a green run is not evidence that a number is right;
+  check the line you cite.
+- **Tree invariants** reads the AST. INV-2 (no bare-name `argv[0]`) carries an explicit
+  allowlist of the sites still spawning a bare name — **eight, every one of them `git`, across
+  seven files**. That list is a debt marker, not an approval, and the gate goes red the moment
+  a ninth appears. A site that gets *fixed* loses its entry rather than shrinking it: argv[0]
+  resolved through `exec_path` is a call expression the rule cannot read, so a fixed site
+  leaves the census instead of passing it (ADR-030). `--no-allowlist` prints the whole census.
+- **verify-links** is the one of these four that **CI does not run** — `.github/workflows/ci.yml`
+  runs the suite and the first three and stops there. Run it by hand.
 
-[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs both on every push and pull
-request, across Linux and Windows on Python 3.9 and 3.13, plus a second job that drives
+Here is the shape of that deliberate overlap. A shipped `SKILL.md` violation fails
+**both** the suite and the conformance gate: `ShippedTreeTest`
+([`bin/test_check_skill_conformance.py:919`](bin/test_check_skill_conformance.py)) runs the
+same scan over the same tree from inside pytest, and `check_invariants` has a `ShippedTreeTest`
+of its own that does the same for both invariants. `check_doc_citations`'s repo-level test is
+narrower on purpose: it pins **C1 only** — no document cites a path that is not in the tracked
+tree — and leaves C2 and C3 to the script, so a citation that has drifted onto a blank line
+goes red there and nowhere else. Run the scripts anyway; they name the file, line and rule,
+where a test gives you an assertion. *(This paragraph used to say the suite stays green with a
+shipped violation. It was written in the same commit that added `ShippedTreeTest` and was never
+true; re-checked by mutation on 2026-08-21.)*
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs the suite and those three gates on
+every push and pull request, across Linux and Windows on Python 3.9 and 3.13, plus a second job that drives
 `install.sh` / `install.ps1` end to end and resolves the launcher by name off `PATH`.
 That is **8 jobs** — `{tests, install} × {ubuntu-latest, windows-latest} × {3.9, 3.13}`.
 `install` is deliberately a separate job from `test`, so a failing test can't hide the
@@ -211,7 +244,7 @@ Read these before making structural changes. They describe the system **as it is
 - [`knowledge-base/reference/DEVELOPER.md`](knowledge-base/reference/DEVELOPER.md) — integration guidelines
 - [`knowledge-base/reference/SKILL_REFERENCE.md`](knowledge-base/reference/SKILL_REFERENCE.md) — every skill's commands, at a glance
 
-Separately, [`knowledge-base/decisions/`](knowledge-base/decisions/) holds the twenty-nine **Architecture Decision
+Separately, [`knowledge-base/decisions/`](knowledge-base/decisions/) holds the thirty-one **Architecture Decision
 Records** — what was decided, why, and what was rejected. The rejected alternatives are the
 point: they say what the system could have been and why it isn't, so a settled question
 doesn't get re-litigated. An ADR records the decision, not the implementation.

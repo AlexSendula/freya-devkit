@@ -4,8 +4,10 @@
 import contextlib
 import io
 import json
+import os
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import unittest
@@ -14,6 +16,49 @@ from unittest import mock
 import audit
 import audit_adapter
 import audit_engine
+
+#: Where main() would have resolved the agent CLI to. `make_ask` threads a
+#: program through to `build_argv`, and `audit_adapter._guard` refuses an
+#: argv[0] that is not already absolute, so every test that builds an `ask`
+#: has to supply one — a bare `"copilot"` is the defect the guard exists to
+#: reject and would raise `UnsafeInvocation` before any of these tests reached
+#: the behaviour they are about.
+PROGRAM = "/opt/agents/copilot"
+
+
+@contextlib.contextmanager
+def resolved_agent(name, program=PROGRAM, reason=None):
+    """Answer both halves of `main()`'s agent selection.
+
+    Selection asks two questions now — *which* CLI, and *where* it is — and a
+    test that answers only the first falls through to `program_for`, which
+    consults the real PATH and finds nothing on a machine with no agent CLI
+    installed. Every such test would then exit `EXIT_NOTHING_TO_DO` before
+    reaching what it is about, so the two are stubbed together or not at all.
+
+    `name=None` is "nothing detected", and it supplies the matching refusal
+    reason, because `main()` now prints one line per known agent explaining
+    why each was unusable.
+    """
+    if name is None and reason is None:
+        program, reason = None, "no agent CLI is on PATH"
+    resolution = audit_adapter.exec_path.Resolution(program, reason)
+    with mock.patch("audit_adapter.detect", return_value=name), \
+            mock.patch("audit_adapter.program_for", return_value=resolution):
+        yield
+
+
+def ask_factory(adapter_name, budget, **kw):
+    """`audit.make_ask` with the program main() would have resolved.
+
+    A local default rather than one inside `make_ask`: the production default
+    has to stay absent, because a `make_ask` that could invent its own argv[0]
+    is a `make_ask` that can search PATH again. The tests below are about
+    retries, budgets and health, not about resolution, so they say so once
+    here.
+    """
+    kw.setdefault("program", PROGRAM)
+    return audit.make_ask(adapter_name, budget, **kw)
 
 
 class _SlowBudget(audit.Budget):
@@ -265,10 +310,48 @@ class ConcurrencyTest(unittest.TestCase):
         audit.make_run(concurrency)(thunks)
         return time.monotonic() - start
 
-    def test_the_pool_beats_the_sequential_floor(self):
-        elapsed = self._elapsed(self.N)
-        self.assertLess(elapsed, self.DELAY * self.N / 2,
-                        "make_run did not parallelize")
+    def test_the_pool_really_runs_them_at_the_same_time(self):
+        """N workers are proved concurrent by a barrier, not by a stopwatch.
+
+        This asserted `elapsed < DELAY * N / 2` until 2026-08-24, when it failed
+        on one CI leg at 0.231s against a 0.150s threshold while the other three
+        legs passed. Nothing was wrong with the pool: a shared runner scheduled
+        six threads across a busy machine, and the margin between "parallel" and
+        "sequential" was three sleeps wide.
+
+        A flaky gate is worse than a missing one, because the failure teaches
+        the next person to re-run until green — and re-running until green is
+        how a real regression gets waved through. That is the same defect class
+        this suite exists to catch, in the suite itself.
+
+        So the property is measured directly instead of through a proxy for it.
+        Every thunk waits at a `Barrier(N)`: it releases only when all N are
+        inside simultaneously, which is exactly what "the pool parallelizes"
+        means. A serial `run` can never get the second thunk to the barrier, so
+        it raises `BrokenBarrierError` on the timeout and the test fails for the
+        real reason. The timeout is generous on purpose — a working pool never
+        reaches it, and a slow machine now makes this test MORE reliable rather
+        than less, which is the direction a timing-sensitive assertion should
+        fail in.
+        """
+        barrier = threading.Barrier(self.N, timeout=10)
+        peak = []
+        lock = threading.Lock()
+
+        def thunk():
+            index = barrier.wait()          # raises BrokenBarrierError if serial
+            with lock:
+                peak.append(index)
+            return index
+
+        try:
+            results = audit.make_run(self.N)([thunk] * self.N)
+        except threading.BrokenBarrierError:
+            self.fail("make_run did not parallelize: %d of %d thunks ever ran "
+                      "at the same time" % (len(peak), self.N))
+        self.assertEqual(len(results), self.N)
+        self.assertEqual(sorted(peak), list(range(self.N)),
+                         "every worker should have passed the barrier exactly once")
 
     def test_concurrency_one_is_sequential(self):
         """Pins the other side: --concurrency 1 must really serialize, or the
@@ -299,15 +382,43 @@ class AskTest(unittest.TestCase):
     def _completed(self, stdout):
         return mock.Mock(returncode=0, stdout=stdout, stderr="")
 
+    def test_the_worker_is_spawned_by_the_resolved_path(self):
+        """SEC-003 at the only place it can be observed: the argv handed to the OS.
+
+        The resolution main() made has to survive `make_ask` -> `build_argv` ->
+        `subprocess.run`. Every other test in this class stubs `subprocess.run`
+        and never looks at argv[0], so without this one the path could be
+        resolved, threaded, and then dropped at the last hop with nothing red.
+        """
+        ask = ask_factory("copilot", audit.Budget(max_calls=5))
+        with mock.patch("subprocess.run",
+                        return_value=self._completed('{"findings": []}')) as run:
+            ask("p", schema=audit.audit_io.FINDER_SCHEMA)
+        self.assertEqual(run.call_args[0][0][0], PROGRAM)
+
+    def test_a_program_that_never_arrives_is_a_refusal_not_a_search(self):
+        """`make_ask(program=None)` must not fall back to the bare name.
+
+        This is the failure shape the guard exists for: a call site that forgets
+        to thread the resolution through. It raises out of `ask` rather than
+        spawning, which is loud, and it is why `make_ask`'s `program` has no
+        usable default.
+        """
+        ask = audit.make_ask("copilot", audit.Budget(max_calls=5))
+        with mock.patch("subprocess.run") as run:
+            with self.assertRaises(audit_adapter.UnsafeInvocation):
+                ask("p", schema=audit.audit_io.FINDER_SCHEMA)
+        run.assert_not_called()
+
     def test_valid_payload_is_returned(self):
         budget = audit.Budget(max_calls=5)
-        ask = audit.make_ask("copilot", budget)
+        ask = ask_factory("copilot", budget)
         with mock.patch("subprocess.run", return_value=self._completed('{"findings": []}')):
             self.assertEqual(ask("p", schema=audit.audit_io.FINDER_SCHEMA), {"findings": []})
 
     def test_invalid_payload_is_retried_then_gives_up(self):
         budget = audit.Budget(max_calls=5)
-        ask = audit.make_ask("copilot", budget, retries=1)
+        ask = ask_factory("copilot", budget, retries=1)
         with mock.patch("subprocess.run",
                         return_value=self._completed("no json here")) as run:
             self.assertIsNone(ask("p", schema=audit.audit_io.FINDER_SCHEMA))
@@ -315,7 +426,7 @@ class AskTest(unittest.TestCase):
 
     def test_schema_violation_is_retried(self):
         budget = audit.Budget(max_calls=5)
-        ask = audit.make_ask("copilot", budget, retries=1)
+        ask = ask_factory("copilot", budget, retries=1)
         bad = json.dumps({"findings": [{"category": "nope"}]})
         with mock.patch("subprocess.run", return_value=self._completed(bad)) as run:
             self.assertIsNone(ask("p", schema=audit.audit_io.FINDER_SCHEMA))
@@ -323,27 +434,27 @@ class AskTest(unittest.TestCase):
 
     def test_nonzero_exit_yields_none(self):
         budget = audit.Budget(max_calls=5)
-        ask = audit.make_ask("copilot", budget, retries=0)
+        ask = ask_factory("copilot", budget, retries=0)
         with mock.patch("subprocess.run",
                         return_value=mock.Mock(returncode=1, stdout="", stderr="boom")):
             self.assertIsNone(ask("p", schema=audit.audit_io.FINDER_SCHEMA))
 
     def test_schemaless_call_returns_text(self):
         budget = audit.Budget(max_calls=5)
-        ask = audit.make_ask("copilot", budget)
+        ask = ask_factory("copilot", budget)
         with mock.patch("subprocess.run", return_value=self._completed("just prose")):
             self.assertEqual(ask("p"), "just prose")
 
     def test_every_call_is_counted(self):
         budget = audit.Budget(max_calls=5)
-        ask = audit.make_ask("copilot", budget, retries=1)
+        ask = ask_factory("copilot", budget, retries=1)
         with mock.patch("subprocess.run", return_value=self._completed("nope")):
             ask("p", schema=audit.audit_io.FINDER_SCHEMA)
         self.assertEqual(budget.calls, 2)
 
     def test_worker_argv_is_read_only(self):
         budget = audit.Budget(max_calls=5)
-        ask = audit.make_ask("copilot", budget)
+        ask = ask_factory("copilot", budget)
         with mock.patch("subprocess.run", return_value=self._completed("x")) as run:
             ask("p")
         argv = run.call_args[0][0]
@@ -357,7 +468,7 @@ class AskTest(unittest.TestCase):
         documented mutation check for this ordering passed against it."""
         budget = audit.Budget(max_calls=9)
         health = audit.Health()
-        ask = audit.make_ask("copilot", budget, retries=1, health=health)
+        ask = ask_factory("copilot", budget, retries=1, health=health)
         with mock.patch("subprocess.run", side_effect=OSError("no such binary")):
             self.assertIsNone(ask("p", schema=audit.audit_io.FINDER_SCHEMA))
         self.assertEqual(budget.calls, 2)  # the attempt and its retry
@@ -367,7 +478,7 @@ class AskTest(unittest.TestCase):
     def test_a_timed_out_worker_is_charged_and_named(self):
         budget = audit.Budget(max_calls=9)
         health = audit.Health()
-        ask = audit.make_ask("copilot", budget, retries=1, health=health)
+        ask = ask_factory("copilot", budget, retries=1, health=health)
         timeout = subprocess.TimeoutExpired(cmd=["copilot"], timeout=600)
         with mock.patch("subprocess.run", side_effect=timeout):
             self.assertIsNone(ask("p", schema=audit.audit_io.FINDER_SCHEMA))
@@ -380,7 +491,7 @@ class AskTest(unittest.TestCase):
         answered `category: "crypto"` answers it again, and the task ends
         unanswered having spent two slots on one question."""
         budget = audit.Budget(max_calls=5)
-        ask = audit.make_ask("copilot", budget, retries=1)
+        ask = ask_factory("copilot", budget, retries=1)
         bad = json.dumps({"findings": [{"category": "crypto"}]})
         with mock.patch("subprocess.run", side_effect=[
             self._completed(bad), self._completed('{"findings": []}'),
@@ -406,14 +517,14 @@ class AskTest(unittest.TestCase):
                     'Here is what I found:\n' + json.dumps(answer))
         budget = audit.Budget(max_calls=5)
         health = audit.Health()
-        ask = audit.make_ask("copilot", budget, retries=0, health=health)
+        ask = ask_factory("copilot", budget, retries=0, health=health)
         with mock.patch("subprocess.run", return_value=self._completed(narrated)):
             self.assertEqual(ask("p", schema=audit.audit_io.FINDER_SCHEMA), answer)
         self.assertEqual(health.answered, 1)
 
     def test_a_wire_failure_does_not_critique_an_answer_that_never_came(self):
         budget = audit.Budget(max_calls=5)
-        ask = audit.make_ask("copilot", budget, retries=1)
+        ask = ask_factory("copilot", budget, retries=1)
         with mock.patch("subprocess.run", side_effect=[
             mock.Mock(returncode=1, stdout="", stderr="429"),
             self._completed('{"findings": []}'),
@@ -429,13 +540,18 @@ class DecodingTest(unittest.TestCase):
     def _adapter(self, script):
         return audit_adapter.Adapter(
             "raw", sys.executable,
-            lambda prompt, model=None: [sys.executable, "-c", script],
+            # `program` is accepted and ignored: this adapter's argv[0] is the
+            # running interpreter, which is already absolute. Accepting the
+            # keyword is not decoration — `make_ask` passes it to every
+            # `build_argv`, so a two-parameter fake is a TypeError rather than
+            # a test of decoding.
+            lambda prompt, model=None, program=None: [sys.executable, "-c", script],
             lambda text: text, lambda _text: None)
 
     def _ask(self, script, **kw):
         with mock.patch.dict(audit_adapter.ADAPTERS,
                              {"raw": self._adapter(script)}):
-            ask = audit.make_ask("raw", audit.Budget(max_calls=3), retries=0, **kw)
+            ask = ask_factory("raw", audit.Budget(max_calls=3), retries=0, **kw)
             return ask("p", schema=audit.audit_io.FINDER_SCHEMA)
 
     def test_undecodable_bytes_do_not_unwind_the_whole_run(self):
@@ -470,7 +586,7 @@ class HealthTest(unittest.TestCase):
 
     def _ask(self, completed, **kw):
         health = audit.Health()
-        ask = audit.make_ask("copilot", audit.Budget(max_calls=9), health=health, **kw)
+        ask = ask_factory("copilot", audit.Budget(max_calls=9), health=health, **kw)
         with mock.patch("subprocess.run", return_value=completed):
             ask("p", schema=audit.audit_io.FINDER_SCHEMA)
         return health
@@ -485,7 +601,7 @@ class HealthTest(unittest.TestCase):
                                           "expired and could not be refreshed"}])
         budget = audit.Budget(max_calls=5)
         health = audit.Health()
-        ask = audit.make_ask("claude", budget, retries=0, health=health)
+        ask = ask_factory("claude", budget, retries=0, health=health)
         with mock.patch("subprocess.run", return_value=mock.Mock(
                 returncode=1, stdout=envelope, stderr="")):
             self.assertIsNone(ask("hi"))
@@ -494,7 +610,7 @@ class HealthTest(unittest.TestCase):
     def test_stderr_still_wins_when_there_is_some(self):
         budget = audit.Budget(max_calls=5)
         health = audit.Health()
-        ask = audit.make_ask("copilot", budget, retries=0, health=health)
+        ask = ask_factory("copilot", budget, retries=0, health=health)
         with mock.patch("subprocess.run", return_value=mock.Mock(
                 returncode=1, stdout="noise", stderr="429 rate limited")):
             ask("hi")
@@ -503,14 +619,15 @@ class HealthTest(unittest.TestCase):
     def test_a_silent_failure_still_names_the_exit_code(self):
         budget = audit.Budget(max_calls=5)
         health = audit.Health()
-        ask = audit.make_ask("copilot", budget, retries=0, health=health)
+        ask = ask_factory("copilot", budget, retries=0, health=health)
         with mock.patch("subprocess.run", return_value=mock.Mock(
                 returncode=7, stdout="", stderr="")):
             ask("hi")
         self.assertEqual(health.last_error, "exit 7")
 
     def test_a_parser_that_raises_does_not_crash_the_run(self):
-        boom = audit_adapter.Adapter("boom", "boom", lambda p, model=None: ["boom"],
+        boom = audit_adapter.Adapter("boom", "boom",
+                                     lambda p, model=None, program=None: [program],
                                      mock.Mock(side_effect=ValueError("bad")),
                                      lambda _t: None)
         completed = mock.Mock(returncode=1, stdout="raw output", stderr="")
@@ -540,7 +657,7 @@ class HealthTest(unittest.TestCase):
     def test_a_retry_that_succeeds_is_one_answered_task_and_one_failure(self):
         """A flake must not poison the trust decision: the task was answered."""
         health = audit.Health()
-        ask = audit.make_ask("copilot", audit.Budget(max_calls=9), health=health)
+        ask = ask_factory("copilot", audit.Budget(max_calls=9), health=health)
         with mock.patch("subprocess.run", side_effect=[
             mock.Mock(returncode=1, stdout="", stderr="flake"),
             mock.Mock(returncode=0, stdout='{"findings": []}', stderr=""),
@@ -553,7 +670,7 @@ class HealthTest(unittest.TestCase):
 
 class MainTest(unittest.TestCase):
     def test_no_agent_cli_degrades_with_guidance(self):
-        with mock.patch("audit_adapter.detect", return_value=None):
+        with resolved_agent(None):
             code, _, err = run_main(["scan", "--yes"])
         self.assertEqual(code, audit.EXIT_NOTHING_TO_DO)
         # The mode that actually ran. `scan` used to be told that *audit*
@@ -563,7 +680,7 @@ class MainTest(unittest.TestCase):
         self.assertIn("in-loop", err)
 
     def test_dry_run_reports_the_plan_and_calls_nothing(self):
-        with mock.patch("audit_adapter.detect", return_value="copilot"), \
+        with resolved_agent("copilot"), \
              mock.patch("subprocess.run") as run:
             code, out, err = run_main(["--dry-run"])
         self.assertEqual(code, 0)
@@ -571,14 +688,96 @@ class MainTest(unittest.TestCase):
         self.assertEqual(out, "")  # stdout stays a pure data channel
         run.assert_not_called()
 
+    def test_no_agent_cli_says_why_each_one_was_unusable(self):
+        """"None was found" stopped being the only way to reach this branch.
+
+        A `claude` that resolves inside the repository being audited is refused,
+        and an operator who can see it on PATH has to be told that rather than
+        told it is missing.
+        """
+        refused = "claude resolved to '/proj/claude', inside the project being scanned"
+        with resolved_agent(None, reason=refused):
+            code, _, err = run_main(["--yes"])
+        self.assertEqual(code, audit.EXIT_NOTHING_TO_DO)
+        self.assertIn(refused, err)
+
+    def test_a_named_agent_that_cannot_be_resolved_is_refused_before_anything_is_spent(self):
+        """`--agent claude` skips detection entirely, so it needs its own check.
+
+        Without one the run reaches `make_ask` with no program and dies on
+        `UnsafeInvocation` per worker — 73 failed calls and a traceback instead
+        of the exit code SKILL.md maps to "fall back to the in-loop scan".
+        """
+        refused = "claude resolved to '/proj/claude', inside the project being scanned"
+        resolution = audit_adapter.exec_path.Resolution(None, refused)
+        with mock.patch("audit_adapter.program_for", return_value=resolution), \
+             mock.patch("subprocess.run") as run:
+            code, _, err = run_main(["--agent", "claude", "--yes"])
+        self.assertEqual(code, audit.EXIT_NOTHING_TO_DO)
+        self.assertIn(refused, err)
+        run.assert_not_called()
+
     def test_unknown_agent_exits_two(self):
         code, _, err = run_main(["--agent", "nope", "--yes"])
         self.assertEqual(code, 2)
         self.assertIn("unknown agent", err)
 
+    def test_the_named_agent_is_resolved_against_the_project_being_scanned(self):
+        """`--agent claude` is the one path that skips detection, so `main()` is
+        the only place left that can refuse a `claude` the audited repository
+        shipped — and it can only do that if it passes the project down.
+
+        Dropping that single argument is a silent, total revert of SEC-003 on
+        this path and it left the entire suite green: the cases above all stub
+        `program_for` wholesale, so none of them can see which project it was
+        asked about. Here only `shutil.which` is stubbed, so `program_for`,
+        `exec_path.resolve` and `containment.within` all run for real and what
+        is pinned is the production chain rather than a model of it.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            project = os.path.realpath(tmp)
+            with mock.patch("shutil.which",
+                            return_value=os.path.join(project, "claude")), \
+                 mock.patch("subprocess.run") as run:
+                code, _, err = run_main(["scan", "--agent", "claude",
+                                         "--project", project, "--yes"])
+        self.assertEqual(code, audit.EXIT_NOTHING_TO_DO)
+        self.assertIn("inside the project being scanned", err)
+        self.assertIn(project, err)
+        run.assert_not_called()
+
+    def test_detection_is_asked_about_the_project_too(self):
+        """Containment has an availability half, and it is the half a stub hides.
+
+        With a hostile `claude` in the repository and a real `copilot` installed,
+        the run must skip claude and *proceed* on copilot. Asking `detect()`
+        without the project selects claude, `program_for` then refuses it, and
+        the scan exits having run nothing — on a machine that could have run
+        one. So the wrong answer here is a denial of service rather than an
+        execution, which is exactly why no security assertion catches it.
+
+        The first main()-level case to reach the real `detect`: every other one
+        patches it, and `--agent` skips it by construction.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            project = os.path.realpath(tmp)
+
+            def which(binary):
+                if binary == "claude":
+                    return os.path.join(project, "claude")
+                return "/opt/agents/" + binary
+
+            with mock.patch("shutil.which", side_effect=which), \
+                 mock.patch("subprocess.run") as run:
+                code, _, err = run_main(["scan", "--project", project, "--dry-run"])
+        self.assertEqual(code, 0)
+        self.assertIn("copilot", err)
+        self.assertNotIn("claude", err)
+        run.assert_not_called()
+
     def test_findings_are_emitted_as_json(self):
         survivor = {"file": "a.js", "disposition": "confirmed"}
-        with mock.patch("audit_adapter.detect", return_value="copilot"), \
+        with resolved_agent("copilot"), \
              mock.patch("audit_engine.audit",
                         return_value=audit_engine.Result([survivor], 0, False)):
             code, out, _ = run_main(["--yes", "--format", "json"])
@@ -589,7 +788,7 @@ class MainTest(unittest.TestCase):
         """cwd=<missing> raises an OSError that `ask` counts as one more failed
         call, so a typo used to buy a full round of failures and an empty
         result that read as clean."""
-        with mock.patch("audit_adapter.detect", return_value="copilot"), \
+        with resolved_agent("copilot"), \
              mock.patch("subprocess.run") as run:
             code, out, err = run_main(["--yes", "--project", "/no/such/dir"])
         self.assertEqual(code, audit.EXIT_FAILED)
@@ -601,7 +800,7 @@ class MainTest(unittest.TestCase):
         """The context call is call #1. If it fails every finder will too, and
         a run of empty finders is indistinguishable from a clean codebase."""
         dead = mock.Mock(returncode=1, stdout="", stderr="401 unauthorized")
-        with mock.patch("audit_adapter.detect", return_value="copilot"), \
+        with resolved_agent("copilot"), \
              mock.patch("subprocess.run", return_value=dead) as run:
             code, out, err = run_main(["--yes"])
         self.assertEqual(code, audit.EXIT_FAILED)
@@ -621,7 +820,7 @@ class MainTest(unittest.TestCase):
                 return mock.Mock(returncode=1, stdout="", stderr="rate limited")
             return mock.Mock(returncode=0, stdout="context prose", stderr="")
 
-        with mock.patch("audit_adapter.detect", return_value="copilot"), \
+        with resolved_agent("copilot"), \
              mock.patch("subprocess.run", side_effect=reply):
             code, out, err = run_main(["--yes", "--concurrency", "1"])
         self.assertEqual(code, audit.EXIT_FAILED)
@@ -650,7 +849,7 @@ class MainTest(unittest.TestCase):
                                    "recommendation": "r"} for j in range(2)]}))
             return mock.Mock(returncode=0, stdout="context prose", stderr="")
 
-        with mock.patch("audit_adapter.detect", return_value="copilot"), \
+        with resolved_agent("copilot"), \
              mock.patch("subprocess.run", side_effect=reply):
             code, out, err = run_main(["--yes", "--concurrency", "1",
                                        "--max-calls", "35", "--max-findings", "12"])
@@ -660,14 +859,14 @@ class MainTest(unittest.TestCase):
         self.assertIn("clean bill of health", err)  # truncation is stated, not implied
 
     def test_max_findings_is_derived_from_the_call_ceiling(self):
-        with mock.patch("audit_adapter.detect", return_value="copilot"):
+        with resolved_agent("copilot"):
             _, _, err = run_main(["--dry-run", "--max-calls", "200"])
         self.assertIn("up to 23 findings", err)
         self.assertNotIn("WARNING", err)
 
     def test_an_unaffordable_max_findings_is_called_out(self):
         """The old defaults in numbers: 40 findings against an 80 ceiling."""
-        with mock.patch("audit_adapter.detect", return_value="copilot"):
+        with resolved_agent("copilot"):
             _, _, err = run_main(["--dry-run", "--max-calls", "80",
                                   "--max-findings", "40"])
         self.assertIn("WARNING", err)
@@ -682,9 +881,9 @@ class ConfirmationTest(unittest.TestCase):
     to replace — on a machine where the CLI was installed."""
 
     def test_a_declined_run_and_a_missing_cli_are_told_apart(self):
-        with mock.patch("audit_adapter.detect", return_value=None):
+        with resolved_agent(None):
             missing, _, _ = run_main(["--yes"])
-        with mock.patch("audit_adapter.detect", return_value="copilot"), \
+        with resolved_agent("copilot"), \
              mock.patch("sys.stdin", _FakeStdin(tty=False)):
             declined, _, _ = run_main([])
         self.assertEqual(missing, audit.EXIT_NOTHING_TO_DO)
@@ -692,7 +891,7 @@ class ConfirmationTest(unittest.TestCase):
         self.assertNotEqual(missing, declined)
 
     def test_no_tty_refuses_instead_of_blocking_on_input(self):
-        with mock.patch("audit_adapter.detect", return_value="copilot"), \
+        with resolved_agent("copilot"), \
              mock.patch("sys.stdin", _FakeStdin(tty=False)), \
              mock.patch("subprocess.run") as run:
             code, out, err = run_main([])
@@ -706,7 +905,7 @@ class ConfirmationTest(unittest.TestCase):
         """stdout is the channel the skill parses as a JSON array, and
         `input(prompt)` writes to it: a human answering `y` while redirecting
         stdout to a file got `Proceed? [y/N] [...]` — invalid JSON — in it."""
-        with mock.patch("audit_adapter.detect", return_value="copilot"), \
+        with resolved_agent("copilot"), \
              mock.patch("sys.stdin", _FakeStdin("n\n")), \
              mock.patch("subprocess.run") as run:
             code, out, err = run_main([])
@@ -717,7 +916,7 @@ class ConfirmationTest(unittest.TestCase):
 
     def test_a_yes_at_a_terminal_still_runs(self):
         """The gate must still be a gate, not a blanket refusal."""
-        with mock.patch("audit_adapter.detect", return_value="copilot"), \
+        with resolved_agent("copilot"), \
              mock.patch("sys.stdin", _FakeStdin("y\n")), \
              mock.patch("audit_engine.audit",
                         return_value=audit_engine.Result([], 0, False)):
@@ -735,7 +934,7 @@ class CeilingRefusalTest(unittest.TestCase):
         `discover` returned `found[:0]` on the first productive round, stdout
         was `[]` and the exit code 0 — which SKILL.md defines verbatim as
         clean, for a codebase whose vulnerabilities the run had just found."""
-        with mock.patch("audit_adapter.detect", return_value="copilot"), \
+        with resolved_agent("copilot"), \
              mock.patch("subprocess.run") as run:
             code, out, err = run_main(["--yes", "--max-calls", "60"])
         self.assertEqual(code, audit.EXIT_FAILED)
@@ -745,7 +944,7 @@ class CeilingRefusalTest(unittest.TestCase):
         run.assert_not_called()
 
     def test_the_minimum_is_mode_aware(self):
-        with mock.patch("audit_adapter.detect", return_value="copilot"), \
+        with resolved_agent("copilot"), \
              mock.patch("subprocess.run") as run:
             code, _, err = run_main(["scan", "--yes", "--max-calls", "19"])
         self.assertEqual(code, audit.EXIT_FAILED)
@@ -753,7 +952,7 @@ class CeilingRefusalTest(unittest.TestCase):
         run.assert_not_called()
 
     def test_an_explicit_zero_max_findings_is_refused_too(self):
-        with mock.patch("audit_adapter.detect", return_value="copilot"), \
+        with resolved_agent("copilot"), \
              mock.patch("subprocess.run") as run:
             code, _, err = run_main(["--yes", "--max-findings", "0"])
         self.assertEqual(code, audit.EXIT_FAILED)
@@ -764,7 +963,7 @@ class CeilingRefusalTest(unittest.TestCase):
         """`Budget.spend` raises on call #1 when the ceiling is 0, and the
         context call is the one `ask` the engine does not wrap in
         `except Halted` — so it escaped `main()` as a raw traceback."""
-        with mock.patch("audit_adapter.detect", return_value="copilot"), \
+        with resolved_agent("copilot"), \
              mock.patch("subprocess.run") as run:
             code, out, err = run_main(["--yes", "--max-calls", "0"])
         self.assertEqual(code, audit.EXIT_FAILED)
@@ -774,7 +973,7 @@ class CeilingRefusalTest(unittest.TestCase):
 
     def test_the_shipped_default_is_not_refused(self):
         """The guard must not fire on the configuration everybody runs."""
-        with mock.patch("audit_adapter.detect", return_value="copilot"):
+        with resolved_agent("copilot"):
             code, _, err = run_main(["--dry-run"])
         self.assertEqual(code, audit.EXIT_OK)
         self.assertNotIn("refusing to start", err)
@@ -806,7 +1005,7 @@ class ScanModeTest(unittest.TestCase):
         """Audit would run this fixture for four more rounds: the finding is
         fresh in round 1, so `dry` resets and K_EMPTY buys two more rounds."""
         prompts = []
-        with mock.patch("audit_adapter.detect", return_value="copilot"), \
+        with resolved_agent("copilot"), \
              mock.patch("subprocess.run", side_effect=self._reply(prompts)):
             code, out, err = run_main(["scan", "--yes", "--concurrency", "1"])
         self.assertEqual(code, audit.EXIT_OK)
@@ -816,21 +1015,21 @@ class ScanModeTest(unittest.TestCase):
     def test_audit_on_the_same_fixture_runs_more(self):
         """The control. Same replies, no preset — discovery keeps going."""
         prompts = []
-        with mock.patch("audit_adapter.detect", return_value="copilot"), \
+        with resolved_agent("copilot"), \
              mock.patch("subprocess.run", side_effect=self._reply(prompts)):
             run_main(["audit", "--yes", "--concurrency", "1"])
         self.assertGreater(sum(1 for p in prompts if "Category:" in p), 6)
 
     def test_scan_verifies_with_all_three_lenses(self):
         prompts = []
-        with mock.patch("audit_adapter.detect", return_value="copilot"), \
+        with resolved_agent("copilot"), \
              mock.patch("subprocess.run", side_effect=self._reply(prompts)):
             _, out, _ = run_main(["scan", "--yes", "--concurrency", "1"])
         self.assertEqual(json.loads(out)[0]["verification"]["lenses"],
                          audit_engine.SKEPTICS)
 
     def test_scan_dry_run_prints_the_one_round_plan(self):
-        with mock.patch("audit_adapter.detect", return_value="copilot"), \
+        with resolved_agent("copilot"), \
              mock.patch("subprocess.run") as run:
             code, out, err = run_main(["scan", "--dry-run", "--max-calls", "200"])
         self.assertEqual(code, audit.EXIT_OK)
@@ -840,13 +1039,13 @@ class ScanModeTest(unittest.TestCase):
         run.assert_not_called()
 
     def test_audit_dry_run_still_prints_five_rounds(self):
-        with mock.patch("audit_adapter.detect", return_value="copilot"):
+        with resolved_agent("copilot"):
             _, _, err = run_main(["audit", "--dry-run", "--max-calls", "200"])
         self.assertIn("5x6 finders", err)
         self.assertIn("up to 23 findings", err)
 
     def test_the_mode_is_named_in_the_plan(self):
-        with mock.patch("audit_adapter.detect", return_value="copilot"):
+        with resolved_agent("copilot"):
             _, _, err = run_main(["scan", "--dry-run"])
         self.assertIn("mode:         scan", err)
 
@@ -869,7 +1068,7 @@ class ScanModeTest(unittest.TestCase):
                     {"lens": "exploitability", "verdict": "upheld", "reason": "real"}))
             return mock.Mock(returncode=0, stdout="context prose", stderr="")
 
-        with mock.patch("audit_adapter.detect", return_value="copilot"), \
+        with resolved_agent("copilot"), \
              mock.patch("subprocess.run", side_effect=reply):
             code, out, err = run_main(["scan", "--yes", "--concurrency", "1"])
         self.assertEqual(code, audit.EXIT_INCOMPLETE)
@@ -885,7 +1084,7 @@ class ScanModeTest(unittest.TestCase):
             argvs.append(argv)
             return mock.Mock(returncode=0, stdout="context prose", stderr="")
 
-        with mock.patch("audit_adapter.detect", return_value="copilot"), \
+        with resolved_agent("copilot"), \
              mock.patch("subprocess.run", side_effect=reply):
             run_main(["scan", "--yes", "--concurrency", "1"])
         self.assertTrue(argvs)
@@ -922,7 +1121,7 @@ class DegradedRunTest(unittest.TestCase):
                      "reason": "real"}), stderr="")
             return mock.Mock(returncode=0, stdout="context prose", stderr="")
 
-        with mock.patch("audit_adapter.detect", return_value="copilot"), \
+        with resolved_agent("copilot"), \
              mock.patch("subprocess.run", side_effect=reply):
             code, out, err = run_main(["--yes", "--concurrency", "1"])
 
@@ -948,7 +1147,7 @@ class DegradedRunTest(unittest.TestCase):
                      "reason": "real"}), stderr="")
             return mock.Mock(returncode=0, stdout="context prose", stderr="")
 
-        with mock.patch("audit_adapter.detect", return_value="copilot"), \
+        with resolved_agent("copilot"), \
              mock.patch("subprocess.run", side_effect=reply):
             code, out, err = run_main(["--yes", "--concurrency", "1"])
 
@@ -990,7 +1189,7 @@ class TruncatedDiscoveryTest(unittest.TestCase):
         return reply
 
     def test_a_cap_that_discarded_findings_is_never_reported_as_complete(self):
-        with mock.patch("audit_adapter.detect", return_value="copilot"), \
+        with resolved_agent("copilot"), \
              mock.patch("subprocess.run", side_effect=self._reply()):
             code, out, err = run_main(["--yes", "--concurrency", "1",
                                        "--max-calls", "200", "--max-findings", "2"])
@@ -1003,7 +1202,7 @@ class TruncatedDiscoveryTest(unittest.TestCase):
     def test_a_cap_that_discarded_nothing_is_still_not_a_complete_sweep(self):
         """Zero discarded is not exhaustive: rounds 2..5 never ran, so
         loop-until-dry — the entire point of `audit` — never happened."""
-        with mock.patch("audit_adapter.detect", return_value="copilot"), \
+        with resolved_agent("copilot"), \
              mock.patch("subprocess.run", side_effect=self._reply()):
             code, out, err = run_main(["--yes", "--concurrency", "1",
                                        "--max-calls", "200", "--max-findings", "6"])
@@ -1019,7 +1218,7 @@ class TruncatedDiscoveryTest(unittest.TestCase):
                 return mock.Mock(returncode=0, stderr="", stdout='{"findings": []}')
             return mock.Mock(returncode=0, stdout="context prose", stderr="")
 
-        with mock.patch("audit_adapter.detect", return_value="copilot"), \
+        with resolved_agent("copilot"), \
              mock.patch("subprocess.run", side_effect=reply):
             code, out, err = run_main(["--yes", "--concurrency", "1"])
         self.assertEqual(code, audit.EXIT_OK)
@@ -1046,7 +1245,7 @@ class BannerHonestyTest(unittest.TestCase):
                      if "Category: injection." in prompt else []}))
             return mock.Mock(returncode=0, stdout="context prose", stderr="")
 
-        with mock.patch("audit_adapter.detect", return_value="copilot"), \
+        with resolved_agent("copilot"), \
              mock.patch("subprocess.run", side_effect=reply):
             return run_main(["--yes", "--concurrency", "1"])
 
@@ -1111,7 +1310,7 @@ class DefaultConcurrencyTest(unittest.TestCase):
         return reply
 
     def test_the_shipped_defaults_run_end_to_end_and_keep_verdicts_paired(self):
-        with mock.patch("audit_adapter.detect", return_value="copilot"), \
+        with resolved_agent("copilot"), \
              mock.patch("subprocess.run", side_effect=self._reply()):
             code, out, err = run_main(["scan", "--yes"])
         self.assertEqual(code, audit.EXIT_OK, err)
